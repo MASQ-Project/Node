@@ -64,13 +64,19 @@ impl From<NodeAddr> for SocketAddr {
     }
 }
 
-impl From<NodeAddr> for Vec<SocketAddr> {
-    fn from(node_addr: NodeAddr) -> Self {
+impl From<&NodeAddr> for Vec<SocketAddr> {
+    fn from(node_addr: &NodeAddr) -> Self {
         node_addr
             .ports()
             .iter()
             .map(|port| SocketAddr::new(node_addr.ip_addr(), *port))
             .collect()
+    }
+}
+
+impl From<NodeAddr> for Vec<SocketAddr> {
+    fn from(node_addr: NodeAddr) -> Self {
+        Self::from(&node_addr)
     }
 }
 

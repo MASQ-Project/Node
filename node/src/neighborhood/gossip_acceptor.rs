@@ -108,8 +108,6 @@ impl GossipHandler for IpChangeHandler {
         else {
             return Qualification::Unmatched;
         };
-debug! (self.logger, "IpChangeHandler qualifies() found a database Node with node_addr_opt = {:?} and accepts_connections = {}",
-  existing_node.node_addr_opt(), existing_node.accepts_connections());
         if let Some (incoming_node_addr) = &agr.node_addr_opt {
             if incoming_node_addr.ports().is_empty() {
                 return Qualification::Malformed(format!("Debut from {} for {} contained NodeAddr with no ports",
@@ -123,6 +121,11 @@ debug! (self.logger, "IpChangeHandler qualifies() found a database Node with nod
                 if incoming_node_addr.ip_addr() == existing_node_addr.ip_addr() {
                     return Qualification::Unmatched
                 }
+            }
+        }
+        else {
+            if agr.inner.accepts_connections {
+                return Qualification::Malformed(format!("IpChange Gossip: Node {} accepts connections but provides no NodeAddr", &agr.inner.public_key))
             }
         }
         Qualification::Matched
@@ -141,33 +144,31 @@ debug! (self.logger, "IpChangeHandler qualifies() found a database Node with nod
         let mut db_node = database.node_by_key_mut(&source_agr.inner.public_key)
             .expect("Node disappeared");
         if db_node.accepts_connections() {
-            let mut old_addrs: Vec<SocketAddr> = vec![];
-            // TODO: Can't keep this; allows outside communication to crash the Node
-            let node_addr = db_node.node_addr_opt().expect ("A Node that accepts connections has no NodeAddr!");
-            for port in node_addr.ports() {
-                old_addrs.push (SocketAddr::new (node_addr.ip_addr(), port))
+            if let Some (node_addr) = db_node.metadata.node_addr_opt.as_ref() {
+                let old_addrs: Vec<SocketAddr> = node_addr.into();
+                let new_node_addr = NodeAddr::new(&gossip_source.ip(), &node_addr.ports());
+                debug!(self.logger, "IpChange Gossip from {}; setting NodeAddr to: {:?}", gossip_source, new_node_addr);
+                db_node.metadata.node_addr_opt = Some (new_node_addr);
+                let local_addr = SocketAddr::from (database.root().node_addr_opt().as_ref()
+                    .expect("Roots must have NodeAddr").clone());
+                old_addrs.into_iter().for_each (|old_addr| {
+                    let msg = RemoveStreamMsg {
+                        local_addr,
+                        peer_addr: old_addr,
+                        stream_type: RemovedStreamType::Clandestine,
+                        sub: self.stream_shutdown_sub.clone(),
+                    };
+                    self.remove_stream_sub
+                        .try_send(msg)
+                        .expect ("StreamHandlerPool is dead");
+                });
             }
-            let new_node_addr = NodeAddr::new(&gossip_source.ip(), &node_addr.ports());
-            debug!(self.logger, "IpChange Gossip from {}; setting NodeAddr to: {:?}", gossip_source, new_node_addr);
-            db_node.metadata.node_addr_opt = Some (new_node_addr);
-            let local_addr = SocketAddr::from (database.root().node_addr_opt().as_ref()
-                .expect("Roots must have NodeAddr").clone());
-            old_addrs.into_iter().for_each (|old_addr| {
-                let msg = RemoveStreamMsg {
-                    local_addr,
-                    peer_addr: old_addr,
-                    stream_type: RemovedStreamType::Clandestine,
-                    sub: self.stream_shutdown_sub.clone(),
-                };
-                self.remove_stream_sub
-                    .try_send(msg)
-                    .expect ("StreamHandlerPool is dead");
-            });
+            else {
+                panic!("Node {:?} in the database sent Gossip, accepts connections, but has no NodeAddr!", db_node.public_key());
+            };
+            return GossipAcceptanceResult::Absorbed
         }
-        else {
-            debug!(self.logger, "IpChange Gossip from {}; Originate-Only, no NodeAddr", gossip_source);
-        }
-        GossipAcceptanceResult::Absorbed
+        GossipAcceptanceResult::Ignored // Shouldn't ever happen if qualifies() works right
     }
 }
 
@@ -1195,7 +1196,7 @@ impl StandardGossipHandler {
             .filter(|agr| match &agr.node_addr_opt {
                 None => true,
                 Some(node_addr) => {
-                    let socket_addrs: Vec<SocketAddr> = node_addr.clone().into();
+                    let socket_addrs: Vec<SocketAddr> = node_addr.into();
                     socket_addrs.contains(&gossip_source)
                 }
             })
@@ -1484,6 +1485,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use libc::abs;
     use crate::stream_messages::RemovedStreamType;
 
     #[test]
@@ -1506,8 +1508,8 @@ mod tests {
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::from (new_addr.clone());
         let (gossip, new_node, mut db) =
-            make_ipchange (2345, Some(old_addr.clone()), Some(new_addr.clone()),
-                           Mode::Standard);
+            make_ipchange_gossip(2345, Some(old_addr.clone()), Some(new_addr.clone()),
+                                 Mode::Standard);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let (cpm_recipient, _) = make_cpm_recipient();
@@ -1564,13 +1566,46 @@ mod tests {
     }
 
     #[test]
+    fn ipchange_accepting_connections_but_without_node_addr_is_rejected() {
+        let old_addr = NodeAddr::new (&IpAddr::from_str("1.2.3.4").unwrap(), &vec![2000, 2001]);
+        let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
+        let gossip_source = SocketAddr::from (new_addr.clone());
+        let (new_ipchange_node, src_db, mut dest_db) =
+            make_ipchange_databases(2345, Some(old_addr.clone()), Some(new_addr.clone()),
+                                    Mode::Standard);
+        let gossip = GossipBuilder::new(&src_db)
+            .node(new_ipchange_node.public_key(), false)
+            .build();
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
+        let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let (cpm_recipient, _, _) = make_recorder();
+        let (stream_handler_pool, _, _) = make_recorder();
+        let (dispatcher, _, _) = make_recorder();
+        let stream_handler_pool_sub = stream_handler_pool.start().recipient();
+        let dispatcher_sub = dispatcher.start().recipient();
+        let subject = IpChangeHandler::new(stream_handler_pool_sub,
+            dispatcher_sub, Logger::new ("test"));
+
+        let result = subject.qualifies(
+            &mut dest_db,
+            agrs_vec.as_slice(),
+            gossip_source,
+        );
+
+        assert_eq!(
+            result,
+            Qualification::Malformed("IpChange Gossip: Node AgMEBQ accepts connections but provides no NodeAddr".to_string()),
+        );
+    }
+
+    #[test]
     fn properly_constructed_originate_only_ipchange_is_identified_and_handled() {
         let old_addr = NodeAddr::new (&IpAddr::from_str("1.2.3.4").unwrap(), &vec![2000, 2001]);
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::from (new_addr.clone());
         let (gossip, new_node, mut db) =
-            make_ipchange (2345, Some (old_addr.clone()), Some (new_addr),
-                           Mode::OriginateOnly);
+            make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr),
+                                 Mode::OriginateOnly);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let (cpm_recipient, _) = make_cpm_recipient();
@@ -1631,8 +1666,8 @@ mod tests {
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![]);
         let gossip_source = SocketAddr::new (new_addr.ip_addr(), 3000);
         let (gossip, _, db) =
-            make_ipchange (2345, Some (old_addr.clone()), Some (new_addr),
-                           Mode::Standard);
+            make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr),
+                                 Mode::Standard);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
@@ -1652,8 +1687,8 @@ mod tests {
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::new (IpAddr::from_str("1.2.3.4").unwrap(), 2001);
         let (gossip, _, db) =
-            make_ipchange (2345, Some (old_addr.clone()), Some (new_addr),
-                           Mode::Standard);
+            make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr),
+                                 Mode::Standard);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
@@ -1673,8 +1708,8 @@ mod tests {
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::new (IpAddr::from_str("2.3.4.5").unwrap(), 2001);
         let (gossip, _, mut db) =
-            make_ipchange (2345, Some (old_addr.clone()), Some (new_addr.clone()),
-                           Mode::Standard);
+            make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr.clone()),
+                                 Mode::Standard);
         let mut subject_node = node_by_ip_mut(&mut db, old_addr.ip_addr());
         subject_node.metadata.node_addr_opt = Some (new_addr);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -1696,8 +1731,8 @@ mod tests {
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::new (IpAddr::from_str("2.3.4.5").unwrap(), 2001);
         let (gossip, _, _) =
-            make_ipchange (2345, Some (old_addr.clone()), Some (new_addr),
-                           Mode::Standard);
+            make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr),
+                                 Mode::Standard);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let db = make_meaningless_db();
         let subject = IpChangeHandler::new(
@@ -2452,11 +2487,17 @@ mod tests {
             ),
             handle_result
         );
-        let expected_introducer = NodeRecord::from(&agrs[0]);
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        let actual_introducer = dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
+        let expected_last_update = expected_introducer.metadata.last_update;
+        expected_introducer.metadata.last_update = actual_introducer.metadata.last_update;
         assert_eq!(
-            Some(&expected_introducer),
-            dest_db.node_by_key(&agrs[0].inner.public_key)
+            &expected_introducer,
+            actual_introducer
         );
+        assert! (((expected_last_update as i32) - (actual_introducer.metadata.last_update as i32)).abs() < 10,
+                 "Expected last update ({}) and actual last update ({}) should have been less than 10 apart",
+                expected_last_update, actual_introducer.metadata.last_update);
         assert_eq!(
             true,
             dest_db
@@ -4525,15 +4566,15 @@ mod tests {
             .for_each(|n| db.node_by_key_mut(n.public_key()).unwrap().resign());
     }
 
-    fn make_ipchange(
+    fn make_ipchange_databases(
         n: u16,
         old_addr_opt: Option<NodeAddr>,
         new_addr_opt: Option<NodeAddr>,
         mode: Mode,
     ) -> (
-        Gossip_0v1,
         NodeRecord,
-        NeighborhoodDatabase
+        NeighborhoodDatabase,
+        NeighborhoodDatabase,
     ) {
         let mut new_ipchange_node = make_node_record(n, true);
         let mut old_ipchange_node = new_ipchange_node.clone();
@@ -4549,6 +4590,21 @@ mod tests {
 
         let mut src_db = dest_db.clone();
         src_db.node_by_key_mut(new_ipchange_node.public_key()).unwrap().metadata.node_addr_opt = new_addr_opt;
+        (new_ipchange_node, src_db, dest_db)
+    }
+
+    fn make_ipchange_gossip (
+        n: u16,
+        old_addr_opt: Option<NodeAddr>,
+        new_addr_opt: Option<NodeAddr>,
+        mode: Mode,
+    ) -> (
+        Gossip_0v1,
+        NodeRecord,
+        NeighborhoodDatabase
+    ) {
+        let (new_ipchange_node, src_db, dest_db) = make_ipchange_databases(n,
+                                                                   old_addr_opt, new_addr_opt, mode);
         let gossip = GossipBuilder::new(&src_db)
             .node(new_ipchange_node.public_key(), true)
             .build();
