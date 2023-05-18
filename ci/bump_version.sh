@@ -8,7 +8,7 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 GRAY='\033[0;37m'
 
-# Reset
+# Reset output color to the default
 NC='\033[0m'
 
 if [ $# != 1 ]
@@ -23,7 +23,10 @@ regex="^[0-9]+\.[0-9]+\.[0-9]+$"
 if [[ $version =~ $regex ]]; then
   echo -e "${CYAN}Changing to the version number $version${NC}"
 else
-  echo -e "${RED}Error: Invalid version number"
+  echo -e "${RED}Error: Invalid version number provided.${NC}"
+  echo "The version number should follow the semantic versioning format."
+  echo "Please ensure the version number consists of MAJOR.MINOR.PATCH"
+  echo "Example: 0.6.9 or 2.3.1"
   exit 1
 fi
 
