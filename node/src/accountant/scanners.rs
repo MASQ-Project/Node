@@ -247,8 +247,9 @@ impl PayableScannerMidProcedures for PayableScanner {
     fn mid_procedure_soft(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger
     ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables> {
-        if !self.payment_adjuster.is_adjustment_required(&msg) {
+        if !self.payment_adjuster.is_adjustment_required(&msg, logger) {
             Either::Left(OutcomingPayamentsInstructions {
                 accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,

@@ -9,13 +9,14 @@ use std::any::Any;
 use std::iter::{once, successors};
 use std::time::SystemTime;
 use web3::types::U256;
+use masq_lib::logger::Logger;
 
 lazy_static! {
     static ref MULTI_COEFF_BY_100: U256 = U256::from(1000);
 }
 
 pub trait PaymentAdjuster {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables) -> bool;
+    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool;
 
     fn adjust_payments(
         &self,
@@ -29,80 +30,34 @@ pub trait PaymentAdjuster {
 pub struct PaymentAdjusterReal {}
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables) -> bool {
-        let sum = Self::sum_payable_balances(&msg.qualified_payables);
+    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool {
+        let sum = Self::sum_as_u256(&msg.qualified_payables, |payable| payable.balance_wei);
         let consuming_wallet_balance = msg.consuming_wallet_balances.masq_tokens_wei;
-        if U256::from(sum) > consuming_wallet_balance {
-            true
+        if U256::from(sum) < consuming_wallet_balance {
+            false
         } else if U256::from(Self::find_smallest_debt(&msg.qualified_payables))
             > consuming_wallet_balance
         {
             todo!()
         } else {
-            false
+          //  warning!(logger, "Qualified payables for wallets {} make total of {} wei which cannot be satisfied with consuming wallet balance {} wei. Payments adjustment ordered.", );
+            true
         }
     }
 
+    //TODO add logs ...warnings
     fn adjust_payments(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         now: SystemTime,
     ) -> OutcomingPayamentsInstructions {
-        //define individual criteria here; write closures to be used in sequence by multiple maps()
-        type CriteriaClosure<'a> =
-            Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
-        let time_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
-            let criteria = now
-                .duration_since(account.last_paid_timestamp)
-                .expect("time traveller")
-                .as_secs() as u128;
-            (criteria_sum + criteria, account)
-        });
-        let balance_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
-            let digits_weight = log_10(account.balance_wei);
-            let additional_criteria = account.balance_wei * digits_weight as u128;
-            (criteria_sum + additional_criteria, account)
-        });
-
-        let qualified_payables = msg.qualified_payables;
-        let accounts_count = qualified_payables.len();
-        let endless_iter_with_accounts = qualified_payables.into_iter().cycle();
-        let criteria_iter = {
-            let one_element = once(0_u128);
-            let endlessly_repeated = one_element.into_iter().cycle();
-            endlessly_repeated.take(accounts_count)
-        };
-
-        // add your criteria to chained map() functions here
-        let mid_computed_results = criteria_iter
-            .zip(endless_iter_with_accounts)
-            .map(time_criteria_closure)
-            .map(balance_criteria_closure)
-            .collect::<Vec<(u128, PayableAccount)>>();
-
-        let criteria_sum: u128 = mid_computed_results
-            .iter()
-            .map(|(criteria, _)| criteria)
-            .sum();
-        let multiplication_coeff = PaymentAdjusterReal::find_multiplication_coeff(
+        let accounts_with_zero_criteria = Self::initialize_zero_criteria(msg.qualified_payables);
+        let accounts_with_individual_criteria =
+            Self::apply_criteria(accounts_with_zero_criteria, now);
+        let balance_adjusted_accounts = Self::handle_adjustment(
             msg.consuming_wallet_balances.masq_tokens_wei,
-            U256::from(criteria_sum),
+            accounts_with_individual_criteria,
         );
-        let proportional_fragment_of_cw_balance =
-            msg.consuming_wallet_balances.masq_tokens_wei.as_u128() * multiplication_coeff
-                / criteria_sum;
-
-        let rebuild_account = |(criteria_sum, mut account): (u128, PayableAccount)| {
-            let proportional_amount_to_pay =
-                criteria_sum * proportional_fragment_of_cw_balance / multiplication_coeff;
-            account.balance_wei = proportional_amount_to_pay;
-            account
-        };
-
-        let balance_adjusted_accounts = mid_computed_results
-            .into_iter()
-            .map(rebuild_account)
-            .collect();
 
         OutcomingPayamentsInstructions {
             accounts: balance_adjusted_accounts,
@@ -116,6 +71,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {}
+    }
+
+    fn sum_as_u256<T, F>(collection: &[T], arranger: F) -> U256
+    where
+        F: Fn(&T) -> u128,
+    {
+        collection.iter().map(arranger).sum::<u128>().into()
     }
 
     fn sum_payable_balances(qualified_accounts: &[PayableAccount]) -> U256 {
@@ -138,8 +100,87 @@ impl PaymentAdjusterReal {
             .into()
     }
 
-    fn find_multiplication_coeff(consuming_wallet_balance: U256, final_criteria_sum: U256) -> u128 {
-        ((final_criteria_sum / consuming_wallet_balance) * *MULTI_COEFF_BY_100).as_u128()
+    fn find_multiplication_coeff(cw_masq_balance: U256, criteria_sum: U256) -> u128 {
+        ((criteria_sum / cw_masq_balance) * *MULTI_COEFF_BY_100).as_u128()
+    }
+
+    fn initialize_zero_criteria(
+        qualified_payables: Vec<PayableAccount>,
+    ) -> impl Iterator<Item = (u128, PayableAccount)> {
+        fn just_zero_criteria_iterator(accounts_count: usize) -> impl Iterator<Item = u128> {
+            let one_element = once(0_u128);
+            let endlessly_repeated = one_element.into_iter().cycle();
+            endlessly_repeated.take(accounts_count)
+        }
+
+        let accounts_count = qualified_payables.len();
+        let criteria_iterator = just_zero_criteria_iterator(accounts_count);
+        criteria_iterator.zip(qualified_payables.into_iter())
+    }
+
+    fn recreate_accounts_with_proportioned_balances(
+        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        proportional_fragment_of_cw_balance: u128,
+        multiplication_coeff: u128,
+    ) -> Vec<PayableAccount> {
+        let rebuild_account = |(criteria_sum, mut account): (u128, PayableAccount)| {
+            let proportional_amount_to_pay =
+                criteria_sum * proportional_fragment_of_cw_balance / multiplication_coeff;
+            account.balance_wei = proportional_amount_to_pay;
+            account
+        };
+
+        accounts_with_individual_criteria
+            .into_iter()
+            .map(rebuild_account)
+            .collect()
+    }
+
+    fn handle_adjustment(
+        cw_masq_balance: U256,
+        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+    ) -> Vec<PayableAccount> {
+        let criteria_sum =
+            Self::sum_as_u256(&accounts_with_individual_criteria, |(criteria, _)| {
+                *criteria
+            });
+        let multiplication_coeff =
+            PaymentAdjusterReal::find_multiplication_coeff(cw_masq_balance, criteria_sum);
+        let proportional_fragment_of_cw_balance =
+            cw_masq_balance.as_u128() * multiplication_coeff / criteria_sum.as_u128();
+
+        Self::recreate_accounts_with_proportioned_balances(
+            accounts_with_individual_criteria,
+            proportional_fragment_of_cw_balance,
+            multiplication_coeff,
+        )
+    }
+
+    fn apply_criteria(
+        accounts_with_zero_criteria: impl Iterator<Item = (u128, PayableAccount)>,
+        now: SystemTime,
+    ) -> Vec<(u128, PayableAccount)> {
+        type CriteriaClosure<'a> =
+            Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
+        //define individual criteria as closures to be used in a map()
+
+        let time_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
+            let criteria = now
+                .duration_since(account.last_paid_timestamp)
+                .expect("time traveller")
+                .as_secs() as u128;
+            (criteria_sum + criteria, account)
+        });
+        let balance_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
+            let digits_weight = log_10(account.balance_wei);
+            let additional_criteria = account.balance_wei * digits_weight as u128;
+            (criteria_sum + additional_criteria, account)
+        });
+
+        accounts_with_zero_criteria
+            .map(time_criteria_closure)
+            .map(balance_criteria_closure)
+            .collect()
     }
 }
 
@@ -165,6 +206,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use std::vec;
     use web3::types::U256;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)
@@ -205,15 +248,29 @@ mod tests {
     }
 
     #[test]
-    fn is_adjustment_required_works_for_non_error_cases() {
+    fn is_adjustment_required_works_for_negative_answer() {
+        init_test_logging();
+        let test_name = "is_adjustment_required_works_for_negative_answer";
         let subject = PaymentAdjusterReal::new();
+        let logger = Logger::new(test_name);
         let msg_1 = make_cw_balance_and_q_payables_msg(vec![85, 14], 100);
         let msg_2 = make_cw_balance_and_q_payables_msg(vec![85, 15], 100);
+
+        assert_eq!(subject.is_adjustment_required(&msg_1, &logger), false);
+        assert_eq!(subject.is_adjustment_required(&msg_2, &logger), false);
+        TestLogHandler::new().exists_no_log_containing(&format!("WARNING: {test_name}:"));
+    }
+
+    #[test]
+    fn is_adjustment_required_works_for_positive_answer() {
+        init_test_logging();
+        let test_name = "is_adjustment_required_works_for_positive_answer";
+        let logger = Logger::new(test_name);
+        let subject = PaymentAdjusterReal::new();
         let msg_3 = make_cw_balance_and_q_payables_msg(vec![85, 16], 100);
 
-        assert_eq!(subject.is_adjustment_required(&msg_1), false);
-        assert_eq!(subject.is_adjustment_required(&msg_2), false);
-        assert_eq!(subject.is_adjustment_required(&msg_3), true)
+        assert_eq!(subject.is_adjustment_required(&msg_3, &logger), true);
+        TestLogHandler::new().exists_log_containing(&format!("WARNING: {test_name}: Qualified payables for wallets grr make total of 101 wei which cannot be satisfied with consuming wallet balance 100 wei. Payments adjustment ordered."));
     }
 
     #[test]
@@ -404,7 +461,7 @@ mod tests {
 
     #[test]
     fn output_with_response_skeleton_opt_some() {
-        //TODO rather include into some other special test??
+        todo!("rather include into some other special test??")
     }
 
     #[allow(dead_code)]

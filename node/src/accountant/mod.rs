@@ -222,7 +222,7 @@ impl Handler<ConsumingWalletBalancesAndQualifiedPayables> for Accountant {
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let instructions = match self.scanners.payable.mid_procedure_soft(msg) {
+        let instructions = match self.scanners.payable.mid_procedure_soft(msg, &self.logger) {
             Either::Left(finalized_msg) => finalized_msg,
             Either::Right(unaccepted_msg) => {
                 //TODO we will eventually query info from Neighborhood here

@@ -5,6 +5,7 @@ use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use actix::Message;
 use itertools::Either;
+use masq_lib::logger::Logger;
 
 pub trait PayableScannerWithMidProcedures<BeginMessage, EndMessage>:
     Scanner<BeginMessage, EndMessage> + PayableScannerMidProcedures
@@ -18,6 +19,7 @@ pub trait PayableScannerMidProcedures {
     fn mid_procedure_soft(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger
     ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables>;
     fn mid_procedure_hard(
         &self,

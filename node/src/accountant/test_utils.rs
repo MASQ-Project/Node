@@ -1380,7 +1380,7 @@ pub struct PaymentAdjusterMock {
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables) -> bool {
+    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
