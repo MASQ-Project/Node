@@ -1,22 +1,27 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::PayableAccount;
-use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
+use crate::accountant::{comma_joined_stringifiable, ConsumingWalletBalancesAndQualifiedPayables};
 use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use masq_lib::logger::Logger;
 use std::any::Any;
 use std::iter::{once, successors};
 use std::time::SystemTime;
+use thousands::Separable;
 use web3::types::U256;
-use masq_lib::logger::Logger;
 
 lazy_static! {
     static ref MULTI_COEFF_BY_100: U256 = U256::from(1000);
 }
 
 pub trait PaymentAdjuster {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool;
+    fn is_adjustment_required(
+        &self,
+        msg: &ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger,
+    ) -> bool;
 
     fn adjust_payments(
         &self,
@@ -30,22 +35,25 @@ pub trait PaymentAdjuster {
 pub struct PaymentAdjusterReal {}
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool {
-        let sum = Self::sum_as_u256(&msg.qualified_payables, |payable| payable.balance_wei);
-        let consuming_wallet_balance = msg.consuming_wallet_balances.masq_tokens_wei;
-        if U256::from(sum) < consuming_wallet_balance {
+    fn is_adjustment_required(
+        &self,
+        msg: &ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger,
+    ) -> bool {
+        let qualified_payables = &msg.qualified_payables;
+        let sum = Self::sum_as_u256(qualified_payables, |payable| payable.balance_wei);
+        let cw_masq_balance = msg.consuming_wallet_balances.masq_tokens_wei;
+        if U256::from(sum) <= cw_masq_balance {
             false
-        } else if U256::from(Self::find_smallest_debt(&msg.qualified_payables))
-            > consuming_wallet_balance
-        {
+        } else if U256::from(Self::find_smallest_debt(qualified_payables)) > cw_masq_balance {
             todo!()
         } else {
-          //  warning!(logger, "Qualified payables for wallets {} make total of {} wei which cannot be satisfied with consuming wallet balance {} wei. Payments adjustment ordered.", );
+            Self::log_adjustment_required(logger, qualified_payables, sum, cw_masq_balance);
+
             true
         }
     }
 
-    //TODO add logs ...warnings
     fn adjust_payments(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
@@ -182,6 +190,22 @@ impl PaymentAdjusterReal {
             .map(balance_criteria_closure)
             .collect()
     }
+
+    fn log_adjustment_required(
+        logger: &Logger,
+        payables: &[PayableAccount],
+        payables_sum: U256,
+        cw_masq_balance: U256,
+    ) {
+        warning!(
+            logger,
+            "Qualified payables for wallets {} make total of {} wei which cannot be satisfied \
+                with consuming wallet balance {} wei. Payments adjustment ordered.",
+            comma_joined_stringifiable(payables, |p| p.wallet.to_string()),
+            payables_sum.separate_with_commas(),
+            cw_masq_balance.separate_with_commas()
+        )
+    }
 }
 
 // replace with `account_1.balance_wei.checked_ilog10().unwrap() + 1`
@@ -203,11 +227,11 @@ mod tests {
     };
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::vec;
     use web3::types::U256;
-    use masq_lib::logger::Logger;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)
@@ -258,7 +282,7 @@ mod tests {
 
         assert_eq!(subject.is_adjustment_required(&msg_1, &logger), false);
         assert_eq!(subject.is_adjustment_required(&msg_2, &logger), false);
-        TestLogHandler::new().exists_no_log_containing(&format!("WARNING: {test_name}:"));
+        TestLogHandler::new().exists_no_log_containing(&format!("WARN: {test_name}:"));
     }
 
     #[test]
@@ -270,7 +294,9 @@ mod tests {
         let msg_3 = make_cw_balance_and_q_payables_msg(vec![85, 16], 100);
 
         assert_eq!(subject.is_adjustment_required(&msg_3, &logger), true);
-        TestLogHandler::new().exists_log_containing(&format!("WARNING: {test_name}: Qualified payables for wallets grr make total of 101 wei which cannot be satisfied with consuming wallet balance 100 wei. Payments adjustment ordered."));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Qualified payables for wallets \
+        0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make total of 101,000,000,000 \
+        wei which cannot be satisfied with consuming wallet balance 100,000,000,000 wei. Payments adjustment ordered."));
     }
 
     #[test]

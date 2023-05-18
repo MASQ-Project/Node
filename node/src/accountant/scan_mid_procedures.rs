@@ -19,7 +19,7 @@ pub trait PayableScannerMidProcedures {
     fn mid_procedure_soft(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
-        logger: &Logger
+        logger: &Logger,
     ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables>;
     fn mid_procedure_hard(
         &self,

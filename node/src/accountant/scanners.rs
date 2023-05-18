@@ -4,11 +4,11 @@ use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable}
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
-    LocallyCausedError, RemotelyCausedErrors,
-};
 use crate::accountant::scan_mid_procedures::{
     PayableScannerMidProcedures, PayableScannerWithMidProcedures,
+};
+use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+    LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners_utils::payable_scanner_utils::{
     debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
@@ -24,9 +24,10 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::PendingPayableId;
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
-    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
-    ScanForPendingPayables, ScanForReceivables, SentPayables,
+    comma_joined_stringifiable, gwei_to_wei, Accountant,
+    ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments, ReportTransactionReceipts,
+    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+    ScanForReceivables, SentPayables,
 };
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -258,7 +259,7 @@ impl PayableScannerMidProcedures for PayableScanner {
     fn mid_procedure_soft(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
-        logger: &Logger
+        logger: &Logger,
     ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables> {
         if !self.payment_adjuster.is_adjustment_required(&msg, logger) {
             Either::Left(OutcomingPayamentsInstructions {

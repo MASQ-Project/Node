@@ -14,7 +14,10 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables, OutcomingPayamentsInstructions, ConsumingWalletBalances};
+use crate::sub_lib::blockchain_bridge::{
+    BlockchainBridgeSubs, ConsumingWalletBalances, OutcomingPayamentsInstructions,
+    RequestBalancesToPayPayables,
+};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -309,7 +312,10 @@ impl BlockchainBridge {
         Ok(())
     }
 
-    fn handle_report_accounts_payable(&mut self, msg: OutcomingPayamentsInstructions) -> Result<(), String> {
+    fn handle_report_accounts_payable(
+        &mut self,
+        msg: OutcomingPayamentsInstructions,
+    ) -> Result<(), String> {
         let skeleton_opt = msg.response_skeleton_opt;
         let result = self.process_payments(&msg);
 

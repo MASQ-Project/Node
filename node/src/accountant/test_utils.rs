@@ -15,7 +15,10 @@ use crate::accountant::receivable_dao::{
 };
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::{gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::{
+    gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables,
+    DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -1385,7 +1388,11 @@ pub struct PaymentAdjusterMock {
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables, logger: &Logger) -> bool {
+    fn is_adjustment_required(
+        &self,
+        msg: &ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger,
+    ) -> bool {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
