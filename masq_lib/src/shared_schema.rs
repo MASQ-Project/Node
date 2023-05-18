@@ -112,14 +112,18 @@ pub const MIN_HOPS_HELP: &str =
     range of 1 to 6.\n\n\
     It's important to note that if the user selects less than 3 hops, the anonymity of their data \
     cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
-    1. A 1-hop route allows Exit Nodes to see your requests.\n\
-    2. A 2-hop route makes it harder to associate your requests with your IP address, but it's \
-    not a foolproof guarantee.\n\
-    3. The minimum number of hops required to guarantee anonymity is 3.\n\
+    1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+    Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+    and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+    2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+    same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+    knows both IP addresses.\n\
+    3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+    from knowing the IP addresses of all the Nodes in the route.\n\
     4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
     increase the cost and latency of the route.\n\
     If you want to specify a minimum hops count, you can do so by entering a number after the \
-    '--min-hops' command. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+    '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
     to provide this argument, the system will default to a minimum hops count of 3.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
@@ -799,14 +803,18 @@ mod tests {
              range of 1 to 6.\n\n\
              It's important to note that if the user selects less than 3 hops, the anonymity of their data \
              cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
-             1. A 1-hop route allows Exit Nodes to see your requests.\n\
-             2. A 2-hop route makes it harder to associate your requests with your IP address, but it's \
-             not a foolproof guarantee.\n\
-             3. The minimum number of hops required to guarantee anonymity is 3.\n\
+             1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+             Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+             and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+             2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+             same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+             knows both IP addresses.\n\
+             3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+             from knowing the IP addresses of all the Nodes in the route.\n\
              4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
              increase the cost and latency of the route.\n\
              If you want to specify a minimum hops count, you can do so by entering a number after the \
-             '--min-hops' command. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+             '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
              to provide this argument, the system will default to a minimum hops count of 3."
         );
         assert_eq!(
