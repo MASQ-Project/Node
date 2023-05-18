@@ -171,66 +171,75 @@ impl MASQNode {
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
         let logfile_path = Self::path_to_logfile(logfile_dir);
-        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<()> {
-            regex.is_match(&log_output[..]).then(|| ())
+        let log_output_processor = |log_output: &str, regex: &Regex| -> Option<()> {
+            regex.is_match(log_output).then(|| ())
         };
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            &do_with_log_output,
+            log_output_processor,
             limit_ms,
         );
     }
 
-    //gives back all possible captures by given requirements;
-    //you can specify how many times the regex needs to be looked for;
-    //also allows to define multiple capturing groups and fetch them all at once (the inner vector)
+    //fetches all captures by given requirements;
+    //you can specify how many times you require to apply the regex and get separate captures (outer vector);
+    //also allows to define more than just one capture group and fetch them all at once (inner vector)
     pub fn capture_pieces_of_log_at_directory(
         pattern: &str,
         logfile_dir: &Path,
-        required_number_of_captures: usize,
+        required_repetition: usize,
         limit_ms: Option<u64>,
     ) -> Vec<Vec<String>> {
         let logfile_path = Self::path_to_logfile(logfile_dir);
 
-        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<Vec<Vec<String>>> {
-            let captures = regex
-                .captures_iter(&log_output[..])
-                .collect::<Vec<Captures>>();
-            if captures.len() < required_number_of_captures {
-                return None;
-            }
-            let structured_captures = (0..captures.len())
-                .flat_map(|idx| {
-                    captures.get(idx).map(|capture| {
-                        (0..capture.len())
-                            .flat_map(|idx| {
-                                capture.get(idx).map(|particular_group_match| {
-                                    particular_group_match.as_str().to_string()
-                                })
-                            })
-                            .collect::<Vec<String>>()
-                    })
-                })
-                .collect::<Vec<Vec<String>>>();
-            Some(structured_captures)
+        let log_output_processor = |log_output: &str, regex: &Regex| {
+            Self::collect_captures_with_repetition(log_output, regex, required_repetition)
         };
 
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            &do_with_log_output,
+            log_output_processor,
             limit_ms,
         )
         .unwrap()
     }
 
-    fn wait_for_log_at_directory<T>(
+    fn collect_captures_with_repetition(
+        log_output: &str,
+        regex: &Regex,
+        required_repetition: usize,
+    ) -> Option<Vec<Vec<String>>> {
+        let captures = regex.captures_iter(log_output).collect::<Vec<Captures>>();
+        if captures.len() < required_repetition {
+            return None;
+        }
+        let structured_captures = (0..captures.len())
+            .flat_map(|idx| {
+                captures.get(idx).map(|capture| {
+                    (0..capture.len())
+                        .flat_map(|idx| {
+                            capture.get(idx).map(|particular_group_match| {
+                                particular_group_match.as_str().to_string()
+                            })
+                        })
+                        .collect::<Vec<String>>()
+                })
+            })
+            .collect::<Vec<Vec<String>>>();
+        Some(structured_captures)
+    }
+
+    fn wait_for_log_at_directory<T, F>(
         pattern: &str,
         path_to_logfile: &Path,
-        do_with_log_output: &dyn Fn(&String, &Regex) -> Option<T>,
+        log_output_processor: F,
         limit_ms: Option<u64>,
-    ) -> Option<T> {
+    ) -> Option<T>
+    where
+        F: Fn(&str, &Regex) -> Option<T>,
+    {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
@@ -239,7 +248,7 @@ impl MASQNode {
             match std::fs::read_to_string(&path_to_logfile) {
                 Ok(contents) => {
                     read_content_opt = Some(contents.clone());
-                    if let Some(result) = do_with_log_output(&contents, &regex) {
+                    if let Some(result) = log_output_processor(&contents, &regex) {
                         break Some(result);
                     }
                 }
@@ -415,7 +424,7 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let mut args = Self::minimum_args();
+        let mut args = vec![];
         args.extend(Self::get_extra_args(data_dir, config));
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
@@ -429,6 +438,7 @@ impl MASQNode {
             Self::remove_database(data_dir)
         }
         let mut command = command_to_start();
+        command.args(apply_prefix_parameters());
         command.args(additional_args);
         command
     }
@@ -446,13 +456,11 @@ impl MASQNode {
     }
 
     fn daemon_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--initialization")
-            .args
+        CommandConfig::new().opt("--initialization").args
     }
 
     fn standard_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
+        CommandConfig::new()
             .pair("--neighborhood-mode", "zero-hop")
             .pair(
                 "--consuming-private-key",
@@ -463,15 +471,9 @@ impl MASQNode {
             .args
     }
 
-    fn minimum_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new()).args
-    }
-
     #[allow(dead_code)]
     fn dump_config_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--dump-config")
-            .args
+        CommandConfig::new().opt("--dump-config").args
     }
 
     fn get_extra_args(data_dir: &PathBuf, config_opt: Option<CommandConfig>) -> Vec<String> {
@@ -639,13 +641,13 @@ fn command_to_start() -> process::Command {
 }
 
 #[cfg(target_os = "windows")]
-fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config.pair("/c", &node_command())
+fn apply_prefix_parameters() -> Vec<String> {
+    CommandConfig::new().pair("/c", &node_command()).args
 }
 
 #[cfg(not(target_os = "windows"))]
-fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config
+fn apply_prefix_parameters() -> Vec<String> {
+    vec![]
 }
 
 #[cfg(target_os = "windows")]
