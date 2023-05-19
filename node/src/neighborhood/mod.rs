@@ -845,7 +845,7 @@ impl Neighborhood {
         if self.handle_route_query_message(msg).is_some() {
             debug!(
                 &self.logger,
-                "The connectivity check has found a {}-hop(s) route.", self.min_hops_count as usize
+                "The connectivity check has found a {}-hop route.", self.min_hops_count as usize
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
@@ -4045,7 +4045,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The connectivity check has found a {}-hop(s) route.",
+            "DEBUG: {}: The connectivity check has found a {}-hop route.",
             test_name, hops as usize
         ));
     }
@@ -5334,12 +5334,22 @@ mod tests {
                 decodex::<LiveHop>(&cryptde, data).unwrap();
             }
         };
-        let mut route = result.clone().unwrap().route.hops;
-        let route_length = route.len();
-        let _accounting = route.pop();
-        let over_route = &route[..hops];
-        let back_route = &route[hops..];
-        let over_cryptdes = cryptdes_from_node_records(&nodes[..nodes_count - 1]);
+        /*
+        This is how the route_hops vector looks like: [C1, C2, ..., C(nodes_count), ..., C2, C1, accounting]
+
+        Let's consider for 3-hop route ==>
+        Nodes Count --> 4
+        Route Length --> 8
+        Route Hops --> [C1, C2, C3, C4, C3, C2, C1, accounting]
+        Over Route --> [C1, C2, C3]
+        Back Route --> [C4, C3, C2, C1]
+         */
+        let mut route_hops = result.unwrap().route.hops;
+        let route_length = route_hops.len();
+        let _accounting = route_hops.pop();
+        let over_route = &route_hops[..hops];
+        let back_route = &route_hops[hops..];
+        let over_cryptdes = cryptdes_from_node_records(&nodes[..hops]);
         let mut back_cryptdes = cryptdes_from_node_records(&nodes);
         back_cryptdes.reverse();
         assert_eq!(route_length, 2 * nodes_count);
