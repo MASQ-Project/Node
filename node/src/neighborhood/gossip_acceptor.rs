@@ -168,7 +168,7 @@ impl GossipHandler for IpChangeHandler {
             };
             return GossipAcceptanceResult::Absorbed
         }
-        GossipAcceptanceResult::Ignored // Shouldn't ever happen if qualifies() works right
+        GossipAcceptanceResult::Ignored
     }
 }
 
@@ -4575,7 +4575,7 @@ mod tests {
         let mut new_ipchange_node = make_node_record(n, true);
         let mut old_ipchange_node = new_ipchange_node.clone();
         new_ipchange_node.metadata.node_addr_opt = new_addr_opt.clone();
-        old_ipchange_node.metadata.node_addr_opt = old_addr_opt.clone();
+        old_ipchange_node.metadata.node_addr_opt = old_addr_opt;
         adjust_for_mode(&mut new_ipchange_node, mode);
         adjust_for_mode(&mut old_ipchange_node, mode);
 
