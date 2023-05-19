@@ -89,9 +89,17 @@ impl NeighborhoodDatabase {
         self.by_public_key.get_mut(public_key)
     }
 
-    pub fn node_by_ip(&self, ip_addr: &IpAddr) -> Option<&NodeRecord> {
-        match self.by_ip_addr.get(ip_addr) {
+    pub fn node_by_ip(&self, ip_addr: IpAddr) -> Option<&NodeRecord> {
+        match self.by_ip_addr.get(&ip_addr) {
             Some(key) => self.node_by_key(key),
+            None => None,
+        }
+    }
+
+    pub fn node_by_ip_mut(&mut self, ip_addr: IpAddr) -> Option<&mut NodeRecord> {
+        let key_opt = self.by_ip_addr.get(&ip_addr).map(|k| k.clone());
+        match key_opt {
+            Some(key) => self.node_by_key_mut(&key),
             None => None,
         }
     }
@@ -503,20 +511,63 @@ mod tests {
 
         assert_eq!(
             subject
-                .node_by_ip(&this_node.node_addr_opt().unwrap().ip_addr())
+                .node_by_ip(this_node.node_addr_opt().unwrap().ip_addr())
                 .unwrap()
                 .clone(),
             this_node
         );
         assert_eq!(
             subject
-                .node_by_ip(&one_node.node_addr_opt().unwrap().ip_addr())
+                .node_by_ip(one_node.node_addr_opt().unwrap().ip_addr())
                 .unwrap()
                 .clone(),
             one_node
         );
         assert_eq!(
-            subject.node_by_ip(&another_node.node_addr_opt().unwrap().ip_addr()),
+            subject.node_by_ip(another_node.node_addr_opt().unwrap().ip_addr()),
+            None
+        );
+    }
+
+    #[test]
+    fn node_by_ip_mut_works() {
+        let this_node = make_node_record(1234, true);
+        let this_node_original_version = this_node.inner.version;
+        let one_node = make_node_record(4567, true);
+        let one_node_original_version = one_node.inner.version;
+        let another_node = make_node_record(5678, true);
+        let mut subject = db_from_node(&this_node);
+
+        subject.add_node(one_node.clone()).unwrap();
+
+        let mut this_node_actual = subject
+            .node_by_ip_mut(this_node.node_addr_opt().unwrap().ip_addr())
+            .unwrap();
+        this_node_actual.inner.version += 1;
+        assert_eq!(
+            subject
+                .node_by_ip(this_node.node_addr_opt().unwrap().ip_addr())
+                .as_ref()
+                .unwrap()
+                .inner
+                .version,
+            this_node_original_version + 1
+        );
+        let mut one_node_actual = subject
+            .node_by_ip_mut(one_node.node_addr_opt().unwrap().ip_addr())
+            .unwrap();
+        one_node_actual.inner.version += 1;
+        assert_eq!(
+            subject
+                .node_by_ip(one_node.node_addr_opt().unwrap().ip_addr())
+                .as_ref()
+                .unwrap()
+                .inner
+                .version,
+            one_node_original_version + 1
+        );
+        assert_eq!(
+            subject.node_by_ip_mut(another_node.node_addr_opt().unwrap().ip_addr()),
             None
         );
     }
@@ -786,9 +837,9 @@ mod tests {
         subject.new_public_ip(new_public_ip);
 
         let mut new_node = subject.root().clone();
-        assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));
+        assert_eq!(subject.node_by_ip(new_public_ip), Some(&new_node));
         assert_eq!(
-            subject.node_by_ip(&old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
+            subject.node_by_ip(old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
             None
         );
         assert_eq!(new_node.node_addr_opt().unwrap().ip_addr(), new_public_ip);
@@ -836,7 +887,7 @@ mod tests {
         );
         assert_eq!(
             None,
-            subject.node_by_ip(&other_node.node_addr_opt().unwrap().ip_addr())
+            subject.node_by_ip(other_node.node_addr_opt().unwrap().ip_addr())
         );
         assert_eq!(1, subject.root().version());
         assert!(result.ok().expect("should be ok"));
@@ -865,7 +916,7 @@ mod tests {
         );
         assert_eq!(
             None,
-            subject.node_by_ip(&neighborless_node.node_addr_opt().unwrap().ip_addr())
+            subject.node_by_ip(neighborless_node.node_addr_opt().unwrap().ip_addr())
         );
         assert_eq!(0, subject.root().version());
         assert!(!result.ok().expect("should be ok"));

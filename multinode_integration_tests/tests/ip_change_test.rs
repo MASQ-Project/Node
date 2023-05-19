@@ -34,15 +34,14 @@ fn receiving_ipchange_gossip_modifies_connections_appropriately() {
         .node_addr (new_mock_node.node_addr())
         .name (new_mock_node.name());
     let _container_preserver = new_mock_node.guts_from_builder(builder);
-    // (maybe) have the connected mock Node disconnect its TCP stream.
+    // Have the connected mock Node disconnect its TCP stream to simulate IP address change
     old_mock_node.kill();
-    // Have the disconnected mock Node connect and send an IpChange
+    // Have the disconnected mock Node connect and send an IpChange, impersonating old_mock_node
     new_mock_node.transmit_ipchange_or_debut(&real_node).unwrap();
-    // Verify that the real Node disconnects any remaining streams to the originally-connected mock Node.
-    // (not this time: we disconnected them already)
-    // Connect a client and send a request. Verify that the request shows up at the formerly disconnected mock Node.
+    // Connect a client and send a request.
     let mut client = MASQNodeClient::new(SocketAddr::new (real_node.ip_address(), 80));
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
+    // Verify that the request shows up at the formerly disconnected mock Node.
     let (_, _, _) = new_mock_node
         .wait_for_package(&JsonMasquerader::new(), Duration::from_secs(2))
         .unwrap();

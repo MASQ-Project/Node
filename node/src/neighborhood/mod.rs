@@ -181,7 +181,7 @@ impl Handler<NodeQueryMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<NodeQueryMessage>>::Result {
         let node_record_ref_opt = match msg {
-            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(&ip_addr),
+            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(ip_addr),
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
@@ -204,7 +204,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<DispatcherNodeQueryMessage>>::Result {
         let node_record_ref_opt = match msg.query {
-            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(&ip_addr),
+            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(ip_addr),
             NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
         };
 
@@ -665,7 +665,7 @@ impl Neighborhood {
     }
 
     fn log_incoming_gossip(&self, incoming_gossip: &Gossip_0v1, gossip_source: SocketAddr) {
-        let source = match self.neighborhood_database.node_by_ip(&gossip_source.ip()) {
+        let source = match self.neighborhood_database.node_by_ip(gossip_source.ip()) {
             Some(node) => DotGossipEndpoint::from(node),
             None => DotGossipEndpoint::from(gossip_source),
         };
@@ -1537,7 +1537,7 @@ impl Neighborhood {
         if msg.stream_type != RemovedStreamType::Clandestine {
             panic!("Neighborhood should never get ShutdownStreamMsg about non-clandestine stream")
         }
-        let neighbor_key = match self.neighborhood_database.node_by_ip(&msg.peer_addr.ip()) {
+        let neighbor_key = match self.neighborhood_database.node_by_ip(msg.peer_addr.ip()) {
             None => {
                 warning!(self.logger, "Received shutdown notification for stream to {}, but no Node with that IP is in the database - ignoring", msg.peer_addr.ip());
                 return;

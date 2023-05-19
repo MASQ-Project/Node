@@ -1243,7 +1243,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         gossip_source: SocketAddr,
     ) -> bool {
-        let gossip_node = match database.node_by_ip(&gossip_source.ip()) {
+        let gossip_node = match database.node_by_ip(gossip_source.ip()) {
             None => return false,
             Some(node) => node,
         };
@@ -1303,7 +1303,7 @@ impl StandardGossipHandler {
     }
 
     fn check_full_neighbor(db: &NeighborhoodDatabase, gossip_source_ip: IpAddr) -> bool {
-        if let Some(node) = db.node_by_ip(&gossip_source_ip) {
+        if let Some(node) = db.node_by_ip(gossip_source_ip) {
             return db.has_full_neighbor(db.root().public_key(), &node.inner.public_key);
         }
         false
@@ -1706,7 +1706,7 @@ mod tests {
         let (gossip, _, mut db) =
             make_ipchange_gossip(2345, Some (old_addr.clone()), Some (new_addr.clone()),
                                  Mode::Standard);
-        let mut subject_node = node_by_ip_mut(&mut db, old_addr.ip_addr());
+        let mut subject_node = db.node_by_ip_mut(old_addr.ip_addr()).unwrap();
         subject_node.metadata.node_addr_opt = Some (new_addr);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let subject = IpChangeHandler::new(
@@ -4681,11 +4681,11 @@ mod tests {
             }
         }
     }
-
-    fn node_by_ip_mut(db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
-        let key = db.node_by_ip(&ip_addr).unwrap().public_key().clone();
-        db.node_by_key_mut(&key).unwrap()
-    }
+    //
+    // fn node_by_ip_mut(db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
+    //     let key = db.node_by_ip(ip_addr).unwrap().public_key().clone();
+    //     db.node_by_key_mut(&key).unwrap()
+    // }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
         let (neighborhood, _, _) = make_recorder();
