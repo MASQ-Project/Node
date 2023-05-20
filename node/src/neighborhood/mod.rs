@@ -90,9 +90,9 @@ pub struct GossipAcceptorSubs {
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper_opt: Option<Recipient<IncipientCoresPackage>>,
-    hopper_no_lookup_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    connected_signal_opt: Option<Recipient<StartMessage>>,
-    node_to_ui_recipient_opt: Option<Recipient<NodeToUiMessage>>,
+    hopper_no_lookup_sub_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
+    connected_signal_sub_opt: Option<Recipient<StartMessage>>,
+    node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_info_opt: Option<Either<Box<dyn GossipAcceptor>, GossipAcceptorSubs>>,
     gossip_producer_opt: Option<Box<dyn GossipProducer>>,
     neighborhood_database: NeighborhoodDatabase,
@@ -118,14 +118,14 @@ impl Handler<BindMessage> for Neighborhood {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.hopper_no_lookup_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
-        self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
+        self.hopper_no_lookup_sub_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.connected_signal_sub_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_info_opt = Some (Either::Right (GossipAcceptorSubs {
             connection_progress_sub: msg.peer_actors.neighborhood.connection_progress_sub,
             stream_shutdown_sub: msg.peer_actors.dispatcher.stream_shutdown_sub,
         }));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
-        self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 }
 
@@ -309,7 +309,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                         self.overall_connection_status
                             .update_ocs_stage_and_send_message_to_ui(
                                 OverallConnectionStage::ConnectedToNeighbor,
-                                self.node_to_ui_recipient_opt
+                                self.node_to_ui_sub_opt
                                     .as_ref()
                                     .expect("UI Gateway is unbound"),
                                 &self.logger,
@@ -492,9 +492,9 @@ impl Neighborhood {
         Neighborhood {
             cryptde,
             hopper_opt: None,
-            hopper_no_lookup_opt: None,
-            connected_signal_opt: None,
-            node_to_ui_recipient_opt: None,
+            hopper_no_lookup_sub_opt: None,
+            connected_signal_sub_opt: None,
+            node_to_ui_sub_opt: None,
             gossip_acceptor_info_opt: None,
             gossip_producer_opt: None,
             neighborhood_database,
@@ -900,12 +900,12 @@ impl Neighborhood {
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
                     OverallConnectionStage::ThreeHopsRouteFound,
-                    self.node_to_ui_recipient_opt
+                    self.node_to_ui_sub_opt
                         .as_ref()
                         .expect("UI was not bound."),
                     &self.logger,
                 );
-            self.connected_signal_opt
+            self.connected_signal_sub_opt
                 .as_ref()
                 .expect("Accountant was not bound")
                 .try_send(StartMessage {})
@@ -1509,7 +1509,7 @@ impl Neighborhood {
                 return;
             }
         };
-        self.hopper_no_lookup_opt
+        self.hopper_no_lookup_sub_opt
             .as_ref()
             .expect("No-lookup Hopper is unbound")
             .try_send(package)
@@ -1554,7 +1554,7 @@ impl Neighborhood {
             body: UiConnectionStatusResponse { stage }.tmb(context_id),
         };
 
-        self.node_to_ui_recipient_opt
+        self.node_to_ui_sub_opt
             .as_ref()
             .expect("UI Gateway is unbound")
             .try_send(message)
@@ -1887,11 +1887,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        addr.try_send(pool_bind_message).unwrap();
+        addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
         sub.try_send(StartMessage {}).unwrap();
 
@@ -2309,7 +2305,7 @@ mod tests {
         );
         let (node_to_ui_recipient, node_to_ui_recording_arc) =
             make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -2368,7 +2364,7 @@ mod tests {
         );
         let (node_to_ui_recipient, node_to_ui_recording_arc) =
             make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -2485,7 +2481,7 @@ mod tests {
                 "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other"),
         );
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -3418,7 +3414,7 @@ mod tests {
                 intervals.push(interval.as_millis());
                 if retries_left == 0 {
                     panic!(
-                        "Should have calculated route in <={}ms, but failed after {} tries: {:?}",
+                        "Should have calculated route in <= {}ms, but failed after {} tries: {:?}",
                         limit_ms, total_chances, intervals
                     )
                 } else {
@@ -3665,11 +3661,7 @@ mod tests {
             let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
-            let pool_bind_message = pool_bind_message_builder()
-                .stream_handler_pool(make_recorder().0)
-                .dispatcher(make_recorder().0)
-                .build();
-            addr.try_send(pool_bind_message).unwrap();
+            addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
             let sub: Recipient<RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
             sub.try_send(RemoveNeighborMessage {
@@ -3816,7 +3808,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3855,7 +3847,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let system = System::new("neighborhood_transmits_gossip_failure_properly");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor_info_opt = Some(Either::Left(Box::new(gossip_acceptor)));
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
@@ -3931,8 +3923,8 @@ mod tests {
 
     fn bind_subject(subject: &mut Neighborhood, peer_actors: PeerActors) {
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
-        subject.connected_signal_opt = Some(peer_actors.accountant.start);
+        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.connected_signal_sub_opt = Some(peer_actors.accountant.start);
     }
 
     #[test]
@@ -3988,7 +3980,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_neighborhood_linearly_connected_with_nodes(3);
-        subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
+        subject.node_to_ui_sub_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
@@ -4026,7 +4018,7 @@ mod tests {
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
         let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
         subject.gossip_acceptor_info_opt = Some(Either::Left(Box::new(gossip_acceptor)));
         let mut peer_2_db = db_from_node(&peer_2);
         peer_2_db.add_node(peer_1.clone()).unwrap();
@@ -4060,7 +4052,7 @@ mod tests {
         subject.process_acceptance_result(
             GossipAcceptanceResult::Absorbed,
             "new-IP Node",
-            27,
+            1,
         );
 
         TestLogHandler::new().exists_log_containing("27-Node Gossip from new-IP Node absorbed");
@@ -4076,8 +4068,8 @@ mod tests {
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.logger = Logger::new(test_name);
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_opt = Some(connected_signal);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        subject.connected_signal_sub_opt = Some(connected_signal);
         let system = System::new(test_name);
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
@@ -4118,8 +4110,8 @@ mod tests {
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.logger = Logger::new(test_name);
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_opt = Some(connected_signal);
+        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        subject.connected_signal_sub_opt = Some(connected_signal);
         let system = System::new(test_name);
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
@@ -4361,7 +4353,7 @@ mod tests {
             let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node,
                 Some(&make_node_record(7654, true)));
             subject.gossip_producer_opt = Some(Box::new (GossipProducerReal::new()));
-            subject.hopper_no_lookup_opt = Some (hopper.start().recipient());
+            subject.hopper_no_lookup_sub_opt = Some (hopper.start().recipient());
             let db = &mut subject.neighborhood_database;
             let one_neighbor = db.add_node(make_node_record(1234, true)).unwrap();
             let another_neighbor = db.add_node(make_node_record(2345, true)).unwrap();
@@ -4396,7 +4388,11 @@ mod tests {
         let check_hopper_message = |idx: usize, expected_key: &PublicKey| {
             let pkg: &NoLookupIncipientCoresPackage = hopper_recording.get_record(idx);
             assert_eq! (&pkg.public_key, expected_key);
-            assert_eq! (&pkg.node_addr, db.node_by_key(expected_key).as_ref().unwrap().metadata.node_addr_opt.as_ref().unwrap());
+            let expected_node_addr = db
+                .node_by_key(expected_key).as_ref().unwrap()
+                .metadata
+                .node_addr_opt.as_ref().unwrap();
+            assert_eq! (&pkg.node_addr, expected_node_addr);
             let payload = decodex::<MessageType>(
                 &CryptDENull::from(expected_key, TEST_DEFAULT_CHAIN),
                 &pkg.payload,
@@ -4573,7 +4569,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
         subject.handle_gossip(
@@ -4770,11 +4766,7 @@ mod tests {
             let addr: Addr<Neighborhood> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             addr.try_send(BindMessage { peer_actors }).unwrap();
-            let pool_bind_message = pool_bind_message_builder()
-                .stream_handler_pool(make_recorder().0)
-                .dispatcher(make_recorder().0)
-                .build();
-            addr.try_send(pool_bind_message).unwrap();
+            addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
             let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
             sub.try_send(cores_package).unwrap();
@@ -4840,11 +4832,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        addr.try_send(pool_bind_message).unwrap();
+        addr.try_send(make_meaningless_pool_bind_message()).unwrap();
         let sub = addr.recipient::<StartMessage>();
 
         sub.try_send(StartMessage {}).unwrap();
@@ -4920,11 +4908,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        addr.try_send(pool_bind_message).unwrap();
+        addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
         addr.try_send(RemoveNeighborMessage {
             public_key: a.public_key().clone(),
@@ -5685,11 +5669,7 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        subject_addr.try_send(pool_bind_message).unwrap();
+        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -5798,11 +5778,7 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        subject_addr.try_send(pool_bind_message).unwrap();
+        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
         subject_addr
             .try_send(NewPasswordMessage {
@@ -5893,6 +5869,13 @@ mod tests {
             dual_edge(r, e);
         }
         (o.clone(), r.clone(), e.clone(), subject)
+    }
+
+    fn make_meaningless_pool_bind_message() -> PoolBindMessage {
+        pool_bind_message_builder()
+            .stream_handler_pool(make_recorder().0)
+            .dispatcher(make_recorder().0)
+            .build()
     }
 
     fn segment(nodes: &[&NodeRecord], component: &Component) -> RouteSegment {
@@ -6042,7 +6025,7 @@ mod tests {
         let mut neighborhood = Neighborhood::new(main_cryptde(), &bootstrap_config);
 
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        neighborhood.node_to_ui_sub_opt = Some(node_to_ui_recipient);
         neighborhood
     }
 
@@ -6069,11 +6052,7 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let pool_bind_message = pool_bind_message_builder()
-            .stream_handler_pool(make_recorder().0)
-            .dispatcher(make_recorder().0)
-            .build();
-        subject_addr.try_send(pool_bind_message).unwrap();
+        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
 
         subject_addr
             .try_send(NodeFromUiMessage {
