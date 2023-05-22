@@ -80,7 +80,7 @@ impl<'a> MultiConfig<'a> {
         Ok(MultiConfig { arg_matches })
     }
 
-    fn check_for_inavlid_value_err(
+    fn check_for_invalid_value_err(
         error_msg: &str,
         pattern: &str,
         index_of_name: usize,
@@ -105,7 +105,7 @@ impl<'a> MultiConfig<'a> {
             ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
         ];
         for (pattern, index_of_name, index_of_value) in invalid_value_patterns {
-            if let Some(invalid_value_err) = MultiConfig::check_for_inavlid_value_err(
+            if let Some(invalid_value_err) = MultiConfig::check_for_invalid_value_err(
                 &e.message,
                 pattern,
                 index_of_name,
