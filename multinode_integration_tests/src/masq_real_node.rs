@@ -1241,7 +1241,6 @@ mod tests {
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
-    use node_lib::sub_lib::neighborhood::Hops::TwoHops;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
@@ -1356,7 +1355,7 @@ mod tests {
     fn node_startup_config_builder_copy() {
         let original = NodeStartupConfig {
             neighborhood_mode: "consume-only".to_string(),
-            min_hops_count: TwoHops,
+            min_hops_count: Hops::TwoHops,
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers_opt: Some(vec![IpAddr::from_str("255.255.255.255").unwrap()]),
             neighbors: vec![NodeReference::new(

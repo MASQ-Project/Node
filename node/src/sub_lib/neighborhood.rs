@@ -1255,9 +1255,12 @@ mod tests {
 
     #[test]
     fn min_hops_count_can_be_converted_from_str() {
-        let result = Hops::from_str("6").unwrap();
-
-        assert_eq!(result, Hops::SixHops);
+        assert_eq!(Hops::from_str("1").unwrap(), Hops::OneHop);
+        assert_eq!(Hops::from_str("2").unwrap(), Hops::TwoHops);
+        assert_eq!(Hops::from_str("3").unwrap(), Hops::ThreeHops);
+        assert_eq!(Hops::from_str("4").unwrap(), Hops::FourHops);
+        assert_eq!(Hops::from_str("5").unwrap(), Hops::FiveHops);
+        assert_eq!(Hops::from_str("6").unwrap(), Hops::SixHops);
     }
 
     #[test]
