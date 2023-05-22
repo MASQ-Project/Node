@@ -229,7 +229,9 @@ impl Handler<ConsumingWalletBalancesAndQualifiedPayables> for Accountant {
             Either::Left(finalized_msg) => finalized_msg,
             Either::Right(unaccepted_msg) => {
                 //TODO we will eventually query info from Neighborhood here
-                self.scanners.payable.mid_procedure_hard(unaccepted_msg)
+                self.scanners
+                    .payable
+                    .mid_procedure_hard(unaccepted_msg, &self.logger)
             }
         };
         self.outcoming_payments_instructions_sub_opt

@@ -27,6 +27,7 @@ pub trait PaymentAdjuster {
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         now: SystemTime,
+        logger: &Logger,
     ) -> OutcomingPayamentsInstructions;
 
     declare_as_any!();
@@ -58,13 +59,22 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         now: SystemTime,
+        logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
+        let debug_log_printer_opt = logger.debug_enabled().then_some(Self::before_and_after_debug_msg_printer(&msg.qualified_payables));
+
         let accounts_with_zero_criteria = Self::initialize_zero_criteria(msg.qualified_payables);
         let accounts_with_individual_criteria =
             Self::apply_criteria(accounts_with_zero_criteria, now);
         let balance_adjusted_accounts = Self::handle_adjustment(
             msg.consuming_wallet_balances.masq_tokens_wei,
             accounts_with_individual_criteria,
+        );
+
+        debug!(
+            logger,
+            "{}",
+            debug_log_printer_opt.expect("debug message missing")(&balance_adjusted_accounts)
         );
 
         OutcomingPayamentsInstructions {
@@ -191,6 +201,21 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
+    fn format_brief_accounts_summary(accounts: &[PayableAccount]) -> String {
+        todo!()
+    }
+
+    fn before_and_after_debug_msg_printer(before: &[PayableAccount]) -> impl Fn(&[PayableAccount])-> String{
+            let accounts_before = Self::format_brief_accounts_summary(before);
+            move |adjusted_balances: &[PayableAccount]| {
+                format!(
+                    "Original payable accounts {}, accounts after the adjustment {}",
+                    accounts_before,
+                    Self::format_brief_accounts_summary(adjusted_balances)
+                )
+            }
+    }
+
     fn log_adjustment_required(
         logger: &Logger,
         payables: &[PayableAccount],
@@ -199,8 +224,9 @@ impl PaymentAdjusterReal {
     ) {
         warning!(
             logger,
-            "Qualified payables for wallets {} make total of {} wei which cannot be satisfied \
-                with consuming wallet balance {} wei. Payments adjustment ordered.",
+            "Payments for wallets {} make total of {} wei while the consuming wallet holds \
+            only {} wei. Going to adjust them to fit in the limit, by cutting back the number \
+            of payments or their size.",
             comma_joined_stringifiable(payables, |p| p.wallet.to_string()),
             payables_sum.separate_with_commas(),
             cw_masq_balance.separate_with_commas()
@@ -294,9 +320,11 @@ mod tests {
         let msg_3 = make_cw_balance_and_q_payables_msg(vec![85, 16], 100);
 
         assert_eq!(subject.is_adjustment_required(&msg_3, &logger), true);
-        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Qualified payables for wallets \
-        0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make total of 101,000,000,000 \
-        wei which cannot be satisfied with consuming wallet balance 100,000,000,000 wei. Payments adjustment ordered."));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Payments for wallets \
+        0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make \
+        total of 101,000,000,000 wei while the consuming wallet holds only 100,000,000,000 wei. \
+        Going to adjust them to fit in the limit, by cutting back the number of payments or their \
+        size.."));
     }
 
     #[test]
@@ -404,7 +432,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(msg, now);
+        let result = subject.adjust_payments(msg, now, &Logger::new("test"));
 
         let expected_criteria_computation_output = {
             let time_criteria = vec![

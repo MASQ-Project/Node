@@ -274,9 +274,10 @@ impl PayableScannerMidProcedures for PayableScanner {
     fn mid_procedure_hard(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
+        logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
         let now = SystemTime::now();
-        self.payment_adjuster.adjust_payments(msg, now)
+        self.payment_adjuster.adjust_payments(msg, now, logger)
     }
 }
 

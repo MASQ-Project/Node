@@ -1404,6 +1404,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         now: SystemTime,
+        logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
         self.adjust_payments_params.lock().unwrap().push((msg, now));
         self.adjust_payments_results.borrow_mut().remove(0)
