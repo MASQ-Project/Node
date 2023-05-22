@@ -179,7 +179,7 @@ impl MASQNode {
             logfile_path.as_ref(),
             log_output_processor,
             limit_ms,
-        );
+        )
     }
 
     //fetches all captures by given requirements;
@@ -203,7 +203,6 @@ impl MASQNode {
             log_output_processor,
             limit_ms,
         )
-        .unwrap()
     }
 
     fn collect_captures_with_repetition(
@@ -215,19 +214,28 @@ impl MASQNode {
         if captures.len() < required_repetition {
             return None;
         }
-        let structured_captures = (0..captures.len())
-            .flat_map(|idx| {
-                captures.get(idx).map(|capture| {
-                    (0..capture.len())
-                        .flat_map(|idx| {
-                            capture.get(idx).map(|particular_group_match| {
+        let structured_captures = captures.into_iter()
+            .map(|groups| {
+                    groups.iter().flat_map(|group_opt|
+                            group_opt.map(|particular_group_match|
                                 particular_group_match.as_str().to_string()
-                            })
-                        })
+                        ))
                         .collect::<Vec<String>>()
                 })
-            })
             .collect::<Vec<Vec<String>>>();
+        // let structured_captures = (0..captures.len())
+        //     .flat_map(|idx| {
+        //         captures.get(idx).map(|capture| {
+        //             (0..capture.len())
+        //                 .flat_map(|idx| {
+        //                     capture.get(idx).map(|particular_group_match| {
+        //                         particular_group_match.as_str().to_string()
+        //                     })
+        //                 })
+        //                 .collect::<Vec<String>>()
+        //         })
+        //     })
+        //     .collect::<Vec<Vec<String>>>();
         Some(structured_captures)
     }
 
@@ -236,7 +244,7 @@ impl MASQNode {
         path_to_logfile: &Path,
         log_output_processor: F,
         limit_ms: Option<u64>,
-    ) -> Option<T>
+    ) -> T
     where
         F: Fn(&str, &Regex) -> Option<T>,
     {
@@ -249,20 +257,21 @@ impl MASQNode {
                 Ok(contents) => {
                     read_content_opt = Some(contents.clone());
                     if let Some(result) = log_output_processor(&contents, &regex) {
-                        break Some(result);
+                        break result;
                     }
                 }
                 Err(e) => {
                     eprintln!("Could not read logfile at {:?}: {:?}", path_to_logfile, e);
                 }
             };
-            assert_eq!(
-                MASQNode::millis_since(started_at) < real_limit_ms,
-                true,
+            assert!(MASQNode::millis_since(started_at) < real_limit_ms,
                 "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
                 real_limit_ms,
                 pattern,
-                read_content_opt.unwrap_or(String::from("None"))
+                match read_content_opt{
+                    Some(rc) => rc,
+                    None => "None".to_string()
+                }
             );
             thread::sleep(Duration::from_millis(200));
         }
@@ -424,8 +433,7 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let mut args = vec![];
-        args.extend(Self::get_extra_args(data_dir, config));
+        let args = Self::get_extra_args(data_dir, config);
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -526,7 +534,7 @@ impl MASQNode {
         default_args: Vec<String>,
         config_args: Vec<String>,
     ) -> Vec<String> {
-        fn retain_unique_default_args(
+        fn retain_unconfigured_default_args(
             default_args: Vec<String>,
             config_args: &HashMap<String, PositionedArg>,
         ) -> HashMap<String, PositionedArg> {
@@ -564,11 +572,11 @@ impl MASQNode {
         let config_args_as_tuples = Self::virtual_arg_pairs_with_remembered_position(config_args);
         test_uniqueness_for_config_args(&config_args_as_tuples);
         let config_args: HashMap<String, PositionedArg> = HashMap::from_iter(config_args_as_tuples);
-        let default_args_to_keep = retain_unique_default_args(default_args, &config_args);
+        let default_args_to_keep = retain_unconfigured_default_args(default_args, &config_args);
         default_args_to_keep
             .into_iter()
             .chain(
-                config_args, //    .rev()
+                config_args,
             )
             .sorted_by(|(_, positioned_arg_a), (_, positioned_arg_b)| {
                 Ord::cmp(
@@ -705,6 +713,30 @@ mod tests {
             "hello",
             "--final-arg",
             "false",
+        ]);
+        assert_eq!(result, expected_args)
+    }
+
+    #[test]
+    fn extend_without_duplication_handles_ending_parameter_with_no_value() {
+        let default_args = slice_of_strs_to_vec_of_strings(&[
+            "--arg1",
+            "value1"
+        ]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&[
+            "--arg2",
+            "value2",
+            "--arg3",
+        ]);
+
+        let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
+
+        let expected_args = slice_of_strs_to_vec_of_strings(&[
+            "--arg1",
+            "value1",
+            "--arg2",
+            "value2",
+            "--arg3",
         ]);
         assert_eq!(result, expected_args)
     }
