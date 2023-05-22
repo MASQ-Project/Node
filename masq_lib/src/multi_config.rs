@@ -101,7 +101,7 @@ impl<'a> MultiConfig<'a> {
 
     pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
         let invalid_value_patterns = vec![
-            ("Invalid value for.*'--(.*?) <.*? (.*)$", 1, 2),
+            ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
             ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
         ];
         for (pattern, index_of_name, index_of_value) in invalid_value_patterns {
