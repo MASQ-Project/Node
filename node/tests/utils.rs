@@ -11,6 +11,7 @@ use node_lib::database::db_initializer::{
 };
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::io;
@@ -214,28 +215,19 @@ impl MASQNode {
         if captures.len() < required_repetition {
             return None;
         }
-        let structured_captures = captures.into_iter()
+        let structured_captures = captures
+            .into_iter()
             .map(|groups| {
-                    groups.iter().flat_map(|group_opt|
-                            group_opt.map(|particular_group_match|
-                                particular_group_match.as_str().to_string()
-                        ))
-                        .collect::<Vec<String>>()
-                })
+                groups
+                    .iter()
+                    .flat_map(|group_opt| {
+                        group_opt.map(|particular_group_match| {
+                            particular_group_match.as_str().to_string()
+                        })
+                    })
+                    .collect::<Vec<String>>()
+            })
             .collect::<Vec<Vec<String>>>();
-        // let structured_captures = (0..captures.len())
-        //     .flat_map(|idx| {
-        //         captures.get(idx).map(|capture| {
-        //             (0..capture.len())
-        //                 .flat_map(|idx| {
-        //                     capture.get(idx).map(|particular_group_match| {
-        //                         particular_group_match.as_str().to_string()
-        //                     })
-        //                 })
-        //                 .collect::<Vec<String>>()
-        //         })
-        //     })
-        //     .collect::<Vec<Vec<String>>>();
         Some(structured_captures)
     }
 
@@ -264,13 +256,14 @@ impl MASQNode {
                     eprintln!("Could not read logfile at {:?}: {:?}", path_to_logfile, e);
                 }
             };
-            assert!(MASQNode::millis_since(started_at) < real_limit_ms,
+            assert!(
+                MASQNode::millis_since(started_at) < real_limit_ms,
                 "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
                 real_limit_ms,
                 pattern,
-                match read_content_opt{
+                match read_content_opt {
                     Some(rc) => rc,
-                    None => "None".to_string()
+                    None => "None".to_string(),
                 }
             );
             thread::sleep(Duration::from_millis(200));
@@ -494,16 +487,17 @@ impl MASQNode {
     fn virtual_arg_pairs_with_remembered_position(
         args: Vec<String>,
     ) -> Vec<(String, PositionedArg)> {
-        let shifted_by_one = args
-            .clone()
-            .into_iter()
-            .map(|val| Some(val))
-            .skip(1)
-            .chain(once(None));
-        let params_and_yet_suspected_arg = args
-            .into_iter()
-            .zip(shifted_by_one.enumerate())
-            .filter(|(param, _)| param.starts_with("--"));
+        let shifted_by_one = {
+            let with_the_first_cut = args.clone().into_iter().map(Some).skip(1);
+            let none_added_for_end_param_without_value = with_the_first_cut.chain(once(None));
+            none_added_for_end_param_without_value
+        };
+        let params_and_yet_suspected_arg = {
+            let zipped = args.into_iter().zip(shifted_by_one.enumerate());
+            let ignored_anomalies_with_value_at_the_first_position =
+                zipped.filter(|(param, _)| param.starts_with("--"));
+            ignored_anomalies_with_value_at_the_first_position
+        };
         params_and_yet_suspected_arg
             .map(|(param_name, (original_position, suspected_arg_opt))| {
                 let construct_positioned_arg = |val_opt| {
@@ -524,6 +518,7 @@ impl MASQNode {
                             construct_positioned_arg(Some(suspected_arg))
                         }
                     }
+                    //just to handle the end parameter if it has no value
                     None => construct_positioned_arg(None),
                 }
             })
@@ -549,35 +544,41 @@ impl MASQNode {
                 })
                 .collect()
         }
-        fn test_uniqueness_for_config_args(config_args_as_tuples: &[(String, PositionedArg)]) {
-            let len_before = config_args_as_tuples.len();
-            let config_args_to_test: Vec<_> = config_args_as_tuples
-                .iter()
-                .sorted_by(|(arg_a, _), (arg_b, _)| Ord::cmp(&arg_a, &arg_b))
-                .dedup_by(|(arg_a, _), (arg_b, _)| arg_a == arg_b)
-                .collect();
-            let len_after = config_args_to_test.len();
-            assert_eq!(
-                len_after,
-                len_before,
-                "You supplied additional arguments with some of \
-                them duplicated, use each only once! {:?}",
-                config_args_as_tuples
-                    .iter()
-                    .map(|(arg_name, positioned_arg)| { (arg_name, &positioned_arg.arg_opt) })
-                    .collect::<Vec<_>>()
+        fn test_uniqueness_for_config_args(
+            config_args_as_tuples: Vec<(String, PositionedArg)>,
+        ) -> HashMap<String, PositionedArg> {
+            let mut dedup_assert_hashmap = HashMap::new();
+            let duplicates: Vec<(String, PositionedArg)> = vec![];
+            let duplicates = config_args_as_tuples.into_iter().fold(
+                duplicates,
+                |mut so_far, (param_name, value)| {
+                    match dedup_assert_hashmap.entry(param_name) {
+                        Entry::Occupied(occupied_entry) => {
+                            so_far.push((occupied_entry.key().to_string(), value))
+                        }
+                        Entry::Vacant(vacant) => {
+                            let _ = vacant.insert(value);
+                        }
+                    };
+                    so_far
+                },
             );
+            assert!(
+                duplicates.is_empty(),
+                "You supplied additional arguments with some of \
+                them duplicated, use each only once! Duplicates: {:?}",
+                duplicates
+            );
+            dedup_assert_hashmap
         }
 
         let config_args_as_tuples = Self::virtual_arg_pairs_with_remembered_position(config_args);
-        test_uniqueness_for_config_args(&config_args_as_tuples);
-        let config_args: HashMap<String, PositionedArg> = HashMap::from_iter(config_args_as_tuples);
+        let config_args: HashMap<String, PositionedArg> =
+            test_uniqueness_for_config_args(config_args_as_tuples);
         let default_args_to_keep = retain_unconfigured_default_args(default_args, &config_args);
         default_args_to_keep
             .into_iter()
-            .chain(
-                config_args,
-            )
+            .chain(config_args)
             .sorted_by(|(_, positioned_arg_a), (_, positioned_arg_b)| {
                 Ord::cmp(
                     &positioned_arg_a.remembered_position,
@@ -719,33 +720,21 @@ mod tests {
 
     #[test]
     fn extend_without_duplication_handles_ending_parameter_with_no_value() {
-        let default_args = slice_of_strs_to_vec_of_strings(&[
-            "--arg1",
-            "value1"
-        ]);
-        let args_extension = slice_of_strs_to_vec_of_strings(&[
-            "--arg2",
-            "value2",
-            "--arg3",
-        ]);
+        let default_args = slice_of_strs_to_vec_of_strings(&["--arg1", "value1"]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&["--arg2", "value2", "--arg3"]);
 
         let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
 
-        let expected_args = slice_of_strs_to_vec_of_strings(&[
-            "--arg1",
-            "value1",
-            "--arg2",
-            "value2",
-            "--arg3",
-        ]);
+        let expected_args =
+            slice_of_strs_to_vec_of_strings(&["--arg1", "value1", "--arg2", "value2", "--arg3"]);
         assert_eq!(result, expected_args)
     }
 
     #[test]
     #[should_panic(
         expected = "You supplied additional arguments with some of them duplicated, \
-    use each only once! [(\"--whatever-arg\", Some(\"789\")), (\"--unique-arg\", Some(\"blah\")), \
-    (\"--final-arg\", Some(\"false\")), (\"--unique-arg\", Some(\"booga\"))]"
+    use each only once! Duplicates: [(\"--unique-arg\", PositionedArg { arg_opt: Some(\"booga\"), \
+     remembered_position: 6 })]"
     )]
     fn extend_without_duplication_catches_duplicated_config_arg() {
         let default_args =

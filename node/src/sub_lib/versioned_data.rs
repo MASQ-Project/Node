@@ -782,8 +782,10 @@ mod tests {
         let result = subject.migrate(vec![]);
 
         let expected_future_version = dv!(4, 4);
+        // macros migrate_item and migrate_value have both the same method migrate(),
+        // but there is a difference in structure of the returned error, one returns always
+        // FUTURE_VERSION the second differs, this is the proof of testing two different macro impls
         assert_ne!(expected_future_version, FUTURE_VERSION);
-        // Proof of this implementation was done through migrate_item! macro
         assert_eq!(
             result,
             Err(StepError::DeserializationError(
