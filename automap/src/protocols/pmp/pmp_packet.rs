@@ -50,7 +50,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResultCode {
     Success,
     UnsupportedVersion,

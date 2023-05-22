@@ -310,7 +310,7 @@ impl SetupReporterReal {
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(combined_setup, vec![]);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config = match Self::make_multi_config(
             self.dirs_wrapper.as_ref(),
             Some(command_line),
@@ -383,7 +383,7 @@ impl SetupReporterReal {
         }
     }
 
-    fn make_command_line(setup: &SetupCluster, blanked_out_params: Vec<String>) -> Vec<String> {
+    fn make_command_line(setup: &SetupCluster) -> Vec<String> {
         let accepted_statuses = vec![Set, Configured];
         let mut command_line = setup
             .iter()
@@ -391,9 +391,6 @@ impl SetupReporterReal {
             .flat_map(|(_, v)| vec![format!("--{}", v.name), v.value.clone()])
             .collect::<Vec<String>>();
         command_line.insert(0, "program_name".to_string());
-        blanked_out_params
-            .iter()
-            .for_each(|blanked_param| command_line.push(format!("--{}", blanked_param)));
         command_line
     }
 
@@ -824,7 +821,7 @@ impl ValueRetriever for MappingProtocol {
             bootstrapper_config.mapping_protocol_opt,
             persistent_config.mapping_protocol(),
         ) {
-            (_, Err(e)) => todo!("Error retrieving mapping protocol from database: {:?}", e),
+            (_, Err(e)) => panic!("Error retrieving mapping protocol from database: {:?}", e),
             (Some(from_config), _) => Some((from_config.to_string().to_lowercase(), Configured)),
             (None, Ok(Some(from_database))) => {
                 Some((from_database.to_string().to_lowercase(), Configured))
@@ -2531,7 +2528,6 @@ mod tests {
             .unwrap();
 
         let setup = vec![
-            // blanked-out config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new(
                 "data-directory",

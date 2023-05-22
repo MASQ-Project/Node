@@ -4055,7 +4055,7 @@ mod tests {
             1,
         );
 
-        TestLogHandler::new().exists_log_containing("27-Node Gossip from new-IP Node absorbed");
+        TestLogHandler::new().exists_log_containing("1-Node Gossip from new-IP Node absorbed");
     }
 
     #[test]

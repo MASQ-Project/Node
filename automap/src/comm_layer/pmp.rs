@@ -544,7 +544,7 @@ impl ThreadGuts {
                                 "Remapping after IP change failed; Node is useless: {:?}",
                                 result_code
                             );
-                            error!(&self.logger, "{}\n{:?}", err_msg, packet);
+                            error!(&self.logger, "{}\n{:?}", err_msg, &response);
                             let automap_error = if result_code.is_permanent() {
                                 AutomapError::PermanentMappingError(err_msg)
                             } else {
@@ -554,7 +554,7 @@ impl ThreadGuts {
                         }
                         None => {
                             let err_msg = "Remapping after IP change failed; Node is useless: Received request when expecting response".to_string();
-                            error!(&self.logger, "{}\n{:?}", err_msg, packet);
+                            error!(&self.logger, "{}\n{:?}", err_msg, &response);
                             self.change_handler.as_ref()(AutomapChange::Error(
                                 AutomapError::ProtocolError(err_msg),
                             ));
