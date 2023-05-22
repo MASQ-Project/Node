@@ -279,5 +279,5 @@ jobs:
 
       - name: Deploy to S3 and invalidate CloudFront
         run: |
-          aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
+          aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH-') && github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
           aws cloudfront create-invalidation --distribution-id ${{ secrets.DISTRIBUTION }} --paths '/Node/*'

@@ -1,0 +1,58 @@
+name: Release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+        release_version:
+            description: 'Version number for the release'
+            required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set version variables
+        run: |
+          echo "current_version=$(cat ./Cargo.toml | grep "version = " -m 1 | awk -F'"' '{print $2}')" >> $GITHUB_ENV
+          echo "release_version=${{ inputs.release_version }}" >> $GITHUB_ENV
+          echo ${{ env.current_version }}
+          echo ${{ env.release_version }}
+
+      #- name: Create release
+      #  id: create_release
+      #  uses: actions/create-release@v1
+      #  with:
+      #    tag_name: v${{ github.run_number }}
+      #    release_name: Release v${{ github.run_number }}
+      #    draft: false
+      #    prerelease: false
+
+      #- name: Upload release artifact
+      #  uses: actions/upload-release-asset@v1
+      #  with:
+      #    upload_url: ${{ steps.create_release.outputs.upload_url }}
+      #    asset_path: ./your-artifact
+      #    asset_name: your-artifact
+
+      #- name: Sync release to S3 stable
+      #  run: |
+      #    aws s3 sync ./your-artifact s3://${{ env.S3_BUCKET }}/stable
+
+      #- name: Sync release to S3 tagged
+      #  run: |
+      #    aws s3 sync ./your-artifact s3://${{ env.S3_BUCKET }}/v${{ github.run_number }}
+
+      #- name: Sync PR to S3 branch
+      #  if: github.event_name == 'pull_request'
+      #  run: |
+      #    aws s3 sync ./your-artifact s3://${{ env.S3_BUCKET }}/${{ github.head_ref }}
