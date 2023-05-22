@@ -741,10 +741,10 @@ mod tests {
     }
 
     #[test]
-    fn log_file_heading_print_right_formatt() {
+    fn log_file_heading_print_right_format() {
         let heading_result = Logger::log_file_heading();
 
-        let mut expected_headding_regex = format!(
+        let mut expected_heading_regex = format!(
             r#"^
           _____ ______  ________   ________   _______          Node Version: \d\.\d\.\d
         /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
@@ -766,20 +766,20 @@ mod tests {
 
         let replace_rules = vec![("(", "\\("), (")", "\\)"), ("|", "\\|")];
         replace_rules.into_iter().for_each(|x| {
-            expected_headding_regex = expected_headding_regex.replace(x.0, x.1);
+            expected_heading_regex = expected_heading_regex.replace(x.0, x.1);
         });
 
-        let regex = Regex::new(&expected_headding_regex).unwrap();
+        let regex = Regex::new(&expected_heading_regex).unwrap();
         assert!(
             regex.is_match(&heading_result),
             "We expected this regex to match: {} but we got this text output {}",
-            expected_headding_regex,
+            expected_heading_regex,
             heading_result
         );
     }
 
     #[test]
-    fn data_version_pretty_print_preductise_right_formatt() {
+    fn data_version_pretty_print_preductise_right_format() {
         let data_version = DataVersion { major: 0, minor: 1 };
 
         let result = Logger::data_version_pretty_print(data_version);

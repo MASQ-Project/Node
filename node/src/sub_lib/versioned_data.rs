@@ -760,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_fails_to_parse_cbor_value() {
+    fn migrate_value_fails_to_parse_cbor_value() {
         let subject = PersonMFv44 {};
 
         let result = subject.migrate(vec![]);
@@ -776,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate() {
+    fn migrate_item_fails_to_parse_cbor_value() {
         let subject = PersonM44v45 {};
 
         let result = subject.migrate(vec![]);

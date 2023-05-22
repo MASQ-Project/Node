@@ -89,7 +89,6 @@ serial_test = "0.5.1"
 trust-dns-proto = "0.8.0"
 
 [[bin]]
-#[warn(non_snake_case)]
 name = "MASQNode"
 path = "src/main.rs"
 

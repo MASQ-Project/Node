@@ -33,8 +33,8 @@ pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
 //Migration versions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// If your adding a new constant here.
-// Please added it to the check_limits_of_data_versions_const Test.
+// If you're adding, a new constant here.
+// Please add it. to test: check_limits_of_data_versions_const.
 pub const CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
 pub const CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
 pub const DNS_RESOLVER_FAILURE_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
