@@ -790,6 +790,7 @@ mod tests {
                 // macros migrate_item and migrate_value have both the same method migrate(), where the implementation of this
                 // kind of error differs in the initial entry; either some specific version or the constant FUTURE_VERSION
                 assert_ne!(previous_data_version, FUTURE_VERSION);
+                assert_eq!(previous_data_version, dv!(4, 4));
                 assert_eq!(next_data_version, dv!(4, 5));
                 assert_eq!(
                     error_msg,
