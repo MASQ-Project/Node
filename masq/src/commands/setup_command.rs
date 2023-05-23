@@ -158,10 +158,7 @@ impl SetupCommand {
             "data-directory" => {
                 let path = PathBuf::from(value.value.clone());
                 let checked_dir_path = match value.status {
-                    UiSetupResponseValueStatus::Default => add_chain_specific_directories(
-                        Chain::from(chain_name),
-                        path.as_path()
-                    ),
+                    UiSetupResponseValueStatus::Default => path,
                     UiSetupResponseValueStatus::Set => add_chain_specific_directory(
                         Chain::from(chain_name),
                         path.as_path()
