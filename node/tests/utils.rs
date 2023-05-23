@@ -492,13 +492,13 @@ impl MASQNode {
             let none_added_for_end_param_without_value = with_the_first_cut.chain(once(None));
             none_added_for_end_param_without_value
         };
-        let params_and_yet_suspected_arg = {
+        let params_and_yet_suspected_args = {
             let zipped = args.into_iter().zip(shifted_by_one.enumerate());
             let ignored_anomalies_with_value_at_the_first_position =
                 zipped.filter(|(param, _)| param.starts_with("--"));
             ignored_anomalies_with_value_at_the_first_position
         };
-        params_and_yet_suspected_arg
+        params_and_yet_suspected_args
             .map(|(param_name, (original_position, suspected_arg_opt))| {
                 let construct_positioned_arg = |val_opt| {
                     (
@@ -544,7 +544,7 @@ impl MASQNode {
                 })
                 .collect()
         }
-        fn test_uniqueness_for_config_args(
+        fn hash_map_with_panic_on_duplicated_params(
             config_args_as_tuples: Vec<(String, PositionedArg)>,
         ) -> HashMap<String, PositionedArg> {
             let mut dedup_assert_hashmap = HashMap::new();
@@ -574,7 +574,7 @@ impl MASQNode {
 
         let config_args_as_tuples = Self::virtual_arg_pairs_with_remembered_position(config_args);
         let config_args: HashMap<String, PositionedArg> =
-            test_uniqueness_for_config_args(config_args_as_tuples);
+            hash_map_with_panic_on_duplicated_params(config_args_as_tuples);
         let default_args_to_keep = retain_unconfigured_default_args(default_args, &config_args);
         default_args_to_keep
             .into_iter()
