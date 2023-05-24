@@ -4,7 +4,7 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -170,6 +170,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     ) -> Result<(), PersistentConfigError> {
         self.set_mapping_protocol_params.lock().unwrap().push(value);
         self.set_mapping_protocol_results.borrow_mut().remove(0)
+    }
+
+    fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
+        todo!()
+    }
+
+    fn set_min_hops_count(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
+        todo!()
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {

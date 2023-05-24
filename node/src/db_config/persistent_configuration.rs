@@ -13,7 +13,7 @@ use crate::db_config::typed_config_layer::{
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -118,6 +118,8 @@ pub trait PersistentConfiguration {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError>;
+    fn min_hops_count(&self) -> Result<Hops, PersistentConfigError>;
+    fn set_min_hops_count(&mut self, value: Hops) -> Result<(), PersistentConfigError>;
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
     fn set_neighborhood_mode(
         &mut self,
@@ -333,6 +335,20 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self
             .dao
             .set("mapping_protocol", value.map(|v| v.to_string()))?)
+    }
+
+    fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
+        let result = self.get("min_hops_count")?.map(|val| Hops::from_str(&val));
+        match result {
+            None => Err(PersistentConfigError::NotPresent),
+            Some(Ok(hops)) => Ok(hops),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)), // This match arm is not tested, not even at other places
+        }
+    }
+
+    fn set_min_hops_count(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
+        let value = format!("{}", value as usize);
+        Ok(self.dao.set("min_hops_count", Some(value))?)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -1683,6 +1699,52 @@ mod tests {
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(*set_params, vec![("mapping_protocol".to_string(), None)]);
+    }
+
+    #[test]
+    fn min_hops_count_works() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "min_hops_count",
+            Some("3"),
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let min_hops_count = subject.min_hops_count().unwrap();
+
+        assert_eq!(min_hops_count, Hops::ThreeHops);
+    }
+
+    #[test]
+    fn set_min_hops_count_to_some() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_min_hops_count(Hops::TwoHops);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("min_hops_count".to_string(), Some("2".to_string()))]
+        );
+    }
+
+    #[test]
+    fn throws_err_when_min_hops_count_value_is_missing() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "min_hops_count",
+            None,
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.min_hops_count();
+
+        assert_eq!(result, Err(PersistentConfigError::NotPresent))
     }
 
     #[test]
