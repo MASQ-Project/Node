@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+    use crate::database::db_initializer::ExternalData;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -169,6 +169,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};

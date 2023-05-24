@@ -13,8 +13,10 @@ use flexi_logger::{
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
+use log::{log, Level};
 use masq_lib::command::StdStreams;
-use masq_lib::logger::real_format_function;
+use masq_lib::logger;
+use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
@@ -191,6 +193,14 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
+
+        // Info level is not shown within the log
+        log!(Level::Info, "{}", logger::Logger::log_file_heading());
+
+        unsafe {
+            // This resets the format function after specialized formatting for the log heading is used.
+            POINTER_TO_FORMAT_FUNCTION = real_format_function;
+        }
     }
 }
 
@@ -269,7 +279,8 @@ fn format_function(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, OffsetDateTime::now_utc(), record)
+    let pointer_to_format_function = unsafe { POINTER_TO_FORMAT_FUNCTION };
+    pointer_to_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]

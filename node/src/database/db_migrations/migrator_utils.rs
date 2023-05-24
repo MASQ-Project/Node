@@ -1,8 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
+use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Error, ToSql, Transaction};
