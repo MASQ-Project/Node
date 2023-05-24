@@ -381,6 +381,7 @@ pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
+    #[cfg(test)]
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
@@ -428,6 +429,7 @@ pub enum NodeQueryMessage {
     PublicKey(PublicKey),
 }
 
+#[cfg(test)]
 impl Message for NodeQueryMessage {
     type Result = Option<NodeQueryResponseMetadata>;
 }

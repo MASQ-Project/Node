@@ -151,29 +151,6 @@ impl Handler<SetConsumingWalletMessage> for Neighborhood {
     }
 }
 
-impl Handler<NodeQueryMessage> for Neighborhood {
-    type Result = MessageResult<NodeQueryMessage>;
-
-    fn handle(
-        &mut self,
-        msg: NodeQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        let node_record_ref_opt = match msg {
-            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(&ip_addr),
-            NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
-        };
-
-        MessageResult(node_record_ref_opt.map(|node_record_ref| {
-            NodeQueryResponseMetadata::new(
-                node_record_ref.public_key().clone(),
-                node_record_ref.node_addr_opt(),
-                *node_record_ref.rate_pack(),
-            )
-        }))
-    }
-}
-
 impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
     type Result = ();
 
@@ -495,6 +472,7 @@ impl Neighborhood {
             bind: addr.clone().recipient::<BindMessage>(),
             start: addr.clone().recipient::<StartMessage>(),
             new_public_ip: addr.clone().recipient::<NewPublicIp>(),
+            #[cfg(test)]
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
@@ -1651,6 +1629,31 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    impl Handler<NodeQueryMessage> for Neighborhood {
+        type Result = MessageResult<NodeQueryMessage>;
+
+        fn handle(
+            &mut self,
+            msg: NodeQueryMessage,
+            _ctx: &mut Self::Context,
+        ) -> <Self as Handler<NodeQueryMessage>>::Result {
+            let node_record_ref_opt = match msg {
+                NodeQueryMessage::IpAddress(ip_addr) => {
+                    self.neighborhood_database.node_by_ip(&ip_addr)
+                }
+                NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
+            };
+
+            MessageResult(node_record_ref_opt.map(|node_record_ref| {
+                NodeQueryResponseMetadata::new(
+                    node_record_ref.public_key().clone(),
+                    node_record_ref.node_addr_opt(),
+                    *node_record_ref.rate_pack(),
+                )
+            }))
+        }
+    }
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -5977,35 +5980,5 @@ mod tests {
         ));
 
         neighborhood
-    }
-
-    pub struct NeighborhoodDatabaseMessage {}
-
-    impl Message for NeighborhoodDatabaseMessage {
-        type Result = NeighborhoodDatabase;
-    }
-
-    impl<A, M> MessageResponse<A, M> for NeighborhoodDatabase
-    where
-        A: Actor,
-        M: Message<Result = NeighborhoodDatabase>,
-    {
-        fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-            if let Some(tx) = tx {
-                tx.send(self);
-            }
-        }
-    }
-
-    impl Handler<NeighborhoodDatabaseMessage> for Neighborhood {
-        type Result = NeighborhoodDatabase;
-
-        fn handle(
-            &mut self,
-            _msg: NeighborhoodDatabaseMessage,
-            _ctx: &mut Self::Context,
-        ) -> Self::Result {
-            self.neighborhood_database.clone()
-        }
     }
 }
