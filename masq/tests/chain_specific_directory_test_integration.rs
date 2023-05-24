@@ -38,8 +38,9 @@ fn ensure_data_directory_has_specific_chain_direcotry_within() {
     stdin_handle.type_command("exit");
 
     let (stdout2, _stderr2, _exit_code2) = masq_handle2.stop();
-
-    if !stdout2.contains("/home/booga/masqhome/polygon-mainnet                    Set") {
+    let expected = format!("{:29} {:64} {}", "data-directory", "/home/booga/masqhome/polygon-mainnet", "Set" );
+    if !stdout2.contains(&expected) {
+        println!("\nstdout: {} \n", stdout2);
         panic!("Wrong directory: missing chain specific directory when Set");
     }
 

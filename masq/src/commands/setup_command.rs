@@ -9,7 +9,7 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
-use masq_lib::utils::{add_chain_specific_directories, add_chain_specific_directory, index_of_from};
+use masq_lib::utils::{add_chain_specific_directory, index_of_from};
 use std::iter::Iterator;
 #[cfg(test)]
 use std::any::Any;
