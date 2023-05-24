@@ -150,8 +150,6 @@ impl SetupCommand {
                 "NOTE: your data directory was modified to match chain parameter.\n"
             );
         }
-        //TODO write tests for different statuses
-        //TODO write integration test to ensure this will be workind properly after change of daemon in new integration test file in "test"
     }
     fn match_value_value(value: UiSetupResponseValue, chain_name: &str) -> String {
         let value_tmp = match value.name.as_str() {

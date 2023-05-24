@@ -24,23 +24,23 @@ fn ensure_data_directory_has_specific_chain_direcotry_within() {
     let (stdout, _stderr, _exit_code) = masq_handle.stop();
 
     if stdout.contains("MASQ/polygon-mainnet/MASQ/polygon-mainnet Default") {
-        panic!("Wrong directory: MASQ/polygon-mainnet/MASQ/polygon-mainnet when Default");
+        panic!("Wrong directory: duplication of /MASQ/polygon-mainnet when Default");
     }
 
     let mut masq_handle2 = MasqProcess::new().start_interactive(port, true);
 
     let mut stdin_handle = masq_handle2.create_stdin_handle();
 
-    stdin_handle.type_command("setup --data-directory /Users/vojtechparkan/masqhome");
+    stdin_handle.type_command("setup --data-directory /home/booga/masqhome");
 
     thread::sleep(Duration::from_millis(1000));
 
     stdin_handle.type_command("exit");
 
-    let (stdout2, stderr2, exit_code2) = masq_handle2.stop();
+    let (stdout2, _stderr2, _exit_code2) = masq_handle2.stop();
 
-    if !stdout2.contains("masqhome/polygon-mainnet                    Set") {
-        panic!("Wrong directory: MASQ/polygon-mainnet/MASQ/polygon-mainnet when Default");
+    if !stdout2.contains("/home/booga/masqhome/polygon-mainnet                    Set") {
+        panic!("Wrong directory: missing chain specific directory when Set");
     }
 
     daemon_handle.kill();
