@@ -1554,8 +1554,6 @@ impl<'a> ComputedRouteSegment<'a> {
 
 #[cfg(test)]
 mod tests {
-    use actix::dev::{MessageResponse, ResponseChannel};
-    use actix::Message;
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
