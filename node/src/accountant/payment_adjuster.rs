@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::comma_joined_stringifiable;
+use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::accountant::payable_dao::PayableAccount;
-use crate::accountant::{comma_joined_stringifiable, ConsumingWalletBalancesAndQualifiedPayables};
 use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -61,7 +62,12 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
-        let debug_log_printer_opt = logger.debug_enabled().then_some(Self::before_and_after_debug_msg_printer(&msg.qualified_payables));
+        let debug_log_printer_opt =
+            logger
+                .debug_enabled()
+                .then_some(Self::before_and_after_debug_msg_printer(
+                    &msg.qualified_payables,
+                ));
 
         let accounts_with_zero_criteria = Self::initialize_zero_criteria(msg.qualified_payables);
         let accounts_with_individual_criteria =
@@ -205,15 +211,17 @@ impl PaymentAdjusterReal {
         todo!()
     }
 
-    fn before_and_after_debug_msg_printer(before: &[PayableAccount]) -> impl Fn(&[PayableAccount])-> String{
-            let accounts_before = Self::format_brief_accounts_summary(before);
-            move |adjusted_balances: &[PayableAccount]| {
-                format!(
-                    "Original payable accounts {}, accounts after the adjustment {}",
-                    accounts_before,
-                    Self::format_brief_accounts_summary(adjusted_balances)
-                )
-            }
+    fn before_and_after_debug_msg_printer(
+        before: &[PayableAccount],
+    ) -> impl Fn(&[PayableAccount]) -> String {
+        let accounts_before = Self::format_brief_accounts_summary(before);
+        move |adjusted_balances: &[PayableAccount]| {
+            format!(
+                "Original payable accounts {}, accounts after the adjustment {}",
+                accounts_before,
+                Self::format_brief_accounts_summary(adjusted_balances)
+            )
+        }
     }
 
     fn log_adjustment_required(
@@ -242,12 +250,12 @@ fn log_10(num: u128) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::gwei_to_wei;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::{
         log_10, PaymentAdjuster, PaymentAdjusterReal, MULTI_COEFF_BY_100,
     };
     use crate::accountant::test_utils::make_payable_account;
-    use crate::accountant::{gwei_to_wei, ConsumingWalletBalancesAndQualifiedPayables};
     use crate::sub_lib::blockchain_bridge::{
         ConsumingWalletBalances, OutcomingPayamentsInstructions,
     };
@@ -258,6 +266,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use std::vec;
     use web3::types::U256;
+    use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
@@ -24,10 +25,9 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::PendingPayableId;
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, Accountant,
-    ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments, ReportTransactionReceipts,
-    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-    ScanForReceivables, SentPayables,
+    comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
+    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};

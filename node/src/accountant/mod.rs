@@ -25,15 +25,16 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
 use crate::accountant::dao_utils::{
-    remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
+    CustomQuery, DaoFactoryReal, remap_payable_accounts, remap_receivable_accounts,
 };
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
+use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{ScanTimings, Scanners};
+use crate::accountant::scanners::{Scanners, ScanTimings};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -81,7 +82,7 @@ use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
-use web3::types::{TransactionReceipt, H256};
+use web3::types::{H256, TransactionReceipt};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -135,13 +136,6 @@ pub struct ReceivedPayments {
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayables {
     pub payment_procedure_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
-    pub response_skeleton_opt: Option<ResponseSkeleton>,
-}
-
-#[derive(Debug, Message, PartialEq, Eq, Clone)]
-pub struct ConsumingWalletBalancesAndQualifiedPayables {
-    pub qualified_payables: Vec<PayableAccount>,
-    pub consuming_wallet_balances: ConsumingWalletBalances,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1014,7 +1008,7 @@ pub mod check_sqlite_fns {
 mod tests {
     use super::*;
     use crate::accountant::dao_utils::from_time_t;
-    use crate::accountant::dao_utils::{to_time_t, CustomQuery};
+    use crate::accountant::dao_utils::{CustomQuery, to_time_t};
     use crate::accountant::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
@@ -1025,8 +1019,8 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        BannedDaoFactoryMock, bc_from_earning_wallet, bc_from_wallets, make_payable_account,
+        make_payables, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
         PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
@@ -1035,11 +1029,11 @@ mod tests {
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
-    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::blockchain::test_utils::{BlockchainInterfaceMock, make_tx_hash};
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
-        ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
-        DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_PAYMENT_THRESHOLDS, ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed,
+        ScanIntervals,
     };
     use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
@@ -1050,8 +1044,8 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, make_bc_with_defaults,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        assert_on_initialization_with_panic_on_migration, AssertionsMessage,
+        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Arbiter, System};

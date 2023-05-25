@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::accountant::{
-    ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments, ResponseSkeleton, ScanError,
-    SentPayables, SkeletonOptHolder,
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
@@ -497,7 +497,6 @@ mod tests {
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
-    use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
