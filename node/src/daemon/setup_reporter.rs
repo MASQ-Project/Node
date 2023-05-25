@@ -830,6 +830,13 @@ impl ValueRetriever for MappingProtocol {
     }
 }
 
+struct MinHops {}
+impl ValueRetriever for MinHops {
+    fn value_name(&self) -> &'static str {
+        "min-hops"
+    }
+}
+
 struct NeighborhoodMode {}
 impl ValueRetriever for NeighborhoodMode {
     fn value_name(&self) -> &'static str {
@@ -1056,6 +1063,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(Ip {}),
         Box::new(LogLevel {}),
         Box::new(MappingProtocol {}),
+        Box::new(MinHops {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
         Box::new(PaymentThresholds {}),
@@ -1275,6 +1283,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
+            ("min-hops", "3", Configured), // TODO: GH-698: This should be changed to Default after this card is played
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
@@ -1339,6 +1348,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
@@ -1368,6 +1378,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
@@ -1407,6 +1418,7 @@ mod tests {
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
             ("mapping-protocol", "igdp"),
+            ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
@@ -1440,6 +1452,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "igdp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
@@ -1480,6 +1493,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
+            ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
@@ -1511,6 +1525,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pmp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
@@ -1566,6 +1581,7 @@ mod tests {
             config_file
                 .write_all(b"mapping-protocol = \"pcp\"\n")
                 .unwrap();
+            config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
@@ -1608,6 +1624,7 @@ mod tests {
             config_file
                 .write_all(b"mapping-protocol = \"pmp\"\n")
                 .unwrap();
+            config_file.write_all(b"min-hops = \"2\"\n").unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
@@ -1670,6 +1687,7 @@ mod tests {
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
             ("mapping-protocol", "pmp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
             (
@@ -1722,6 +1740,7 @@ mod tests {
             ("MASQ_GAS_PRICE", "50"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
+            ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
@@ -1746,6 +1765,7 @@ mod tests {
             "ip",
             "log-level",
             "mapping-protocol",
+            "min-hops",
             "neighborhood-mode",
             "neighbors",
             "payment-thresholds",
@@ -1780,6 +1800,7 @@ mod tests {
             ("ip", "1.2.3.4", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pcp", Set),
+            ("min-hops", "4", Set),
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
@@ -1817,6 +1838,7 @@ mod tests {
             ("ip","", Blank),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pcp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
@@ -3326,6 +3348,7 @@ mod tests {
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
         assert_eq!(MappingProtocol {}.is_required(&params), false);
+        assert_eq!(MinHops {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(
@@ -3358,6 +3381,7 @@ mod tests {
         assert_eq!(Ip {}.value_name(), "ip");
         assert_eq!(LogLevel {}.value_name(), "log-level");
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
+        assert_eq!(MinHops {}.value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
         assert_eq!(
