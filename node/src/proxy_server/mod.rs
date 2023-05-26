@@ -267,7 +267,7 @@ impl ProxyServer {
             return_route_info
                 .find_exit_node_key()
                 .unwrap_or_else(|| {
-                    if self.is_decentralized {
+                    if !self.is_decentralized {
                         self_public_key
                     } else {
                         panic!(
@@ -297,17 +297,17 @@ impl ProxyServer {
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
-                //TODO we want to put our new logic here (GH-651)
-                let dns_failures_retries_config = match self.dns_failure_retries.get(&response.stream_key){
-                    Some(retries) => match retries.retries_left{
-                        0 => todo!("continue with doing the stuff we used to do originally \
-                         (that is the code below here, I believe that is when we want to reach the browser and give it the DNS failure); \
-                            in other words, we did our best with multiple retries and all failed"),
-                        _ => todo!(retry the sending of this request (cloned if retries != 1) stored in the hashmap,
-                            querying a new route from Neighborhood; don't forget to decrement the number of retries)
-                    }
-                    None => todo!("my feeling is the code is broken in such a case...maybe even panic")
-                };
+                // //TODO we want to put our new logic here (GH-651)
+                // let dns_failures_retries_config = match self.dns_failure_retries.get(&response.stream_key){
+                //     Some(retries) => match retries.retries_left{
+                //         0 => todo!("continue with doing the stuff we used to do originally \
+                //          (that is the code below here, I believe that is when we want to reach the browser and give it the DNS failure); \
+                //             in other words, we did our best with multiple retries and all failed"),
+                //         _ => todo!("retry the sending of this request (cloned if retries != 1) stored in the hashmap,
+                //             querying a new route from Neighborhood; don't forget to decrement the number of retries")
+                //     }
+                //     None => todo!("my feeling is the code is broken in such a case...maybe even panic")
+                // };
                 self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
@@ -1030,9 +1030,9 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
     }
 }
 
-struct DNSFailureRetry{
+struct DNSFailureRetry {
     unsuccessful_request: ClientRequestPayload_0v1,
-    retries_left: usize
+    retries_left: usize,
 }
 
 #[cfg(test)]
@@ -4038,9 +4038,7 @@ mod tests {
     fn handle_dns_resolve_failure_logs_when_stream_key_and_server_name_are_both_missing() {
         init_test_logging();
         let system = System::new("test");
-
         let (neighborhood_mock, _, _) = make_recorder();
-
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4049,15 +4047,12 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-
         let stream_key = make_meaningless_stream_key();
         let return_route_id = 1234;
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
-
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
         let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
@@ -4073,11 +4068,8 @@ mod tests {
                 hostname_opt: None,
             },
         );
-
         let subject_addr: Addr<ProxyServer> = subject.start();
-
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
-
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -4086,25 +4078,20 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-
         let already_used_expired_cores_package = expired_cores_package.clone();
-
         let mut peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
-
         subject_addr
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
         System::current().stop();
         system.run();
-
         TestLogHandler::new().exists_log_containing(
             &format!(
                 "Discarding DnsResolveFailure message for <unspecified_server> from an unrecognized stream key {:?}",
@@ -4118,7 +4105,6 @@ mod tests {
         let cryptde = main_cryptde();
         let (neighborhood_mock, _, _) = make_recorder();
         let (dispatcher_mock, _, _) = make_recorder();
-
         let mut subject = ProxyServer::new(
             cryptde,
             alias_cryptde(),
@@ -4127,7 +4113,6 @@ mod tests {
             false,
         );
         subject.subs = Some(make_proxy_server_out_subs());
-
         let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .dispatcher(dispatcher_mock)
@@ -4135,7 +4120,6 @@ mod tests {
         subject.subs.as_mut().unwrap().update_node_record_metadata =
             peer_actors.neighborhood.update_node_record_metadata;
         subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
-
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
@@ -4155,13 +4139,15 @@ mod tests {
             1234,
             AddReturnRouteMessage {
                 return_route_id: 1234,
-                expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                expected_services: vec![
+                    make_exit_service_from_key(PublicKey::new(b"exit_node")),
+                    ExpectedService::Nothing,
+                ],
                 protocol: ProxyProtocol::HTTP,
                 hostname_opt: None,
             },
         );
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
-
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -4176,6 +4162,79 @@ mod tests {
         assert!(subject.keys_and_addrs.is_empty());
         assert!(subject.stream_key_routes.is_empty());
         assert!(subject.tunneled_hosts.is_empty());
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_zero_hop() {
+        let system = System::new("handle_dns_resolve_failure_zero_hop");
+        let (dispatcher_mock, _, dispatcher_recording_arc) = make_recorder();
+        let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
+        let cryptde = main_cryptde();
+        let this_node_public_key = cryptde.public_key();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            false, //meaning ZeroHop
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                protocol: ProxyProtocol::HTTP,
+                hostname_opt: Some("server.com".to_string()),
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).neighborhood(neighborhood_mock).build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let msg = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        assert_eq!(
+            msg,
+            &NodeRecordMetadataMessage {
+                public_key: this_node_public_key.clone(),
+                metadata_change: NRMetadataChange::AddUnreachableHost {
+                    hostname: "server.com".to_string()
+                }
+            }
+        );
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        assert_eq!(
+            TransmitDataMsg {
+                endpoint: Endpoint::Socket(socket_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data: ServerImpersonatorHttp {}.dns_resolution_failure_response(
+                    this_node_public_key,
+                    Some("server.com".to_string()),
+                ),
+            },
+            *record
+        );
     }
 
     #[test]
