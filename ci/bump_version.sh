@@ -2,11 +2,11 @@
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
-GRAY='\033[0;37m'
+#YELLOW='\033[0;33m'
+#BLUE='\033[0;34m'
+#MAGENTA='\033[0;35m'
+#GRAY='\033[0;37m'
 
 # Reset output color to the default
 NC='\033[0m'
@@ -18,7 +18,7 @@ then
 fi
 
 version="$1"
-regex="^[0-9]+\.[0-9]+\.[0-9]+$"
+regex="^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
 
 if [[ $version =~ $regex ]]; then
   echo -e "${CYAN}Changing to the version number $version${NC}"
