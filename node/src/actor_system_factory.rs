@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
@@ -636,8 +635,8 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
+    use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::sub_lib::neighborhood::{Hops, NeighborhoodMode};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
@@ -1092,8 +1091,9 @@ mod tests {
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
-        let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
+        let persistent_config = PersistentConfigurationMock::default()
+            .chain_name_result("eth-ropsten".to_string())
+            .set_min_hops_count_result(Ok(()));
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde()),
             &Some(alias_cryptde()),
@@ -1181,7 +1181,7 @@ mod tests {
         let set_min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_count_params(&set_min_hops_count_params_arc)
-            .set_mapping_protocol_result(Ok(()));
+            .set_min_hops_count_result(Ok(()));
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1330,7 +1330,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
-            Box::new(PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new().set_min_hops_count_result(Ok(()))),
             Box::new(actor_factory),
         );
 
@@ -1478,7 +1478,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
-            Box::new(PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new().set_min_hops_count_result(Ok(()))),
             Box::new(actor_factory),
         );
 
@@ -1667,7 +1667,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
-            Box::new(PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new().set_min_hops_count_result(Ok(()))),
             Box::new(actor_factory),
         );
 
