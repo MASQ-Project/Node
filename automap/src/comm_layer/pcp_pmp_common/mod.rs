@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-mod finsaas_code;
+mod finsaas_example_code;
 pub mod linux_specific;
 mod macos_specific;
 mod windows_specific;

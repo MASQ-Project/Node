@@ -659,6 +659,7 @@ mod tests {
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
+    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use regex::Regex;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -1260,7 +1261,7 @@ mod tests {
     #[test]
     fn prepare_initial_messages_initiates_global_log_recipient() {
         running_test();
-        let _guard = EnvironmentGuard::new();
+        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap(); // protection from interfering with other logger tests
         let _ = LOG_RECIPIENT_OPT.lock().unwrap().take(); // just so that it's empty
         let actor_factory = ActorFactoryMock::new();
         let mut config = BootstrapperConfig::default();
