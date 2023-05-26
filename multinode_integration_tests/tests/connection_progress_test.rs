@@ -56,9 +56,9 @@ fn connection_progress_is_properly_broadcast() {
         let message_body =
             ui_client.wait_for_specific_broadcast(vec!["connectionChange"], Duration::from_secs(5));
         let (ccb, _) = UiConnectionChangeBroadcast::fmb(message_body).unwrap();
-        assert_eq!(ccb.stage, UiConnectionStage::ThreeHopsRouteFound);
+        assert_eq!(ccb.stage, UiConnectionStage::RouteFound);
     } else {
-        assert_eq!(ccb.stage, UiConnectionStage::ThreeHopsRouteFound);
+        assert_eq!(ccb.stage, UiConnectionStage::RouteFound);
     }
 }
 

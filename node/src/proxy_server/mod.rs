@@ -33,9 +33,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
-};
+use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -952,11 +950,6 @@ impl IBCDHelperReal {
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
-                    if common_args.is_decentralized {
-                        DEFAULT_MINIMUM_HOP_COUNT
-                    } else {
-                        0
-                    },
                     payload_size,
                 ))
                 .then(move |route_result| {
@@ -1290,11 +1283,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                DEFAULT_MINIMUM_HOP_COUNT,
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1416,7 +1405,6 @@ mod tests {
             neighborhood_record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("realdomain.nu".to_string()),
-                DEFAULT_MINIMUM_HOP_COUNT,
                 12
             )
         );
@@ -1813,7 +1801,6 @@ mod tests {
             &RouteQueryMessage {
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
-                minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
                 hostname_opt: Some("nowhere.com".to_string())
@@ -1894,7 +1881,6 @@ mod tests {
             &RouteQueryMessage {
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
-                minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 16,
                 hostname_opt: None
@@ -2207,11 +2193,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                3,
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
     }
 
@@ -2723,11 +2705,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                3,
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
@@ -2899,11 +2877,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                3,
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");

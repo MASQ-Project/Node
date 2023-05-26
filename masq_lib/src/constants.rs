@@ -1,9 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
+use crate::data_version::DataVersion;
 use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
+pub const CURRENT_SCHEMA_VERSION: usize = 7;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -27,6 +29,18 @@ pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
+
+//Migration versions
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// If you're adding a new constant here,
+// please add it to the test: check_limits_of_data_versions_const()
+pub const CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
+pub const CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
+pub const DNS_RESOLVER_FAILURE_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
+pub const GOSSIP_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
+pub const GOSSIP_FAILURE_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
+pub const NODE_RECORD_INNER_CURRENT_VERSION: DataVersion = DataVersion { major: 0, minor: 1 };
 
 //error codes
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -152,5 +166,43 @@ mod tests {
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
+        assert_eq!(
+            CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
+            DataVersion { major: 0, minor: 1 }
+        );
+        assert_eq!(
+            CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
+            DataVersion { major: 0, minor: 1 }
+        );
+        assert_eq!(
+            DNS_RESOLVER_FAILURE_CURRENT_VERSION,
+            DataVersion { major: 0, minor: 1 }
+        );
+        assert_eq!(GOSSIP_CURRENT_VERSION, DataVersion { major: 0, minor: 1 });
+        assert_eq!(
+            GOSSIP_FAILURE_CURRENT_VERSION,
+            DataVersion { major: 0, minor: 1 }
+        );
+        assert_eq!(
+            NODE_RECORD_INNER_CURRENT_VERSION,
+            DataVersion { major: 0, minor: 1 }
+        );
+    }
+
+    #[test]
+    fn check_limits_of_data_versions_const() {
+        [
+            CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
+            CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
+            DNS_RESOLVER_FAILURE_CURRENT_VERSION,
+            GOSSIP_CURRENT_VERSION,
+            GOSSIP_FAILURE_CURRENT_VERSION,
+            NODE_RECORD_INNER_CURRENT_VERSION,
+        ]
+        .into_iter()
+        .for_each(|item| {
+            assert!(item.major <= 4095);
+            assert!(item.minor <= 4095);
+        })
     }
 }
