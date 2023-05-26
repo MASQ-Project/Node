@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
-use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayableScannerPaymentSetupMessage};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -1378,17 +1378,17 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    is_adjustment_required_params: Arc<Mutex<Vec<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>>>,
     is_adjustment_required_results: RefCell<Vec<bool>>,
     adjust_payments_params:
-        Arc<Mutex<Vec<(ConsumingWalletBalancesAndQualifiedPayables, SystemTime)>>>,
+        Arc<Mutex<Vec<(PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>, SystemTime)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPayamentsInstructions>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn is_adjustment_required(
         &self,
-        msg: &ConsumingWalletBalancesAndQualifiedPayables,
+        msg: &PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
     ) -> bool {
         self.is_adjustment_required_params
@@ -1400,7 +1400,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 
     fn adjust_payments(
         &self,
-        msg: ConsumingWalletBalancesAndQualifiedPayables,
+        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
@@ -1412,7 +1412,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+        params: &Arc<Mutex<Vec<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1427,7 +1427,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(ConsumingWalletBalancesAndQualifiedPayables, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self

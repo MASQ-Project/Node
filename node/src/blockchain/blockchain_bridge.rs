@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{PayableScannerPaymentSetupMessage, ConsumingWalletBalancesAndGasPrice};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
@@ -47,7 +47,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt: Option<Recipient<ConsumingWalletBalancesAndQualifiedPayables>>,
+    balances_and_payables_sub_opt: Option<Recipient<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -299,14 +299,14 @@ impl BlockchainBridge {
                 masq_tokens_wei: token_balance,
             }
         };
+        let msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> = (msg, ConsumingWalletBalancesAndGasPrice{
+            consuming_wallet_balances,
+            gas_price: u64::MAX
+        }).into();
         self.balances_and_payables_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
-            .try_send(ConsumingWalletBalancesAndQualifiedPayables {
-                qualified_payables: msg.accounts,
-                consuming_wallet_balances,
-                response_skeleton_opt: msg.response_skeleton_opt,
-            })
+            .try_send(msg)
             .expect("Accountant is dead");
 
         Ok(())
@@ -706,18 +706,18 @@ mod tests {
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &ConsumingWalletBalancesAndQualifiedPayables =
+        let reported_balances_and_qualified_accounts: &PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> =
             accountant_received_payment.get_record(0);
+        let expected_msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> = (RequestBalancesToPayPayables{ accounts: qualified_accounts, response_skeleton_opt: Some(ResponseSkeleton {
+            client_id: 11122,
+            context_id: 444
+        }) },ConsumingWalletBalancesAndGasPrice {
+            consuming_wallet_balances: wallet_balances_found,
+            gas_price: 11111111111111111111111111
+        } ).into();
         assert_eq!(
             reported_balances_and_qualified_accounts,
-            &ConsumingWalletBalancesAndQualifiedPayables {
-                qualified_payables: qualified_accounts,
-                consuming_wallet_balances: wallet_balances_found,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 11122,
-                    context_id: 444
-                })
-            }
+            &expected_msg
         );
     }
 

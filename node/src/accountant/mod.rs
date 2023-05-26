@@ -8,6 +8,7 @@ pub mod payment_adjuster;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
 pub mod scan_mid_procedures;
+pub mod payable_scan_setup_msgs;
 pub mod scanners;
 pub mod scanners_utils;
 
@@ -30,7 +31,7 @@ use crate::accountant::dao_utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
+use payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayableScannerPaymentSetupMessage};
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
@@ -211,12 +212,12 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<ConsumingWalletBalancesAndQualifiedPayables> for Accountant {
+impl Handler<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>> for Accountant {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ConsumingWalletBalancesAndQualifiedPayables,
+        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let instructions = match self.scanners.payable.mid_procedure_soft(msg, &self.logger) {
@@ -478,7 +479,7 @@ impl Accountant {
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_consuming_wallet_balances_and_qualified_payables: recipient!(
                 addr,
-                ConsumingWalletBalancesAndQualifiedPayables
+                PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>
             ),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
@@ -1408,12 +1409,15 @@ mod tests {
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
         let consuming_balances_and_qualified_payments =
-            ConsumingWalletBalancesAndQualifiedPayables {
+            PayableScannerPaymentSetupMessage{
                 qualified_payables: vec![account_1.clone(), account_2.clone()],
-                consuming_wallet_balances: ConsumingWalletBalances {
+                current_stage_data: ConsumingWalletBalancesAndGasPrice {
+                consuming_wallet_balances:
+                ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
+                gas_price: 3333333333333333,},
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1490,7 +1494,12 @@ mod tests {
         let account_2 = make_payable_account(222_222);
         let system = System::new("test");
         let consuming_balances_and_qualified_payments =
-            ConsumingWalletBalancesAndQualifiedPayables {
+        PayableScannerPaymentSetupMessage{
+            qualified_payables: vec![],
+            current_stage_data: (),
+            response_skeleton_opt: None,
+        }
+            ConsumingWalletBalancesAndGasPrice {
                 qualified_payables: vec![account_1.clone(), account_2.clone()],
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),

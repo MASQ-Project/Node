@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
 use crate::accountant::payable_dao::PayableDaoFactory;
 use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::receivable_dao::ReceivableDaoFactory;
@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 use crate::accountant;
 use crate::blockchain::blockchain_bridge;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayableScannerPaymentSetupMessage;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -98,7 +99,7 @@ pub struct AccountantSubs {
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_consuming_wallet_balances_and_qualified_payables:
-        Recipient<ConsumingWalletBalancesAndQualifiedPayables>,
+        Recipient<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
@@ -292,19 +293,5 @@ mod tests {
         let id = subject.id();
 
         assert_eq!(id, 0)
-    }
-}
-
-pub mod inter_actor_communication_for_payable_scanner {
-    use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::ResponseSkeleton;
-    use actix::Message;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
-
-    #[derive(Debug, Message, PartialEq, Eq, Clone)]
-    pub struct ConsumingWalletBalancesAndQualifiedPayables {
-        pub qualified_payables: Vec<PayableAccount>,
-        pub consuming_wallet_balances: ConsumingWalletBalances,
-        pub response_skeleton_opt: Option<ResponseSkeleton>,
     }
 }

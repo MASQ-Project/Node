@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::accountant::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndQualifiedPayables;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayableScannerPaymentSetupMessage};
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
@@ -258,12 +258,12 @@ impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
 impl PayableScannerMidProcedures for PayableScanner {
     fn mid_procedure_soft(
         &self,
-        msg: ConsumingWalletBalancesAndQualifiedPayables,
+        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables> {
+    ) -> Either<OutcomingPayamentsInstructions, PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>> {
         if !self.payment_adjuster.is_adjustment_required(&msg, logger) {
             Either::Left(OutcomingPayamentsInstructions {
-                accounts: msg.qualified_payables,
+                accounts: msg.into(),
                 response_skeleton_opt: msg.response_skeleton_opt,
             })
         } else {
@@ -273,7 +273,7 @@ impl PayableScannerMidProcedures for PayableScanner {
 
     fn mid_procedure_hard(
         &self,
-        msg: ConsumingWalletBalancesAndQualifiedPayables,
+        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
         let now = SystemTime::now();
