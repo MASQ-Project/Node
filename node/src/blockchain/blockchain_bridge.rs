@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{PayableScannerPaymentSetupMessage, ConsumingWalletBalancesAndGasPrice};
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+    ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
+};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
@@ -35,7 +37,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
-use web3::types::{TransactionReceipt, H256};
+use web3::types::{TransactionReceipt, H256, U256};
 use web3::Transport;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -47,7 +49,8 @@ pub struct BlockchainBridge<T: Transport = Http> {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt: Option<Recipient<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>>,
+    balances_and_payables_sub_opt:
+        Option<Recipient<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -299,10 +302,19 @@ impl BlockchainBridge {
                 masq_tokens_wei: token_balance,
             }
         };
-        let msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> = (msg, ConsumingWalletBalancesAndGasPrice{
+        let preferred_gas_price = self
+            .persistent_config
+            .gas_price()
+            .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
+
+        let this_stage_data = ConsumingWalletBalancesAndGasPrice {
             consuming_wallet_balances,
-            gas_price: u64::MAX
-        }).into();
+            preferred_gas_price,
+        };
+
+        let msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice> =
+            (msg, this_stage_data).into();
+
         self.balances_and_payables_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
@@ -669,7 +681,8 @@ mod tests {
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance));
         let consuming_wallet = make_paying_wallet(b"somewallet");
-        let persistent_configuration = PersistentConfigurationMock::default();
+        let persistent_configuration =
+            PersistentConfigurationMock::default().gas_price_result(Ok(146));
         let qualified_accounts = vec![PayableAccount {
             wallet: make_wallet("booga"),
             balance_wei: 78_654_321,
@@ -706,19 +719,24 @@ mod tests {
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> =
-            accountant_received_payment.get_record(0);
-        let expected_msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice> = (RequestBalancesToPayPayables{ accounts: qualified_accounts, response_skeleton_opt: Some(ResponseSkeleton {
-            client_id: 11122,
-            context_id: 444
-        }) },ConsumingWalletBalancesAndGasPrice {
-            consuming_wallet_balances: wallet_balances_found,
-            gas_price: 11111111111111111111111111
-        } ).into();
-        assert_eq!(
-            reported_balances_and_qualified_accounts,
-            &expected_msg
-        );
+        let reported_balances_and_qualified_accounts: &PayablePaymentSetup<
+            ConsumingWalletBalancesAndGasPrice,
+        > = accountant_received_payment.get_record(0);
+        let expected_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice> = (
+            RequestBalancesToPayPayables {
+                accounts: qualified_accounts,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 11122,
+                    context_id: 444,
+                }),
+            },
+            ConsumingWalletBalancesAndGasPrice {
+                consuming_wallet_balances: wallet_balances_found,
+                preferred_gas_price: 146,
+            },
+        )
+            .into();
+        assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
     }
 
     fn assert_failure_during_balance_inspection(
@@ -835,6 +853,42 @@ mod tests {
                 "Cannot inspect available balances for payables while consuming wallet is missing"
                     .to_string()
             )
+        )
+    }
+
+    #[test]
+    fn handle_request_balances_to_pay_payables_fails_on_gas_price_query() {
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_gas_balance_result(Ok(U256::from(456789)))
+            .get_token_balance_result(Ok(U256::from(7890123456_u64)));
+        let persistent_configuration = PersistentConfigurationMock::default().gas_price_result(
+            Err(PersistentConfigError::DatabaseError("siesta".to_string())),
+        );
+        let consuming_wallet = make_wallet("our wallet");
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_configuration),
+            false,
+            Some(consuming_wallet),
+        );
+        let request = RequestBalancesToPayPayables {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance_wei: 123456,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            }],
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 123,
+                context_id: 222,
+            }),
+        };
+
+        let result = subject.handle_request_balances_to_pay_payables(request);
+
+        assert_eq!(
+            result,
+            Err("Couldn't query the gas price: DatabaseError(\"siesta\")".to_string())
         )
     }
 

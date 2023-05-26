@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayableScannerPaymentSetupMessage};
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+    ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
+};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
@@ -258,12 +260,15 @@ impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
 impl PayableScannerMidProcedures for PayableScanner {
     fn mid_procedure_soft(
         &self,
-        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> Either<OutcomingPayamentsInstructions, PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>> {
+    ) -> Either<
+        OutcomingPayamentsInstructions,
+        PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+    > {
         if !self.payment_adjuster.is_adjustment_required(&msg, logger) {
             Either::Left(OutcomingPayamentsInstructions {
-                accounts: msg.into(),
+                accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,
             })
         } else {
@@ -273,7 +278,7 @@ impl PayableScannerMidProcedures for PayableScanner {
 
     fn mid_procedure_hard(
         &self,
-        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
         let now = SystemTime::now();

@@ -4,11 +4,11 @@ pub mod big_int_processing;
 pub mod dao_utils;
 pub mod financials;
 pub mod payable_dao;
+pub mod payable_scan_setup_msgs;
 pub mod payment_adjuster;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
 pub mod scan_mid_procedures;
-pub mod payable_scan_setup_msgs;
 pub mod scanners;
 pub mod scanners_utils;
 
@@ -26,16 +26,15 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
 use crate::accountant::dao_utils::{
-    CustomQuery, DaoFactoryReal, remap_payable_accounts, remap_receivable_accounts,
+    remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayableScannerPaymentSetupMessage};
 use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{Scanners, ScanTimings};
+use crate::accountant::scanners::{ScanTimings, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -74,6 +73,9 @@ use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use payable_dao::PayableDao;
+use payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+    ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
+};
 use receivable_dao::ReceivableDao;
 use std::any::type_name;
 #[cfg(test)]
@@ -83,7 +85,7 @@ use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
-use web3::types::{H256, TransactionReceipt};
+use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -212,12 +214,12 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>> for Accountant {
+impl Handler<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>> for Accountant {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         let instructions = match self.scanners.payable.mid_procedure_soft(msg, &self.logger) {
@@ -479,7 +481,7 @@ impl Accountant {
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_consuming_wallet_balances_and_qualified_payables: recipient!(
                 addr,
-                PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>
+                PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>
             ),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
@@ -1009,7 +1011,7 @@ pub mod check_sqlite_fns {
 mod tests {
     use super::*;
     use crate::accountant::dao_utils::from_time_t;
-    use crate::accountant::dao_utils::{CustomQuery, to_time_t};
+    use crate::accountant::dao_utils::{to_time_t, CustomQuery};
     use crate::accountant::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
@@ -1020,8 +1022,8 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        BannedDaoFactoryMock, bc_from_earning_wallet, bc_from_wallets, make_payable_account,
-        make_payables, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
         PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
@@ -1030,11 +1032,11 @@ mod tests {
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
-    use crate::blockchain::test_utils::{BlockchainInterfaceMock, make_tx_hash};
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
-        DEFAULT_PAYMENT_THRESHOLDS, ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed,
-        ScanIntervals,
+        ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
+        DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
@@ -1045,8 +1047,8 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, AssertionsMessage,
-        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up,
+        assert_on_initialization_with_panic_on_migration, make_bc_with_defaults,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Arbiter, System};
@@ -1408,21 +1410,20 @@ mod tests {
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
-        let consuming_balances_and_qualified_payments =
-            PayableScannerPaymentSetupMessage{
-                qualified_payables: vec![account_1.clone(), account_2.clone()],
-                current_stage_data: ConsumingWalletBalancesAndGasPrice {
-                consuming_wallet_balances:
-                ConsumingWalletBalances {
+        let consuming_balances_and_qualified_payments = PayablePaymentSetup {
+            qualified_payables: vec![account_1.clone(), account_2.clone()],
+            this_stage_data: ConsumingWalletBalancesAndGasPrice {
+                consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
-                gas_price: 3333333333333333,},
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321,
-                }),
-            };
+                preferred_gas_price: 123,
+            },
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
 
         subject_addr
             .try_send(consuming_balances_and_qualified_payments.clone())
@@ -1493,20 +1494,17 @@ mod tests {
         let account_1 = make_payable_account(111_111);
         let account_2 = make_payable_account(222_222);
         let system = System::new("test");
-        let consuming_balances_and_qualified_payments =
-        PayableScannerPaymentSetupMessage{
-            qualified_payables: vec![],
-            current_stage_data: (),
-            response_skeleton_opt: None,
-        }
-            ConsumingWalletBalancesAndGasPrice {
-                qualified_payables: vec![account_1.clone(), account_2.clone()],
+        let consuming_balances_and_qualified_payments = PayablePaymentSetup {
+            qualified_payables: vec![account_1.clone(), account_2.clone()],
+            this_stage_data: ConsumingWalletBalancesAndGasPrice {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(150_000_000_000_u64),
                 },
-                response_skeleton_opt: Some(response_skeleton),
-            };
+                preferred_gas_price: 0,
+            },
+            response_skeleton_opt: Some(response_skeleton),
+        };
 
         subject_addr
             .try_send(consuming_balances_and_qualified_payments.clone())

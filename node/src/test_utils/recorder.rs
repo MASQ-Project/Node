@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayablePaymentSetup;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -41,7 +42,6 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayableScannerPaymentSetupMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -128,7 +128,7 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
-recorder_message_handler!(PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>);
+recorder_message_handler!(PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(RequestBalancesToPayPayables);
@@ -427,7 +427,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
         report_consuming_wallet_balances_and_qualified_payables: recipient!(
             addr,
-            PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>
+            PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>
         ),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),

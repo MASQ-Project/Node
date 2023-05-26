@@ -1,13 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
+use crate::accountant;
 use crate::accountant::payable_dao::PayableDaoFactory;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayablePaymentSetup;
 use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::{
-    Accountant, checked_conversion, ReceivedPayments, ReportTransactionReceipts, ScanError,
+    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
 };
 use crate::banned_dao::BannedDaoFactory;
+use crate::blockchain::blockchain_bridge;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -21,9 +24,6 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
-use crate::accountant;
-use crate::blockchain::blockchain_bridge;
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayableScannerPaymentSetupMessage;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -99,7 +99,7 @@ pub struct AccountantSubs {
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_consuming_wallet_balances_and_qualified_payables:
-        Recipient<PayableScannerPaymentSetupMessage<ConsumingWalletBalancesAndGasPrice>>,
+        Recipient<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
@@ -199,11 +199,11 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
-    use crate::accountant::{Accountant, checked_conversion};
+    use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, AccountantSubsFactoryReal, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MessageIdGenerator, MessageIdGeneratorReal,
-        MSG_ID_INCREMENTER, PaymentThresholds, ScanIntervals,
+        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
+        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
         TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
