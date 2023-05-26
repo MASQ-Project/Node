@@ -37,7 +37,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
-use web3::types::{TransactionReceipt, H256, U256};
+use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";

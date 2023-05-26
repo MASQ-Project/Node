@@ -31,7 +31,7 @@ use crate::accountant::dao_utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
+use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{ScanTimings, Scanners};

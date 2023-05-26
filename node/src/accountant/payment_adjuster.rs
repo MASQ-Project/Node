@@ -72,7 +72,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let debug_log_printer_opt =
             logger
                 .debug_enabled()
-                .then_some(Self::before_and_after_debug_msg_printer(
+                .then_some(Self::before_and_after_debug_msg_formatter(
                     &qualified_payables,
                 ));
 
@@ -214,20 +214,61 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn format_brief_accounts_summary(accounts: &[PayableAccount]) -> String {
-        todo!()
+    fn format_brief_accounts_summary(
+        original_accounts: impl Iterator<Item = String>,
+        adjusted_accounts: impl Iterator<Item = String>,
+    ) -> String {
+        original_accounts
+            .zip(adjusted_accounts)
+            .map(|(original, adjusted)| format!("{}\n{}", original, adjusted))
+            .join("\n")
     }
 
-    fn before_and_after_debug_msg_printer(
-        before: &[PayableAccount],
-    ) -> impl Fn(&[PayableAccount]) -> String {
-        let accounts_before = Self::format_brief_accounts_summary(before);
-        move |adjusted_balances: &[PayableAccount]| {
+    fn prefabricated_formatted_accounts<'a>(
+        accounts: &'a [PayableAccount],
+        display_wallet: bool,
+    ) -> impl Iterator<Item = String> + 'a {
+        accounts.iter().map(move |account| {
+            let wallet_opt = if display_wallet {
+                Some(account.wallet.to_string())
+            } else {
+                None
+            };
             format!(
-                "Original payable accounts {}, accounts after the adjustment {}",
-                accounts_before,
-                Self::format_brief_accounts_summary(adjusted_balances)
+                "{:<42} {}",
+                wallet_opt.as_ref().map(|w| w.as_str()).unwrap_or(""),
+                account.balance_wei
             )
+        })
+    }
+
+    fn before_and_after_debug_msg_formatter(
+        original: &[PayableAccount],
+    ) -> impl FnOnce(&[PayableAccount]) -> String {
+        let original_prefabricated =
+            Self::prefabricated_formatted_accounts(original, true).collect::<Vec<String>>();
+        move |adjusted_accounts: &[PayableAccount]| {
+            let prefabricated_adjusted =
+                Self::prefabricated_formatted_accounts(adjusted_accounts, false);
+            format!(
+                "\nAdjusted payables:\n\
+                {:<42} {}\n\
+                {: <42} {}\n\
+                {: <42} {}\n\
+                \n\
+                {}",
+                "Account wallet",
+                "Balance wei",
+                "",
+                "Original",
+                "",
+                "Adjusted",
+                Self::format_brief_accounts_summary(
+                    original_prefabricated.into_iter(),
+                    prefabricated_adjusted
+                )
+            )
+            //TODO mention accounts that will be excluded completely
         }
     }
 
@@ -267,7 +308,6 @@ mod tests {
         ConsumingWalletBalances, OutcomingPayamentsInstructions,
     };
     use crate::test_utils::make_wallet;
-    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
@@ -343,7 +383,7 @@ mod tests {
         0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make \
         total of 101,000,000,000 wei while the consuming wallet holds only 100,000,000,000 wei. \
         Going to adjust them to fit in the limit, by cutting back the number of payments or their \
-        size.."));
+        size."));
     }
 
     #[test]
@@ -418,6 +458,8 @@ mod tests {
 
     #[test]
     fn adjust_payments_works() {
+        init_test_logging();
+        let test_name = "adjust_payments_works";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -454,7 +496,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(msg, now, &Logger::new("test"));
+        let result = subject.adjust_payments(msg, now, &Logger::new(test_name));
 
         let expected_criteria_computation_output = {
             let time_criteria = vec![
@@ -514,21 +556,21 @@ mod tests {
                 response_skeleton_opt: None
             }
         );
-
-        // Example of the current adjustment;
-        // printed with `visual_check_balance_before_after(.., ..)`
-        //
-        // BEFORE
-        // AFTER
-        //
-        // 444444444444444444
-        // 333000000000000051
-        // ---
-        // 666666666666000000000000
-        // 665999999999334000000004
-        // ---
-        // 22000000000000
-        // 12820500003284
+        let log_msg = format!(
+            "DEBUG: {test_name}: \n\
+|Adjusted payables:
+|Account wallet                             Balance wei
+|                                           Original
+|                                           Adjusted
+|
+|0x0000000000000000000000000000000000616263 444444444444444444
+|                                           333000000000000051
+|0x0000000000000000000000000000000000646566 666666666666000000000000
+|                                           665999999999334000000004
+|0x000000000000000000000000000000000067686b 22000000000000
+|                                           12820500003284"
+        );
+        TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
 
     fn secs_elapsed(timestamp: SystemTime, now: SystemTime) -> u128 {
@@ -538,25 +580,5 @@ mod tests {
     #[test]
     fn output_with_response_skeleton_opt_some() {
         todo!("rather include into some other special test??")
-    }
-
-    #[allow(dead_code)]
-    fn visual_check_balance_before_after(
-        accounts_before: &[PayableAccount],
-        accounts_after: &[PayableAccount],
-    ) {
-        let sorting = |a: &&PayableAccount, b: &&PayableAccount| {
-            Ord::cmp(&a.wallet.to_string(), &b.wallet.to_string())
-        };
-        accounts_before
-            .into_iter()
-            .sorted_by(sorting)
-            .zip(accounts_after.into_iter().sorted_by(sorting))
-            .for_each(|(original_payable, adjusted_payable)| {
-                eprintln!(
-                    "{}\n{}\n---",
-                    original_payable.balance_wei, adjusted_payable.balance_wei
-                )
-            })
     }
 }

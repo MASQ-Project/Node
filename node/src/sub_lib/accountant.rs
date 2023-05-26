@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant;
 use crate::accountant::payable_dao::PayableDaoFactory;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayablePaymentSetup;
@@ -10,7 +9,6 @@ use crate::accountant::{
     SentPayables,
 };
 use crate::banned_dao::BannedDaoFactory;
-use crate::blockchain::blockchain_bridge;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
