@@ -20,7 +20,7 @@ pub mod inter_actor_communication_for_payable_scanner {
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct ConsumingWalletBalancesAndGasPrice {
         pub consuming_wallet_balances: ConsumingWalletBalances,
-        pub preferred_gas_price: u64,
+        pub desired_gas_price: u64,
     }
 
     impl

@@ -222,20 +222,8 @@ impl Handler<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>> for Accoun
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let instructions = match self.scanners.payable.mid_procedure_soft(msg, &self.logger) {
-            Either::Left(finalized_msg) => finalized_msg,
-            Either::Right(unaccepted_msg) => {
-                //TODO we will eventually query info from Neighborhood here
-                self.scanners
-                    .payable
-                    .mid_procedure_hard(unaccepted_msg, &self.logger)
-            }
-        };
-        self.outcoming_payments_instructions_sub_opt
-            .as_ref()
-            .expect("BlockchainBridge is unbound")
-            .try_send(instructions)
-            .expect("BlockchainBridge is dead")
+        self.handle_payable_payment_setup(msg);
+        todo!("send msg to UIGateway...")
     }
 }
 
@@ -258,6 +246,7 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
+        //TODO handling error with msg to the UI is missing!
         self.scan_timings
             .payable
             .schedule_another_periodic_scan(ctx);
@@ -269,6 +258,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
+        //TODO handling error with msg to the UI is missing!
         self.scan_timings
             .pending_payable
             .schedule_another_periodic_scan(ctx);
@@ -280,6 +270,7 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
+        //TODO handling error with msg to the UI is missing!
         self.scan_timings
             .receivable
             .schedule_another_periodic_scan(ctx);
@@ -672,6 +663,26 @@ impl Accountant {
                 &routing_service.earning_wallet,
             );
         })
+    }
+
+    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>)-> Option<NodeToUiMessage>{
+        let bb_instructions = match self.scanners.payable.process_softly(msg, &self.logger) {
+            Ok(Either::Left(finalized_msg)) => finalized_msg,
+            Ok(Either::Right(unaccepted_msg)) => {
+                //TODO we will eventually query info from Neighborhood here
+                self.scanners
+                    .payable
+                    .process_with_adjustment(unaccepted_msg, &self.logger)
+            }
+            Err(e) => todo!()
+        };
+        self.outcoming_payments_instructions_sub_opt
+            .as_ref()
+            .expect("BlockchainBridge is unbound")
+            .try_send(bb_instructions)
+            .expect("BlockchainBridge is dead");
+
+        todo!()
     }
 
     fn handle_financials(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
@@ -1077,6 +1088,8 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
+    use crate::accountant::payment_adjuster::Adjustment;
+    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1400,7 +1413,7 @@ mod tests {
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
             .is_adjustment_required_params(&is_adjustment_required_params_arc)
-            .is_adjustment_required_result(false);
+            .is_adjustment_required_result(Ok(None));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1417,7 +1430,7 @@ mod tests {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
-                preferred_gas_price: 123,
+                desired_gas_price: 123,
             },
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1482,7 +1495,7 @@ mod tests {
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
-            .is_adjustment_required_result(true)
+            .is_adjustment_required_result(Ok(Some(Adjustment::MasqToken)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(adjusted_payments_instructions);
         let payable_scanner = PayableScannerBuilder::new()
@@ -1501,7 +1514,7 @@ mod tests {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(150_000_000_000_u64),
                 },
-                preferred_gas_price: 0,
+                desired_gas_price: 0,
             },
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1515,7 +1528,7 @@ mod tests {
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
         let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
-        assert_eq!(cwbqp_msg, consuming_balances_and_qualified_payments);
+        assert_eq!(cwbqp_msg, AwaitingAdjustment{original_msg: consuming_balances_and_qualified_payments, adjustment: Adjustment::MasqToken});
         assert!(before <= captured_now && captured_now <= after);
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();

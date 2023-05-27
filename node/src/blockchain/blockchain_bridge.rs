@@ -302,14 +302,14 @@ impl BlockchainBridge {
                 masq_tokens_wei: token_balance,
             }
         };
-        let preferred_gas_price = self
+        let desired_gas_price = self
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
 
         let this_stage_data = ConsumingWalletBalancesAndGasPrice {
             consuming_wallet_balances,
-            preferred_gas_price,
+            desired_gas_price,
         };
 
         let msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice> =
@@ -732,7 +732,7 @@ mod tests {
             },
             ConsumingWalletBalancesAndGasPrice {
                 consuming_wallet_balances: wallet_balances_found,
-                preferred_gas_price: 146,
+                desired_gas_price: 146,
             },
         )
             .into();

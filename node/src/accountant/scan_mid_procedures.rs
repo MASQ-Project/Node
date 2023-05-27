@@ -8,6 +8,7 @@ use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
+use crate::accountant::payment_adjuster::{Adjustment};
 
 pub trait PayableScannerWithMidProcedures<BeginMessage, EndMessage>:
     Scanner<BeginMessage, EndMessage> + PayableScannerMidProcedures
@@ -18,17 +19,32 @@ where
 }
 
 pub trait PayableScannerMidProcedures {
-    fn mid_procedure_soft(
+    fn process_softly(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> Either<
-        OutcomingPayamentsInstructions,
-        PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+    ) -> Result<
+        Either<
+            OutcomingPayamentsInstructions,
+            AwaitingAdjustment,
+        >,
+        String,
     >;
-    fn mid_procedure_hard(
+    fn process_with_adjustment(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        setup: AwaitingAdjustment,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AwaitingAdjustment{
+    pub original_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+    pub adjustment: Adjustment
+}
+
+impl AwaitingAdjustment{
+    pub fn new(original_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>, adjustment: Adjustment)->Self{
+        todo!()
+    }
 }

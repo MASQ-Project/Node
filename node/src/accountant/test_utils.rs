@@ -9,7 +9,7 @@ use crate::accountant::payable_dao::{
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
 };
-use crate::accountant::payment_adjuster::PaymentAdjuster;
+use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
@@ -43,6 +43,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -1382,11 +1383,11 @@ impl PayableThresholdsGaugeMock {
 pub struct PaymentAdjusterMock {
     is_adjustment_required_params:
         Arc<Mutex<Vec<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>>>>,
-    is_adjustment_required_results: RefCell<Vec<bool>>,
+    is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>,AnalysisError>>>,
     adjust_payments_params: Arc<
         Mutex<
             Vec<(
-                PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+                AwaitingAdjustment,
                 SystemTime,
             )>,
         >,
@@ -1399,7 +1400,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         &self,
         msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> bool {
+    ) -> Result<Option<Adjustment>, AnalysisError> {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
@@ -1409,11 +1410,11 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 
     fn adjust_payments(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        setup: AwaitingAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
-        self.adjust_payments_params.lock().unwrap().push((msg, now));
+        self.adjust_payments_params.lock().unwrap().push((setup, now));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1427,7 +1428,7 @@ impl PaymentAdjusterMock {
         self
     }
 
-    pub fn is_adjustment_required_result(self, result: bool) -> Self {
+    pub fn is_adjustment_required_result(self, result: Result<Option<Adjustment>,AnalysisError>) -> Self {
         self.is_adjustment_required_results
             .borrow_mut()
             .push(result);
@@ -1439,7 +1440,7 @@ impl PaymentAdjusterMock {
         params: &Arc<
             Mutex<
                 Vec<(
-                    PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+                    AwaitingAdjustment,
                     SystemTime,
                 )>,
             >,

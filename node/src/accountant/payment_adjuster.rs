@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
 };
+use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -14,6 +14,7 @@ use std::iter::{once, successors};
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
+use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
 
 lazy_static! {
     static ref MULTI_COEFF_BY_100: U256 = U256::from(1000);
@@ -24,11 +25,11 @@ pub trait PaymentAdjuster {
         &self,
         msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> bool;
+    ) -> Result<Option<Adjustment>, AnalysisError>;
 
     fn adjust_payments(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        setup: AwaitingAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions;
@@ -43,14 +44,15 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         &self,
         msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> bool {
-        let qualified_payables = &msg.qualified_payables;
+    ) -> Result<Option<Adjustment>, AnalysisError> {
+        let qualified_payables = msg.qualified_payables.as_slice();
         let sum = Self::sum_as_u256(qualified_payables, |payable| payable.balance_wei);
         let cw_masq_balance = msg
             .this_stage_data
             .consuming_wallet_balances
             .masq_tokens_wei;
-        if U256::from(sum) <= cw_masq_balance {
+
+        let required_by_masq_token = if U256::from(sum) <= cw_masq_balance {
             false
         } else if U256::from(Self::find_smallest_debt(qualified_payables)) > cw_masq_balance {
             todo!()
@@ -58,15 +60,33 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Self::log_adjustment_required(logger, qualified_payables, sum, cw_masq_balance);
 
             true
-        }
+        };
+
+        let total_gas_required = gwei_to_wei::<U256, _>(
+            qualified_payables.len() as u64 * msg.this_stage_data.desired_gas_price,
+        );
+        eprintln!("total gas required {}", total_gas_required);
+        let required_by_gas = if total_gas_required
+            <= msg
+                .this_stage_data
+                .consuming_wallet_balances
+                .gas_currency_wei
+        {
+            //TODO drive in both < and =
+            false
+        } else {
+            todo!()
+        };
+        todo!()
     }
 
     fn adjust_payments(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        setup: AwaitingAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
+        let msg = setup.original_msg;
         let current_stage_data = msg.this_stage_data;
         let qualified_payables: Vec<PayableAccount> = msg.qualified_payables;
         let debug_log_printer_opt =
@@ -296,13 +316,21 @@ fn log_10(num: u128) -> usize {
     successors(Some(num), |&n| (n >= 10).then(|| n / 10)).count()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Adjustment {
+    MasqToken,
+    Gas,
+    Both,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum AnalysisError {}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::gwei_to_wei;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::{
-        log_10, PaymentAdjuster, PaymentAdjusterReal, MULTI_COEFF_BY_100,
-    };
+    use crate::accountant::payment_adjuster::{log_10, PaymentAdjuster, PaymentAdjusterReal, MULTI_COEFF_BY_100, Adjustment};
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::blockchain_bridge::{
         ConsumingWalletBalances, OutcomingPayamentsInstructions,
@@ -314,6 +342,7 @@ mod tests {
     use std::vec;
     use web3::types::U256;
     use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup};
+    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)
@@ -336,49 +365,80 @@ mod tests {
     }
 
     fn make_msg_with_q_payables_cw_balance_and_gas_price(
-        qualified_payables_balances_gwei: Vec<u64>,
-        masq_balance_gwei: u64,
+        q_payables_gwei_and_cw_balance_gwei_opt: Option<(Vec<u64>, u64)>,
+        gas_price_opt: Option<GasTestConditions>,
     ) -> PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice> {
-        let qualified_payables = qualified_payables_balances_gwei
-            .into_iter()
-            .map(|balance| make_payable_account(balance))
-            .collect();
+        let (qualified_payables_gwei, consuming_wallet_masq_gwei) =
+            q_payables_gwei_and_cw_balance_gwei_opt.unwrap_or((vec![1, 1], u64::MAX));
+
+        let (desired_gas_price, number_of_payments, cw_balance_gas_gwei) = match gas_price_opt {
+            Some(conditions) => (
+                conditions.desired_gas_price_gwei,
+                conditions.number_of_payments,
+                conditions.consuming_wallet_masq_gwei,
+            ),
+            None => (120, qualified_payables_gwei.len(), u64::MAX),
+        };
+
+        let qualified_payables = match number_of_payments != qualified_payables_gwei.len() {
+            true => (0..number_of_payments)
+                .map(|idx| make_payable_account(idx as u64))
+                .collect(),
+            false => qualified_payables_gwei
+                .into_iter()
+                .map(|balance| make_payable_account(balance))
+                .collect(),
+        };
         PayablePaymentSetup {
             qualified_payables,
             this_stage_data: ConsumingWalletBalancesAndGasPrice {
                 consuming_wallet_balances: ConsumingWalletBalances {
-                    gas_currency_wei: U256::zero(),
-                    masq_tokens_wei: gwei_to_wei(masq_balance_gwei),
+                    gas_currency_wei: gwei_to_wei(cw_balance_gas_gwei),
+                    masq_tokens_wei: gwei_to_wei(consuming_wallet_masq_gwei),
                 },
-                preferred_gas_price: 0,
+                desired_gas_price: gwei_to_wei(desired_gas_price),
             },
             response_skeleton_opt: None,
         }
     }
 
+    struct GasTestConditions {
+        desired_gas_price_gwei: u64,
+        number_of_payments: usize,
+        consuming_wallet_masq_gwei: u64,
+    }
+
     #[test]
-    fn is_adjustment_required_works_for_negative_answer() {
+    fn is_adjustment_required_works_for_negative_answer_because_of_masq_token() {
         init_test_logging();
-        let test_name = "is_adjustment_required_works_for_negative_answer";
+        let test_name = "is_adjustment_required_works_for_negative_answer_because_of_masq_token";
         let subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
-        let msg_1 = make_msg_with_q_payables_cw_balance_and_gas_price(vec![85, 14], 100);
-        let msg_2 = make_msg_with_q_payables_cw_balance_and_gas_price(vec![85, 15], 100);
+        let msg_1 =
+            make_msg_with_q_payables_cw_balance_and_gas_price(Some((vec![85, 14], 100)), None);
+        let msg_2 =
+            make_msg_with_q_payables_cw_balance_and_gas_price(Some((vec![85, 15], 100)), None);
 
-        assert_eq!(subject.is_adjustment_required(&msg_1, &logger), false);
-        assert_eq!(subject.is_adjustment_required(&msg_2, &logger), false);
+        let result_1 = subject.is_adjustment_required(&msg_1, &logger);
+        let result_2 = subject.is_adjustment_required(&msg_2, &logger);
+
+        assert_eq!(result_1, Ok(None));
+        assert_eq!(result_2, Ok(None));
         TestLogHandler::new().exists_no_log_containing(&format!("WARN: {test_name}:"));
     }
 
     #[test]
-    fn is_adjustment_required_works_for_positive_answer() {
+    fn is_adjustment_required_works_for_positive_answer_because_of_masq_token() {
         init_test_logging();
-        let test_name = "is_adjustment_required_works_for_positive_answer";
+        let test_name = "is_adjustment_required_works_for_positive_answer_because_of_masq_token";
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
-        let msg_3 = make_msg_with_q_payables_cw_balance_and_gas_price(vec![85, 16], 100);
+        let msg =
+            make_msg_with_q_payables_cw_balance_and_gas_price(Some((vec![85, 16], 100)), None);
 
-        assert_eq!(subject.is_adjustment_required(&msg_3, &logger), true);
+        let result = subject.is_adjustment_required(&msg, &logger);
+
+        assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
         TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Payments for wallets \
         0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make \
         total of 101,000,000,000 wei while the consuming wallet holds only 100,000,000,000 wei. \
@@ -484,19 +544,20 @@ mod tests {
         let accounts_sum: u128 =
             444_444_444_444_444_444 + 666_666_666_666_000_000_000_000 + 22_000_000_000_000; //= 666_667_111_132_444_444_444_444
         let consuming_wallet_masq_balance = U256::from(accounts_sum - 600_000_000_000_000_000);
-        let msg = PayablePaymentSetup {
+        let setup_msg =  PayablePaymentSetup {
             qualified_payables,
             this_stage_data: ConsumingWalletBalancesAndGasPrice {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(150),
                     masq_tokens_wei: consuming_wallet_masq_balance,
                 },
-                preferred_gas_price: 222222222222222222,
+                desired_gas_price: 222222222222222222,
             },
             response_skeleton_opt: None,
         };
+        let adjustment_setup = AwaitingAdjustment{ original_msg: setup_msg, adjustment: Adjustment::MasqToken }; //TODO what to do with the required adjustment?
 
-        let result = subject.adjust_payments(msg, now, &Logger::new(test_name));
+        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
 
         let expected_criteria_computation_output = {
             let time_criteria = vec![

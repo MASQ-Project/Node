@@ -4,12 +4,10 @@ use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable}
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
 };
-use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scan_mid_procedures::{
-    PayableScannerMidProcedures, PayableScannerWithMidProcedures,
-};
+use crate::accountant::scan_mid_procedures::{AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
@@ -258,31 +256,34 @@ impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
 }
 
 impl PayableScannerMidProcedures for PayableScanner {
-    fn mid_procedure_soft(
+    fn process_softly(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
         logger: &Logger,
-    ) -> Either<
-        OutcomingPayamentsInstructions,
-        PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+    ) -> Result<
+        Either<
+            OutcomingPayamentsInstructions,
+            AwaitingAdjustment,
+        >,
+        String,
     > {
-        if !self.payment_adjuster.is_adjustment_required(&msg, logger) {
-            Either::Left(OutcomingPayamentsInstructions {
+        match self.payment_adjuster.is_adjustment_required(&msg, logger) {
+            Ok(None) => Ok(Either::Left(OutcomingPayamentsInstructions {
                 accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,
-            })
-        } else {
-            Either::Right(msg)
+            })),
+            Ok(Some(adjustment)) => Ok(Either::Right(AwaitingAdjustment::new(msg, adjustment))),
+            Err(e) => todo!(),
         }
     }
 
-    fn mid_procedure_hard(
+    fn process_with_adjustment(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        setup: AwaitingAdjustment,
         logger: &Logger,
     ) -> OutcomingPayamentsInstructions {
         let now = SystemTime::now();
-        self.payment_adjuster.adjust_payments(msg, now, logger)
+        self.payment_adjuster.adjust_payments(setup, now, logger)
     }
 }
 
