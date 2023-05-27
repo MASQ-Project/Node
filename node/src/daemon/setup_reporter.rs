@@ -135,7 +135,7 @@ impl SetupReporter for SetupReporterReal {
                     &data_directory_opt,
                     chain,
                 );
-                add_chain_specific_directories(chain, data_dir.as_path());
+                add_chain_specific_directories(chain, data_dir.as_path())
             },
         };
         let data_directory_setup = setup_cluster_from(vec![("data-directory", &data_directory.to_str().unwrap(), UiSetupResponseValueStatus::Set)]);

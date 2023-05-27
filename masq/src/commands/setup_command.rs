@@ -110,15 +110,15 @@ impl SetupCommand {
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
 
-        // let mut chain_and_data_dir = inner.values.iter().flat_map(|p| {
-        //     match p.name.as_str() {
-        //         "chain" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
-        //         "data-directory" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
-        //         _ => None
-        //     }
-        // } ).collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
-        // let (chain_name, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
-        // let (_, data_directory_param_status) = chain_and_data_dir.remove("data-directory").expect("data-directory is missing in setup cluster");
+        let mut chain_and_data_dir = inner.values.iter().flat_map(|p| {
+            match p.name.as_str() {
+                "chain" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
+                "data-directory" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
+                _ => None
+            }
+        } ).collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
+        let (chain_name, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
+        let (_, data_directory_param_status) = chain_and_data_dir.remove("data-directory").expect("data-directory is missing in setup cluster");
 
         inner.values.into_iter().for_each(|value| {
             //let value_value = Self::match_value_value(value.clone(), &chain_name);
