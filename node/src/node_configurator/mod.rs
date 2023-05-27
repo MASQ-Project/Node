@@ -107,30 +107,45 @@ pub fn real_user_data_directory_opt_and_chain(
 pub fn data_directory_from_context(
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
-    data_directory_opt: &Option<PathBuf>,
+    data_directory_opt: &Option<PathBuf>, //get out this var and match, use only second arm
     chain: Chain,
 ) -> PathBuf {
-    let chain_specific_data_dir: PathBuf = match data_directory_opt {
-        Some(data_directory) => add_chain_specific_directory(chain, data_directory.as_path()),
-        None => {
-            let right_home_dir = real_user
-                .home_dir_opt
-                .as_ref()
-                .expect("No real-user home directory; specify --real-user");
-            let wrong_home_dir = dirs_wrapper
-                .home_dir()
-                .expect("No privileged home directory; specify --data-directory");
-            let wrong_local_data_dir = dirs_wrapper
-                .data_dir()
-                .expect("No privileged local data directory; specify --data-directory");
-            let adjusted_local_data_dir: &Path = wrong_local_data_dir
-                .strip_prefix(wrong_home_dir)
-                .expect("std lib failed");
+    // let chain_specific_data_dir: PathBuf = match data_directory_opt {
+    //     Some(data_directory) => data_directory.clone(), //add_chain_specific_directory(chain, data_directory.as_path()),
+    //     None => {
+    //         let right_home_dir = real_user
+    //             .home_dir_opt
+    //             .as_ref()
+    //             .expect("No real-user home directory; specify --real-user");
+    //         let wrong_home_dir = dirs_wrapper
+    //             .home_dir()
+    //             .expect("No privileged home directory; specify --data-directory");
+    //         let wrong_local_data_dir = dirs_wrapper
+    //             .data_dir()
+    //             .expect("No privileged local data directory; specify --data-directory");
+    //         let adjusted_local_data_dir: &Path = wrong_local_data_dir
+    //             .strip_prefix(wrong_home_dir)
+    //             .expect("std lib failed");
+    //
+    //         right_home_dir.join(adjusted_local_data_dir).as_path() //add_chain_specific_directories(chain, right_home_dir.join(adjusted_local_data_dir).as_path())
+    //     }
+    // };
+    let right_home_dir = real_user
+        .home_dir_opt
+        .as_ref()
+        .expect("No real-user home directory; specify --real-user");
+    let wrong_home_dir = dirs_wrapper
+        .home_dir()
+        .expect("No privileged home directory; specify --data-directory");
+    let wrong_local_data_dir = dirs_wrapper
+        .data_dir()
+        .expect("No privileged local data directory; specify --data-directory");
+    let adjusted_local_data_dir: &Path = wrong_local_data_dir
+        .strip_prefix(wrong_home_dir)
+        .expect("std lib failed");
 
-            add_chain_specific_directories(chain, right_home_dir.join(adjusted_local_data_dir).as_path())
-        }
-    };
-    chain_specific_data_dir
+    right_home_dir.join(adjusted_local_data_dir)
+    //chain_specific_data_dir
 }
 
 pub fn port_is_busy(port: u16) -> bool {

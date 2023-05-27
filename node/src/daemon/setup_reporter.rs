@@ -36,20 +36,20 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directories, ExpectValue};
+use masq_lib::utils::{add_chain_specific_directories, add_chain_specific_directory, ExpectValue};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = false;
+const CONSOLE_DIAGNOSTICS: bool = true;
 
 const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
-#[cfg(test)]
+//#[cfg(test)]
 pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) -> SetupCluster {
     input
         .into_iter()
@@ -118,17 +118,27 @@ impl SetupReporter for SetupReporterReal {
             crate::bootstrapper::RealUser::new(None, None, None)
                 .populate(self.dirs_wrapper.as_ref())
         });
+        //----setup new cluster for data directory
+        //---merge this cluster to final setup
+        //remove following data_directory_from_context from Node
+        //use data_directory_from_context for second arm without data_directory_opt
+        //use add_chain_specific_directory for output from both arms
+        //remove enrichment of data_directory from UI setup_command
         let data_directory = match all_but_configured.get("data-directory") {
             Some(uisrv) if uisrv.status == Set => {
-                add_chain_specific_directories(chain, Path::new(&uisrv.value))
+                add_chain_specific_directory(chain, Path::new(&uisrv.value))
             }
-            _ => data_directory_from_context(
-                self.dirs_wrapper.as_ref(),
-                &real_user,
-                &data_directory_opt,
-                chain,
-            ),
+            _ => {
+                let data_dir = data_directory_from_context(
+                    self.dirs_wrapper.as_ref(),
+                    &real_user,
+                    &data_directory_opt,
+                    chain,
+                );
+                add_chain_specific_directories(chain, data_dir.as_path());
+            },
         };
+        let data_directory_setup = setup_cluster_from(vec![("data-directory", &data_directory.to_str().unwrap(), UiSetupResponseValueStatus::Set)]);
         let (configured_setup, error_opt) =
             self.calculate_configured_setup(&all_but_configured, &data_directory);
         if let Some(error) = error_opt {
@@ -164,8 +174,10 @@ impl SetupReporter for SetupReporterReal {
             })
             .collect::<SetupCluster>();
         eprintln_setup("FINAL", &final_setup);
+        let data_directory_configured =
+            Self::combine_clusters(vec![&final_setup, &data_directory_setup]);
         if error_so_far.param_errors.is_empty() {
-            Ok(final_setup)
+            Ok(data_directory_configured)
         } else {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
@@ -3363,38 +3375,19 @@ mod tests {
     }
 
     #[test]
-    fn calculate_fundamentals_with_chain_specific_dir() {
+    fn calculate_setup_with_chain_specific_dir() {
         let _guard = EnvironmentGuard::new();
-        vec![("MASQ_DATA_DIRECTORY", "boom")]
-            .into_iter()
-            .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
-        let setup = setup_cluster_from(vec![
-            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
-            ("data-directory", "/home/booga/masqhome", Set),
-            ("real-user", "1111:1111:/home/booga", Set),
+        let existing_setup = setup_cluster_from(vec![
+            ("real-user", "1111:1111:/home/booga", Default),
         ]);
+        let incoming_setup = vec![UiSetupRequestValue::new("data-directory", "/homne/booga/masqhome")];
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
-        let desired_directory_path = data_directory_from_context(
-            &DirsWrapperReal {},
-            &real_user_opt.clone().unwrap(),
-            &data_directory_opt,
-            chain,
-            )
-            .to_string_lossy()
-            .to_string();
-        let expected_dir = PathBuf::from("/home/booga/masqhome/").join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
-
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
         assert_eq!(
-            real_user_opt,
-            Some(crate::bootstrapper::RealUser::new(
-                Some(1111),
-                Some(1111),
-                Some(PathBuf::from("/home/booga"))
-            ))
+            result.unwrap().get("data-directory").unwrap().value,
+            "/homne/booga/masqhome/polygon-mainnet"
         );
-        assert_eq!(desired_directory_path.as_str(), expected_dir.to_string_lossy().to_string().as_str());
-        assert_eq!(chain, Blockchain::from(TEST_DEFAULT_CHAIN.rec().literal_identifier));
     }
 }
