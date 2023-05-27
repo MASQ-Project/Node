@@ -4,7 +4,7 @@ use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable}
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
 };
-use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scan_mid_procedures::{AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures};

@@ -66,6 +66,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             qualified_payables.len() as u64 * msg.this_stage_data.desired_gas_price,
         );
         eprintln!("total gas required {}", total_gas_required);
+        eprintln!("cons balance {:?}", msg.this_stage_data.consuming_wallet_balances.gas_currency_wei);
         let required_by_gas = if total_gas_required
             <= msg
                 .this_stage_data
@@ -77,7 +78,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         } else {
             todo!()
         };
-        todo!()
+
+        match (required_by_masq_token, required_by_gas){
+            (false, false) => Ok(None),
+            (true, false) => Ok(Some(Adjustment::MasqToken)),
+            (false, true) => todo!(),
+            (true, true) => todo!()
+        }
     }
 
     fn adjust_payments(
@@ -396,7 +403,7 @@ mod tests {
                     gas_currency_wei: gwei_to_wei(cw_balance_gas_gwei),
                     masq_tokens_wei: gwei_to_wei(consuming_wallet_masq_gwei),
                 },
-                desired_gas_price: gwei_to_wei(desired_gas_price),
+                desired_gas_price,
             },
             response_skeleton_opt: None,
         }
@@ -409,28 +416,41 @@ mod tests {
     }
 
     #[test]
-    fn is_adjustment_required_works_for_negative_answer_because_of_masq_token() {
+    fn is_adjustment_required_negative_answer() {
         init_test_logging();
-        let test_name = "is_adjustment_required_works_for_negative_answer_because_of_masq_token";
+        let test_name = "is_adjustment_required_negative_answer";
         let subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
+        //masq balance > payments
         let msg_1 =
             make_msg_with_q_payables_cw_balance_and_gas_price(Some((vec![85, 14], 100)), None);
+        //masq balance = payments
         let msg_2 =
             make_msg_with_q_payables_cw_balance_and_gas_price(Some((vec![85, 15], 100)), None);
+        //gas balance > payments
+        let msg_3 =
+            make_msg_with_q_payables_cw_balance_and_gas_price(None, Some(GasTestConditions{
+                desired_gas_price_gwei: 111,
+                number_of_payments: 5,
+                consuming_wallet_masq_gwei: 556,
+            }));
+        //gas balance = payments
+        let msg_4 =
+            make_msg_with_q_payables_cw_balance_and_gas_price(None, Some(GasTestConditions{
+                desired_gas_price_gwei: 100,
+                number_of_payments: 6,
+                consuming_wallet_masq_gwei: 600,
+            }));
 
-        let result_1 = subject.is_adjustment_required(&msg_1, &logger);
-        let result_2 = subject.is_adjustment_required(&msg_2, &logger);
+        [msg_1,msg_2,msg_3,msg_4].into_iter().for_each(|msg| assert_eq!(subject.is_adjustment_required(&msg, &logger), Ok(None), "failed for msg {:?}", msg));
 
-        assert_eq!(result_1, Ok(None));
-        assert_eq!(result_2, Ok(None));
         TestLogHandler::new().exists_no_log_containing(&format!("WARN: {test_name}:"));
     }
 
     #[test]
-    fn is_adjustment_required_works_for_positive_answer_because_of_masq_token() {
+    fn is_adjustment_required_positive_for_masq_token() {
         init_test_logging();
-        let test_name = "is_adjustment_required_works_for_positive_answer_because_of_masq_token";
+        let test_name = "is_adjustment_required_positive_for_masq_token";
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
         let msg =
@@ -442,6 +462,29 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Payments for wallets \
         0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 make \
         total of 101,000,000,000 wei while the consuming wallet holds only 100,000,000,000 wei. \
+        Going to adjust them to fit in the limit, by cutting back the number of payments or their \
+        size."));
+    }
+
+    #[test]
+    fn is_adjustment_required_positive_for_gas() {
+        init_test_logging();
+        let test_name = "is_adjustment_required_positive_for_gas";
+        let logger = Logger::new(test_name);
+        let subject = PaymentAdjusterReal::new();
+        let msg =
+            make_msg_with_q_payables_cw_balance_and_gas_price(None, Some(GasTestConditions{
+                desired_gas_price_gwei: 100,
+                number_of_payments: 3,
+                consuming_wallet_masq_gwei: 299,
+            }));
+
+        let result = subject.is_adjustment_required(&msg, &logger);
+
+        assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Payments for wallets \
+        0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 would \
+        require 100 gwei wei while the consuming wallet holds only 100,000,000,000 wei. \
         Going to adjust them to fit in the limit, by cutting back the number of payments or their \
         size."));
     }
