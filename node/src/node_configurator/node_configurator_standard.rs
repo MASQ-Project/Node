@@ -627,10 +627,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::unshared_test_utils::{
-        make_default_persistent_configuration, make_pre_populated_mocked_directory_wrapper,
-        make_simplified_multi_config,
-    };
+    use crate::test_utils::unshared_test_utils::{configure_persistent_config, make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config};
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -646,6 +643,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use crate::node_configurator::compute_mapping_protocol_opt;
+    use crate::test_utils::unshared_test_utils::PCField::{GasPrice, MappingProtocol, PastNeighbors};
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -793,7 +791,9 @@ mod tests {
         .unwrap();
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_persistent_config(vec![
+            PastNeighbors, GasPrice, MappingProtocol
+        ])
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -854,7 +854,9 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_persistent_config(vec![
+            PastNeighbors, GasPrice, MappingProtocol
+        ])
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_result(Err(NotPresent));
 
@@ -889,7 +891,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -938,7 +942,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -971,7 +977,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1012,7 +1020,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1039,7 +1050,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1079,7 +1092,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1111,7 +1126,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1134,7 +1152,10 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration().check_password_result(Ok(false))),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(false))),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1168,7 +1189,9 @@ mod tests {
 
         let result = make_neighborhood_config(
             &multi_config,
-            Some(&mut make_default_persistent_configuration()),
+            Some(&mut configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])),
             &mut BootstrapperConfig::new(),
         );
 
@@ -1206,7 +1229,10 @@ mod tests {
         running_test();
         let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config =
-            make_default_persistent_configuration().past_neighbors_result(Ok(None));
+            configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .past_neighbors_result(Ok(None));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1225,7 +1251,10 @@ mod tests {
         running_test();
         let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
         let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(true));
+            configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(true));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
 
@@ -1547,7 +1576,10 @@ mod tests {
         let multi_config = make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(false));
+            configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(false));
         config.db_password_opt = Some("password".to_string());
 
         let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
@@ -1561,7 +1593,10 @@ mod tests {
         let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
-            make_default_persistent_configuration().check_password_result(Ok(true));
+            configure_persistent_config(vec![
+                PastNeighbors, GasPrice, MappingProtocol
+            ])
+                .check_password_result(Ok(true));
 
         let result = get_db_password(&multi_config, &mut config, &mut persistent_config);
 
@@ -1574,7 +1609,9 @@ mod tests {
         let args = ["--db-password", "password"];
         let multi_config = make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = configure_persistent_config(vec![
+            PastNeighbors, GasPrice, MappingProtocol
+        ])
             .check_password_result(Ok(true))
             .check_password_result(Ok(true))
             .check_password_result(Ok(true))

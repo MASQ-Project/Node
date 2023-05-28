@@ -173,7 +173,7 @@ impl Transactor for PmpTransactor {
         let announcement_socket = make_announcement_socket(
             self.factories_arc
                 .lock()
-                .expect("PMP housekeeping thread is dead")
+                .expect("Factories should not be locked at this point")
                 .socket_factory
                 .as_ref(),
             self.announcement_multicast_group,
@@ -405,7 +405,11 @@ impl ThreadGuts {
             Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
                 mapping_config_opt.replace(mapping_config);
             }
-            Err(_) => (),
+            Err(crossbeam_channel::TryRecvError::Empty) => (),
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                error!(self.logger, "Node died; housekeeping thread is terminating");
+                return Finished::Yes
+            }
         };
         Finished::No
     }
@@ -1546,6 +1550,27 @@ mod tests {
     }
 
     #[test]
+    fn single_iteration_terminates_if_commander_channel_dies() {
+        init_test_logging();
+        let router_ip = IpAddr::from_str("22.33.44.55").unwrap();
+        let announcement_socket = UdpSocketWrapperMock::new()
+            .recv_from_result(Err(Error::from(ErrorKind::WouldBlock)), vec![]);
+        let (_, rx) = unbounded(); // channel is already dead
+        let mut subject = ThreadGuts::new(
+            &PmpTransactor::default(),
+            router_ip,
+            Box::new(announcement_socket),
+            Box::new(|_| ()),
+            rx,
+        );
+
+        let result = subject.single_iteration(&mut None, &mut Instant::now());
+
+        assert_eq! (result, Finished::Yes);
+        TestLogHandler::default().exists_log_containing("ERROR: PmpTransactor: Node died; housekeeping thread is terminating");
+    }
+
+    #[test]
     fn handle_announcement_if_present_ignores_data_if_not_from_router() {
         let real_router_addr = SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)),
@@ -2010,7 +2035,7 @@ mod tests {
     #[test]
     fn parse_buffer_rejects_packet_other_than_get() {
         init_test_logging();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::MapUdp;
         packet.direction = Direction::Response;
@@ -2031,7 +2056,7 @@ mod tests {
         let result = subject.parse_buffer(&buffer[0..buflen], SocketAddr::new(router_ip, 5351));
 
         let err_msg =
-            "Unexpected PMP MapUdp response (instead of Get) from router at 4.3.2.1:5351: ignoring";
+            "Unexpected PMP MapUdp response (instead of Get) from router at 1.2.3.4:5351: ignoring";
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: parse_buffer_rejects_packet_other_than_get: {}",
@@ -2042,7 +2067,7 @@ mod tests {
     #[test]
     fn parse_buffer_rejects_unparseable_packet() {
         init_test_logging();
-        let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str("2.2.2.2").unwrap();
         let buffer = [0xFFu8; 100];
         let logger = Logger::new("parse_buffer_rejects_unparseable_packet");
         let transactor = PmpTransactor::new();
@@ -2061,7 +2086,7 @@ mod tests {
         );
 
         let err_msg =
-            "Unparseable packet (WrongVersion(255)) from router at 4.3.2.1:5351: ignoring";
+            "Unparseable packet (WrongVersion(255)) from router at 2.2.2.2:5351: ignoring";
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: parse_buffer_rejects_unparseable_packet: {}",

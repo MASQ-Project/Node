@@ -488,7 +488,7 @@ mod tests {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = None;
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Pmp);
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -519,7 +519,7 @@ mod tests {
         let mut subject = replace_transactor(subject, transactor);
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Pmp);
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -540,7 +540,7 @@ mod tests {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Igdp);
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Igdp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -1364,9 +1364,10 @@ mod tests {
     }
 
     fn make_logging_experiment(
-        protocol_log_arc: Arc<Mutex<Vec<AutomapProtocol>>>,
+        protocol_log_arc: &Arc<Mutex<Vec<AutomapProtocol>>>,
         expected_protocol: AutomapProtocol,
     ) -> TransactorExperiment<String> {
+        let protocol_log_arc = protocol_log_arc.clone();
         Box::new(move |t, _router_ip| {
             protocol_log_arc.lock().unwrap().push(t.protocol());
             if t.protocol() == expected_protocol {

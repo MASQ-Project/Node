@@ -7,25 +7,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use itertools::Either;
 
-const RETRIES_FOR_FIND_ROUTERS_OS_ERR_2: i32 = 3;
-
 pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
-    let mut retries_left = RETRIES_FOR_FIND_ROUTERS_OS_ERR_2;
-    let mut last_stderror_opt: Option<String> = None;
     let output = loop {
         match command.execute() {
             Ok(stdout) => break stdout,
-            Err(Either::Left(stderr)) if (stderr.contains("Os { code: 2,")) => {
-                // File not found
-                if retries_left == 0 {
-                    return Err(AutomapError::FindRouterError(format!(
-                        "Retries exhausted: {}",
-                        last_stderror_opt.expect("Last error disappeared")
-                    )));
-                }
-                last_stderror_opt = Some(stderr);
-                retries_left -= 1;
-            }
             Err(Either::Left(stderr)) => return Err(AutomapError::FindRouterError(stderr)),
             Err(Either::Right(error)) => return Err(AutomapError::FindRouterError(format!("{:?}", error)))
         };
@@ -68,11 +53,6 @@ mod tests {
     use super::*;
     use crate::test_utils::FindRoutersCommandMock;
     use std::str::FromStr;
-
-    #[test]
-    fn assert_constants() {
-        assert_eq!(RETRIES_FOR_FIND_ROUTERS_OS_ERR_2, 3);
-    }
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {
@@ -133,26 +113,6 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
         let result = linux_find_routers(&find_routers_command).unwrap();
 
         assert_eq!(result.is_empty(), true)
-    }
-
-    #[test]
-    fn find_routers_works_when_command_produces_os_error_2_too_many_times() {
-        let mut find_routers_command = FindRoutersCommandMock::new();
-        for idx in 0..=RETRIES_FOR_FIND_ROUTERS_OS_ERR_2 {
-            find_routers_command = find_routers_command.execute_result(Err(Either::Left(format!(
-                "prologue, Os {{ code: 2, iteration {}",
-                idx + 1
-            ))))
-        }
-
-        let result = linux_find_routers(&find_routers_command);
-
-        assert_eq!(
-            result,
-            Err(AutomapError::FindRouterError(
-                "Retries exhausted: prologue, Os { code: 2, iteration 3".to_string()
-            ))
-        )
     }
 
     #[test]

@@ -325,7 +325,11 @@ impl PcpTransactor {
                 Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
                     mapping_config_opt.replace(mapping_config);
                 }
-                Err(_) => (),
+                Err(crossbeam_channel::TryRecvError::Empty) => (),
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    error!(logger, "Node is dead; housekeeping thread is terminating");
+                    return change_handler
+                }
             }
             // This will block for read_timeout_millis, conserving CPU cycles
             match announcement_socket.recv_from(&mut buffer) {
@@ -2023,6 +2027,37 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             "ERROR: thread_guts_complains_if_remapping_fails: Remapping failure: TemporaryMappingError(\"NoResources\")",
+        );
+    }
+
+    #[test]
+    fn thread_guts_logs_and_terminates_if_commander_channel_dies() {
+        init_test_logging();
+        let (_, rx) = unbounded(); // channel is already dead
+        let socket: Box<dyn UdpSocketWrapper> = Box::new(
+            UdpSocketWrapperMock::new()
+                .set_read_timeout_result(Ok(()))
+        );
+        let mapping_transactor = Box::new(
+            MappingTransactorMock::new()
+        );
+        let logger = Logger::new("thread_guts_logs_and_terminates_if_commander_channel_dies");
+
+        let _ = PcpTransactor::thread_guts(
+            socket.as_ref(),
+            &rx,
+            Arc::new(Mutex::new(PcpTransactorInner {
+                mapping_transactor,
+                factories: Factories::default(),
+            })),
+            SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
+            Box::new(|_| ()),
+            10,
+            logger,
+        );
+
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: thread_guts_logs_and_terminates_if_commander_channel_dies: Node is dead; housekeeping thread is terminating",
         );
     }
 

@@ -544,7 +544,7 @@ pub mod unshared_test_utils {
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, PaymentThresholds, ScanIntervals};
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
@@ -571,17 +571,11 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
+    use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
-    }
-
-    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-        PersistentConfigurationMock::new()
-            .past_neighbors_result(Ok(None))
-            .gas_price_result(Ok(1))
-            .mapping_protocol_result(Ok(None))
     }
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
@@ -591,49 +585,71 @@ pub mod unshared_test_utils {
         MultiConfig::new_test_only(arg_matches)
     }
 
-    pub const ZERO: u32 = 0b0;
-    pub const MAPPING_PROTOCOL: u32 = 0b000010;
-    pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
-    pub const RATE_PACK: u32 = 0b001000;
+    pub enum PCField {
+        BlockchainServiceUrl,
+        CurrentSchemaVersion,
+        ChainName,
+        CheckPassword,
+        ChangePassword,
+        ClandestinePort,
+        GasPrice,
+        ConsumingWallet,
+        ConsumingWalletPrivateKey,
+        EarningWallet,
+        EarningWalletAddress,
+        MappingProtocol,
+        PastNeighbors,
+        StartBlock,
+        PaymentThresholds,
+        RatePack,
+        ScanIntervals,
+    }
 
-    pub fn configure_default_persistent_config(bit_flag: u32) -> PersistentConfigurationMock {
-        let config = default_persistent_config_just_base(PersistentConfigurationMock::new());
-        let config = if (bit_flag & MAPPING_PROTOCOL) == MAPPING_PROTOCOL {
-            config.mapping_protocol_result(Ok(None))
-        } else {
-            config
-        };
-        let config = if (bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
-            default_persistent_config_just_accountant_config(config)
-        } else {
-            config
-        };
-        if (bit_flag & RATE_PACK) == RATE_PACK {
-            config.rate_pack_result(Ok(DEFAULT_RATE_PACK))
-        } else {
-            config
+    impl PCField {
+        fn prepare_default_result(&self, mock: PersistentConfigurationMock) -> PersistentConfigurationMock {
+            match self {
+                PCField::BlockchainServiceUrl => mock.blockchain_service_url_result(Ok(None)),
+                PCField::CurrentSchemaVersion => mock.current_schema_version_result(&CURRENT_SCHEMA_VERSION.to_string()),
+                PCField::ChainName => mock.chain_name_result("polygon-mumbai".to_string()),
+                PCField::CheckPassword => mock.check_password_result(Ok(true)),
+                PCField::ChangePassword => mock.change_password_result(Ok(())),
+                PCField::ClandestinePort => mock.clandestine_port_result(Ok(1234)),
+                PCField::GasPrice => mock.gas_price_result(Ok(1)),
+                PCField::ConsumingWallet => mock.consuming_wallet_result(Ok(None)),
+                PCField::ConsumingWalletPrivateKey => mock.consuming_wallet_private_key_result(Ok(None)),
+                PCField::EarningWallet => mock.earning_wallet_result(Ok(None)),
+                PCField::EarningWalletAddress => mock.earning_wallet_address_result(Ok(None)),
+                PCField::MappingProtocol => mock.mapping_protocol_result(Ok(None)),
+                PCField::PastNeighbors => mock.past_neighbors_result(Ok(None)),
+                PCField::StartBlock => mock.start_block_result(Ok(4321)),
+                PCField::PaymentThresholds => mock.payment_thresholds_result(Ok(DEFAULT_PAYMENT_THRESHOLDS.clone())),
+                PCField::RatePack => mock.rate_pack_result(Ok(DEFAULT_RATE_PACK.clone())),
+                PCField::ScanIntervals => mock.scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS.clone())),
+            }
+        }
+
+        pub fn just_base() -> Vec<PCField> {
+            vec![
+                PCField::EarningWalletAddress,
+                PCField::EarningWallet,
+                PCField::ConsumingWalletPrivateKey,
+                PCField::ConsumingWallet,
+                PCField::PastNeighbors,
+                PCField::GasPrice,
+                PCField::BlockchainServiceUrl,
+            ]
+        }
+
+        pub fn base_and(mut additions: Vec<PCField>) -> Vec<PCField> {
+            let mut result = PCField::just_base();
+            result.append(&mut additions);
+            result
         }
     }
 
-    pub fn default_persistent_config_just_base(
-        persistent_config_mock: PersistentConfigurationMock,
-    ) -> PersistentConfigurationMock {
-        persistent_config_mock
-            .earning_wallet_address_result(Ok(None))
-            .earning_wallet_result(Ok(None))
-            .consuming_wallet_private_key_result(Ok(None))
-            .consuming_wallet_result(Ok(None))
-            .past_neighbors_result(Ok(None))
-            .gas_price_result(Ok(1))
-            .blockchain_service_url_result(Ok(None))
-    }
-
-    pub fn default_persistent_config_just_accountant_config(
-        persistent_config_mock: PersistentConfigurationMock,
-    ) -> PersistentConfigurationMock {
-        persistent_config_mock
-            .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(ScanIntervals::default()))
+    pub fn configure_persistent_config(fields: Vec<PCField>) -> PersistentConfigurationMock {
+        fields.into_iter().fold (PersistentConfigurationMock::new(),
+          |so_far, field| field.prepare_default_result(so_far))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {

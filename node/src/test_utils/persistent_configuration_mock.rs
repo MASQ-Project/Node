@@ -12,6 +12,7 @@ use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use crate::sub_lib::cryptde::CryptDE;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -479,6 +480,18 @@ impl PersistentConfigurationMock {
     ) -> PersistentConfigurationMock {
         self.past_neighbors_results.borrow_mut().push(result);
         self
+    }
+
+    pub fn encrypt_past_neighbors_result(
+        self,
+        cryptde: &dyn CryptDE,
+        past_neighbors: &str,
+    ) -> PersistentConfigurationMock {
+        let past_neighbors_result = past_neighbors
+            .split(",")
+            .map(|s| NodeDescriptor::try_from((cryptde, s)).unwrap())
+            .collect::<Vec<NodeDescriptor>>();
+        self.past_neighbors_result(Ok(Some(past_neighbors_result)))
     }
 
     #[allow(clippy::type_complexity)]

@@ -11,6 +11,7 @@ use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
+use pretty_hex::pretty_hex;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -47,8 +48,7 @@ impl Future for StreamReader {
                             "Read {}-byte chunk from {}: {}",
                             len,
                             self.peer_addr,
-                            // TODO: Should be pretty_hex()
-                            utils::to_string(&Vec::from(&buf[0..len]))
+                            pretty_hex(&Vec::from(&buf[0..len]))
                         );
                     }
                     let stream_key = self.stream_key;

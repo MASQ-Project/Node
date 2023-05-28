@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_accepting_connections() {
+    fn produce_debut_or_ipchange_creates_a_gossip_to_a_target_about_ourselves_when_accepting_connections() {
         let our_node_record: NodeRecord = make_node_record(7771, true);
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_not_accepting_connections() {
+    fn produce_debut_or_ipchange_creates_a_gossip_to_a_target_about_ourselves_when_not_accepting_connections() {
         let mut our_node_record: NodeRecord = make_node_record(7771, true);
         our_node_record.inner.accepts_connections = false;
         let db = db_from_node(&our_node_record);

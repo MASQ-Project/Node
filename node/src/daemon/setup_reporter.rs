@@ -127,10 +127,6 @@ impl SetupReporter for SetupReporterReal {
                 chain,
             ),
         };
-        let _list_of_blanked_parameters = blanked_out_former_values
-            .keys()
-            .map(|item| item.to_owned())
-            .collect_vec();
         let (configured_setup, error_opt) =
             self.calculate_configured_setup(&all_but_configured, &data_directory);
         if let Some(error) = error_opt {
@@ -1571,9 +1567,6 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"gas-price = \"77\"\n").unwrap();
             config_file.write_all(b"log-level = \"trace\"\n").unwrap();
-            config_file
-                .write_all(b"mapping-protocol = \"pcp\"\n")
-                .unwrap();
             config_file
                 .write_all(b"mapping-protocol = \"pcp\"\n")
                 .unwrap();
