@@ -1,11 +1,18 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal};
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor};
-use crate::control_layer::automap_control::{AutomapControlReal, ChangeHandler, replace_transactor};
+use crate::comm_layer::pcp_pmp_common::{
+    CommandError, CommandOutput, FindRoutersCommand, FreePortFactory, UdpSocketWrapper,
+    UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal,
+};
+use crate::comm_layer::{
+    AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
+};
+use crate::control_layer::automap_control::{
+    replace_transactor, AutomapControlReal, ChangeHandler,
+};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
-use masq_lib::utils::{AutomapProtocol, find_free_port};
+use masq_lib::utils::{find_free_port, AutomapProtocol};
 use std::any::Any;
 use std::cell::RefCell;
 use std::io::ErrorKind;

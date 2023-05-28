@@ -18,6 +18,7 @@ use crate::comm_layer::pcp_pmp_common::windows_specific::{
     windows_find_routers, WindowsFindRoutersCommand,
 };
 use crate::comm_layer::AutomapError;
+use itertools::Either;
 use masq_lib::utils::find_free_port;
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::io;
@@ -26,7 +27,6 @@ pub use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
-use itertools::Either;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
@@ -243,8 +243,9 @@ pub fn make_announcement_socket(
     announcement_multicast_group: u8,
     announcement_port: u16,
 ) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
-    factory.make_multicast(announcement_multicast_group, announcement_port)
-        .map_err (|e| {
+    factory
+        .make_multicast(announcement_multicast_group, announcement_port)
+        .map_err(|e| {
             let multicast = Ipv4Addr::new(224, 0, 0, announcement_multicast_group);
             AutomapError::SocketBindingError(
                 format!("{:?}", e),
@@ -366,7 +367,10 @@ pub mod tests {
 
         let result = subject.execute_command("");
 
-        assert_eq!(result.err().unwrap().left().unwrap(), "Command is blank".to_string())
+        assert_eq!(
+            result.err().unwrap().left().unwrap(),
+            "Command is blank".to_string()
+        )
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -16,14 +16,14 @@ use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{localhost, ExpectValue, AutomapProtocol};
+use masq_lib::utils::{localhost, AutomapProtocol, ExpectValue};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
-use masq_lib::logger::Logger;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;

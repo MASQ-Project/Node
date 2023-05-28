@@ -541,10 +541,13 @@ pub mod unshared_test_utils {
     use crate::apps::app_node;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::daemon::{ChannelFactory, DaemonBindMessage};
+    use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::accountant::{
+        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+    };
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
@@ -560,7 +563,6 @@ pub mod unshared_test_utils {
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::test_utils::utils::MutexIncrementInset;
-    #[cfg(not(feature = "no_test_share"))]
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::any::TypeId;
@@ -571,7 +573,6 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
-    use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
@@ -606,25 +607,36 @@ pub mod unshared_test_utils {
     }
 
     impl PCField {
-        fn prepare_default_result(&self, mock: PersistentConfigurationMock) -> PersistentConfigurationMock {
+        fn prepare_default_result(
+            &self,
+            mock: PersistentConfigurationMock,
+        ) -> PersistentConfigurationMock {
             match self {
                 PCField::BlockchainServiceUrl => mock.blockchain_service_url_result(Ok(None)),
-                PCField::CurrentSchemaVersion => mock.current_schema_version_result(&CURRENT_SCHEMA_VERSION.to_string()),
+                PCField::CurrentSchemaVersion => {
+                    mock.current_schema_version_result(&CURRENT_SCHEMA_VERSION.to_string())
+                }
                 PCField::ChainName => mock.chain_name_result("polygon-mumbai".to_string()),
                 PCField::CheckPassword => mock.check_password_result(Ok(true)),
                 PCField::ChangePassword => mock.change_password_result(Ok(())),
                 PCField::ClandestinePort => mock.clandestine_port_result(Ok(1234)),
                 PCField::GasPrice => mock.gas_price_result(Ok(1)),
                 PCField::ConsumingWallet => mock.consuming_wallet_result(Ok(None)),
-                PCField::ConsumingWalletPrivateKey => mock.consuming_wallet_private_key_result(Ok(None)),
+                PCField::ConsumingWalletPrivateKey => {
+                    mock.consuming_wallet_private_key_result(Ok(None))
+                }
                 PCField::EarningWallet => mock.earning_wallet_result(Ok(None)),
                 PCField::EarningWalletAddress => mock.earning_wallet_address_result(Ok(None)),
                 PCField::MappingProtocol => mock.mapping_protocol_result(Ok(None)),
                 PCField::PastNeighbors => mock.past_neighbors_result(Ok(None)),
                 PCField::StartBlock => mock.start_block_result(Ok(4321)),
-                PCField::PaymentThresholds => mock.payment_thresholds_result(Ok(DEFAULT_PAYMENT_THRESHOLDS.clone())),
+                PCField::PaymentThresholds => {
+                    mock.payment_thresholds_result(Ok(DEFAULT_PAYMENT_THRESHOLDS.clone()))
+                }
                 PCField::RatePack => mock.rate_pack_result(Ok(DEFAULT_RATE_PACK.clone())),
-                PCField::ScanIntervals => mock.scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS.clone())),
+                PCField::ScanIntervals => {
+                    mock.scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS.clone()))
+                }
             }
         }
 
@@ -648,8 +660,11 @@ pub mod unshared_test_utils {
     }
 
     pub fn configure_persistent_config(fields: Vec<PCField>) -> PersistentConfigurationMock {
-        fields.into_iter().fold (PersistentConfigurationMock::new(),
-          |so_far, field| field.prepare_default_result(so_far))
+        fields
+            .into_iter()
+            .fold(PersistentConfigurationMock::new(), |so_far, field| {
+                field.prepare_default_result(so_far)
+            })
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {

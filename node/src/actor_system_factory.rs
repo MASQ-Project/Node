@@ -190,16 +190,16 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         }
         let send_pool_bind_message = |recipient: &Recipient<PoolBindMessage>, name: &str| {
             recipient
-            .try_send(PoolBindMessage {
-                dispatcher_subs: dispatcher_subs.clone(),
-                stream_handler_pool_subs: stream_handler_pool_subs.clone(),
-                neighborhood_subs: neighborhood_subs.clone(),
-            })
-            .expect(&format!("{:?} is dead", name));
+                .try_send(PoolBindMessage {
+                    dispatcher_subs: dispatcher_subs.clone(),
+                    stream_handler_pool_subs: stream_handler_pool_subs.clone(),
+                    neighborhood_subs: neighborhood_subs.clone(),
+                })
+                .unwrap_or_else(|_| panic!("{:?} is dead", name));
         };
-        send_pool_bind_message (&stream_handler_pool_subs.bind, "StreamHandlerPool");
-        send_pool_bind_message (&pool_bind_sub, "Dispatcher");
-        send_pool_bind_message (&neighborhood_subs.pool_bind, "Neighborhood");
+        send_pool_bind_message(&stream_handler_pool_subs.bind, "StreamHandlerPool");
+        send_pool_bind_message(&pool_bind_sub, "Dispatcher");
+        send_pool_bind_message(&neighborhood_subs.pool_bind, "Neighborhood");
 
         self.log_recipient_setter
             .prepare_log_recipient(ui_gateway_subs.node_to_ui_message_sub);
@@ -337,9 +337,8 @@ impl ActorSystemFactoryToolsReal {
         let msg = format!("Automap failure: {}{:?}", prefix, error);
         if error.should_crash() {
             exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
-        }
-        else {
-            todo! ("What do we do if we don't crash? ({})", msg)
+        } else {
+            todo!("What do we do if we don't crash? ({})", msg)
         }
     }
 }
@@ -650,8 +649,8 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::logger::LOG_RECIPIENT_OPT;
+    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::{
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
         TEST_DEFAULT_CHAIN,
@@ -659,7 +658,6 @@ mod tests {
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
-    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use regex::Regex;
     use std::cell::RefCell;
     use std::collections::HashMap;

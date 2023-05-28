@@ -292,10 +292,7 @@ mod tests {
     }
 
     impl TestUiGateway {
-        fn new(
-            msg_count: u32,
-            received_message_count: Arc<AtomicU32>,
-        ) -> Self {
+        fn new(msg_count: u32, received_message_count: Arc<AtomicU32>) -> Self {
             Self {
                 expected_msg_count: msg_count,
                 received_message_count,
@@ -390,10 +387,8 @@ mod tests {
             .duration_since(template_before)
             .expect("Unable to unwrap the duration_since for template after");
         let received_message_count_arc = Arc::new(AtomicU32::new(0));
-        let fake_ui_gateway = TestUiGateway::new(
-            total_msg_count as u32,
-            received_message_count_arc.clone(),
-        );
+        let fake_ui_gateway =
+            TestUiGateway::new(total_msg_count as u32, received_message_count_arc.clone());
         let system = System::new("test_system");
         let addr = fake_ui_gateway.start();
         let recipient = addr.clone().recipient();

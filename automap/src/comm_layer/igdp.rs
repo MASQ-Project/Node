@@ -400,7 +400,8 @@ impl IgdpTransactor {
                     &inner_arc,
                     &mut last_remapped,
                     &mapping_config_opt,
-                ) == Finished::Yes {
+                ) == Finished::Yes
+                {
                     break;
                 }
             }
@@ -442,29 +443,26 @@ impl IgdpTransactor {
             change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
             return Finished::Yes;
         };
-        match Self::retrieve_old_and_new_public_ips(
+        if let Ok((old_public_ip, current_public_ip)) = Self::retrieve_old_and_new_public_ips(
             inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
             &inner,
             change_handler,
         ) {
-            Ok((old_public_ip, current_public_ip)) => {
-                if current_public_ip != old_public_ip {
-                    info!(
-                        inner.logger,
-                        "Public IP changed from {} to {}", old_public_ip, current_public_ip
-                    );
-                    inner.public_ip_opt.replace(current_public_ip);
-                    Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
-                    *last_remapped = Instant::now();
-                    change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
-                } else {
-                    debug!(
-                        inner.logger,
-                        "No public IP change detected; still {}", old_public_ip
-                    );
-                };
-            },
-            Err(_) => (),
+            if current_public_ip != old_public_ip {
+                info!(
+                    inner.logger,
+                    "Public IP changed from {} to {}", old_public_ip, current_public_ip
+                );
+                inner.public_ip_opt.replace(current_public_ip);
+                Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
+                *last_remapped = Instant::now();
+                change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
+            } else {
+                debug!(
+                    inner.logger,
+                    "No public IP change detected; still {}", old_public_ip
+                );
+            }
         };
         Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
         Finished::No
@@ -641,10 +639,10 @@ impl MappingAdderReal {
     }
 }
 
-#[derive (Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Finished {
     Yes,
-    No
+    No,
 }
 
 #[cfg(test)]
@@ -1474,8 +1472,9 @@ mod tests {
                 .add_mapping_result(Ok(300)),
         );
         let change_handler: ChangeHandler = Box::new(move |_| {});
-        let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Err(GetExternalIpError::RequestError(RequestError::UnsupportedAction("Booga!".to_string()))));
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Err(
+            GetExternalIpError::RequestError(RequestError::UnsupportedAction("Booga!".to_string())),
+        ));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,

@@ -118,7 +118,7 @@ impl AutomapError {
             AutomapError::TransactionFailure(_) => true,
             AutomapError::AllProtocolsFailed(_) => true,
             AutomapError::HousekeeperAlreadyRunning => false,
-            AutomapError:: HousekeeperCrashed => false,
+            AutomapError::HousekeeperCrashed => false,
         }
     }
 }
@@ -190,7 +190,6 @@ impl LocalIpFinderReal {
 
 #[cfg(test)]
 mod tests {
-    use masq_lib::utils::localhost;
     use super::*;
 
     #[test]
@@ -302,16 +301,34 @@ mod tests {
             (AutomapError::IPv6Unsupported(Ipv6Addr::UNSPECIFIED), true),
             (AutomapError::FindRouterError("".to_string()), true),
             (AutomapError::GetPublicIpError("".to_string()), true),
-            (AutomapError::SocketBindingError("".to_string(), SocketAddr::from_str("0.0.0.0:0").unwrap()), true),
-            (AutomapError::SocketSendError(AutomapErrorCause::Unknown("".to_string())), true),
-            (AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("".to_string())), true),
-            (AutomapError::PacketParseError(ParseError::WrongVersion(0)), true),
+            (
+                AutomapError::SocketBindingError(
+                    "".to_string(),
+                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
+                ),
+                true,
+            ),
+            (
+                AutomapError::SocketSendError(AutomapErrorCause::Unknown("".to_string())),
+                true,
+            ),
+            (
+                AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("".to_string())),
+                true,
+            ),
+            (
+                AutomapError::PacketParseError(ParseError::WrongVersion(0)),
+                true,
+            ),
             (AutomapError::ProtocolError("".to_string()), true),
             (AutomapError::PermanentLeasesOnly, false),
             (AutomapError::TemporaryMappingError("".to_string()), false),
             (AutomapError::PermanentMappingError("".to_string()), true),
             (AutomapError::ProbeServerConnectError("".to_string()), true),
-            (AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, "".to_string()), true),
+            (
+                AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, "".to_string()),
+                true,
+            ),
             (AutomapError::ProbeReceiveError("".to_string()), true),
             (AutomapError::DeleteMappingError("".to_string()), false),
             (AutomapError::TransactionFailure("".to_string()), true),
@@ -319,9 +336,16 @@ mod tests {
             (AutomapError::HousekeeperAlreadyRunning, false),
             (AutomapError::HousekeeperCrashed, false),
         ]
-            .into_iter()
-            .for_each (|(error, should_crash)| {
-                assert_eq! (error.should_crash(), should_crash, "{:?}.should_crash should be {}, but was {}", error, should_crash, !should_crash)
-            })
+        .into_iter()
+        .for_each(|(error, should_crash)| {
+            assert_eq!(
+                error.should_crash(),
+                should_crash,
+                "{:?}.should_crash should be {}, but was {}",
+                error,
+                should_crash,
+                !should_crash
+            )
+        })
     }
 }

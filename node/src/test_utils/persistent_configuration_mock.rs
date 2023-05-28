@@ -3,6 +3,7 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -12,7 +13,6 @@ use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::sub_lib::cryptde::CryptDE;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -268,7 +268,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 
-    #[cfg(test)]
     arbitrary_id_stamp!();
 }
 

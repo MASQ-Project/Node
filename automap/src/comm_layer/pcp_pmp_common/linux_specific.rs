@@ -3,17 +3,17 @@
 
 use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
+use itertools::Either;
 use std::net::IpAddr;
 use std::str::FromStr;
-use itertools::Either;
 
 pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
-    let output = loop {
-        match command.execute() {
-            Ok(stdout) => break stdout,
-            Err(Either::Left(stderr)) => return Err(AutomapError::FindRouterError(stderr)),
-            Err(Either::Right(error)) => return Err(AutomapError::FindRouterError(format!("{:?}", error)))
-        };
+    let output = match command.execute() {
+        Ok(stdout) => stdout,
+        Err(Either::Left(stderr)) => return Err(AutomapError::FindRouterError(stderr)),
+        Err(Either::Right(error)) => {
+            return Err(AutomapError::FindRouterError(format!("{:?}", error)))
+        }
     };
     let addresses = output
         .split('\n')

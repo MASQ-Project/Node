@@ -120,7 +120,7 @@ impl Handler<BindMessage> for Neighborhood {
         self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup_sub_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
         self.connected_signal_sub_opt = Some(msg.peer_actors.accountant.start);
-        self.gossip_acceptor_info_opt = Some (Either::Right (GossipAcceptorSubs {
+        self.gossip_acceptor_info_opt = Some(Either::Right(GossipAcceptorSubs {
             connection_progress_sub: msg.peer_actors.neighborhood.connection_progress_sub,
             stream_shutdown_sub: msg.peer_actors.dispatcher.stream_shutdown_sub,
         }));
@@ -133,11 +133,12 @@ impl Handler<PoolBindMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: PoolBindMessage, _: &mut Self::Context) -> Self::Result {
-        let gossip_acceptor_subs = self.gossip_acceptor_info_opt
+        let gossip_acceptor_subs = self
+            .gossip_acceptor_info_opt
             .take()
             .expect("Neighborhood never got its BindMessage")
-            .right_or_else (|_| panic! ("Neighborhood got multiple PoolBindMessages"));
-        self.gossip_acceptor_info_opt = Some(Either::Left (Box::new(GossipAcceptorReal::new(
+            .right_or_else(|_| panic!("Neighborhood got multiple PoolBindMessages"));
+        self.gossip_acceptor_info_opt = Some(Either::Left(Box::new(GossipAcceptorReal::new(
             self.cryptde,
             gossip_acceptor_subs.connection_progress_sub,
             msg.stream_handler_pool_subs.remove_stream_sub,
@@ -553,28 +554,27 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
-        self
-            .neighborhood_database
+        self.neighborhood_database
             .root()
             .inner
             .neighbors
             .iter()
-            .flat_map(|key| self
-                .neighborhood_database
-                .node_by_key(key)
-                .expect("Node disappeared!")
-                .node_addr_opt()
-                .map (|node_addr| (key, node_addr))
-            )
+            .flat_map(|key| {
+                self.neighborhood_database
+                    .node_by_key(key)
+                    .expect("Node disappeared!")
+                    .node_addr_opt()
+                    .map(|node_addr| (key, node_addr))
+            })
             .for_each(|(key, node_addr)| {
                 let gossip = self
                     .gossip_producer_opt
                     .as_ref()
                     .expect("No GossipProducer")
-                    .produce_debut_or_ipchange (&self.neighborhood_database);
+                    .produce_debut_or_ipchange(&self.neighborhood_database);
                 let message_type = MessageType::Gossip(VersionedData::new(
                     &crate::sub_lib::migrations::gossip::MIGRATIONS,
-                    &gossip
+                    &gossip,
                 ));
                 self.send_no_lookup_package(message_type, key, &node_addr);
             });
@@ -789,24 +789,20 @@ impl Neighborhood {
             .as_ref()
             .expect("Gossip Acceptor wasn't created.")
             .as_ref()
-            .left_or_else (|_| panic! ("Neighborhood never got its PoolBindMessage"))
+            .left_or_else(|_| panic!("Neighborhood never got its PoolBindMessage"))
             .handle(
                 &mut self.neighborhood_database,
                 agrs,
                 gossip_source,
                 &connection_progress_peers,
             );
-        self.process_acceptance_result(
-            acceptance_result,
-            &gossip_source_name,
-            gossip_record_count,
-        );
+        self.process_acceptance_result(acceptance_result, &gossip_source_name, gossip_record_count);
     }
 
     fn process_acceptance_result(
         &mut self,
         acceptance_result: GossipAcceptanceResult,
-        gossip_source_name: &str,
+        gossip_source_key_or_addr: &str,
         gossip_record_count: usize,
     ) {
         match acceptance_result {
@@ -818,13 +814,23 @@ impl Neighborhood {
                 self.handle_gossip_failed(failure, &target_key, &target_node_addr)
             }
             GossipAcceptanceResult::Ignored => {
-                trace!(self.logger, "{}-Node Gossip from {} ignored", gossip_record_count, gossip_source_name);
+                trace!(
+                    self.logger,
+                    "{}-Node Gossip from {} ignored",
+                    gossip_record_count,
+                    gossip_source_key_or_addr
+                );
             }
             GossipAcceptanceResult::Absorbed => {
-                trace!(self.logger, "{}-Node Gossip from {} absorbed", gossip_record_count, gossip_source_name)
+                trace!(
+                    self.logger,
+                    "{}-Node Gossip from {} absorbed",
+                    gossip_record_count,
+                    gossip_source_key_or_addr
+                )
             }
             GossipAcceptanceResult::Ban(reason) => {
-                warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source_name, reason);
+                warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source_key_or_addr, reason);
             }
         }
     }
@@ -900,9 +906,7 @@ impl Neighborhood {
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
                     OverallConnectionStage::ThreeHopsRouteFound,
-                    self.node_to_ui_sub_opt
-                        .as_ref()
-                        .expect("UI was not bound."),
+                    self.node_to_ui_sub_opt.as_ref().expect("UI was not bound."),
                     &self.logger,
                 );
             self.connected_signal_sub_opt
@@ -1687,10 +1691,10 @@ mod tests {
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
-    use crate::test_utils::recorder::{make_recorder, pool_bind_message_builder};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::recorder::{make_recorder, pool_bind_message_builder};
     use crate::test_utils::unshared_test_utils::{
         make_node_to_ui_recipient, make_recipient_and_recording_arc,
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
@@ -1844,11 +1848,17 @@ mod tests {
 
         addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        addr.try_send(AssertionsMessage { assertions: bind_message_assertions }).unwrap();
+        addr.try_send(AssertionsMessage {
+            assertions: bind_message_assertions,
+        })
+        .unwrap();
 
         addr.try_send(pool_bind_message).unwrap();
 
-        addr.try_send(AssertionsMessage { assertions: pool_bind_message_assertions}).unwrap();
+        addr.try_send(AssertionsMessage {
+            assertions: pool_bind_message_assertions,
+        })
+        .unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
     }
@@ -3421,7 +3431,7 @@ mod tests {
                     retries_left -= 1
                 }
             } else {
-                break route
+                break route;
             }
         };
         assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
@@ -3936,9 +3946,10 @@ mod tests {
         replacement_database.add_node(neighbor.clone()).unwrap();
         replacement_database
             .add_arbitrary_half_neighbor(subject_node.public_key(), neighbor.public_key());
-        subject.gossip_acceptor_info_opt = Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        })));
+        subject.gossip_acceptor_info_opt =
+            Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
+                replacement_database,
+            })));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3959,9 +3970,10 @@ mod tests {
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let replacement_database = subject.neighborhood_database.clone();
-        subject.gossip_acceptor_info_opt = Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        })));
+        subject.gossip_acceptor_info_opt =
+            Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
+                replacement_database,
+            })));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_already_connected");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -4049,11 +4061,7 @@ mod tests {
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
         let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
 
-        subject.process_acceptance_result(
-            GossipAcceptanceResult::Absorbed,
-            "new-IP Node",
-            1,
-        );
+        subject.process_acceptance_result(GossipAcceptanceResult::Absorbed, "new-IP Node", 1);
 
         TestLogHandler::new().exists_log_containing("1-Node Gossip from new-IP Node absorbed");
     }
@@ -4350,10 +4358,10 @@ mod tests {
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (subject, one_neighbor, another_neighbor) = {
-            let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node,
-                Some(&make_node_record(7654, true)));
-            subject.gossip_producer_opt = Some(Box::new (GossipProducerReal::new()));
-            subject.hopper_no_lookup_sub_opt = Some (hopper.start().recipient());
+            let mut subject: Neighborhood =
+                neighborhood_from_nodes(&subject_node, Some(&make_node_record(7654, true)));
+            subject.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
+            subject.hopper_no_lookup_sub_opt = Some(hopper.start().recipient());
             let db = &mut subject.neighborhood_database;
             let one_neighbor = db.add_node(make_node_record(1234, true)).unwrap();
             let another_neighbor = db.add_node(make_node_record(2345, true)).unwrap();
@@ -4374,40 +4382,43 @@ mod tests {
             (subject, one_neighbor, another_neighbor)
         };
         let db = &subject.neighborhood_database;
-        assert_eq!(
-            db.root()
-                .node_addr_opt()
-                .unwrap()
-                .ip_addr(),
-            new_public_ip
-        );
+        assert_eq!(db.root().node_addr_opt().unwrap().ip_addr(), new_public_ip);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
         let hopper_recording = hopper_recording_arc.lock().unwrap();
-        assert_eq! (hopper_recording.len(), 2);
+        assert_eq!(hopper_recording.len(), 2);
         let check_hopper_message = |idx: usize, expected_key: &PublicKey| {
             let pkg: &NoLookupIncipientCoresPackage = hopper_recording.get_record(idx);
-            assert_eq! (&pkg.public_key, expected_key);
+            assert_eq!(&pkg.public_key, expected_key);
             let expected_node_addr = db
-                .node_by_key(expected_key).as_ref().unwrap()
+                .node_by_key(expected_key)
+                .as_ref()
+                .unwrap()
                 .metadata
-                .node_addr_opt.as_ref().unwrap();
-            assert_eq! (&pkg.node_addr, expected_node_addr);
+                .node_addr_opt
+                .as_ref()
+                .unwrap();
+            assert_eq!(&pkg.node_addr, expected_node_addr);
             let payload = decodex::<MessageType>(
                 &CryptDENull::from(expected_key, TEST_DEFAULT_CHAIN),
                 &pkg.payload,
-            ).unwrap();
+            )
+            .unwrap();
             let expected_data = Gossip_0v1 {
-                node_records: vec![GossipNodeRecord::from ((db, subject_node.public_key(), true))]
+                node_records: vec![GossipNodeRecord::from((
+                    db,
+                    subject_node.public_key(),
+                    true,
+                ))],
             };
             let expected_payload = MessageType::Gossip(VersionedData::new(
                 &crate::sub_lib::migrations::gossip::MIGRATIONS,
-                &expected_data
+                &expected_data,
             ));
             assert_eq!(payload, expected_payload);
         };
-        check_hopper_message (0, &one_neighbor);
-        check_hopper_message (1, &another_neighbor);
+        check_hopper_message(0, &one_neighbor);
+        check_hopper_message(1, &another_neighbor);
     }
 
     #[test]
@@ -5669,7 +5680,9 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
+        subject_addr
+            .try_send(make_meaningless_pool_bind_message())
+            .unwrap();
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -5778,7 +5791,9 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
+        subject_addr
+            .try_send(make_meaningless_pool_bind_message())
+            .unwrap();
 
         subject_addr
             .try_send(NewPasswordMessage {
@@ -6052,7 +6067,9 @@ mod tests {
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr.try_send(make_meaningless_pool_bind_message()).unwrap();
+        subject_addr
+            .try_send(make_meaningless_pool_bind_message())
+            .unwrap();
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -6110,9 +6127,10 @@ mod tests {
                 .add_arbitrary_full_neighbor(&nodes[i as usize - 1], &nodes[i as usize]);
         }
 
-        neighborhood.gossip_acceptor_info_opt = Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        })));
+        neighborhood.gossip_acceptor_info_opt =
+            Some(Either::Left(Box::new(DatabaseReplacementGossipAcceptor {
+                replacement_database,
+            })));
         neighborhood.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));

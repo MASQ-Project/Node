@@ -326,16 +326,16 @@ impl PmpTransactor {
     }
 }
 
-#[derive (Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Finished {
     Yes,
-    No
+    No,
 }
 
-#[derive (Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum ContinueWithIteration {
     Yes,
-    No
+    No,
 }
 
 struct ThreadGuts {
@@ -408,20 +408,23 @@ impl ThreadGuts {
             Err(crossbeam_channel::TryRecvError::Empty) => (),
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 error!(self.logger, "Node died; housekeeping thread is terminating");
-                return Finished::Yes
+                return Finished::Yes;
             }
         };
         Finished::No
     }
 
-    fn handle_announcement_if_present(&self, mapping_config_opt: &Option<MappingConfig>) -> ContinueWithIteration {
+    fn handle_announcement_if_present(
+        &self,
+        mapping_config_opt: &Option<MappingConfig>,
+    ) -> ContinueWithIteration {
         let mut buffer = [0u8; 100];
         debug!(&self.logger, "Waiting for an IP-change announcement");
         // This will block for awhile, conserving CPU cycles
         match self.announcement_socket.recv_from(&mut buffer) {
             Ok((_, announcement_source_address)) => {
                 if announcement_source_address.ip() != self.router_addr.ip() {
-                    return ContinueWithIteration::No
+                    return ContinueWithIteration::No;
                 }
                 match self.parse_buffer(&buffer, announcement_source_address) {
                     Some(public_ip) => {
@@ -464,11 +467,7 @@ impl ThreadGuts {
         }
     }
 
-    fn parse_buffer(
-        &self,
-        buffer: &[u8],
-        source_address: SocketAddr,
-    ) -> Option<Ipv4Addr> {
+    fn parse_buffer(&self, buffer: &[u8], source_address: SocketAddr) -> Option<Ipv4Addr> {
         match PmpPacket::try_from(buffer) {
             Ok(packet) => {
                 if packet.direction != Direction::Response {
@@ -715,11 +714,14 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
     use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::test_utils::{FreePortFactoryMock, make_router_connections, TransactorMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
+    use crate::test_utils::{
+        make_router_connections, FreePortFactoryMock, UdpSocketWrapperFactoryMock,
+        UdpSocketWrapperMock,
+    };
     use lazy_static::lazy_static;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1566,22 +1568,20 @@ mod tests {
 
         let result = subject.single_iteration(&mut None, &mut Instant::now());
 
-        assert_eq! (result, Finished::Yes);
-        TestLogHandler::default().exists_log_containing("ERROR: PmpTransactor: Node died; housekeeping thread is terminating");
+        assert_eq!(result, Finished::Yes);
+        TestLogHandler::default().exists_log_containing(
+            "ERROR: PmpTransactor: Node died; housekeeping thread is terminating",
+        );
     }
 
     #[test]
     fn handle_announcement_if_present_ignores_data_if_not_from_router() {
-        let real_router_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)),
-            ANNOUNCEMENT_PORT
-        );
-        let some_other_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(40, 30, 20, 10)),
-            ANNOUNCEMENT_PORT
-        );
-        let announcement_socket = UdpSocketWrapperMock::new()
-            .recv_from_result(Ok((0, some_other_addr)), vec![]);
+        let real_router_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
+        let some_other_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(40, 30, 20, 10)), ANNOUNCEMENT_PORT);
+        let announcement_socket =
+            UdpSocketWrapperMock::new().recv_from_result(Ok((0, some_other_addr)), vec![]);
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1590,24 +1590,22 @@ mod tests {
         let subject = ThreadGuts::new(
             &PmpTransactor::default(),
             real_router_addr.ip(),
-            Box::new (announcement_socket),
+            Box::new(announcement_socket),
             Box::new(change_handler),
-            unbounded().1
+            unbounded().1,
         );
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq! (result, ContinueWithIteration::No);
+        assert_eq!(result, ContinueWithIteration::No);
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
     }
 
     #[test]
     fn handle_announcement_if_present_handles_good_data_from_router() {
-        let router_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)),
-            ANNOUNCEMENT_PORT
-        );
+        let router_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
         let new_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1623,11 +1621,10 @@ mod tests {
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
-        let mapping_adder: Box<dyn MappingAdder> = Box::new (MappingAdderMock::new()
-        );
+        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new());
         let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
         let factories_arc = Arc::new(Mutex::new(Factories::default()));
-        let subject = ThreadGuts{
+        let subject = ThreadGuts {
             announcement_socket: Box::new(announcement_socket),
             housekeeper_flunkie: unbounded().1,
             mapping_adder_arc,
@@ -1640,30 +1637,29 @@ mod tests {
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq! (result, ContinueWithIteration::Yes);
+        assert_eq!(result, ContinueWithIteration::Yes);
         let changes = changes_arc.lock().unwrap();
-        assert_eq!(*changes, vec![AutomapChange::NewIp(IpAddr::V4(new_ip_addr))]);
+        assert_eq!(
+            *changes,
+            vec![AutomapChange::NewIp(IpAddr::V4(new_ip_addr))]
+        );
     }
 
     #[test]
     fn handle_announcement_if_present_handles_unparseable_data_from_router() {
-        let router_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)),
-            ANNOUNCEMENT_PORT
-        );
-        let new_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
-        let announcement_socket = UdpSocketWrapperMock::new()
-            .recv_from_result(Ok((0, router_addr)), vec![]);
+        let router_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
+        let announcement_socket =
+            UdpSocketWrapperMock::new().recv_from_result(Ok((0, router_addr)), vec![]);
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
-        let mapping_adder: Box<dyn MappingAdder> = Box::new (MappingAdderMock::new()
-        );
+        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new());
         let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
         let factories_arc = Arc::new(Mutex::new(Factories::default()));
-        let subject = ThreadGuts{
+        let subject = ThreadGuts {
             announcement_socket: Box::new(announcement_socket),
             housekeeper_flunkie: unbounded().1,
             mapping_adder_arc,
@@ -1676,18 +1672,15 @@ mod tests {
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq! (result, ContinueWithIteration::No);
+        assert_eq!(result, ContinueWithIteration::No);
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
     }
 
     #[test]
     fn handle_announcement_if_present_handles_error_reading_from_router() {
-        let router_addr = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)),
-            ANNOUNCEMENT_PORT
-        );
-        let new_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let router_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
         let announcement_socket = UdpSocketWrapperMock::new()
             .recv_from_result(Err(Error::from(ErrorKind::BrokenPipe)), vec![]);
         let changes_arc = Arc::new(Mutex::new(vec![]));
@@ -1695,10 +1688,10 @@ mod tests {
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
-        let mapping_adder: Box<dyn MappingAdder> = Box::new (MappingAdderMock::new());
+        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new());
         let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
         let factories_arc = Arc::new(Mutex::new(Factories::default()));
-        let subject = ThreadGuts{
+        let subject = ThreadGuts {
             announcement_socket: Box::new(announcement_socket),
             housekeeper_flunkie: unbounded().1,
             mapping_adder_arc,
@@ -1711,7 +1704,7 @@ mod tests {
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq! (result, ContinueWithIteration::Yes);
+        assert_eq!(result, ContinueWithIteration::Yes);
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
     }
@@ -2195,7 +2188,7 @@ mod tests {
         handle_announcement_rejects_unsuccessful_result_code(
             "handle_announcement_rejects_temporarily_unsuccessful_result_code",
             ResultCode::OutOfResources,
-            |err_msg| AutomapError::TemporaryMappingError(err_msg)
+            |err_msg| AutomapError::TemporaryMappingError(err_msg),
         );
     }
 
@@ -2204,15 +2197,16 @@ mod tests {
         handle_announcement_rejects_unsuccessful_result_code(
             "handle_announcement_rejects_permanently_unsuccessful_result_code",
             ResultCode::UnsupportedVersion,
-            |err_msg| AutomapError::PermanentMappingError(err_msg)
+            |err_msg| AutomapError::PermanentMappingError(err_msg),
         );
     }
 
     fn handle_announcement_rejects_unsuccessful_result_code<F>(
         logger_name: &str,
         result_code: ResultCode,
-        automap_error_generator: F
-    ) where F: FnOnce(String) -> AutomapError
+        automap_error_generator: F,
+    ) where
+        F: FnOnce(String) -> AutomapError,
     {
         init_test_logging();
         let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
@@ -2235,8 +2229,7 @@ mod tests {
         let change_handler_log_inner = change_handler_log_arc.clone();
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
-        let logger =
-            Logger::new(logger_name);
+        let logger = Logger::new(logger_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -2260,17 +2253,17 @@ mod tests {
         );
 
         let change_handler_log = change_handler_log_arc.lock().unwrap();
-        let err_msg = format!("Remapping after IP change failed; Node is useless: {:?}", result_code);
+        let err_msg = format!(
+            "Remapping after IP change failed; Node is useless: {:?}",
+            result_code
+        );
         let automap_error = automap_error_generator(err_msg.clone());
         assert_eq!(
             *change_handler_log,
             vec![AutomapChange::Error(automap_error)]
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {}: {}",
-            logger_name,
-            err_msg
-        ));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("ERROR: {}: {}", logger_name, err_msg));
     }
 
     #[test]

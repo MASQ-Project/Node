@@ -3,15 +3,14 @@ use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
-use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use masq_lib::logger::Logger;
+use pretty_hex::pretty_hex;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
-use pretty_hex::pretty_hex;
 
 pub struct StreamReader {
     stream_key: StreamKey,

@@ -11,6 +11,7 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
+use crate::node_test_utils::make_stream_handler_pool_subs_from;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -60,7 +61,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use crate::node_test_utils::make_stream_handler_pool_subs_from;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -595,12 +595,13 @@ impl PoolBindMessageBuilder {
         self
     }
 
-    // This must be called after System.new and before System.run
     pub fn build(self) -> PoolBindMessage {
         PoolBindMessage {
             dispatcher_subs: make_dispatcher_subs_from(&self.dispatcher.start()),
             neighborhood_subs: make_neighborhood_subs_from(&self.neighborhood.start()),
-            stream_handler_pool_subs: make_stream_handler_pool_subs_from(Some (self.stream_handler_pool)),
+            stream_handler_pool_subs: make_stream_handler_pool_subs_from(Some(
+                self.stream_handler_pool,
+            )),
         }
     }
 }

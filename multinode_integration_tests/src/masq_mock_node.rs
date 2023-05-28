@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::any::Any;
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::MASQNode;
@@ -30,6 +29,7 @@ use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use node_lib::test_utils::{make_paying_wallet, make_wallet};
+use std::any::Any;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -254,7 +254,7 @@ impl MASQMockNode {
     pub fn guts_from_builder(&mut self, builder: MASQMockNodeGutsBuilder) -> Rc<dyn Any> {
         let container_preserver = self.guts.clone();
         let guts = builder.build();
-        self.guts = Rc::new (guts);
+        self.guts = Rc::new(guts);
         container_preserver
     }
 
@@ -606,62 +606,65 @@ pub struct MASQMockNodeGutsBuilder {
 }
 
 impl MASQMockNodeGutsBuilder {
-    pub fn new () -> Self {
+    pub fn new() -> Self {
         Self {
             in_progress: MASQMockNodeGuts {
                 name: "Builder Node".to_string(),
                 node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5678]),
-                earning_wallet: Wallet::new ("Earning"),
+                earning_wallet: Wallet::new("Earning"),
                 consuming_wallet: None,
                 rate_pack: DEFAULT_RATE_PACK.clone(),
-                cryptde_enum: CryptDEEnum::Fake ((CryptDENull::new(Chain::PolyMumbai), CryptDENull::new(Chain::PolyMumbai))),
+                cryptde_enum: CryptDEEnum::Fake((
+                    CryptDENull::new(Chain::PolyMumbai),
+                    CryptDENull::new(Chain::PolyMumbai),
+                )),
                 framer: RefCell::new(DataHunkFramer::new()),
                 chain: Chain::PolyMumbai,
-            }
+            },
         }
     }
 
-    pub fn name (mut self, name: &str) -> Self {
+    pub fn name(mut self, name: &str) -> Self {
         self.in_progress.name = name.to_string();
         self
     }
 
-    pub fn node_addr (mut self, node_addr: NodeAddr) -> Self {
+    pub fn node_addr(mut self, node_addr: NodeAddr) -> Self {
         self.in_progress.node_addr = node_addr;
         self
     }
 
-    pub fn earning_wallet (mut self, earning_wallet: Wallet) -> Self {
+    pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
         self.in_progress.earning_wallet = earning_wallet;
         self
     }
 
-    pub fn consuming_wallet_opt (mut self, consuming_wallet_opt: Option<Wallet>) -> Self {
+    pub fn consuming_wallet_opt(mut self, consuming_wallet_opt: Option<Wallet>) -> Self {
         self.in_progress.consuming_wallet = consuming_wallet_opt;
         self
     }
 
-    pub fn rate_pack (mut self, rate_pack: RatePack) -> Self {
+    pub fn rate_pack(mut self, rate_pack: RatePack) -> Self {
         self.in_progress.rate_pack = rate_pack;
         self
     }
 
-    pub fn cryptde_enum (mut self, cryptde_enum: CryptDEEnum) -> Self {
+    pub fn cryptde_enum(mut self, cryptde_enum: CryptDEEnum) -> Self {
         self.in_progress.cryptde_enum = cryptde_enum;
         self
     }
 
-    pub fn framer (mut self, framer: DataHunkFramer) -> Self {
-        self.in_progress.framer = RefCell::new (framer);
+    pub fn framer(mut self, framer: DataHunkFramer) -> Self {
+        self.in_progress.framer = RefCell::new(framer);
         self
     }
 
-    pub fn chain (mut self, chain: Chain) -> Self {
+    pub fn chain(mut self, chain: Chain) -> Self {
         self.in_progress.chain = chain;
         self
     }
 
-    pub fn build (self) -> MASQMockNodeGuts {
+    pub fn build(self) -> MASQMockNodeGuts {
         self.in_progress
     }
 }
@@ -669,7 +672,7 @@ impl MASQMockNodeGutsBuilder {
 impl From<&MASQMockNode> for MASQMockNodeGutsBuilder {
     fn from(init: &MASQMockNode) -> Self {
         Self {
-            in_progress: init.guts.as_ref().clone()
+            in_progress: init.guts.as_ref().clone(),
         }
     }
 }

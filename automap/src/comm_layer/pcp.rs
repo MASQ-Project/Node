@@ -328,7 +328,7 @@ impl PcpTransactor {
                 Err(crossbeam_channel::TryRecvError::Empty) => (),
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     error!(logger, "Node is dead; housekeeping thread is terminating");
-                    return change_handler
+                    return change_handler;
                 }
             }
             // This will block for read_timeout_millis, conserving CPU cycles
@@ -362,10 +362,9 @@ impl PcpTransactor {
                     }
                 }
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
-                Err(e) => {
-                    error!(logger, "Error receiving PCP packet from router: {:?}", e)
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
                 }
+                Err(e) => error!(logger, "Error receiving PCP packet from router: {:?}", e),
             }
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
@@ -656,12 +655,15 @@ impl MappingTransactorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::{ROUTER_PORT};
+    use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::test_utils::{FreePortFactoryMock, LocalIpFinderMock, make_router_connections, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
+    use crate::test_utils::{
+        make_router_connections, FreePortFactoryMock, LocalIpFinderMock,
+        UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
+    };
     use core::ptr::addr_of;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1472,17 +1474,14 @@ mod tests {
     #[test]
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let _ = EnvironmentGuard::new();
-        let announcement_port = find_free_port();
-        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
-        let router_port = find_free_port();
-        let router_ip = LocalIpFinderReal::new().find().unwrap();
+        let router_connections = make_router_connections();
         let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_multicast_group = announce_socket_holder.group;
-        subject.announcement_port = announcement_port;
+        subject.router_port = router_connections.router_port;
+        subject.announcement_multicast_group = router_connections.holder.group;
+        subject.announcement_port = router_connections.announcement_port;
         let multicast_address = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
-            announcement_port,
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, router_connections.holder.group)),
+            router_connections.announcement_port,
         );
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1491,7 +1490,7 @@ mod tests {
         };
 
         let commander = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_connections.router_ip)
             .unwrap();
 
         commander
@@ -1504,14 +1503,17 @@ mod tests {
             ))
             .unwrap();
         let mut buffer = [0u8; 100];
-        let announce_socket = &announce_socket_holder.socket;
+        let announce_socket = &router_connections.holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
         // Something with an IP address other than the router's sends a perfectly formed Announce packet
         let not_the_router_ip = localhost();
-        let mapping_socket =
-            UdpSocket::bind(SocketAddr::new(not_the_router_ip, router_port)).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(
+            not_the_router_ip,
+            router_connections.router_port,
+        ))
+        .unwrap();
         mapping_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -2034,13 +2036,9 @@ mod tests {
     fn thread_guts_logs_and_terminates_if_commander_channel_dies() {
         init_test_logging();
         let (_, rx) = unbounded(); // channel is already dead
-        let socket: Box<dyn UdpSocketWrapper> = Box::new(
-            UdpSocketWrapperMock::new()
-                .set_read_timeout_result(Ok(()))
-        );
-        let mapping_transactor = Box::new(
-            MappingTransactorMock::new()
-        );
+        let socket: Box<dyn UdpSocketWrapper> =
+            Box::new(UdpSocketWrapperMock::new().set_read_timeout_result(Ok(())));
+        let mapping_transactor = Box::new(MappingTransactorMock::new());
         let logger = Logger::new("thread_guts_logs_and_terminates_if_commander_channel_dies");
 
         let _ = PcpTransactor::thread_guts(

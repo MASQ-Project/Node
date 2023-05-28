@@ -4,6 +4,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::node_configurator::compute_mapping_protocol_opt;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -21,11 +22,10 @@ use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
-use crate::node_configurator::compute_mapping_protocol_opt;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -583,19 +583,24 @@ mod tests {
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::unshared_test_utils::{configure_persistent_config, make_persistent_config_real_with_config_dao_null, make_simplified_multi_config, PCField};
+    use crate::test_utils::unshared_test_utils::PCField::{
+        BlockchainServiceUrl, ConsumingWalletPrivateKey, EarningWallet, EarningWalletAddress,
+        GasPrice, MappingProtocol, PastNeighbors, PaymentThresholds, RatePack, ScanIntervals,
+    };
+    use crate::test_utils::unshared_test_utils::{
+        configure_persistent_config, make_persistent_config_real_with_config_dao_null,
+        make_simplified_multi_config, PCField,
+    };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::running_test;
+    use masq_lib::utils::AutomapProtocol::Pcp;
+    use masq_lib::utils::{running_test, AutomapProtocol};
     use std::path::PathBuf;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use masq_lib::utils::AutomapProtocol::Pcp;
-    use crate::test_utils::unshared_test_utils::PCField::{BlockchainServiceUrl, ConsumingWalletPrivateKey, EarningWallet, EarningWalletAddress, GasPrice, MappingProtocol, PastNeighbors, PaymentThresholds, RatePack, ScanIntervals};
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -881,8 +886,7 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base())
-                .check_password_result(Ok(false)),
+            &mut configure_persistent_config(PCField::just_base()).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -911,8 +915,7 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base())
-                .check_password_result(Ok(false)),
+            &mut configure_persistent_config(PCField::just_base()).check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -930,8 +933,7 @@ mod tests {
     ) {
         running_test();
         let mut persistent_config =
-            configure_persistent_config(PCField::just_base())
-                .check_password_result(Ok(false));
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(false));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1194,7 +1196,7 @@ mod tests {
             RatePack,
             PaymentThresholds,
             ScanIntervals,
-            MappingProtocol
+            MappingProtocol,
         ]))
         .set_past_neighbors_params(&set_past_neighbors_params_arc)
         .set_past_neighbors_result(Ok(()));
@@ -1250,7 +1252,7 @@ mod tests {
             RatePack,
             PaymentThresholds,
             ScanIntervals,
-            MappingProtocol
+            MappingProtocol,
         ]))
         .set_past_neighbors_params(&set_past_neighbors_params_arc);
         let multi_config = make_simplified_multi_config([
@@ -1470,7 +1472,10 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_config = configure_persistent_config(PCField::base_and(vec![
-            RatePack, ScanIntervals, PaymentThresholds, MappingProtocol
+            RatePack,
+            ScanIntervals,
+            PaymentThresholds,
+            MappingProtocol,
         ]))
         .check_password_result(Ok(false));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1520,15 +1525,22 @@ mod tests {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = configure_persistent_config(vec![
-            PaymentThresholds, ScanIntervals, BlockchainServiceUrl, GasPrice,
-            ConsumingWalletPrivateKey, EarningWalletAddress, RatePack
+            PaymentThresholds,
+            ScanIntervals,
+            BlockchainServiceUrl,
+            GasPrice,
+            ConsumingWalletPrivateKey,
+            EarningWalletAddress,
+            RatePack,
         ])
-            .check_password_result(Ok(false))
-            .mapping_protocol_result(Ok(Some(Pcp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .past_neighbors_params(&past_neighbors_params_arc)
-            .encrypt_past_neighbors_result(main_cryptde(),
-                 "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234,masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345");
+        .check_password_result(Ok(false))
+        .mapping_protocol_result(Ok(Some(Pcp)))
+        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+        .past_neighbors_params(&past_neighbors_params_arc)
+        .encrypt_past_neighbors_result(
+            main_cryptde(),
+            "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234,masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345",
+        );
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1571,10 +1583,17 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration = configure_persistent_config(vec![
-            ScanIntervals, PaymentThresholds, ConsumingWalletPrivateKey, EarningWalletAddress,
-            EarningWallet, GasPrice, PastNeighbors, MappingProtocol, RatePack
+            ScanIntervals,
+            PaymentThresholds,
+            ConsumingWalletPrivateKey,
+            EarningWalletAddress,
+            EarningWallet,
+            GasPrice,
+            PastNeighbors,
+            MappingProtocol,
+            RatePack,
         ])
-            .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
+        .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1602,11 +1621,13 @@ mod tests {
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = configure_persistent_config(PCField::base_and(vec![
-            PaymentThresholds, ScanIntervals, RatePack
+            PaymentThresholds,
+            ScanIntervals,
+            RatePack,
         ]))
-            .mapping_protocol_result(Ok(Some(Pcp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()));
+        .mapping_protocol_result(Ok(Some(Pcp)))
+        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+        .set_mapping_protocol_result(Ok(()));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1662,7 +1683,7 @@ mod tests {
                     RatePack,
                     PaymentThresholds,
                     ScanIntervals,
-                    MappingProtocol
+                    MappingProtocol,
                 ])),
                 &Logger::new("test logger"),
             )
@@ -1838,18 +1859,19 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_persistent_config(PCField::base_and(vec![
-                MappingProtocol, ScanIntervals, PaymentThresholds
-            ]))
-                .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
-                    routing_byte_rate: 3,
-                    routing_service_rate: 5,
-                    exit_byte_rate: 4,
-                    exit_service_rate: 7,
-                }))
-                .set_rate_pack_result(Ok(()))
-                .set_rate_pack_params(&set_rate_pack_params_arc);
+        let mut persistent_configuration = configure_persistent_config(PCField::base_and(vec![
+            MappingProtocol,
+            ScanIntervals,
+            PaymentThresholds,
+        ]))
+        .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
+            routing_byte_rate: 3,
+            routing_service_rate: 5,
+            exit_byte_rate: 4,
+            exit_service_rate: 7,
+        }))
+        .set_rate_pack_result(Ok(()))
+        .set_rate_pack_params(&set_rate_pack_params_arc);
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1886,16 +1908,17 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_persistent_config(PCField::base_and(vec![
-                PaymentThresholds, ScanIntervals, MappingProtocol
-            ]))
-                .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
-                    routing_byte_rate: 6,
-                    routing_service_rate: 7,
-                    exit_byte_rate: 8,
-                    exit_service_rate: 9,
-                }));
+        let mut persistent_configuration = configure_persistent_config(PCField::base_and(vec![
+            PaymentThresholds,
+            ScanIntervals,
+            MappingProtocol,
+        ]))
+        .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
+            routing_byte_rate: 6,
+            routing_service_rate: 7,
+            exit_byte_rate: 8,
+            exit_service_rate: 9,
+        }));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1937,16 +1960,17 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_persistent_config(PCField::base_and(vec![
-                PaymentThresholds, ScanIntervals, MappingProtocol
-            ]))
-                .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
-                    routing_byte_rate: 2,
-                    routing_service_rate: 3,
-                    exit_byte_rate: 4,
-                    exit_service_rate: 5,
-                }));
+        let mut persistent_configuration = configure_persistent_config(PCField::base_and(vec![
+            PaymentThresholds,
+            ScanIntervals,
+            MappingProtocol,
+        ]))
+        .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack {
+            routing_byte_rate: 2,
+            routing_service_rate: 3,
+            exit_byte_rate: 4,
+            exit_service_rate: 5,
+        }));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1978,11 +2002,12 @@ mod tests {
             "19999|10000|1000|20000|1000|20000",
         ]);
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let mut persistent_config =
-            configure_persistent_config(PCField::base_and(vec![
-                PaymentThresholds, ScanIntervals, MappingProtocol
-            ]))
-                .set_payment_thresholds_result(Ok(()));
+        let mut persistent_config = configure_persistent_config(PCField::base_and(vec![
+            PaymentThresholds,
+            ScanIntervals,
+            MappingProtocol,
+        ]))
+        .set_payment_thresholds_result(Ok(()));
 
         let result = configure_accountant_config(
             &multi_config,
@@ -2122,8 +2147,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_present() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2133,7 +2158,10 @@ mod tests {
     fn process_combined_params_panics_on_persistent_config_setter_method_with_cli_present() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
         let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack::try_from("1|1|2|2").unwrap()))
+            .rate_pack_result(Ok(crate::sub_lib::neighborhood::RatePack::try_from(
+                "1|1|2|2",
+            )
+            .unwrap()))
             .set_rate_pack_result(Err(PersistentConfigError::TransactionError));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
@@ -2143,8 +2171,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_absent() {
         let multi_config = make_simplified_multi_config([]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2155,7 +2183,11 @@ mod tests {
         running_test();
         let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = configure_persistent_config(vec![
-            ConsumingWalletPrivateKey, EarningWalletAddress, GasPrice, PastNeighbors, RatePack
+            ConsumingWalletPrivateKey,
+            EarningWalletAddress,
+            GasPrice,
+            PastNeighbors,
+            RatePack,
         ]);
         let mut config = BootstrapperConfig::new();
 
@@ -2191,9 +2223,14 @@ mod tests {
         ];
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_config = configure_persistent_config(vec![
-            ConsumingWalletPrivateKey, GasPrice, PastNeighbors, RatePack
+            ConsumingWalletPrivateKey,
+            GasPrice,
+            PastNeighbors,
+            RatePack,
         ])
-            .earning_wallet_address_result(Ok(Some("0x9876543210987654321098765432109876543210".to_string())));
+        .earning_wallet_address_result(Ok(Some(
+            "0x9876543210987654321098765432109876543210".to_string(),
+        )));
         let mut config = BootstrapperConfig::new();
 
         let result = get_wallets(&multi_config, &mut persistent_config, &mut config).err();
@@ -2212,9 +2249,14 @@ mod tests {
         ];
         let multi_config = make_simplified_multi_config(args);
         let mut persistent_config = configure_persistent_config(vec![
-            ConsumingWalletPrivateKey, GasPrice, PastNeighbors, RatePack
+            ConsumingWalletPrivateKey,
+            GasPrice,
+            PastNeighbors,
+            RatePack,
         ])
-            .earning_wallet_address_result(Ok(Some("0xB00FA567890123456789012345678901234b00fa".to_string())));
+        .earning_wallet_address_result(Ok(Some(
+            "0xB00FA567890123456789012345678901234b00fa".to_string(),
+        )));
         let mut config = BootstrapperConfig::new();
 
         get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
@@ -2232,11 +2274,14 @@ mod tests {
             "ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD";
         let args = ["--consuming-private-key", consuming_private_key_hex];
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_config = configure_persistent_config(vec![
-            GasPrice, PastNeighbors, RatePack
-        ])
-            .consuming_wallet_private_key_result(Ok(Some("DCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBA".to_string())))
-            .earning_wallet_address_result(Ok(Some("0x0123456789012345678901234567890123456789".to_string())));
+        let mut persistent_config =
+            configure_persistent_config(vec![GasPrice, PastNeighbors, RatePack])
+                .consuming_wallet_private_key_result(Ok(Some(
+                    "DCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBADCBA".to_string(),
+                )))
+                .earning_wallet_address_result(Ok(Some(
+                    "0x0123456789012345678901234567890123456789".to_string(),
+                )));
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
 
@@ -2255,12 +2300,15 @@ mod tests {
     fn consuming_wallet_private_key_with_no_db_password_parameter() {
         running_test();
         let multi_config = make_simplified_multi_config([]);
-        let mut persistent_config = configure_persistent_config(vec![
-            GasPrice, PastNeighbors, RatePack
-        ])
-            .check_password_result(Ok(false))
-            .consuming_wallet_private_key_result(Ok(Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string())))
-            .earning_wallet_address_result(Ok(Some("0xcafedeadbeefbabefacecafedeadbeefbabeface".to_string())));
+        let mut persistent_config =
+            configure_persistent_config(vec![GasPrice, PastNeighbors, RatePack])
+                .check_password_result(Ok(false))
+                .consuming_wallet_private_key_result(Ok(Some(
+                    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string(),
+                )))
+                .earning_wallet_address_result(Ok(Some(
+                    "0xcafedeadbeefbabefacecafedeadbeefbabeface".to_string(),
+                )));
         let mut config = BootstrapperConfig::new();
 
         get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
@@ -2425,7 +2473,10 @@ mod tests {
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
                 &mut configure_persistent_config(PCField::base_and(vec![
-                    PaymentThresholds, ScanIntervals, MappingProtocol, RatePack
+                    PaymentThresholds,
+                    ScanIntervals,
+                    MappingProtocol,
+                    RatePack,
                 ])),
                 &Logger::new("test"),
             )
@@ -2446,7 +2497,10 @@ mod tests {
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
                 &mut configure_persistent_config(PCField::base_and(vec![
-                    PaymentThresholds, ScanIntervals, MappingProtocol, RatePack
+                    PaymentThresholds,
+                    ScanIntervals,
+                    MappingProtocol,
+                    RatePack,
                 ])),
                 &Logger::new("test"),
             )
@@ -2467,7 +2521,10 @@ mod tests {
                 &make_simplified_multi_config(args),
                 &mut bootstrapper_config,
                 &mut configure_persistent_config(PCField::base_and(vec![
-                    PaymentThresholds, ScanIntervals, MappingProtocol, RatePack
+                    PaymentThresholds,
+                    ScanIntervals,
+                    MappingProtocol,
+                    RatePack,
                 ])),
                 &Logger::new("test"),
             )

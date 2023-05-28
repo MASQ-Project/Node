@@ -837,7 +837,9 @@ mod tests {
     use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::unshared_test_utils::{configure_persistent_config, PCField, prove_that_crash_request_handler_is_hooked_up};
+    use crate::test_utils::unshared_test_utils::{
+        configure_persistent_config, prove_that_crash_request_handler_is_hooked_up, PCField,
+    };
     use crate::test_utils::{main_cryptde, make_meaningless_public_key};
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
@@ -1829,8 +1831,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1854,8 +1857,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some(earning_address),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1880,8 +1884,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: None,
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);

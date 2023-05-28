@@ -97,7 +97,7 @@ impl NeighborhoodDatabase {
     }
 
     pub fn node_by_ip_mut(&mut self, ip_addr: IpAddr) -> Option<&mut NodeRecord> {
-        let key_opt = self.by_ip_addr.get(&ip_addr).map(|k| k.clone());
+        let key_opt = self.by_ip_addr.get(&ip_addr).cloned();
         match key_opt {
             Some(key) => self.node_by_key_mut(&key),
             None => None,
@@ -680,9 +680,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(NodeKeyNotFound(
-                nonexistent_node.public_key().clone()
-            ))
+            Err(NodeKeyNotFound(nonexistent_node.public_key().clone()))
         )
     }
 
