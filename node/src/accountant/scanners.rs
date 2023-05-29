@@ -2,12 +2,14 @@
 
 use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
-    ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
+    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scan_mid_procedures::{AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures};
+use crate::accountant::scan_mid_procedures::{
+    AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures,
+};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
@@ -36,7 +38,7 @@ use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
 use crate::sub_lib::blockchain_bridge::{
-    OutcomingPayamentsInstructions, RequestBalancesToPayPayables,
+    OutcomingPaymentsInstructions, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
@@ -258,17 +260,11 @@ impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
 impl PayableScannerMidProcedures for PayableScanner {
     fn process_softly(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         logger: &Logger,
-    ) -> Result<
-        Either<
-            OutcomingPayamentsInstructions,
-            AwaitingAdjustment,
-        >,
-        String,
-    > {
+    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
         match self.payment_adjuster.is_adjustment_required(&msg, logger) {
-            Ok(None) => Ok(Either::Left(OutcomingPayamentsInstructions {
+            Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
                 accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,
             })),
@@ -281,7 +277,7 @@ impl PayableScannerMidProcedures for PayableScanner {
         &self,
         setup: AwaitingAdjustment,
         logger: &Logger,
-    ) -> OutcomingPayamentsInstructions {
+    ) -> OutcomingPaymentsInstructions {
         let now = SystemTime::now();
         self.payment_adjuster.adjust_payments(setup, now, logger)
     }

@@ -22,7 +22,7 @@ pub struct BlockchainBridgeConfig {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
-    pub report_accounts_payable: Recipient<OutcomingPayamentsInstructions>,
+    pub report_accounts_payable: Recipient<OutcomingPaymentsInstructions>,
     pub request_balances_to_pay_payables: Recipient<RequestBalancesToPayPayables>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
@@ -48,12 +48,12 @@ impl SkeletonOptHolder for RequestBalancesToPayPayables {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct OutcomingPayamentsInstructions {
+pub struct OutcomingPaymentsInstructions {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl SkeletonOptHolder for OutcomingPayamentsInstructions {
+impl SkeletonOptHolder for OutcomingPaymentsInstructions {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }

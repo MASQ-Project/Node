@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::payable_dao::PayableDaoFactory;
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasPrice;
+use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::ConsumingWalletBalancesAndGasParams;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::PayablePaymentSetup;
 use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::receivable_dao::ReceivableDaoFactory;
@@ -97,7 +97,7 @@ pub struct AccountantSubs {
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_consuming_wallet_balances_and_qualified_payables:
-        Recipient<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>>,
+        Recipient<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,

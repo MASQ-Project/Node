@@ -51,7 +51,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::{
-    ConsumingWalletBalances, OutcomingPayamentsInstructions, RequestBalancesToPayPayables,
+    ConsumingWalletBalances, OutcomingPaymentsInstructions, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -74,7 +74,7 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use payable_dao::PayableDao;
 use payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
-    ConsumingWalletBalancesAndGasPrice, PayablePaymentSetup,
+    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use receivable_dao::ReceivableDao;
 use std::any::type_name;
@@ -101,7 +101,7 @@ pub struct Accountant {
     scanners: Scanners,
     scan_timings: ScanTimings,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
-    outcoming_payments_instructions_sub_opt: Option<Recipient<OutcomingPayamentsInstructions>>,
+    outcoming_payments_instructions_sub_opt: Option<Recipient<OutcomingPaymentsInstructions>>,
     request_balances_to_pay_payables_sub_opt: Option<Recipient<RequestBalancesToPayPayables>>,
     retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
@@ -214,12 +214,12 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>> for Accountant {
+impl Handler<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>> for Accountant {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.handle_payable_payment_setup(msg);
@@ -472,7 +472,7 @@ impl Accountant {
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_consuming_wallet_balances_and_qualified_payables: recipient!(
                 addr,
-                PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>
+                PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>
             ),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
@@ -665,7 +665,10 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>)-> Option<NodeToUiMessage>{
+    fn handle_payable_payment_setup(
+        &mut self,
+        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+    ) -> Option<NodeToUiMessage> {
         let bb_instructions = match self.scanners.payable.process_softly(msg, &self.logger) {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
@@ -674,7 +677,7 @@ impl Accountant {
                     .payable
                     .process_with_adjustment(unaccepted_msg, &self.logger)
             }
-            Err(e) => todo!()
+            Err(e) => todo!(),
         };
         self.outcoming_payments_instructions_sub_opt
             .as_ref()
@@ -1026,8 +1029,10 @@ mod tests {
     use crate::accountant::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
+    use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
     use crate::accountant::scanners::NullScanner;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1049,7 +1054,7 @@ mod tests {
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
+    use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -1088,8 +1093,6 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
-    use crate::accountant::payment_adjuster::Adjustment;
-    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1407,7 +1410,7 @@ mod tests {
         let is_adjustment_required_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id!(OutcomingPayamentsInstructions))
+            .system_stop_conditions(match_every_type_id!(OutcomingPaymentsInstructions))
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
@@ -1425,12 +1428,13 @@ mod tests {
         let system = System::new("test");
         let consuming_balances_and_qualified_payments = PayablePaymentSetup {
             qualified_payables: vec![account_1.clone(), account_2.clone()],
-            this_stage_data: ConsumingWalletBalancesAndGasPrice {
+            this_stage_data: ConsumingWalletBalancesAndGasParams {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
-                desired_gas_price: 123,
+                estimated_gas_limit_per_transaction: 112_000,
+                desired_gas_price_gwei: 123,
             },
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1450,8 +1454,8 @@ mod tests {
         );
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recording.get_record::<OutcomingPayamentsInstructions>(0),
-            &OutcomingPayamentsInstructions {
+            blockchain_bridge_recording.get_record::<OutcomingPaymentsInstructions>(0),
+            &OutcomingPaymentsInstructions {
                 accounts: vec![account_1, account_2],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1472,7 +1476,7 @@ mod tests {
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id!(OutcomingPayamentsInstructions))
+            .system_stop_conditions(match_every_type_id!(OutcomingPaymentsInstructions))
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
@@ -1490,7 +1494,7 @@ mod tests {
             client_id: 12,
             context_id: 55,
         };
-        let adjusted_payments_instructions = OutcomingPayamentsInstructions {
+        let adjusted_payments_instructions = OutcomingPaymentsInstructions {
             accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1509,12 +1513,13 @@ mod tests {
         let system = System::new("test");
         let consuming_balances_and_qualified_payments = PayablePaymentSetup {
             qualified_payables: vec![account_1.clone(), account_2.clone()],
-            this_stage_data: ConsumingWalletBalancesAndGasPrice {
+            this_stage_data: ConsumingWalletBalancesAndGasParams {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(150_000_000_000_u64),
                 },
-                desired_gas_price: 0,
+                estimated_gas_limit_per_transaction: 110_000,
+                desired_gas_price_gwei: 0,
             },
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1528,13 +1533,19 @@ mod tests {
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
         let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
-        assert_eq!(cwbqp_msg, AwaitingAdjustment{original_msg: consuming_balances_and_qualified_payments, adjustment: Adjustment::MasqToken});
+        assert_eq!(
+            cwbqp_msg,
+            AwaitingAdjustment {
+                original_msg: consuming_balances_and_qualified_payments,
+                adjustment: Adjustment::MasqToken
+            }
+        );
         assert!(before <= captured_now && captured_now <= after);
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recording.get_record::<OutcomingPayamentsInstructions>(0),
-            &OutcomingPayamentsInstructions {
+            blockchain_bridge_recording.get_record::<OutcomingPaymentsInstructions>(0),
+            &OutcomingPaymentsInstructions {
                 accounts: vec![adjusted_account_1, adjusted_account_2],
                 response_skeleton_opt: Some(response_skeleton)
             }
@@ -2211,7 +2222,7 @@ mod tests {
         );
         let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
         let report_accounts_payable_sub =
-            blockchain_bridge_addr.recipient::<OutcomingPayamentsInstructions>();
+            blockchain_bridge_addr.recipient::<OutcomingPaymentsInstructions>();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_daos(vec![ForPayableScanner(payable_dao)])
@@ -3123,7 +3134,7 @@ mod tests {
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
-            .send_payables_within_batch_result(Ok(vec![
+            .send_batch_of_payables_result(Ok(vec![
                 Correct(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
                     hash: pending_tx_hash_1,

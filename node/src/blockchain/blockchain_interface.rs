@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
@@ -22,12 +22,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use thousands::Separable;
 use web3::contract::{Contract, Options};
-use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::transports::{Batch, EventLoopHandle};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
     TransactionReceipt, H160, H256, U256,
 };
-use web3::{BatchTransport, Error, Transport, Web3};
+use web3::{BatchTransport, Error, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -39,6 +39,8 @@ const TRANSACTION_LITERAL: H256 = H256([
 ]);
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+
+const TRANSACTION_DATA_MARGIN_TO_GAS_LIMIT: u64 = transaction_data_margin();
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct BlockchainTransaction {
@@ -129,7 +131,7 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub trait BlockchainInterface<T: Transport = Http> {
+pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 
     fn retrieve_transactions(
@@ -138,7 +140,9 @@ pub trait BlockchainInterface<T: Transport = Http> {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    fn send_payables_within_batch(
+    fn estimated_gas_limit_per_transaction(&self) -> u64;
+
+    fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -192,7 +196,11 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn send_payables_within_batch(
+    fn estimated_gas_limit_per_transaction(&self) -> u64 {
+        todo!()
+    }
+
+    fn send_batch_of_payables(
         &self,
         _consuming_wallet: &Wallet,
         _gas_price: u64,
@@ -341,7 +349,11 @@ where
             .wait()
     }
 
-    fn send_payables_within_batch(
+    fn estimated_gas_limit_per_transaction(&self) -> u64 {
+        todo!()
+    }
+
+    fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -614,29 +626,11 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        U256::try_from(amount)
-            .expect("shouldn't overflow")
-            .to_big_endian(&mut data[36..68]);
-        let base_gas_limit = Self::base_gas_limit(self.chain);
-        let gas_limit =
-            ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
-                acc + if v == &0u8 { 4 } else { 68 }
-            }))
-            .expect("Internal error");
-        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(nonce).expect("Internal error"),
-        )
-        .expect("Internal error");
-        let gas_price = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-        )
-        .expect("Internal error");
-
+        let data = Self::transaction_data(recipient, amount);
+        let gas_limit = Self::compute_gas_limit(data.as_slice(), self.chain); //TODO this should by a const for each chain perhaps (excessive gas isn't consumed)
+        let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
-            nonce: Some(converted_nonce),
+            nonce: Some(nonce),
             to: Some(H160(self.contract_address().0)),
             gas: gas_limit,
             gas_price: Some(gas_price),
@@ -685,6 +679,24 @@ where
         introduction.chain(body).collect()
     }
 
+    fn transaction_data(recipient: &Wallet, amount: u128) -> [u8; 68] {
+        let mut data = [0u8; 4 + 32 + 32];
+        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
+        data[16..36].copy_from_slice(&recipient.address().0[..]);
+        U256::try_from(amount)
+            .expect("shouldn't overflow")
+            .to_big_endian(&mut data[36..68]);
+        data
+    }
+
+    fn compute_gas_limit(data: &[u8], chain: Chain) -> U256 {
+        let base_gas_limit = Self::base_gas_limit(chain);
+        ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+            acc + if v == &0u8 { 4 } else { 68 }
+        }))
+        .expect("Internal error")
+    }
+
     fn base_gas_limit(chain: Chain) -> u64 {
         match chain.rec().chain_family {
             ChainFamily::Polygon => 70_000,
@@ -693,10 +705,20 @@ where
         }
     }
 
+    fn gas_limit_safe_estimation(chain: Chain) -> u64 {
+        todo!("use transaction_data_margin here")
+    }
+
     #[cfg(test)]
     fn web3(&self) -> &Web3<T> {
         &self.web3
     }
+}
+
+const fn transaction_data_margin() -> u64 {
+    // 68 bytes * 68 per non zero byte according to the Ethereum docs,
+    // deliberately maximized
+    68 * 68
 }
 
 #[cfg(test)]
@@ -1321,7 +1343,7 @@ mod tests {
         let test_timestamp_before = SystemTime::now();
 
         let result = subject
-            .send_payables_within_batch(
+            .send_batch_of_payables(
                 &consuming_wallet,
                 gas_price,
                 pending_nonce,
@@ -1471,8 +1493,7 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_interface_send_payables_within_batch_components_are_used_together_properly()
-    {
+    fn non_clandestine_interface_send_batch_of_payables_components_are_used_together_properly() {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1562,7 +1583,7 @@ mod tests {
             None,
         );
 
-        let result = subject.send_payables_within_batch(
+        let result = subject.send_batch_of_payables(
             &consuming_wallet,
             gas_price,
             pending_nonce,
@@ -1772,13 +1793,8 @@ mod tests {
         let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
 
-        let result = subject.send_payables_within_batch(
-            &consuming_wallet,
-            111,
-            nonce,
-            &recipient,
-            &accounts,
-        );
+        let result =
+            subject.send_batch_of_payables(&consuming_wallet, 111, nonce, &recipient, &accounts);
 
         assert_eq!(
             result,
@@ -1791,7 +1807,7 @@ mod tests {
     }
 
     #[test]
-    fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
+    fn send_batch_of_payables_fails_on_badly_prepared_consuming_wallet_without_secret() {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
@@ -1812,7 +1828,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = subject.send_payables_within_batch(
+        let result = subject.send_batch_of_payables(
             &incomplete_consuming_wallet,
             gas_price,
             nonce,
@@ -1830,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn send_payables_within_batch_fails_on_sending() {
+    fn send_batch_of_payables_fails_on_sending() {
         let transport = TestTransport::default();
         let hash = make_tx_hash(123);
         let mut signed_transaction = make_default_signed_transaction();
@@ -1856,7 +1872,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = subject.send_payables_within_batch(
+        let result = subject.send_batch_of_payables(
             &consuming_wallet,
             gas_price,
             nonce,

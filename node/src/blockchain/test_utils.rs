@@ -58,7 +58,8 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_payables_within_batch_params: Arc<
+    estimated_gas_limit_per_transaction_results: RefCell<Option<u64>>,
+    send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
                 Wallet,
@@ -69,7 +70,7 @@ pub struct BlockchainInterfaceMock {
             )>,
         >,
     >,
-    send_payables_within_batch_results:
+    send_batch_of_payables_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
     get_gas_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_gas_balance_results: RefCell<Vec<ResultForBalance>>,
@@ -99,7 +100,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn send_payables_within_batch(
+    fn estimated_gas_limit_per_transaction(&self) -> u64 {
+        *self
+            .estimated_gas_limit_per_transaction_results
+            .borrow_mut()
+            .as_ref()
+            .unwrap()
+    }
+
+    fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -107,19 +116,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.send_payables_within_batch_params
-            .lock()
-            .unwrap()
-            .push((
-                consuming_wallet.clone(),
-                gas_price,
-                last_nonce,
-                new_fingerprints_recipient.clone(),
-                accounts.to_vec(),
-            ));
-        self.send_payables_within_batch_results
-            .borrow_mut()
-            .remove(0)
+        self.send_batch_of_payables_params.lock().unwrap().push((
+            consuming_wallet.clone(),
+            gas_price,
+            last_nonce,
+            new_fingerprints_recipient.clone(),
+            accounts.to_vec(),
+        ));
+        self.send_batch_of_payables_results.borrow_mut().remove(0)
     }
 
     fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance {
@@ -169,7 +173,14 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_payables_within_batch_params(
+    pub fn estimated_gas_limit_per_transaction_result(self, result: u64) -> Self {
+        self.estimated_gas_limit_per_transaction_results
+            .borrow_mut()
+            .replace(result);
+        self
+    }
+
+    pub fn send_batch_of_payables_params(
         mut self,
         params: &Arc<
             Mutex<
@@ -183,15 +194,15 @@ impl BlockchainInterfaceMock {
             >,
         >,
     ) -> Self {
-        self.send_payables_within_batch_params = params.clone();
+        self.send_batch_of_payables_params = params.clone();
         self
     }
 
-    pub fn send_payables_within_batch_result(
+    pub fn send_batch_of_payables_result(
         self,
         result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
     ) -> Self {
-        self.send_payables_within_batch_results
+        self.send_batch_of_payables_results
             .borrow_mut()
             .push(result);
         self

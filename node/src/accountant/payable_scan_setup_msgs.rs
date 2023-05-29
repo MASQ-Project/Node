@@ -18,21 +18,22 @@ pub mod inter_actor_communication_for_payable_scanner {
     }
 
     #[derive(Debug, PartialEq, Eq, Clone)]
-    pub struct ConsumingWalletBalancesAndGasPrice {
+    pub struct ConsumingWalletBalancesAndGasParams {
         pub consuming_wallet_balances: ConsumingWalletBalances,
-        pub desired_gas_price: u64,
+        pub estimated_gas_limit_per_transaction: u64,
+        pub desired_gas_price_gwei: u64,
     }
 
     impl
         From<(
             RequestBalancesToPayPayables,
-            ConsumingWalletBalancesAndGasPrice,
-        )> for PayablePaymentSetup<ConsumingWalletBalancesAndGasPrice>
+            ConsumingWalletBalancesAndGasParams,
+        )> for PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>
     {
         fn from(
             (previous_msg, current_stage_data): (
                 RequestBalancesToPayPayables,
-                ConsumingWalletBalancesAndGasPrice,
+                ConsumingWalletBalancesAndGasParams,
             ),
         ) -> Self {
             PayablePaymentSetup {
