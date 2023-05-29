@@ -238,7 +238,7 @@ impl ProxyServer {
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
-            inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal {})),
+            inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal::new())),
         }
     }
 
@@ -906,9 +906,69 @@ pub trait IBCDHelper {
         retire_stream_key: bool,
     ) -> Result<(), String>;
 }
+trait RouteQueryResponseResolver:Send {
+    fn resolve_message(&self,
+                       args: TTHMovableArgs,
+                       add_route_sub: Recipient<AddRouteMessage>,
+                       route_result: Result<Option<RouteQueryResponse>, MailboxError>);
+}
+struct RouteQueryResponseResolverReal {}
 
-struct IBCDHelperReal {}
+impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
+    fn resolve_message(&self, mut args: TTHMovableArgs, add_route_sub: Recipient<AddRouteMessage>, route_result: Result<Option<RouteQueryResponse>, MailboxError>) {
+        match route_result {
+            Ok(Some(route_query_response)) => {
+                add_route_sub
+                    .try_send(AddRouteMessage {
+                        stream_key: args
+                            .common_opt
+                            .as_ref()
+                            .expectv("TTH common")
+                            .payload
+                            .stream_key,
+                        route: route_query_response.clone(),
+                    })
+                    .expect("ProxyServer is dead");
+                ProxyServer::try_transmit_to_hopper((&mut args).into(), route_query_response)
+            }
+            Ok(None) => {
+                let tth_common = args.common_opt.take().expectv("tth common");
+                ProxyServer::handle_route_failure(
+                    tth_common.payload,
+                    &args.logger,
+                    tth_common.source_addr,
+                    &args.dispatcher_sub,
+                )
+            }
+            Err(e) => {
+                error!(
+                    args.logger,
+                    "Neighborhood refused to answer route request: {:?}", e
+                );
+            }
+        }
+    }
 
+}
+trait RouteQueryResponseResolverFactory{
+    fn make(&self) -> Box<dyn RouteQueryResponseResolver>;
+}
+struct RouteQueryResponseResolverFactoryReal{}
+
+impl RouteQueryResponseResolverFactory for  RouteQueryResponseResolverFactoryReal{
+    fn make(&self) -> Box<dyn RouteQueryResponseResolver> {
+        Box::new(RouteQueryResponseResolverReal{})
+    }
+}
+struct IBCDHelperReal {
+    factory: Box<dyn RouteQueryResponseResolverFactory>
+}
+
+impl IBCDHelperReal {
+    fn new() -> Self {
+        Self{ factory: Box::new(RouteQueryResponseResolverFactoryReal{}) }
+    }
+}
 impl IBCDHelper for IBCDHelperReal {
     fn handle_normal_client_data(
         &self,
@@ -979,13 +1039,14 @@ impl IBCDHelper for IBCDHelperReal {
             let movable_args = TTHMovableArgs::from(local_args);
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-            Self::request_route_and_transmit(movable_args, route_source, add_route_sub)
+            self.request_route_and_transmit(movable_args, route_source, add_route_sub)
         }
     }
 }
 
 impl IBCDHelperReal {
     fn request_route_and_transmit(
+        &self,
         args: TTHMovableArgs,
         route_source: Recipient<RouteQueryMessage>,
         add_route_sub: Recipient<AddRouteMessage>,
@@ -1001,6 +1062,7 @@ impl IBCDHelperReal {
             pld.sequenced_packet.data.len()
         );
         let payload_size = pld.sequenced_packet.data.len();
+        let message_resolver = self.factory.make();
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
@@ -1008,7 +1070,7 @@ impl IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    Self::resolve_route_query_response(args, add_route_sub, route_result);
+                    message_resolver.resolve_message(args, add_route_sub, route_result);
                     Ok(())
                 }),
         );
@@ -4319,8 +4381,6 @@ mod tests {
     fn handle_dns_resolve_failure_sent_request_retry() {
         let system = System::new("test");
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
-        let (hopper_mock, _, hopper_log_arc) = make_recorder();
-        let hopper_mock= hopper_mock.system_stop_conditions(match_every_type_id!());
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4353,6 +4413,8 @@ mod tests {
                 hostname_opt: Some("server.com".to_string()),
             },
         );
+        subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal{factory}))
+
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
@@ -4365,13 +4427,13 @@ mod tests {
             );
         let mut peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
-            .hopper(hopper_mock)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
 
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
+        System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
         let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
@@ -5062,7 +5124,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = IBCDHelperReal {}.handle_normal_client_data(
+        let result = IBCDHelperReal::new().handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
@@ -5146,7 +5208,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = IBCDHelperReal {}.handle_normal_client_data(
+        let result = IBCDHelperReal::new().handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,

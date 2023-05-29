@@ -162,15 +162,7 @@ impl Handler<NodeQueryMessage> for Recorder {
         msg: NodeQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
-            stop_conditions.resolve_stop_conditions::<T>(&msg)
-        } else {
-            false
-        };
         self.record(msg);
-        if kill_system {
-            System::current().stop();
-        }
         MessageResult(extract_response(
             &mut self.node_query_responses,
             "No NodeDescriptors prepared for NodeQueryMessage",
