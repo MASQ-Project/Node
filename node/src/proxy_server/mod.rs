@@ -75,8 +75,8 @@ pub struct ProxyServer {
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
-    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>,
-    stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
+    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
+    stream_key_routes: HashMap<StreamKey, RouteQueryResponse>, // TODO: Does each stream key has it's unique route?
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
     main_cryptde: &'static dyn CryptDE,
@@ -4202,7 +4202,10 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).neighborhood(neighborhood_mock).build();
+        let mut peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher_mock)
+            .neighborhood(neighborhood_mock)
+            .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 

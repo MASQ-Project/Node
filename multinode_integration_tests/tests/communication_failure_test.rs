@@ -231,6 +231,10 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
     // most economical solution. For example, in the assertion below, we may prefer to use
     // cheaper_exit_node instead.
+    // TODO: Maybe we're using the same stream key (it represents the TCP connection b/w Client and the Originating Node)
+    // that resulted in DNS Failure?
+    // If the stream key remains the same, any request going through that stream key
+    // will pick the last route.
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
     let (_, _, live_cores_package) = relay1_mock
         .wait_for_package(&masquerader, Duration::from_secs(2))
