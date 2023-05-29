@@ -515,6 +515,7 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         debug!(self.logger, "Connecting to persistent database");
         self.connect_database();
+        self.verify_min_hops_count();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
 
@@ -568,6 +569,21 @@ impl Neighborhood {
                 .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
+    }
+
+    fn verify_min_hops_count(&self) {
+        // Debugging Some Code
+        eprintln!("After Executing connect_database()");
+        eprintln!("Executing verify_min_hops_count()");
+        let persistent_config = self
+            .persistent_config_opt
+            .as_ref()
+            .expect("wasn't able to retrieve persistent config");
+        let min_hops_count = persistent_config.min_hops_count().unwrap();
+        eprintln!(
+            "Min Hops Count from persistent config: {:?}",
+            min_hops_count
+        );
     }
 
     fn send_debut_gossip_to_all_initial_descriptors(&mut self) {
@@ -4740,6 +4756,7 @@ mod tests {
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
         init_test_logging();
+        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
             "node_gossips_to_neighbors_on_startup",
@@ -4772,6 +4789,11 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new()
+                .min_hops_count_params(&min_hops_count_params_arc)
+                .min_hops_count_result(Ok(Hops::SixHops)),
+        ));
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
@@ -4798,6 +4820,8 @@ mod tests {
         let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
+        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
+        assert_eq!(*min_hops_count_params, vec![()]);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: node_gossips_to_neighbors_on_startup: Debut Gossip sent to {:?}",
             debut_target

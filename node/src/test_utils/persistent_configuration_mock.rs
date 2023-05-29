@@ -44,6 +44,8 @@ pub struct PersistentConfigurationMock {
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
     set_mapping_protocol_params: Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
     set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    min_hops_count_params: Arc<Mutex<Vec<()>>>,
+    min_hops_count_results: RefCell<Vec<Result<Hops, PersistentConfigError>>>,
     set_min_hops_count_params: Arc<Mutex<Vec<Hops>>>,
     set_min_hops_count_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodModeLight, PersistentConfigError>>>,
@@ -175,7 +177,8 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
-        todo!()
+        self.min_hops_count_params.lock().unwrap().push(());
+        self.min_hops_count_results.borrow_mut().remove(0)
     }
 
     fn set_min_hops_count(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
@@ -382,6 +385,16 @@ impl PersistentConfigurationMock {
         result: Result<(), PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.set_clandestine_port_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn min_hops_count_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.min_hops_count_params = params.clone();
+        self
+    }
+
+    pub fn min_hops_count_result(self, result: Result<Hops, PersistentConfigError>) -> Self {
+        self.min_hops_count_results.borrow_mut().push(result);
         self
     }
 
