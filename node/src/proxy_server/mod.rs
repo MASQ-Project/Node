@@ -298,12 +298,14 @@ impl ProxyServer {
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
                 //TODO we want to put our new logic here (GH-651)
-                match self.dns_failure_retries.get(&response.stream_key) {
+                match self.dns_failure_retries.get_mut(&response.stream_key) {
                     Some(retries) => match retries.retries_left {
                         0 => (),
-                        _ => self.handle_request_retry()
+                        _ => self.handle_request_retry(retries, socket_addr, ),
+                    },
+                    None => {
+                        todo!("my feeling is the code is broken in such a case...maybe even panic")
                     }
-                    None => todo!("my feeling is the code is broken in such a case...maybe even panic")
                 };
 
                 self.subs
@@ -338,48 +340,29 @@ impl ProxyServer {
         }
     }
 
-    fn handle_request_retry(&self) {
-        // let local_args = TTHLocalArgs {
-        //     common: TTHCommonArgs {
-        //         main_cryptde: proxy.main_cryptde,
-        //         payload,
-        //         source_addr,
-        //         timestamp,
-        //         is_decentralized: proxy.is_decentralized,
-        //     },
-        //     hopper_sub: &proxy.out_subs("Hopper").hopper,
-        //     logger: &proxy.logger,
-        //     dispatcher_sub: &proxy.out_subs("Dispatcher").dispatcher,
-        //     accountant_sub: &proxy.out_subs("Accountant").accountant,
-        //     add_return_route_sub: &proxy.out_subs("ProxyServer").add_return_route,
-        //     retire_stream_key_sub_opt: if retire_stream_key {
-        //         Some(&proxy.out_subs("ProxyServer").stream_shutdown_sub)
-        //     } else {
-        //         None
-        //     },
-        // };
-        //
-        //
-        // let movable_args = TTHMovableArgs{
-        //     common_opt: Some(TTHCommonArgs {
-        //         main_cryptde: proxy.main_cryptde,
-        //         payload,
-        //         source_addr,
-        //         timestamp,
-        //         is_decentralized: proxy.is_decentralized,
-        //     }),
-        //     logger: self.logger.clone(),
-        //     retire_stream_key_sub_opt: None,
-        //     hopper_sub: (),
-        //     dispatcher_sub: (),
-        //     accountant_sub: (),
-        //     add_return_route_sub: (),
-        // };
-        // let route_source = proxy.out_subs("Neighborhood").route_source.clone();
-        // let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-        // Self::request_route_and_transmit(movable_args, route_source, add_route_sub)
-
-        todo!("handle_request_retry: ")
+    fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr  ) {
+        let movable_args = TTHMovableArgs{
+            common_opt: Some(TTHCommonArgs {
+                main_cryptde: self.main_cryptde,
+                payload: retries.unsuccessful_request.clone(),
+                source_addr,
+                timestamp,
+                is_decentralized: self.is_decentralized,
+            }),
+            logger: self.logger.clone(),
+            retire_stream_key_sub_opt: if retire_stream_key {
+                Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
+            } else {
+                None
+            },
+            hopper_sub: self.out_subs("Hopper").hopper.clone(),
+            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
+            accountant_sub: self.out_subs("Accountant").accountant.clone(),
+            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
+        };
+        let route_source = self.out_subs("Neighborhood").route_source.clone();
+        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
+        self.request_route_and_transmit(movable_args, route_source, add_route_sub)
     }
 
     fn handle_client_response_payload(
@@ -906,16 +889,23 @@ pub trait IBCDHelper {
         retire_stream_key: bool,
     ) -> Result<(), String>;
 }
-trait RouteQueryResponseResolver:Send {
-    fn resolve_message(&self,
-                       args: TTHMovableArgs,
-                       add_route_sub: Recipient<AddRouteMessage>,
-                       route_result: Result<Option<RouteQueryResponse>, MailboxError>);
+trait RouteQueryResponseResolver: Send {
+    fn resolve_message(
+        &self,
+        args: TTHMovableArgs,
+        add_route_sub: Recipient<AddRouteMessage>,
+        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+    );
 }
 struct RouteQueryResponseResolverReal {}
 
 impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
-    fn resolve_message(&self, mut args: TTHMovableArgs, add_route_sub: Recipient<AddRouteMessage>, route_result: Result<Option<RouteQueryResponse>, MailboxError>) {
+    fn resolve_message(
+        &self,
+        mut args: TTHMovableArgs,
+        add_route_sub: Recipient<AddRouteMessage>,
+        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+    ) {
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
@@ -948,25 +938,26 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
             }
         }
     }
-
 }
-trait RouteQueryResponseResolverFactory{
+trait RouteQueryResponseResolverFactory {
     fn make(&self) -> Box<dyn RouteQueryResponseResolver>;
 }
-struct RouteQueryResponseResolverFactoryReal{}
+struct RouteQueryResponseResolverFactoryReal {}
 
-impl RouteQueryResponseResolverFactory for  RouteQueryResponseResolverFactoryReal{
+impl RouteQueryResponseResolverFactory for RouteQueryResponseResolverFactoryReal {
     fn make(&self) -> Box<dyn RouteQueryResponseResolver> {
-        Box::new(RouteQueryResponseResolverReal{})
+        Box::new(RouteQueryResponseResolverReal {})
     }
 }
 struct IBCDHelperReal {
-    factory: Box<dyn RouteQueryResponseResolverFactory>
+    factory: Box<dyn RouteQueryResponseResolverFactory>,
 }
 
 impl IBCDHelperReal {
     fn new() -> Self {
-        Self{ factory: Box::new(RouteQueryResponseResolverFactoryReal{}) }
+        Self {
+            factory: Box::new(RouteQueryResponseResolverFactoryReal {}),
+        }
     }
 }
 impl IBCDHelper for IBCDHelperReal {
@@ -1142,6 +1133,7 @@ struct DNSFailureRetry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -1163,7 +1155,6 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
@@ -1173,6 +1164,7 @@ mod tests {
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
+    use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1185,8 +1177,70 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
-    use crate::match_every_type_id;
 
+    #[derive(Default)]
+    struct RouteQueryResponseResolverFactoryMock {
+        make_results: RefCell<Vec<Box<dyn RouteQueryResponseResolver>>>,
+    }
+    impl RouteQueryResponseResolverFactory for RouteQueryResponseResolverFactoryMock {
+        fn make(&self) -> Box<dyn RouteQueryResponseResolver> {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl RouteQueryResponseResolverFactoryMock {
+        fn make_result(self, result: Box<dyn RouteQueryResponseResolver>) -> Self {
+            self.make_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    #[derive(Default)]
+    struct RouteQueryResponseResolverMock {
+        resolve_message_params: Arc<
+            Mutex<
+                Vec<(
+                    TTHMovableArgs,
+                    Result<Option<RouteQueryResponse>, MailboxError>,
+                )>,
+            >,
+        >, // resolve_message_results: RefCell<Vec<()>>
+    }
+
+    impl RouteQueryResponseResolver for RouteQueryResponseResolverMock {
+        fn resolve_message(
+            &self,
+            args: TTHMovableArgs,
+            add_route_sub: Recipient<AddRouteMessage>,
+            route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+        ) {
+            self.resolve_message_params
+                .lock()
+                .unwrap()
+                .push((args, route_result));
+        }
+    }
+
+    impl RouteQueryResponseResolverMock {
+        fn resolve_message_params(
+            mut self,
+            param: &Arc<
+                Mutex<
+                    Vec<(
+                        TTHMovableArgs,
+                        Result<Option<RouteQueryResponse>, MailboxError>,
+                    )>,
+                >,
+            >,
+        ) -> Self {
+            self.resolve_message_params = param.clone();
+            self
+        }
+
+        // fn resolve_message_result(self) -> Self {
+        //
+        // }
+    }
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
@@ -3795,7 +3849,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -3866,7 +3926,13 @@ mod tests {
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -3975,7 +4041,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4045,7 +4117,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4106,7 +4184,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4177,7 +4261,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4253,7 +4343,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4315,7 +4411,13 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 0 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload,
+                retries_left: 0,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4380,7 +4482,24 @@ mod tests {
     #[test]
     fn handle_dns_resolve_failure_sent_request_retry() {
         let system = System::new("test");
+        let resolve_message_params_arc = Arc::new(Mutex::new(vec![]));
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = make_wallet("exit wallet");
+        let expected_services = vec![ExpectedService::Exit(
+            exit_public_key.clone(),
+            exit_wallet,
+            rate_pack(10),
+        )];
+        let route_query_response_expected = RouteQueryResponse {
+            route: make_meaningless_route(),
+            expected_services: ExpectedServices::RoundTrip(
+                expected_services.clone(),
+                expected_services.clone(),
+                1234,
+            ),
+        };
+        let neighborhood_mock = neighborhood_mock.route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4393,28 +4512,33 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
-        dns_failure_retries_hash_map.insert(stream_key, DNSFailureRetry{ unsuccessful_request: client_payload, retries_left: 3 });
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload.clone(),
+                retries_left: 3,
+            },
+        );
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
-        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
-        let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
                 return_route_id: 1234,
-                expected_services: vec![ExpectedService::Exit(
-                    exit_public_key.clone(),
-                    exit_wallet,
-                    rate_pack(10),
-                )],
+                expected_services: expected_services.clone(),
                 protocol: ProxyProtocol::HTTP,
                 hostname_opt: Some("server.com".to_string()),
             },
         );
-        subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal{factory}))
-
+        let message_resolver = RouteQueryResponseResolverMock::default()
+            .resolve_message_params(&resolve_message_params_arc);
+        let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
+            .make_result(Box::new(message_resolver));
+        subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal {
+            factory: Box::new(message_resolver_factory),
+        }));
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
@@ -4434,17 +4558,21 @@ mod tests {
         subject_addr.try_send(expired_cores_package).unwrap();
 
         System::current().stop();
+        let before = SystemTime::now();
         system.run();
-        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
-        let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        let after = SystemTime::now();
+        let mut resolve_message_params = resolve_message_params_arc.lock().unwrap();
+        let (transmit_to_hopper_args, route_query_message_response) =
+            resolve_message_params.remove(0);
+        assert!(resolve_message_params.is_empty());
+        let args = transmit_to_hopper_args.common_opt.unwrap();
+        assert_eq!(args.payload, client_payload);
+        assert_eq!(args.source_addr, socket_addr);
+        assert!(before <= args.timestamp && args.timestamp <= after);
+        assert_eq!(args.is_decentralized, true);
         assert_eq!(
-            record,
-            &NodeRecordMetadataMessage {
-                public_key: exit_public_key,
-                metadata_change: NRMetadataChange::AddUnreachableHost {
-                    hostname: "server.com".to_string()
-                }
-            }
+            route_query_message_response.unwrap().unwrap(),
+            route_query_response_expected
         );
     }
 
