@@ -9,12 +9,13 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::dao_utils::{
+use crate::accountant::database_access_objects::dao_utils;
+use crate::accountant::database_access_objects::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::{dao_utils, gwei_to_wei};
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
+use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
@@ -412,7 +413,9 @@ impl TableNameDAO for ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::database_access_objects::dao_utils::{
+        from_time_t, now_time_t, to_time_t,
+    };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,

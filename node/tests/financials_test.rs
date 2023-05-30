@@ -10,10 +10,12 @@ use masq_lib::messages::{
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
-use node_lib::accountant::dao_utils::{from_time_t, to_time_t};
+use node_lib::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t};
+use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::database_access_objects::receivable_dao::{
+    ReceivableDao, ReceivableDaoReal,
+};
 use node_lib::accountant::gwei_to_wei;
-use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
 use utils::MASQNode;

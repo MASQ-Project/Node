@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masq_node_client::MASQNodeClient;
+use crate::masq_real_node::STANDARD_CLIENT_TIMEOUT_MILLIS;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
-use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
 use node_lib::sub_lib::cryptde::CryptDE;
 use node_lib::sub_lib::cryptde::PlainData;
@@ -18,14 +18,14 @@ impl<'a> MASQCoresClient<'a> {
     pub fn new(socket_addr: SocketAddr, cryptde: &'a dyn CryptDE) -> MASQCoresClient<'a> {
         MASQCoresClient {
             cryptde,
-            delegate: MASQNodeClient::new(socket_addr),
+            delegate: MASQNodeClient::new(socket_addr, STANDARD_CLIENT_TIMEOUT_MILLIS),
         }
     }
 
     pub fn transmit_package(
         &mut self,
         incipient_cores_package: IncipientCoresPackage,
-        masquerader: &JsonMasquerader,
+        masquerader: &dyn Masquerader,
         recipient_key: PublicKey,
     ) {
         let (live_cores_package, _) =
@@ -46,7 +46,7 @@ impl<'a> MASQCoresClient<'a> {
 
     pub fn masquerade_live_cores_package(
         live_cores_package: LiveCoresPackage,
-        masquerader: &JsonMasquerader,
+        masquerader: &dyn Masquerader,
     ) -> Vec<u8> {
         let serialized_lcp = serde_cbor::ser::to_vec(&live_cores_package)
             .unwrap_or_else(|_| panic!("Serializing LCP: {:?}", live_cores_package));

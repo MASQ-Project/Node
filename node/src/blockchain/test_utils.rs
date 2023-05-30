@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};

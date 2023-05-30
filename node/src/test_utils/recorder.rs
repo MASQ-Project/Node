@@ -27,7 +27,7 @@ use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage}
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::NodeQueryMessage;
+
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -153,22 +153,6 @@ where
 
     fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
         self.handle_msg(msg)
-    }
-}
-
-impl Handler<NodeQueryMessage> for Recorder {
-    type Result = MessageResult<NodeQueryMessage>;
-
-    fn handle(
-        &mut self,
-        msg: NodeQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.node_query_responses,
-            "No NodeDescriptors prepared for NodeQueryMessage",
-        ))
     }
 }
 
@@ -403,7 +387,6 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
         start: recipient!(addr, StartMessage),
         new_public_ip: recipient!(addr, NewPublicIp),
-        node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
         update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
         from_hopper: recipient!(addr, ExpiredCoresPackage<Gossip_0v1>),

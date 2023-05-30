@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -724,7 +724,7 @@ const fn transaction_data_margin() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::from_time_t;
+    use crate::accountant::database_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,

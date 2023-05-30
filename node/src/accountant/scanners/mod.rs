@@ -1,37 +1,39 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
+pub mod scanners_utils;
+
+use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
+use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-use crate::accountant::pending_payable_dao::PendingPayableDao;
-use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scan_mid_procedures::{
     AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures,
 };
-use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners_utils::payable_scanner_utils::{
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
     investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
     separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
     PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableTriple,
     VecOfRowidOptAndHash,
 };
-use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
     PendingPayableScanReport,
 };
-use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
+use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::PendingPayableId;
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
-use crate::banned_dao::BannedDao;
+use crate::accountant::database_access_objects::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::PayableTransactionError;
 use crate::sub_lib::accountant::{
@@ -1140,12 +1142,14 @@ mod tests {
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::database_access_objects::payable_dao::{
+        PayableAccount, PayableDaoError, PendingPayable,
+    };
+    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-    use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
-    use crate::accountant::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainTransaction, PayableTransactionError, RpcPayableFailure,

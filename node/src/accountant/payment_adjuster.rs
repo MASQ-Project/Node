@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::gwei_to_wei;
 use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
-use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use itertools::Itertools;
@@ -16,7 +16,6 @@ use std::iter::{once, successors};
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
-use websocket::header::q;
 
 lazy_static! {
     static ref MULTI_COEFF_BY_100: U256 = U256::from(1000);
@@ -371,9 +370,8 @@ pub enum AnalysisError {}
 
 #[cfg(test)]
 mod tests {
-    use std::iter::once;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::{log_10, PaymentAdjuster, PaymentAdjusterReal, MULTI_COEFF_BY_100, Adjustment};
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::blockchain_bridge::{
