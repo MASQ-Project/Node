@@ -4828,6 +4828,92 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn node_validates_min_hops_count_value_from_persistent_configuration() {
+        let test_name = "node_validates_min_hops_count_value_from_persistent_configuration";
+        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
+        let min_hops_count_in_neighborhood = Hops::SixHops;
+        let min_hops_count_in_persistent_configuration = min_hops_count_in_neighborhood;
+        let mut subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&make_ip(0), &[1234]),
+                        vec![make_node_descriptor(make_ip(1))],
+                        rate_pack(100),
+                    ),
+                    min_hops_count: min_hops_count_in_neighborhood,
+                },
+                make_wallet("earning"),
+                None,
+                test_name,
+            ),
+        );
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new()
+                .min_hops_count_params(&min_hops_count_params_arc)
+                .min_hops_count_result(Ok(min_hops_count_in_persistent_configuration)),
+        ));
+        let system = System::new(test_name);
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let sub = addr.recipient::<StartMessage>();
+
+        sub.try_send(StartMessage {}).unwrap();
+
+        System::current().stop();
+        system.run();
+        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
+        assert_eq!(*min_hops_count_params, vec![()]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database with wrong min hops count value detected; expected: 6, was: 2"
+    )]
+    fn node_panics_when_min_hops_count_value_in_neighborhood_is_different_from_persistent_configuration(
+    ) {
+        let test_name = "node_panics_when_min_hops_count_value_in_neighborhood_is_different_from_persistent_configuration";
+        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
+        let min_hops_count_in_neighborhood = Hops::SixHops;
+        let min_hops_count_in_persistent_configuration = Hops::TwoHops;
+        let mut subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&make_ip(0), &[1234]),
+                        vec![make_node_descriptor(make_ip(1))],
+                        rate_pack(100),
+                    ),
+                    min_hops_count: min_hops_count_in_neighborhood,
+                },
+                make_wallet("earning"),
+                None,
+                test_name,
+            ),
+        );
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new()
+                .min_hops_count_params(&min_hops_count_params_arc)
+                .min_hops_count_result(Ok(min_hops_count_in_persistent_configuration)),
+        ));
+        let system = System::new(test_name);
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let sub = addr.recipient::<StartMessage>();
+
+        sub.try_send(StartMessage {}).unwrap();
+
+        System::current().stop();
+        system.run();
+        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
+        assert_eq!(*min_hops_count_params, vec![()]);
+    }
+
     /*
             Database, where we'll fail to make a three-hop route to C after removing A:
 
