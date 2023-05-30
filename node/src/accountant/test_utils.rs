@@ -2,20 +2,20 @@
 
 #![cfg(test)]
 
-use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payable_dao::{
+use crate::accountant::database_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::database_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
-use crate::accountant::pending_payable_dao::{
+use crate::accountant::database_access_objects::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
-use crate::accountant::receivable_dao::{
+use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
-use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
-use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;

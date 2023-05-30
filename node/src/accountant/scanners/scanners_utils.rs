@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::dao_utils::ThresholdUtils;
-    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
-    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+    use crate::accountant::database_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
     use crate::accountant::{comma_joined_stringifiable, SentPayables};
@@ -399,7 +399,7 @@ pub mod pending_payable_scanner_utils {
 }
 
 pub mod receivable_scanner_utils {
-    use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::wei_to_gwei;
     use std::time::{Duration, SystemTime};
     use thousands::Separable;
@@ -415,18 +415,18 @@ pub mod receivable_scanner_utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+    use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::scanners_utils::payable_scanner_utils::{
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
         count_total_errors, debugging_summary_after_error_separation, investigate_debt_extremes,
         payables_debug_summary, separate_errors, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
-    use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
+    use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{

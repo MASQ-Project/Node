@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::banned_dao::BAN_CACHE;
+use crate::accountant::database_access_objects::banned_dao::BAN_CACHE;
 use crate::blockchain::signature::SerializableSignature;
 use crate::sub_lib::wallet::Wallet;
 use ethsign::Signature;
