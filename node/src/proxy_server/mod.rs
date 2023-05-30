@@ -2418,7 +2418,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let local_tth_args = TryTransmitToHopperArgs {
+        let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             source_addr,
@@ -2432,7 +2432,7 @@ mod tests {
             retire_stream_key_sub_opt: None,
         };
 
-        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
+        ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -2502,7 +2502,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let local_tth_args = TryTransmitToHopperArgs {
+        let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             source_addr,
@@ -2516,7 +2516,7 @@ mod tests {
             retire_stream_key_sub_opt: Some(peer_actors.proxy_server.stream_shutdown_sub),
         };
 
-        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
+        ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -2752,7 +2752,7 @@ mod tests {
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let local_tth_args = TryTransmitToHopperArgs {
+        let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             source_addr,
@@ -2766,7 +2766,7 @@ mod tests {
             retire_stream_key_sub_opt: None,
         };
 
-        ProxyServer::try_transmit_to_hopper(local_tth_args, route_result);
+        ProxyServer::try_transmit_to_hopper(tth_args, route_result);
     }
 
     #[test]
@@ -4853,7 +4853,7 @@ mod tests {
         let addr = recorder.start();
         let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
         let logger = Logger::new("resolve_route_query_response_handles_error");
-        let movable_tth_args = TryTransmitToHopperArgs {
+        let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload: make_request_payload(111, cryptde),
             source_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -4868,7 +4868,7 @@ mod tests {
         };
 
         IBCDHelperReal::resolve_route_query_response(
-            movable_tth_args,
+            tth_args,
             add_route_msg_sub,
             Err(MailboxError::Timeout),
         );
