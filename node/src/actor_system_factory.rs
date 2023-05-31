@@ -637,8 +637,8 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
+    use crate::sub_lib::neighborhood::{Hops, NeighborhoodMode};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
@@ -1133,6 +1133,8 @@ mod tests {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let parameters = actor_factory.make_parameters();
+        let set_min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
+        let min_hops_count = Hops::FiveHops;
         let config = BootstrapperConfig {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
@@ -1163,7 +1165,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops_count,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1180,7 +1182,6 @@ mod tests {
                     .add_mapping_result(Ok(())),
             )),
         );
-        let set_min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_count_params(&set_min_hops_count_params_arc)
             .set_min_hops_count_result(Ok(()));
@@ -1275,7 +1276,7 @@ mod tests {
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
         let set_min_hops_count_params = set_min_hops_count_params_arc.lock().unwrap();
-        assert_eq!(*set_min_hops_count_params, vec![MIN_HOPS_COUNT_FOR_TEST])
+        assert_eq!(*set_min_hops_count_params, vec![min_hops_count])
     }
 
     #[cfg(feature = "log_recipient_test")]
