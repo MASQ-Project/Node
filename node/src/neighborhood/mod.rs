@@ -552,7 +552,9 @@ impl Neighborhood {
             .persistent_config_opt
             .as_ref()
             .expect("Wasn't able to retrieve persistent config");
-        let from_db = persistent_config.min_hops_count().unwrap();
+        let from_db = persistent_config
+            .min_hops_count()
+            .expect("Min Hops Count value is not initialized inside Database."); // TODO: Write test for this panic
         let demanded = self.min_hops_count;
         if demanded != from_db {
             panic!(
