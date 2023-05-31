@@ -10,7 +10,9 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
+use crate::accountant::database_access_objects::banned_dao::{
+    BannedCacheLoader, BannedCacheLoaderReal,
+};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -1922,22 +1924,21 @@ mod tests {
         }
 
         let current_dir = current_dir().unwrap();
-        let file_path = current_dir
-            .join("src")
-            .join("accountant")
-            .join("receivable_dao.rs");
+        let file_path = current_dir.join(PathBuf::from_iter([
+            "src",
+            "accountant",
+            "database_access_objects",
+            "receivable_dao.rs",
+        ]));
         let file = match File::open(file_path) {
             Ok(file) => file,
-            Err(_) => {
-                if Skip == check_if_source_code_is_attached(&current_dir) {
-                    return Skip;
-                } else {
-                    panic!(
-                        "if panics, the file receivable_dao.rs probably doesn't exist or \
+            Err(_) => match check_if_source_code_is_attached(&current_dir) {
+                Skip => return Skip,
+                _ => panic!(
+                    "if panics, the file receivable_dao.rs probably doesn't exist or \
                 has been moved to an unexpected location"
-                    )
-                }
-            }
+                ),
+            },
         };
         let reader = BufReader::new(file);
         let lines_without_fn_trait_definition =

@@ -491,8 +491,8 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::from_time_t;
-    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::database_access_objects::dao_utils::from_time_t;
+    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32ECKeyProvider;

@@ -411,7 +411,6 @@ pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
-    pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
@@ -456,10 +455,6 @@ impl NodeQueryResponseMetadata {
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
     PublicKey(PublicKey),
-}
-
-impl Message for NodeQueryMessage {
-    type Result = Option<NodeQueryResponseMetadata>;
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
@@ -652,7 +647,6 @@ mod tests {
             bind: recipient!(recorder, BindMessage),
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
-            node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
