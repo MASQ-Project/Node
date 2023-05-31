@@ -341,7 +341,7 @@ impl ProxyServer {
     fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr) {
         // let tmp_timestamp = SystemTime::now(); //
         // let retire_stream_key = true;
-        // let movable_args = TTHMovableArgs{
+        // let movable_args = TryTransmitToHopperArgs{
         //     common_opt: Some(TTHCommonArgs {
         //         main_cryptde: self.main_cryptde,
         //         payload: retries.unsuccessful_request.clone(),
@@ -893,10 +893,11 @@ pub trait IBCDHelper {
         retire_stream_key: bool,
     ) -> Result<(), String>;
 }
+
 trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
-        args: TTHMovableArgs,
+        args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     );
@@ -906,7 +907,7 @@ struct RouteQueryResponseResolverReal {}
 impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
-        mut args: TTHMovableArgs,
+        mut args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
@@ -915,22 +916,18 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
                 add_route_sub
                     .try_send(AddRouteMessage {
                         stream_key: args
-                            .common_opt
-                            .as_ref()
-                            .expectv("TTH common")
                             .payload
                             .stream_key,
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                ProxyServer::try_transmit_to_hopper((&mut args).into(), route_query_response)
+                ProxyServer::try_transmit_to_hopper(args, route_query_response)
             }
             Ok(None) => {
-                let tth_common = args.common_opt.take().expectv("tth common");
                 ProxyServer::handle_route_failure(
-                    tth_common.payload,
+                    args.payload,
                     &args.logger,
-                    tth_common.source_addr,
+                    args.source_addr,
                     &args.dispatcher_sub,
                 )
             }
@@ -1206,7 +1203,7 @@ mod tests {
         resolve_message_params: Arc<
             Mutex<
                 Vec<(
-                    TTHMovableArgs,
+                    TryTransmitToHopperArgs,
                     Result<Option<RouteQueryResponse>, MailboxError>,
                 )>,
             >,
@@ -1216,7 +1213,7 @@ mod tests {
     impl RouteQueryResponseResolver for RouteQueryResponseResolverMock {
         fn resolve_message(
             &self,
-            args: TTHMovableArgs,
+            args: TryTransmitToHopperArgs,
             add_route_sub: Recipient<AddRouteMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
@@ -1233,7 +1230,7 @@ mod tests {
             param: &Arc<
                 Mutex<
                     Vec<(
-                        TTHMovableArgs,
+                        TryTransmitToHopperArgs,
                         Result<Option<RouteQueryResponse>, MailboxError>,
                     )>,
                 >,
@@ -4565,7 +4562,7 @@ mod tests {
         let (transmit_to_hopper_args, route_query_message_response) =
             resolve_message_params.remove(0);
         assert!(resolve_message_params.is_empty());
-        let args = transmit_to_hopper_args.common_opt.unwrap();
+        let args = transmit_to_hopper_args;
         assert_eq!(args.payload, client_payload);
         assert_eq!(args.source_addr, socket_addr);
         assert!(before <= args.timestamp && args.timestamp <= after);
