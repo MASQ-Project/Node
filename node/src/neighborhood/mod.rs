@@ -148,29 +148,6 @@ impl Handler<SetConsumingWalletMessage> for Neighborhood {
     }
 }
 
-impl Handler<NodeQueryMessage> for Neighborhood {
-    type Result = MessageResult<NodeQueryMessage>;
-
-    fn handle(
-        &mut self,
-        msg: NodeQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        let node_record_ref_opt = match msg {
-            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(&ip_addr),
-            NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
-        };
-
-        MessageResult(node_record_ref_opt.map(|node_record_ref| {
-            NodeQueryResponseMetadata::new(
-                node_record_ref.public_key().clone(),
-                node_record_ref.node_addr_opt(),
-                *node_record_ref.rate_pack(),
-            )
-        }))
-    }
-}
-
 impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
     type Result = ();
 
@@ -495,7 +472,6 @@ impl Neighborhood {
             bind: addr.clone().recipient::<BindMessage>(),
             start: addr.clone().recipient::<StartMessage>(),
             new_public_ip: addr.clone().recipient::<NewPublicIp>(),
-            node_query: addr.clone().recipient::<NodeQueryMessage>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
@@ -1602,8 +1578,6 @@ impl<'a> ComputedRouteSegment<'a> {
 
 #[cfg(test)]
 mod tests {
-    use actix::dev::{MessageResponse, ResponseChannel};
-    use actix::Message;
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
@@ -2561,203 +2535,6 @@ mod tests {
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 3.4.5.6 refused Debut: No neighbors for Introduction or Pass");
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 4.5.6.7 refused Debut: Node owner manually rejected your Debut");
         tlh.exists_log_containing ("ERROR: Neighborhood: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_initially_configured_with_no_data() {
-        let system = System::new("responds_with_none_when_initially_configured_with_no_data");
-        let subject = make_standard_subject();
-        let addr = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system =
-            System::new("node_query_responds_with_none_when_key_query_matches_no_configured_data");
-        let subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_none_when_key_query_matches_no_configured_data",
-            ),
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_result_when_key_query_matches_configured_data() {
-        let cryptde = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system =
-            System::new("node_query_responds_with_result_when_key_query_matches_configured_data");
-        let one_neighbor = make_node_record(2345, true);
-        let another_neighbor = make_node_record(3456, true);
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![node_record_to_neighbor_config(&one_neighbor)],
-                        rate_pack(100),
-                    ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_result_when_key_query_matches_configured_data",
-            ),
-        );
-        subject
-            .neighborhood_database
-            .add_node(another_neighbor.clone())
-            .unwrap();
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(
-            another_neighbor.public_key().clone(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(
-            result.unwrap(),
-            NodeQueryResponseMetadata::new(
-                another_neighbor.public_key().clone(),
-                Some(another_neighbor.node_addr_opt().unwrap().clone()),
-                another_neighbor.rate_pack().clone(),
-            )
-        );
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system = System::new(
-            "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
-        );
-        let subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
-            ),
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::IpAddress(
-            IpAddr::from_str("2.3.4.5").unwrap(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_result_when_ip_address_query_matches_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let system = System::new(
-            "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
-        );
-        let node_record = make_node_record(1234, true);
-        let another_node_record = make_node_record(2345, true);
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        node_record.node_addr_opt().unwrap(),
-                        vec![NodeDescriptor::from((
-                            &node_record,
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-                },
-                node_record.earning_wallet(),
-                None,
-                "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
-            ),
-        );
-        subject
-            .neighborhood_database
-            .add_node(another_node_record.clone())
-            .unwrap();
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::IpAddress(
-            IpAddr::from_str("2.3.4.5").unwrap(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(
-            result.unwrap(),
-            NodeQueryResponseMetadata::new(
-                another_node_record.public_key().clone(),
-                Some(another_node_record.node_addr_opt().unwrap().clone()),
-                another_node_record.rate_pack().clone(),
-            )
-        );
     }
 
     #[test]
@@ -4960,7 +4737,6 @@ mod tests {
             single_edge(b, c);
             single_edge(c, b);
         }
-
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4978,19 +4754,25 @@ mod tests {
             hostname_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
-        let public_key_query = addr.send(NodeQueryMessage::PublicKey(a.public_key().clone()));
-        let failed_ip_address_query = addr.send(NodeQueryMessage::IpAddress(
-            a.node_addr_opt().unwrap().ip_addr(),
-        ));
+        let asserted_node_record = a.clone();
+        let assertion_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                let database = &neighborhood.neighborhood_database;
+                let node_record_by_key =
+                    database.node_by_key(&asserted_node_record.public_key().clone());
+                let node_record_by_ip =
+                    database.node_by_ip(&asserted_node_record.node_addr_opt().unwrap().ip_addr());
+                assert_eq!(
+                    node_record_by_key.unwrap().public_key(),
+                    asserted_node_record.public_key()
+                );
+                assert_eq!(node_record_by_ip, None)
+            }),
+        };
+        addr.try_send(assertion_msg).unwrap();
         System::current().stop_with_code(0);
-
         system.run();
         assert_eq!(None, unsuccessful_three_hop_route.wait().unwrap());
-        assert_eq!(
-            a.public_key(),
-            &public_key_query.wait().unwrap().unwrap().public_key
-        );
-        assert_eq!(None, failed_ip_address_query.wait().unwrap());
     }
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
@@ -6207,35 +5989,5 @@ mod tests {
         neighborhood.neighborhood_database = db;
 
         neighborhood
-    }
-
-    pub struct NeighborhoodDatabaseMessage {}
-
-    impl Message for NeighborhoodDatabaseMessage {
-        type Result = NeighborhoodDatabase;
-    }
-
-    impl<A, M> MessageResponse<A, M> for NeighborhoodDatabase
-    where
-        A: Actor,
-        M: Message<Result = NeighborhoodDatabase>,
-    {
-        fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
-            if let Some(tx) = tx {
-                tx.send(self);
-            }
-        }
-    }
-
-    impl Handler<NeighborhoodDatabaseMessage> for Neighborhood {
-        type Result = NeighborhoodDatabase;
-
-        fn handle(
-            &mut self,
-            _msg: NeighborhoodDatabaseMessage,
-            _ctx: &mut Self::Context,
-        ) -> Self::Result {
-            self.neighborhood_database.clone()
-        }
     }
 }

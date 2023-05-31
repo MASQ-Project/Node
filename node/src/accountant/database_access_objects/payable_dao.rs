@@ -10,12 +10,12 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
-use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{
+use crate::accountant::database_access_objects::dao_utils;
+use crate::accountant::database_access_objects::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
+use crate::accountant::database_access_objects::payable_dao::mark_pending_payable_associated_functions::{
     compose_case_expression, execute_command, serialize_wallets,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
@@ -402,10 +402,10 @@ impl TableNameDAO for PayableDaoReal {
 
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
-    use crate::accountant::dao_utils::{
+    use crate::accountant::database_access_objects::dao_utils::{
         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
-    use crate::accountant::payable_dao::PayableDaoError;
+    use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -552,9 +552,9 @@ mod mark_pending_payable_associated_functions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::database_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
+    use crate::accountant::database_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_pending_payable_fingerprint,

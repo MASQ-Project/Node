@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_dao::PayableDaoFactory;
-use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
-use crate::accountant::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::database_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::database_access_objects::payable_dao::PayableDaoFactory;
+use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoFactory;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::{
     checked_conversion, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
     ReportTransactionReceipts, ScanError, SentPayables,
 };
-use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;

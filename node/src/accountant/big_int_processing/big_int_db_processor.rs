@@ -2,8 +2,8 @@
 
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::payable_dao::PayableDaoError;
-use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;

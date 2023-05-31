@@ -1,13 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod big_int_processing;
-pub mod dao_utils;
+pub mod database_access_objects;
 pub mod financials;
-pub mod payable_dao;
-pub mod pending_payable_dao;
-pub mod receivable_dao;
 pub mod scanners;
-pub mod scanners_utils;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -22,15 +18,19 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::dao_utils::{
+use crate::accountant::database_access_objects::dao_utils::{
     remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
+};
+use crate::accountant::database_access_objects::payable_dao::{
+    PayableAccount, PayableDao, PayableDaoError,
+};
+use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::database_access_objects::receivable_dao::{
+    ReceivableDao, ReceivableDaoError,
 };
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
-use crate::accountant::pending_payable_dao::PendingPayableDao;
-use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{ScanTimings, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
@@ -68,8 +68,6 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use payable_dao::PayableDao;
-use receivable_dao::ReceivableDao;
 use std::any::type_name;
 #[cfg(test)]
 use std::default::Default;
@@ -1005,13 +1003,13 @@ pub mod check_sqlite_fns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::from_time_t;
-    use crate::accountant::dao_utils::{to_time_t, CustomQuery};
-    use crate::accountant::payable_dao::{
+    use crate::accountant::database_access_objects::dao_utils::from_time_t;
+    use crate::accountant::database_access_objects::dao_utils::{to_time_t, CustomQuery};
+    use crate::accountant::database_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
-    use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
