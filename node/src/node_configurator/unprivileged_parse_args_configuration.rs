@@ -214,6 +214,10 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
+    // Priority: Multi Config > Persistent Configuration
+    // TODO: Store min_hops_count inside Persistent Configuration from multi config
+
+    // TODO: Pick default from the Persistent Configuration (DB must contain default when newly created)
     let min_hops_count = value_m!(multi_config, "min-hops", Hops)
         .expect("Clap schema didn't specify the default value.");
 
@@ -349,20 +353,23 @@ fn convert_ci_configs(
             if separate_configs.is_empty() {
                 Ok(None)
             } else {
-                let dummy_cryptde: Box<dyn CryptDE> = {
-                    if value_m!(multi_config, "fake-public-key", String).is_none() {
-                        Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
-                    } else {
-                        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
-                    }
-                };
                 let desired_chain = Chain::from(
                     value_m!(multi_config, "chain", String)
                         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
                         .as_str(),
                 );
-                let results =
-                    validate_descriptors_from_user(separate_configs, dummy_cryptde, desired_chain);
+                let cryptde_for_key_len: Box<dyn CryptDE> = {
+                    if value_m!(multi_config, "fake-public-key", String).is_none() {
+                        Box::new(CryptDEReal::new(desired_chain))
+                    } else {
+                        Box::new(CryptDENull::new(desired_chain))
+                    }
+                };
+                let results = validate_descriptors_from_user(
+                    separate_configs,
+                    cryptde_for_key_len,
+                    desired_chain,
+                );
                 let (ok, err): (Vec<DescriptorParsingResult>, Vec<DescriptorParsingResult>) =
                     results.into_iter().partition(|result| result.is_ok());
                 let ok = ok
@@ -385,12 +392,12 @@ fn convert_ci_configs(
 
 fn validate_descriptors_from_user(
     descriptors: Vec<String>,
-    dummy_cryptde: Box<dyn CryptDE>,
+    cryptde_for_key_len: Box<dyn CryptDE>,
     desired_native_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
     descriptors.into_iter().map(|node_desc_from_ci| {
         let node_desc_trimmed = node_desc_from_ci.trim();
-        match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
+        match NodeDescriptor::try_from((cryptde_for_key_len.as_ref(), node_desc_trimmed)) {
             Ok(descriptor) => {
                 let competence_from_descriptor = descriptor.blockchain;
                 if desired_native_chain == competence_from_descriptor {

@@ -247,6 +247,7 @@ fn configure_database(
     config: &BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    // TODO: Set min_hops_count from config to persistent_config
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
             return Err(pce.into_configurator_error("clandestine-port"));
