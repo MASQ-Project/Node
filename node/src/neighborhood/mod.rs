@@ -4644,15 +4644,6 @@ mod tests {
         assert_eq!(*min_hops_count_params, vec![()]);
     }
 
-    //     let from_db = persistent_config.chain_name();
-    //     let demanded = chain.rec().literal_identifier.to_string();
-    //     if demanded != from_db {
-    //     panic!(
-    //         "Database with a wrong chain name detected; expected: {}, was: {}",
-    //         demanded, from_db
-    //     )
-    // }
-
     #[test]
     #[should_panic(
         expected = "Database with wrong min hops count value detected; expected: SixHops, was: TwoHops"
