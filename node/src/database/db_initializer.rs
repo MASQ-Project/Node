@@ -232,6 +232,7 @@ impl DbInitializerReal {
             false,
             "last successful protocol for port mapping on the router",
         );
+        Self::set_config_value(conn, "min_hops_count", None, false, "min hops count");
         Self::set_config_value(
             conn,
             "payment_thresholds",
@@ -1031,6 +1032,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "min_hops_count", None, false);
         verify(
             &mut config_vec,
             "neighborhood_mode",
