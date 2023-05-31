@@ -301,7 +301,7 @@ impl ProxyServer {
                 match self.dns_failure_retries.get_mut(&response.stream_key) {
                     Some(retries) => match retries.retries_left {
                         0 => (),
-                        _ => self.handle_request_retry(retries, socket_addr, ),
+                        _ => todo!("Fix this also") //self.handle_request_retry(retries, socket_addr, ),
                     },
                     None => {
                         todo!("my feeling is the code is broken in such a case...maybe even panic")
@@ -340,29 +340,32 @@ impl ProxyServer {
         }
     }
 
-    fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr  ) {
-        let movable_args = TTHMovableArgs{
-            common_opt: Some(TTHCommonArgs {
-                main_cryptde: self.main_cryptde,
-                payload: retries.unsuccessful_request.clone(),
-                source_addr,
-                timestamp,
-                is_decentralized: self.is_decentralized,
-            }),
-            logger: self.logger.clone(),
-            retire_stream_key_sub_opt: if retire_stream_key {
-                Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
-            } else {
-                None
-            },
-            hopper_sub: self.out_subs("Hopper").hopper.clone(),
-            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
-            accountant_sub: self.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-        };
-        let route_source = self.out_subs("Neighborhood").route_source.clone();
-        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
-        self.request_route_and_transmit(movable_args, route_source, add_route_sub)
+    fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr) {
+        // let tmp_timestamp = SystemTime::now(); //
+        // let retire_stream_key = true;
+        // let movable_args = TTHMovableArgs{
+        //     common_opt: Some(TTHCommonArgs {
+        //         main_cryptde: self.main_cryptde,
+        //         payload: retries.unsuccessful_request.clone(),
+        //         source_addr,
+        //         timestamp: tmp_timestamp,
+        //         is_decentralized: self.is_decentralized,
+        //     }),
+        //     logger: self.logger.clone(),
+        //     retire_stream_key_sub_opt: if retire_stream_key {
+        //         Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
+        //     } else {
+        //         None
+        //     },
+        //     hopper_sub: self.out_subs("Hopper").hopper.clone(),
+        //     dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
+        //     accountant_sub: self.out_subs("Accountant").accountant.clone(),
+        //     add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
+        // };
+        // let route_source = self.out_subs("Neighborhood").route_source.clone();
+        // let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
+        // self.request_route_and_transmit(movable_args, route_source, add_route_sub) // TODO
+        todo!("Fix this later");
     }
 
     fn handle_client_response_payload(
