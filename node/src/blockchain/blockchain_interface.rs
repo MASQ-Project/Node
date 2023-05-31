@@ -140,7 +140,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    fn estimated_gas_limit_per_transaction(&self) -> u64;
+    fn estimated_gas_limit_per_payable(&self) -> u64;
 
     fn send_batch_of_payables(
         &self,
@@ -182,6 +182,7 @@ impl Default for BlockchainInterfaceClandestine {
 }
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
+    //TODO are the guts of these function really tested? I have doubts
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
     }
@@ -196,7 +197,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn estimated_gas_limit_per_transaction(&self) -> u64 {
+    fn estimated_gas_limit_per_payable(&self) -> u64 {
         todo!()
     }
 
@@ -349,8 +350,8 @@ where
             .wait()
     }
 
-    fn estimated_gas_limit_per_transaction(&self) -> u64 {
-        todo!()
+    fn estimated_gas_limit_per_payable(&self) -> u64 {
+        Self::base_gas_limit(self.chain) + TRANSACTION_DATA_MARGIN_TO_GAS_LIMIT
     }
 
     fn send_batch_of_payables(
@@ -627,7 +628,7 @@ where
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let data = Self::transaction_data(recipient, amount);
-        let gas_limit = Self::compute_gas_limit(data.as_slice(), self.chain); //TODO this should by a const for each chain perhaps (excessive gas isn't consumed)
+        let gas_limit = Self::compute_gas_limit(data.as_slice(), self.chain);
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
             nonce: Some(nonce),
@@ -703,10 +704,6 @@ where
             ChainFamily::Eth => 55_000,
             ChainFamily::Dev => 55_000,
         }
-    }
-
-    fn gas_limit_safe_estimation(chain: Chain) -> u64 {
-        todo!("use transaction_data_margin here")
     }
 
     #[cfg(test)]
@@ -1286,6 +1283,33 @@ mod tests {
             expected_err_msg_fragment,
             err_msg
         )
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_gives_estimates_for_gas_limits() {
+        let subject = |chain: Chain| {
+            BlockchainInterfaceNonClandestine::new(
+                TestTransport::default(),
+                make_fake_event_loop_handle(),
+                chain,
+            )
+        };
+
+        [
+            Chain::EthMainnet,
+            Chain::PolyMainnet,
+            Chain::PolyMumbai,
+            Chain::Dev,
+        ]
+        .into_iter()
+        .for_each(|chain| {
+            let subject = subject.clone();
+            assert_eq!(
+                subject(chain).estimated_gas_limit_per_payable(),
+                BlockchainInterfaceNonClandestine::<TestTransport>::base_gas_limit(chain)
+                    + (68 * 68) //number of bytes and gas required per non-zero bytes = maximal margin
+            )
+        });
     }
 
     #[test]

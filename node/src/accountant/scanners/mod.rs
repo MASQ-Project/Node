@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod scanners_utils;
 pub mod payable_scan_setup_msgs;
 pub mod scan_mid_procedures;
+pub mod scanners_utils;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
@@ -262,7 +262,7 @@ impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
 }
 
 impl PayableScannerMidProcedures for PayableScanner {
-    fn process_softly(
+    fn try_soft_process(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         logger: &Logger,
@@ -273,11 +273,11 @@ impl PayableScannerMidProcedures for PayableScanner {
                 response_skeleton_opt: msg.response_skeleton_opt,
             })),
             Ok(Some(adjustment)) => Ok(Either::Right(AwaitingAdjustment::new(msg, adjustment))),
-            Err(e) => todo!(),
+            Err(_e) => todo!("be implemented with GH-711"),
         }
     }
 
-    fn process_with_adjustment(
+    fn process_adjustment(
         &self,
         setup: AwaitingAdjustment,
         logger: &Logger,
@@ -1114,7 +1114,7 @@ pub struct PeriodicalScanConfig<T: Default> {
 }
 
 impl<T: Default> PeriodicalScanConfig<T> {
-    pub fn schedule_another_periodic_scan(&self, ctx: &mut Context<Accountant>) {
+    pub fn next_scan_period(&self, ctx: &mut Context<Accountant>) {
         // the default of the message implies response_skeleton_opt to be None
         // because scheduled scans don't respond
         let _ = self.handle.notify_later(T::default(), self.interval, ctx);
@@ -1144,11 +1144,11 @@ mod tests {
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::database_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PendingPayable,
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::payment_adjuster::PaymentAdjusterReal;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;

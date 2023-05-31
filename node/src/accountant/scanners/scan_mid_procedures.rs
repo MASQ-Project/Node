@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
-use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use actix::Message;
@@ -19,12 +19,12 @@ where
 }
 
 pub trait PayableScannerMidProcedures {
-    fn process_softly(
+    fn try_soft_process(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String>;
-    fn process_with_adjustment(
+    fn process_adjustment(
         &self,
         setup: AwaitingAdjustment,
         logger: &Logger,
@@ -42,6 +42,9 @@ impl AwaitingAdjustment {
         original_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         adjustment: Adjustment,
     ) -> Self {
-        todo!()
+        Self {
+            original_msg,
+            adjustment,
+        }
     }
 }

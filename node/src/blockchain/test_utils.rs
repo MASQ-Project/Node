@@ -58,7 +58,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    estimated_gas_limit_per_transaction_results: RefCell<Option<u64>>,
+    estimated_gas_limit_per_payable_results: RefCell<Option<u64>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -100,9 +100,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn estimated_gas_limit_per_transaction(&self) -> u64 {
+    fn estimated_gas_limit_per_payable(&self) -> u64 {
         *self
-            .estimated_gas_limit_per_transaction_results
+            .estimated_gas_limit_per_payable_results
             .borrow_mut()
             .as_ref()
             .unwrap()
@@ -173,8 +173,8 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn estimated_gas_limit_per_transaction_result(self, result: u64) -> Self {
-        self.estimated_gas_limit_per_transaction_results
+    pub fn estimated_gas_limit_per_payable_result(self, result: u64) -> Self {
+        self.estimated_gas_limit_per_payable_results
             .borrow_mut()
             .replace(result);
         self

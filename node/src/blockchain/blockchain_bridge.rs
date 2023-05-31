@@ -308,9 +308,8 @@ impl BlockchainBridge {
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
 
-        let estimated_gas_limit_per_transaction = self
-            .blockchain_interface
-            .estimated_gas_limit_per_transaction();
+        let estimated_gas_limit_per_transaction =
+            self.blockchain_interface.estimated_gas_limit_per_payable();
 
         let this_stage_data = ConsumingWalletBalancesAndGasParams {
             consuming_wallet_balances,
@@ -512,8 +511,8 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
@@ -686,7 +685,7 @@ mod tests {
             .get_gas_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .estimated_gas_limit_per_transaction_result(51_546);
+            .estimated_gas_limit_per_payable_result(51_546);
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
             PersistentConfigurationMock::default().gas_price_result(Ok(146));

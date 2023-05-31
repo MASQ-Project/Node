@@ -402,10 +402,10 @@ impl TableNameDAO for PayableDaoReal {
 
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
+    use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
     use crate::accountant::database_access_objects::utils::{
         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
-    use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;

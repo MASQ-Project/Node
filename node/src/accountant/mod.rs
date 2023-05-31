@@ -19,13 +19,13 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::database_access_objects::utils::{
-    remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
-};
 use crate::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoError};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoError,
+};
+use crate::accountant::database_access_objects::utils::{
+    remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
@@ -68,9 +68,7 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use scanners::payable_scan_setup_msgs::{ConsumingWalletBalancesAndGasParams, PayablePaymentSetup};
 use std::any::type_name;
 #[cfg(test)]
 use std::default::Default;
@@ -216,8 +214,7 @@ impl Handler<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>> for Accou
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_payable_payment_setup(msg);
-        todo!("send msg to UIGateway...")
+        self.handle_payable_payment_setup(msg)
     }
 }
 
@@ -240,10 +237,7 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
-        //TODO handling error with msg to the UI is missing!
-        self.scan_timings
-            .payable
-            .schedule_another_periodic_scan(ctx);
+        self.scan_timings.payable.next_scan_period(ctx);
     }
 }
 
@@ -252,10 +246,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
-        //TODO handling error with msg to the UI is missing!
-        self.scan_timings
-            .pending_payable
-            .schedule_another_periodic_scan(ctx);
+        self.scan_timings.pending_payable.next_scan_period(ctx);
     }
 }
 
@@ -264,10 +255,7 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        //TODO handling error with msg to the UI is missing!
-        self.scan_timings
-            .receivable
-            .schedule_another_periodic_scan(ctx);
+        self.scan_timings.receivable.next_scan_period(ctx);
     }
 }
 
@@ -662,24 +650,23 @@ impl Accountant {
     fn handle_payable_payment_setup(
         &mut self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
-    ) -> Option<NodeToUiMessage> {
-        let bb_instructions = match self.scanners.payable.process_softly(msg, &self.logger) {
+    ) {
+        let bb_instructions = match self.scanners.payable.try_soft_process(msg, &self.logger) {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
-                //TODO we will eventually query info from Neighborhood here
+                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 self.scanners
                     .payable
-                    .process_with_adjustment(unaccepted_msg, &self.logger)
+                    .process_adjustment(unaccepted_msg, &self.logger)
             }
-            Err(e) => todo!(),
+            Err(_e) => todo!("be completed by GH-711"),
         };
         self.outcoming_payments_instructions_sub_opt
             .as_ref()
             .expect("BlockchainBridge is unbound")
             .try_send(bb_instructions)
-            .expect("BlockchainBridge is dead");
-
-        todo!()
+            .expect("BlockchainBridge is dead")
+        //TODO implement send point for ScanError; be completed by GH-711
     }
 
     fn handle_financials(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
@@ -1018,13 +1005,13 @@ pub mod check_sqlite_fns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::database_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
     use crate::accountant::scanners::NullScanner;
@@ -1401,6 +1388,8 @@ mod tests {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
+        init_test_logging();
+        let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
         let is_adjustment_required_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
@@ -1416,6 +1405,7 @@ mod tests {
             .build();
         subject.scanners.payable = Box::new(payable_scanner);
         subject.outcoming_payments_instructions_sub_opt = Some(report_recipient);
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
@@ -1441,10 +1431,12 @@ mod tests {
             .unwrap();
 
         system.run();
-        let is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
+        let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
+        let (payable_payment_setup_msg, logger_clone) = is_adjustment_required_params.remove(0);
+        assert!(is_adjustment_required_params.is_empty());
         assert_eq!(
-            *is_adjustment_required_params,
-            vec![consuming_balances_and_qualified_payments]
+            payable_payment_setup_msg,
+            consuming_balances_and_qualified_payments
         );
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1457,8 +1449,17 @@ mod tests {
                 })
             }
         );
+        test_use_of_the_same_logger(&logger_clone, test_name)
         // adjust_payments() did not need a prepared result which means it wasn't reached
         // because otherwise this test would've panicked
+    }
+
+    fn test_use_of_the_same_logger(logger_clone: &Logger, test_name: &str) {
+        let experiment_msg = format!("DEBUG: {test_name}: hello world");
+        let log_handler = TestLogHandler::default();
+        log_handler.exists_no_log_containing(&experiment_msg);
+        debug!(logger_clone, "hello world");
+        log_handler.exists_log_containing(&experiment_msg);
     }
 
     #[test]
@@ -1467,6 +1468,8 @@ mod tests {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
+        init_test_logging();
+        let test_name = "received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge";
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
@@ -1526,7 +1529,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
+        let (cwbqp_msg, captured_now, logger_clone) = adjust_payments_params.remove(0);
         assert_eq!(
             cwbqp_msg,
             AwaitingAdjustment {
@@ -1544,6 +1547,7 @@ mod tests {
                 response_skeleton_opt: Some(response_skeleton)
             }
         );
+        test_use_of_the_same_logger(&logger_clone, test_name)
     }
 
     #[test]
@@ -3124,6 +3128,7 @@ mod tests {
             .get_gas_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
+            .estimated_gas_limit_per_payable_result(55_000)
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
