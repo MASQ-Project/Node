@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::database_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::database_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -13,11 +13,11 @@ use crate::accountant::database_access_objects::pending_payable_dao::{
 use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
+use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};

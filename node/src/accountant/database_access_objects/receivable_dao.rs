@@ -9,8 +9,8 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::database_access_objects::dao_utils;
-use crate::accountant::database_access_objects::dao_utils::{
+use crate::accountant::database_access_objects::utils;
+use crate::accountant::database_access_objects::utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
@@ -335,7 +335,7 @@ impl ReceivableDaoReal {
                 Ok(ReceivableAccount {
                     wallet,
                     balance_wei: BigIntDivider::reconstitute(high_bytes, low_bytes),
-                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                    last_received_timestamp: utils::from_time_t(last_received_timestamp),
                 })
             }
             e => panic!(
@@ -413,7 +413,7 @@ impl TableNameDAO for ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::{
+    use crate::accountant::database_access_objects::utils::{
         from_time_t, now_time_t, to_time_t,
     };
     use crate::accountant::gwei_to_wei;
@@ -1438,7 +1438,7 @@ mod tests {
             .unwrap();
 
         let insert = insert_account_by_separate_values;
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = utils::now_time_t();
         insert(
             &*conn,
             "0x1111111111111111111111111111111111111111",

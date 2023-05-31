@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::{
@@ -512,7 +512,7 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
+    use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;

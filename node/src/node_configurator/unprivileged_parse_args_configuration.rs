@@ -619,7 +619,7 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::database_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;

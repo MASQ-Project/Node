@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::payment_adjuster::Adjustment;

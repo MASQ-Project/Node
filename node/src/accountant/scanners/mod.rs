@@ -1,15 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod scanners_utils;
+pub mod payable_scan_setup_msgs;
+pub mod scan_mid_procedures;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-use crate::accountant::scan_mid_procedures::{
+use crate::accountant::scanners::scan_mid_procedures::{
     AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
@@ -1142,7 +1144,7 @@ mod tests {
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::database_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PendingPayable,
     };

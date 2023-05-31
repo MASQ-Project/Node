@@ -724,7 +724,7 @@ const fn transaction_data_margin() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
+    use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,

@@ -3,9 +3,7 @@
 pub mod big_int_processing;
 pub mod database_access_objects;
 pub mod financials;
-pub mod payable_scan_setup_msgs;
 pub mod payment_adjuster;
-pub mod scan_mid_procedures;
 pub mod scanners;
 
 #[cfg(test)]
@@ -21,7 +19,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::database_access_objects::dao_utils::{
+use crate::accountant::database_access_objects::utils::{
     remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
 use crate::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoError};
@@ -70,7 +68,7 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
 use std::any::type_name;
@@ -1020,15 +1018,15 @@ pub mod check_sqlite_fns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
-    use crate::accountant::database_access_objects::dao_utils::{to_time_t, CustomQuery};
+    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::database_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::payment_adjuster::Adjustment;
-    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
+    use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
     use crate::accountant::scanners::NullScanner;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,

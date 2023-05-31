@@ -2,10 +2,10 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::gwei_to_wei;
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
+use crate::accountant::scanners::payable_scan_setup_msgs::{
     ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
 };
-use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
+use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use itertools::Itertools;
@@ -147,8 +147,8 @@ impl PaymentAdjusterReal {
     }
 
     fn sum_as_u256<T, F>(collection: &[T], arranger: F) -> U256
-    where
-        F: Fn(&T) -> u128,
+        where
+            F: Fn(&T) -> u128,
     {
         collection.iter().map(arranger).sum::<u128>().into()
     }
@@ -181,7 +181,7 @@ impl PaymentAdjusterReal {
             u128::try_from(tech_info.estimated_gas_limit_per_transaction)
                 .expectv("small number for gas limit")
                 * u128::try_from(tech_info.desired_gas_price_gwei)
-                    .expectv("small number for gas price");
+                .expectv("small number for gas price");
         let grpt_in_wei: U256 = gwei_to_wei(gas_required_per_transaction_gwei);
         let available_wei = tech_info.consuming_wallet_balances.gas_currency_wei;
         eprintln!("available wei: {:?}", available_wei);
@@ -259,7 +259,7 @@ impl PaymentAdjusterReal {
         now: SystemTime,
     ) -> Vec<(u128, PayableAccount)> {
         type CriteriaClosure<'a> =
-            Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
+        Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
         //define individual criteria as closures to be used in a map()
 
         let time_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
@@ -316,7 +316,7 @@ impl PaymentAdjusterReal {
             Self::prefabricated_formatted_accounts(original, true).collect::<Vec<String>>();
         move |adjusted_accounts: &[PayableAccount]| {
             let prefabricated_adjusted =
-            //TODO extend the collection of adjusted up to the initial length using Option
+                //TODO extend the collection of adjusted up to the initial length using Option
                 Self::prefabricated_formatted_accounts(adjusted_accounts, false);
             format!(
                 "\nAdjusted payables:\n\
@@ -383,8 +383,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use std::vec;
     use web3::types::U256;
-    use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{ConsumingWalletBalancesAndGasParams, PayablePaymentSetup};
-    use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
+    use crate::accountant::scanners::payable_scan_setup_msgs::{ConsumingWalletBalancesAndGasParams, PayablePaymentSetup};
+    use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)
@@ -589,8 +589,8 @@ mod tests {
             (123, 3),
             (111_111_111_111_111_111, 18),
         ]
-        .into_iter()
-        .for_each(|(num, expected_result)| assert_eq!(log_10(num), expected_result))
+            .into_iter()
+            .for_each(|(num, expected_result)| assert_eq!(log_10(num), expected_result))
     }
 
     #[test]

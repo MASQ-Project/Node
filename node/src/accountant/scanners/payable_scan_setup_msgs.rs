@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-//TODO remove this mod frame around
-pub mod inter_actor_communication_for_payable_scanner {
+
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::ResponseSkeleton;
     use crate::sub_lib::blockchain_bridge::{
@@ -43,4 +42,3 @@ pub mod inter_actor_communication_for_payable_scanner {
             }
         }
     }
-}
