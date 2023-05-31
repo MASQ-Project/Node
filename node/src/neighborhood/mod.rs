@@ -491,7 +491,7 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         debug!(self.logger, "Connecting to persistent database");
         self.connect_database();
-        self.verify_min_hops_count();
+        self.validate_database_min_hops_count();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
 
@@ -547,19 +547,19 @@ impl Neighborhood {
         }
     }
 
-    fn verify_min_hops_count(&self) {
-        // Debugging Some Code
-        eprintln!("After Executing connect_database()");
-        eprintln!("Executing verify_min_hops_count()");
+    fn validate_database_min_hops_count(&self) {
         let persistent_config = self
             .persistent_config_opt
             .as_ref()
-            .expect("wasn't able to retrieve persistent config");
-        let min_hops_count = persistent_config.min_hops_count().unwrap();
-        eprintln!(
-            "Min Hops Count from persistent config: {:?}",
-            min_hops_count
-        );
+            .expect("Wasn't able to retrieve persistent config");
+        let from_db = persistent_config.min_hops_count().unwrap();
+        let demanded = self.min_hops_count;
+        if demanded != from_db {
+            panic!(
+                "Database with wrong min hops count value detected; expected: {:?}, was: {:?}",
+                demanded, from_db
+            )
+        }
     }
 
     fn send_debut_gossip_to_all_initial_descriptors(&mut self) {
@@ -1833,6 +1833,9 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new().min_hops_count_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
+        ));
         subject.data_directory = data_dir;
         let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
@@ -4533,7 +4536,6 @@ mod tests {
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
         init_test_logging();
-        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
             "node_gossips_to_neighbors_on_startup",
@@ -4567,9 +4569,7 @@ mod tests {
             ),
         );
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .min_hops_count_params(&min_hops_count_params_arc)
-                .min_hops_count_result(Ok(Hops::SixHops)),
+            PersistentConfigurationMock::new().min_hops_count_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
         ));
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
@@ -4597,8 +4597,6 @@ mod tests {
         let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
-        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_count_params, vec![()]);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: node_gossips_to_neighbors_on_startup: Debut Gossip sent to {:?}",
             debut_target
@@ -4646,9 +4644,18 @@ mod tests {
         assert_eq!(*min_hops_count_params, vec![()]);
     }
 
+    //     let from_db = persistent_config.chain_name();
+    //     let demanded = chain.rec().literal_identifier.to_string();
+    //     if demanded != from_db {
+    //     panic!(
+    //         "Database with a wrong chain name detected; expected: {}, was: {}",
+    //         demanded, from_db
+    //     )
+    // }
+
     #[test]
     #[should_panic(
-        expected = "Database with wrong min hops count value detected; expected: 6, was: 2"
+        expected = "Database with wrong min hops count value detected; expected: SixHops, was: TwoHops"
     )]
     fn node_panics_when_min_hops_count_value_in_neighborhood_is_different_from_persistent_configuration(
     ) {
