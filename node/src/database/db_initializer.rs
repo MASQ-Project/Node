@@ -3,6 +3,7 @@ use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperRe
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::utils::db_connection_launch_panic;
@@ -232,7 +233,13 @@ impl DbInitializerReal {
             false,
             "last successful protocol for port mapping on the router",
         );
-        Self::set_config_value(conn, "min_hops_count", None, false, "min hops count");
+        Self::set_config_value(
+            conn,
+            "min_hops_count",
+            Some(&DEFAULT_MIN_HOPS_COUNT.to_string()),
+            false,
+            "min hops count",
+        );
         Self::set_config_value(
             conn,
             "payment_thresholds",
@@ -1032,7 +1039,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
-        verify(&mut config_vec, "min_hops_count", None, false);
+        verify(&mut config_vec, "min_hops_count", Some("3"), false);
         verify(
             &mut config_vec,
             "neighborhood_mode",
