@@ -651,13 +651,13 @@ impl Accountant {
         &mut self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
     ) {
-        let bb_instructions = match self.scanners.payable.try_soft_process(msg, &self.logger) {
+        let bb_instructions = match self.scanners.payable.try_softly(msg, &self.logger) {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 self.scanners
                     .payable
-                    .process_adjustment(unaccepted_msg, &self.logger)
+                    .get_special_payments_instructions(unaccepted_msg, &self.logger)
             }
             Err(_e) => todo!("be completed by GH-711"),
         };
@@ -1504,6 +1504,7 @@ mod tests {
             .build();
         subject.scanners.payable = Box::new(payable_scanner);
         subject.outcoming_payments_instructions_sub_opt = Some(report_recipient);
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let account_1 = make_payable_account(111_111);
         let account_2 = make_payable_account(222_222);

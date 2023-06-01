@@ -10,21 +10,21 @@ use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
 
-pub trait PayableScannerWithMidProcedures<BeginMessage, EndMessage>:
-    Scanner<BeginMessage, EndMessage> + PayableScannerMidProcedures
+pub trait PayableScannerWithMiddleProcedures<BeginMessage, EndMessage>:
+    Scanner<BeginMessage, EndMessage> + PayableScannerMiddleProcedures
 where
     BeginMessage: Message,
     EndMessage: Message,
 {
 }
 
-pub trait PayableScannerMidProcedures {
-    fn try_soft_process(
+pub trait PayableScannerMiddleProcedures {
+    fn try_softly(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String>;
-    fn process_adjustment(
+    fn get_special_payments_instructions(
         &self,
         setup: AwaitingAdjustment,
         logger: &Logger,

@@ -53,7 +53,7 @@ pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Logger {
     name: String,
     #[cfg(not(feature = "no_test_share"))]

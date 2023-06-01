@@ -4,6 +4,7 @@ use crate::accountant::database_access_objects::payable_dao::{PayableAccount, Pe
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_interface::blockchain_interface_common::TRANSACTION_DATA_GAS_MARGIN_MAX;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
 };
@@ -39,8 +40,6 @@ const TRANSACTION_LITERAL: H256 = H256([
 ]);
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
-
-const TRANSACTION_DATA_MARGIN_TO_GAS_LIMIT: u64 = transaction_data_margin();
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct BlockchainTransaction {
@@ -182,7 +181,6 @@ impl Default for BlockchainInterfaceClandestine {
 }
 
 impl BlockchainInterface for BlockchainInterfaceClandestine {
-    //TODO are the guts of these function really tested? I have doubts
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
     }
@@ -198,7 +196,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn estimated_gas_limit_per_payable(&self) -> u64 {
-        todo!()
+        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
     }
 
     fn send_batch_of_payables(
@@ -217,12 +215,15 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn get_gas_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(self.logger, "Can't get eth balance clandestinely yet",);
+        error!(self.logger, "Can't get gas balance clandestinely yet",);
         Ok(0.into())
     }
 
     fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(self.logger, "Can't get token balance clandestinely yet",);
+        error!(
+            self.logger,
+            "Can't get masq token balance clandestinely yet",
+        );
         Ok(0.into())
     }
 
@@ -351,7 +352,7 @@ where
     }
 
     fn estimated_gas_limit_per_payable(&self) -> u64 {
-        Self::base_gas_limit(self.chain) + TRANSACTION_DATA_MARGIN_TO_GAS_LIMIT
+        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
     }
 
     fn send_batch_of_payables(
@@ -691,19 +692,11 @@ where
     }
 
     fn compute_gas_limit(data: &[u8], chain: Chain) -> U256 {
-        let base_gas_limit = Self::base_gas_limit(chain);
+        let base_gas_limit = blockchain_interface_common::base_gas_limit(chain);
         ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
             acc + if v == &0u8 { 4 } else { 68 }
         }))
         .expect("Internal error")
-    }
-
-    fn base_gas_limit(chain: Chain) -> u64 {
-        match chain.rec().chain_family {
-            ChainFamily::Polygon => 70_000,
-            ChainFamily::Eth => 55_000,
-            ChainFamily::Dev => 55_000,
-        }
     }
 
     #[cfg(test)]
@@ -712,10 +705,24 @@ where
     }
 }
 
-const fn transaction_data_margin() -> u64 {
-    // 68 bytes * 68 per non zero byte according to the Ethereum docs,
-    // deliberately maximized
-    68 * 68
+mod blockchain_interface_common {
+    use masq_lib::blockchains::chains::{Chain, ChainFamily};
+
+    pub const TRANSACTION_DATA_GAS_MARGIN_MAX: u64 = transaction_data_margin();
+
+    pub fn base_gas_limit(chain: Chain) -> u64 {
+        match chain.rec().chain_family {
+            ChainFamily::Polygon => 70_000,
+            ChainFamily::Eth => 55_000,
+            ChainFamily::Dev => 55_000,
+        }
+    }
+
+    pub const fn transaction_data_margin() -> u64 {
+        // 68 bytes * 68 per non zero byte according to the Ethereum docs,
+        // deliberately maximized
+        68 * 68
+    }
 }
 
 #[cfg(test)]
@@ -1306,8 +1313,7 @@ mod tests {
             let subject = subject.clone();
             assert_eq!(
                 subject(chain).estimated_gas_limit_per_payable(),
-                BlockchainInterfaceNonClandestine::<TestTransport>::base_gas_limit(chain)
-                    + (68 * 68) //number of bytes and gas required per non-zero bytes = maximal margin
+                blockchain_interface_common::base_gas_limit(chain) + (68 * 68) //number of bytes and gas required per non-zero bytes = maximal margin
             )
         });
     }
@@ -1703,23 +1709,23 @@ mod tests {
     #[test]
     fn non_clandestine_base_gas_limit_is_properly_set() {
         assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::PolyMainnet),
+            blockchain_interface_common::base_gas_limit(Chain::PolyMainnet),
             70_000
         );
         assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::PolyMumbai),
+            blockchain_interface_common::base_gas_limit(Chain::PolyMumbai),
             70_000
         );
         assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::EthMainnet),
+            blockchain_interface_common::base_gas_limit(Chain::EthMainnet),
             55_000
         );
         assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::EthRopsten),
+            blockchain_interface_common::base_gas_limit(Chain::EthRopsten),
             55_000
         );
         assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::Dev),
+            blockchain_interface_common::base_gas_limit(Chain::Dev),
             55_000
         );
     }
@@ -2545,5 +2551,176 @@ mod tests {
                 })
             ]
         )
+    }
+
+    fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
+        BlockchainInterfaceClandestine {
+            logger: Logger::new(test_name),
+            chain,
+        }
+    }
+
+    fn all_chains() -> [Chain; 4] {
+        [
+            Chain::EthMainnet,
+            Chain::PolyMainnet,
+            Chain::PolyMumbai,
+            Chain::Dev,
+        ]
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_returns_contract_address() {
+        all_chains().into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject("irrelevant", chain).contract_address(),
+                chain.rec().contract
+            )
+        })
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_retrieves_no_transactions() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_retrieves_no_transactions";
+        let expected_msg = "Can't retrieve transactions clandestinely yet";
+        let wallet = make_wallet("blah");
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).retrieve_transactions(0, &wallet),
+                Err(BlockchainError::QueryFailed(expected_msg.to_string()))
+            )
+        });
+
+        let expected_log_msg = format!("ERROR: {test_name}: {}", expected_msg);
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_estimated_gas_limit_per_payable() {
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject("irrelevant", chain).estimated_gas_limit_per_payable(),
+                blockchain_interface_common::base_gas_limit(chain)
+                    + TRANSACTION_DATA_GAS_MARGIN_MAX
+            )
+        });
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_send_batch_of_payables() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_send_batch_of_payables";
+        let wallet = make_wallet("blah");
+        let chains = all_chains();
+        let (recorder, _, _) = make_recorder();
+        let recipient = recorder.start().recipient();
+        let accounts = vec![make_payable_account(111)];
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).send_batch_of_payables(
+                    &wallet,
+                    123,
+                    U256::one(),
+                    &recipient,
+                    &accounts
+                ),
+                Err(PayableTransactionError::Sending {
+                    msg: "invalid attempt to send txs clandestinely".to_string(),
+                    hashes: vec![],
+                })
+            )
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Can't send transactions out clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_gets_no_gas_balance() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_gets_no_gas_balance";
+        let wallet = make_wallet("blah");
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).get_gas_balance(&wallet),
+                Ok(U256::zero())
+            )
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Can't get gas balance clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_gets_no_token_balance() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_gets_no_token_balance";
+        let wallet = make_wallet("blah");
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).get_token_balance(&wallet),
+                Ok(U256::zero())
+            )
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Can't get masq token balance clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_gets_no_transaction_count() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_gets_no_transaction_count";
+        let wallet = make_wallet("blah");
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).get_transaction_count(&wallet),
+                Ok(U256::zero())
+            )
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Can't get transaction count clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_gets_no_transaction_receipt() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_gets_no_transaction_receipt";
+        let tx_hash = make_tx_hash(123);
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            assert_eq!(
+                make_clandestine_subject(test_name, chain).get_transaction_receipt(tx_hash),
+                Ok(None)
+            )
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Can't get transaction receipt clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
     }
 }

@@ -12,7 +12,7 @@ use crate::accountant::scanners::payable_scan_setup_msgs::{
 };
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitingAdjustment, PayableScannerMidProcedures, PayableScannerWithMidProcedures,
+    AwaitingAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
@@ -65,7 +65,7 @@ use web3::types::{TransactionReceipt, H256};
 
 pub struct Scanners {
     pub payable:
-        Box<dyn PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>>,
+        Box<dyn PayableScannerWithMiddleProcedures<RequestBalancesToPayPayables, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -256,13 +256,8 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
     implement_as_any!();
 }
 
-impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
-    for PayableScanner
-{
-}
-
-impl PayableScannerMidProcedures for PayableScanner {
-    fn try_soft_process(
+impl PayableScannerMiddleProcedures for PayableScanner {
+    fn try_softly(
         &self,
         msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
         logger: &Logger,
@@ -277,7 +272,7 @@ impl PayableScannerMidProcedures for PayableScanner {
         }
     }
 
-    fn process_adjustment(
+    fn get_special_payments_instructions(
         &self,
         setup: AwaitingAdjustment,
         logger: &Logger,
@@ -285,6 +280,11 @@ impl PayableScannerMidProcedures for PayableScanner {
         let now = SystemTime::now();
         self.payment_adjuster.adjust_payments(setup, now, logger)
     }
+}
+
+impl PayableScannerWithMiddleProcedures<RequestBalancesToPayPayables, SentPayables>
+    for PayableScanner
+{
 }
 
 impl PayableScanner {
