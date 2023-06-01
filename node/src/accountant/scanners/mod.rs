@@ -44,7 +44,7 @@ use crate::sub_lib::blockchain_bridge::{
 };
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Context, Message, System};
+use actix::{Context, Message};
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
@@ -55,7 +55,6 @@ use masq_lib::utils::ExpectValue;
 use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
@@ -931,182 +930,6 @@ impl BeginScanError {
                     .expect("Error while parsing the time formatting string."),
             )
             .expect("Error while formatting timestamp as string.")
-    }
-}
-
-pub struct NullScanner {}
-
-impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-where
-    BeginMessage: Message,
-    EndMessage: Message,
-{
-    fn begin_scan(
-        &mut self,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
-    ) -> Result<BeginMessage, BeginScanError> {
-        Err(BeginScanError::CalledFromNullScanner)
-    }
-
-    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
-        panic!("Called finish_scan() from NullScanner");
-    }
-
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        panic!("Called scan_started_at() from NullScanner");
-    }
-
-    fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        panic!("Called mark_as_started() from NullScanner");
-    }
-
-    fn mark_as_ended(&mut self, _logger: &Logger) {
-        panic!("Called mark_as_ended() from NullScanner");
-    }
-
-    implement_as_any!();
-}
-
-impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for NullScanner {}
-
-impl PayableScannerMiddleProcedures for NullScanner {
-    fn try_softly(
-        &self,
-        msg: PayablePaymentSetup,
-        logger: &Logger,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
-        todo!()
-    }
-
-    fn get_special_payments_instructions(
-        &self,
-        setup: AwaitingAdjustment,
-        logger: &Logger,
-    ) -> OutcomingPaymentsInstructions {
-        todo!()
-    }
-}
-
-impl Default for NullScanner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl NullScanner {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-pub struct ScannerMock<BeginMessage, EndMessage> {
-    begin_scan_params: Arc<Mutex<Vec<()>>>,
-    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
-    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
-    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
-    stop_system_after_last_message: RefCell<bool>,
-}
-
-impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
-    for ScannerMock<BeginMessage, EndMessage>
-where
-    BeginMessage: Message,
-    EndMessage: Message,
-{
-    fn begin_scan(
-        &mut self,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
-    ) -> Result<BeginMessage, BeginScanError> {
-        self.begin_scan_params.lock().unwrap().push(());
-        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-            System::current().stop();
-        }
-        self.begin_scan_results.borrow_mut().remove(0)
-    }
-
-    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
-        self.end_scan_params.lock().unwrap().push(message);
-        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-            System::current().stop();
-        }
-        self.end_scan_results.borrow_mut().remove(0)
-    }
-
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        intentionally_blank!()
-    }
-
-    fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        intentionally_blank!()
-    }
-
-    fn mark_as_ended(&mut self, _logger: &Logger) {
-        intentionally_blank!()
-    }
-}
-
-impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
-    pub fn new() -> Self {
-        Self {
-            begin_scan_params: Arc::new(Mutex::new(vec![])),
-            begin_scan_results: RefCell::new(vec![]),
-            end_scan_params: Arc::new(Mutex::new(vec![])),
-            end_scan_results: RefCell::new(vec![]),
-            stop_system_after_last_message: RefCell::new(false),
-        }
-    }
-
-    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.begin_scan_params = params.clone();
-        self
-    }
-
-    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
-        self.begin_scan_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn stop_the_system(self) -> Self {
-        self.stop_system_after_last_message.replace(true);
-        self
-    }
-
-    pub fn is_allowed_to_stop_the_system(&self) -> bool {
-        *self.stop_system_after_last_message.borrow()
-    }
-
-    pub fn is_last_message(&self) -> bool {
-        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
-    }
-
-    pub fn is_last_message_from_begin_scan(&self) -> bool {
-        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
-    }
-
-    pub fn is_last_message_from_end_scan(&self) -> bool {
-        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
-    }
-}
-
-impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for ScannerMock<PayablePaymentSetup, SentPayables> {}
-
-impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentSetup, SentPayables>{
-    fn try_softly(&self, msg: PayablePaymentSetup, logger: &Logger) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
-        todo!()
-    }
-
-    fn get_special_payments_instructions(&self, setup: AwaitingAdjustment, logger: &Logger) -> OutcomingPaymentsInstructions {
-        todo!()
     }
 }
 

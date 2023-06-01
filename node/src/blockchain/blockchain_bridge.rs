@@ -140,11 +140,7 @@ impl Handler<PayablePaymentSetup> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: PayablePaymentSetup, _ctx: &mut Self::Context) {
-        self.handle_scan(
-            Self::handle_payable_payment_setup,
-            ScanType::Payables,
-            msg,
-        );
+        self.handle_scan(Self::handle_payable_payment_setup, ScanType::Payables, msg);
     }
 }
 
@@ -255,10 +251,7 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_payable_payment_setup(
-        &mut self,
-        msg: PayablePaymentSetup,
-    ) -> Result<(), String> {
+    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
             None => {
@@ -660,7 +653,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant(
+    ) {
         let system = System::new(
             "handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant",
         );

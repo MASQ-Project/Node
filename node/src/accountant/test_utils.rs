@@ -15,10 +15,16 @@ use crate::accountant::database_access_objects::receivable_dao::{
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
-use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
+use crate::accountant::scanners::scan_mid_procedures::{
+    AwaitingAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
-use crate::accountant::{gwei_to_wei, Accountant, ResponseSkeleton, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::scanners::{
+    BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
+};
+use crate::accountant::{
+    gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
@@ -31,12 +37,14 @@ use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
-use actix::System;
+use actix::{Message, System};
 use ethereum_types::H256;
 use masq_lib::logger::Logger;
+use masq_lib::ui_gateway::NodeToUiMessage;
 use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
+use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -1455,3 +1463,158 @@ pub fn make_initial_payable_payment_setup_message(
         response_skeleton_opt,
     }
 }
+
+pub struct NullScanner {}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        Err(BeginScanError::CalledFromNullScanner)
+    }
+
+    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        panic!("Called finish_scan() from NullScanner");
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        panic!("Called scan_started_at() from NullScanner");
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        panic!("Called mark_as_started() from NullScanner");
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        panic!("Called mark_as_ended() from NullScanner");
+    }
+
+    implement_as_any!();
+}
+
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for NullScanner {}
+
+impl PayableScannerMiddleProcedures for NullScanner {}
+
+impl Default for NullScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NullScanner {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct ScannerMock<BeginMessage, EndMessage> {
+    begin_scan_params: Arc<Mutex<Vec<()>>>,
+    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
+    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
+    stop_system_after_last_message: RefCell<bool>,
+}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+    for ScannerMock<BeginMessage, EndMessage>
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        self.begin_scan_params.lock().unwrap().push(());
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.begin_scan_results.borrow_mut().remove(0)
+    }
+
+    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        self.end_scan_params.lock().unwrap().push(message);
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.end_scan_results.borrow_mut().remove(0)
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        intentionally_blank!()
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        intentionally_blank!()
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        intentionally_blank!()
+    }
+}
+
+impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+    pub fn new() -> Self {
+        Self {
+            begin_scan_params: Arc::new(Mutex::new(vec![])),
+            begin_scan_results: RefCell::new(vec![]),
+            end_scan_params: Arc::new(Mutex::new(vec![])),
+            end_scan_results: RefCell::new(vec![]),
+            stop_system_after_last_message: RefCell::new(false),
+        }
+    }
+
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.begin_scan_params = params.clone();
+        self
+    }
+
+    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
+        self.begin_scan_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn stop_the_system(self) -> Self {
+        self.stop_system_after_last_message.replace(true);
+        self
+    }
+
+    pub fn is_allowed_to_stop_the_system(&self) -> bool {
+        *self.stop_system_after_last_message.borrow()
+    }
+
+    pub fn is_last_message(&self) -> bool {
+        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
+    }
+
+    pub fn is_last_message_from_begin_scan(&self) -> bool {
+        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+    }
+
+    pub fn is_last_message_from_end_scan(&self) -> bool {
+        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
+    }
+}
+
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables>
+    for ScannerMock<PayablePaymentSetup, SentPayables>
+{
+}
+
+impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentSetup, SentPayables> {}

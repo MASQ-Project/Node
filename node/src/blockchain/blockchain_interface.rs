@@ -12,7 +12,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
 use itertools::Either::{Left, Right};
-use masq_lib::blockchains::chains::{Chain, ChainFamily};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
@@ -750,6 +750,7 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
+    use masq_lib::blockchains::chains::ChainFamily;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};

@@ -3,15 +3,10 @@
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
-use lazy_static::lazy_static;
 use masq_lib::logger::Logger;
+#[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
-use web3::types::U256;
-
-lazy_static! {
-    static ref MULTI_COEFF_BY_100: U256 = U256::from(1000);
-}
 
 pub trait PaymentAdjuster {
     fn is_adjustment_required(
@@ -59,6 +54,12 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {}
+    }
+}
+
+impl Default for PaymentAdjusterReal {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -19,14 +19,18 @@ where
 pub trait PayableScannerMiddleProcedures {
     fn try_softly(
         &self,
-        msg: PayablePaymentSetup,
-        logger: &Logger,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String>;
+        _msg: PayablePaymentSetup,
+        _logger: &Logger,
+    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
+        intentionally_blank!()
+    }
     fn get_special_payments_instructions(
         &self,
-        setup: AwaitingAdjustment,
-        logger: &Logger,
-    ) -> OutcomingPaymentsInstructions;
+        _setup: AwaitingAdjustment,
+        _logger: &Logger,
+    ) -> OutcomingPaymentsInstructions {
+        intentionally_blank!()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
