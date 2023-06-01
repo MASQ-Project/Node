@@ -118,16 +118,12 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         &self,
         cryptdes: CryptDEPair,
         config: BootstrapperConfig,
-        mut persistent_config: Box<dyn PersistentConfiguration>,
+        persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
-        let min_hops_count = config.neighborhood_config.min_hops_count;
-        persistent_config
-            .set_min_hops_count(min_hops_count)
-            .expect("writing min_hops_count to persistent configuration failed");
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
@@ -637,8 +633,8 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
+    use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::sub_lib::neighborhood::{Hops, NeighborhoodMode};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
@@ -1133,8 +1129,6 @@ mod tests {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let parameters = actor_factory.make_parameters();
-        let set_min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let min_hops_count = Hops::FiveHops;
         let config = BootstrapperConfig {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
@@ -1165,7 +1159,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops_count,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1182,9 +1176,7 @@ mod tests {
                     .add_mapping_result(Ok(())),
             )),
         );
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_min_hops_count_params(&set_min_hops_count_params_arc)
-            .set_min_hops_count_result(Ok(()));
+        let persistent_config = PersistentConfigurationMock::new();
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1275,8 +1267,6 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
-        let set_min_hops_count_params = set_min_hops_count_params_arc.lock().unwrap();
-        assert_eq!(*set_min_hops_count_params, vec![min_hops_count])
     }
 
     #[cfg(feature = "log_recipient_test")]
