@@ -222,9 +222,10 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
     //     .expect("Clap schema didn't specify the default value.");
     let min_hops_count: Hops = match value_m!(multi_config, "min-hops", Hops) {
         Some(hops) => hops,
-        None => {
-            todo!("pick from persistent configuration")
-        }
+        None => match persistent_config.min_hops_count() {
+            Ok(hops) => hops,
+            Err(e) => todo!("this persistent config error should be prevented"),
+        },
     };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
@@ -645,6 +646,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
@@ -1677,6 +1679,7 @@ mod tests {
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
                 ),
                 None,
+                None,
             )
             .check_password_result(Ok(false))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
@@ -1726,7 +1729,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration = {
-            let config = make_persistent_config(None, None, None, None, None, None)
+            let config = make_persistent_config(None, None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
             default_persistent_config_just_accountant_config(config)
         };
@@ -2296,7 +2299,8 @@ mod tests {
     ) {
         running_test();
         let multi_config = make_simplified_multi_config([]);
-        let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
+        let mut persistent_config =
+            make_persistent_config(None, None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
         get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
@@ -2337,6 +2341,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -2359,6 +2364,7 @@ mod tests {
             None,
             None,
             Some("0xB00FA567890123456789012345678901234b00fa"),
+            None,
             None,
             None,
             None,
@@ -2387,6 +2393,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
@@ -2410,6 +2417,7 @@ mod tests {
             None,
             Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
+            None,
             None,
             None,
             None,
@@ -2642,6 +2650,7 @@ mod tests {
         gas_price_opt: Option<u64>,
         past_neighbors_opt: Option<&str>,
         rate_pack_opt: Option<RatePack>,
+        min_hops_count_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
         let consuming_wallet_private_key_opt =
             consuming_wallet_private_key_opt.map(|x| x.to_string());
@@ -2660,6 +2669,7 @@ mod tests {
             _ => Ok(None),
         };
         let rate_pack = rate_pack_opt.unwrap_or(DEFAULT_RATE_PACK);
+        let min_hops_count = min_hops_count_opt.unwrap_or(MIN_HOPS_COUNT_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
             .earning_wallet_address_result(
@@ -2670,5 +2680,6 @@ mod tests {
             .past_neighbors_result(past_neighbors_result)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .rate_pack_result(Ok(rate_pack))
+            .min_hops_count_result(Ok(min_hops_count))
     }
 }

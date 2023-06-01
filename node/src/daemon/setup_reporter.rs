@@ -1283,7 +1283,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
-            ("min-hops", "3", Configured), // TODO: GH-698: This should be changed to Default after this card is played
+            ("min-hops", "", Blank),
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
