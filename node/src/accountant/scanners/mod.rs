@@ -7,9 +7,7 @@ pub mod scanners_utils;
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitingAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
@@ -42,7 +40,7 @@ use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
 use crate::sub_lib::blockchain_bridge::{
-    OutcomingPaymentsInstructions, RequestBalancesToPayPayables,
+    OutcomingPaymentsInstructions,
 };
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
@@ -64,8 +62,7 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 
 pub struct Scanners {
-    pub payable:
-        Box<dyn PayableScannerWithMiddleProcedures<RequestBalancesToPayPayables, SentPayables>>,
+    pub payable: Box<dyn PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -186,13 +183,13 @@ pub struct PayableScanner {
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
-impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
+impl Scanner<PayablePaymentSetup, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<RequestBalancesToPayPayables, BeginScanError> {
+    ) -> Result<PayablePaymentSetup, BeginScanError> {
         if let Some(timestamp) = self.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
@@ -206,10 +203,10 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
             investigate_debt_extremes(timestamp, &all_non_pending_payables)
         );
 
-        let qualified_payable =
+        let qualified_payables =
             self.sniff_out_alarming_payables_and_maybe_log_them(all_non_pending_payables, logger);
 
-        match qualified_payable.is_empty() {
+        match qualified_payables.is_empty() {
             true => {
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
@@ -218,10 +215,11 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
                 info!(
                     logger,
                     "Chose {} qualified debts to pay",
-                    qualified_payable.len()
+                    qualified_payables.len()
                 );
-                Ok(RequestBalancesToPayPayables {
-                    accounts: qualified_payable,
+                Ok(PayablePaymentSetup {
+                    qualified_payables,
+                    this_stage_data_opt: None,
                     response_skeleton_opt,
                 })
             }
@@ -259,7 +257,7 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
 impl PayableScannerMiddleProcedures for PayableScanner {
     fn try_softly(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        msg: PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
         match self.payment_adjuster.is_adjustment_required(&msg, logger) {
@@ -282,10 +280,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     }
 }
 
-impl PayableScannerWithMiddleProcedures<RequestBalancesToPayPayables, SentPayables>
-    for PayableScanner
-{
-}
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for PayableScanner {}
 
 impl PayableScanner {
     pub fn new(
@@ -974,6 +969,26 @@ where
     implement_as_any!();
 }
 
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for NullScanner {}
+
+impl PayableScannerMiddleProcedures for NullScanner {
+    fn try_softly(
+        &self,
+        msg: PayablePaymentSetup,
+        logger: &Logger,
+    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
+        todo!()
+    }
+
+    fn get_special_payments_instructions(
+        &self,
+        setup: AwaitingAdjustment,
+        logger: &Logger,
+    ) -> OutcomingPaymentsInstructions {
+        todo!()
+    }
+}
+
 impl Default for NullScanner {
     fn default() -> Self {
         Self::new()
@@ -1083,6 +1098,18 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for ScannerMock<PayablePaymentSetup, SentPayables> {}
+
+impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentSetup, SentPayables>{
+    fn try_softly(&self, msg: PayablePaymentSetup, logger: &Logger) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
+        todo!()
+    }
+
+    fn get_special_payments_instructions(&self, setup: AwaitingAdjustment, logger: &Logger) -> OutcomingPaymentsInstructions {
+        todo!()
+    }
+}
+
 pub struct ScanTimings {
     pub pending_payable: PeriodicalScanConfig<ScanForPendingPayables>,
     pub payable: PeriodicalScanConfig<ScanForPayables>,
@@ -1150,6 +1177,7 @@ mod tests {
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+    use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
@@ -1160,7 +1188,6 @@ mod tests {
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
     use crate::test_utils::make_wallet;
     use actix::{Message, System};
     use ethereum_types::U64;
@@ -1291,8 +1318,9 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(RequestBalancesToPayPayables {
-                accounts: qualified_payable_accounts.clone(),
+            Ok(PayablePaymentSetup {
+                qualified_payables: qualified_payable_accounts.clone(),
+                this_stage_data_opt: None,
                 response_skeleton_opt: None,
             })
         );
@@ -2976,7 +3004,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let log_handler = TestLogHandler::new();
 
-        assert_elapsed_time_in_mark_as_ended::<RequestBalancesToPayPayables, SentPayables>(
+        assert_elapsed_time_in_mark_as_ended::<PayablePaymentSetup, SentPayables>(
             &mut PayableScannerBuilder::new().build(),
             "Payables",
             test_name,

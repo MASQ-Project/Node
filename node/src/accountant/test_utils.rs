@@ -14,13 +14,11 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
-use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::{gwei_to_wei, Accountant, ResponseSkeleton, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
@@ -1381,14 +1379,7 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<
-        Mutex<
-            Vec<(
-                PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
-                Logger,
-            )>,
-        >,
-    >,
+    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
     is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(AwaitingAdjustment, SystemTime, Logger)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
@@ -1397,7 +1388,7 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn is_adjustment_required(
         &self,
-        msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        msg: &PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.is_adjustment_required_params
@@ -1424,14 +1415,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
-                    Logger,
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1458,5 +1442,16 @@ impl PaymentAdjusterMock {
     pub fn adjust_payments_result(self, result: OutcomingPaymentsInstructions) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
+    }
+}
+
+pub fn make_initial_payable_payment_setup_message(
+    qualified_payables: Vec<PayableAccount>,
+    response_skeleton_opt: Option<ResponseSkeleton>,
+) -> PayablePaymentSetup {
+    PayablePaymentSetup {
+        qualified_payables,
+        this_stage_data_opt: None,
+        response_skeleton_opt,
     }
 }

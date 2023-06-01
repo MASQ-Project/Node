@@ -2,40 +2,32 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::ResponseSkeleton;
-use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, RequestBalancesToPayPayables};
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use actix::Message;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
-pub struct PayablePaymentSetup<T: Clone> {
+pub struct PayablePaymentSetup {
     //this field should stay private for anybody outside Accountant
     pub(in crate::accountant) qualified_payables: Vec<PayableAccount>,
-    pub this_stage_data: T,
+    pub this_stage_data_opt: Option<StageData>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ConsumingWalletBalancesAndGasParams {
-    pub consuming_wallet_balances: ConsumingWalletBalances,
-    pub estimated_gas_limit_per_transaction: u64,
-    pub desired_gas_price_gwei: u64,
-}
-
-impl
-    From<(
-        RequestBalancesToPayPayables,
-        ConsumingWalletBalancesAndGasParams,
-    )> for PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>
-{
-    fn from(
-        (previous_msg, current_stage_data): (
-            RequestBalancesToPayPayables,
-            ConsumingWalletBalancesAndGasParams,
-        ),
-    ) -> Self {
+impl From<(PayablePaymentSetup, StageData)> for PayablePaymentSetup {
+    fn from((previous_msg, this_stage_data): (PayablePaymentSetup, StageData)) -> Self {
         PayablePaymentSetup {
-            qualified_payables: previous_msg.accounts,
-            this_stage_data: current_stage_data,
+            qualified_payables: previous_msg.qualified_payables,
+            this_stage_data_opt: Some(this_stage_data),
             response_skeleton_opt: previous_msg.response_skeleton_opt,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum StageData {
+    FinancialDetails {
+        consuming_wallet_balances: ConsumingWalletBalances,
+        estimated_gas_limit_per_transaction: u64,
+        desired_gas_price_gwei: u64,
+    },
 }

@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use lazy_static::lazy_static;
@@ -18,7 +16,7 @@ lazy_static! {
 pub trait PaymentAdjuster {
     fn is_adjustment_required(
         &self,
-        msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        msg: &PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError>;
 
@@ -37,7 +35,7 @@ pub struct PaymentAdjusterReal {}
 impl PaymentAdjuster for PaymentAdjusterReal {
     fn is_adjustment_required(
         &self,
-        _msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        _msg: &PayablePaymentSetup,
         _logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         Ok(None)
@@ -77,9 +75,7 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_scan_setup_msgs::{
-        ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-    };
+    use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup, StageData};
     use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::ResponseSkeleton;
@@ -90,6 +86,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
     use web3::types::U256;
+    use StageData::FinancialDetails;
 
     #[test]
     fn is_adjustment_required_always_returns_none() {
@@ -101,7 +98,7 @@ mod tests {
         payable_2.balance_wei = 200_000_000;
         let non_required = PayablePaymentSetup {
             qualified_payables: vec![payable_1.clone(), payable_2.clone()],
-            this_stage_data: ConsumingWalletBalancesAndGasParams {
+            this_stage_data_opt: Some(FinancialDetails {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(1_001_000_000_000_u64),
                     masq_tokens_wei: U256::from(301_000_000),
@@ -109,7 +106,7 @@ mod tests {
                 estimated_gas_limit_per_transaction: 50_000,
                 desired_gas_price_gwei: 10,
                 //gas amount to spent = 2 * 50_000 * 10 [gwei] = 1_000_000_000_000 wei
-            },
+            }),
             response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);
@@ -119,14 +116,14 @@ mod tests {
 
         let should_require = PayablePaymentSetup {
             qualified_payables: vec![payable_1, payable_2],
-            this_stage_data: ConsumingWalletBalancesAndGasParams {
+            this_stage_data_opt: Some(FinancialDetails {
                 consuming_wallet_balances: ConsumingWalletBalances {
                     gas_currency_wei: U256::from(999_000_000_000_u64),
                     masq_tokens_wei: U256::from(299_000_000),
                 },
                 estimated_gas_limit_per_transaction: 50_000,
                 desired_gas_price_gwei: 10,
-            },
+            }),
             response_skeleton_opt: None,
         };
 
@@ -153,14 +150,14 @@ mod tests {
                 AwaitingAdjustment {
                     original_msg: PayablePaymentSetup {
                         qualified_payables: vec![payable_1, payable_2],
-                        this_stage_data: ConsumingWalletBalancesAndGasParams {
+                        this_stage_data_opt: Some(FinancialDetails {
                             consuming_wallet_balances: ConsumingWalletBalances {
                                 gas_currency_wei: U256::from(123_456_789),
                                 masq_tokens_wei: U256::from(111_222_333_444_u64),
                             },
                             estimated_gas_limit_per_transaction: 111_111,
                             desired_gas_price_gwei: 123,
-                        },
+                        }),
                         response_skeleton_opt,
                     },
                     adjustment,

@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use actix::Message;
@@ -21,7 +19,7 @@ where
 pub trait PayableScannerMiddleProcedures {
     fn try_softly(
         &self,
-        msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        msg: PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String>;
     fn get_special_payments_instructions(
@@ -33,15 +31,12 @@ pub trait PayableScannerMiddleProcedures {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AwaitingAdjustment {
-    pub original_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+    pub original_msg: PayablePaymentSetup,
     pub adjustment: Adjustment,
 }
 
 impl AwaitingAdjustment {
-    pub fn new(
-        original_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
-        adjustment: Adjustment,
-    ) -> Self {
+    pub fn new(original_msg: PayablePaymentSetup, adjustment: Adjustment) -> Self {
         Self {
             original_msg,
             adjustment,

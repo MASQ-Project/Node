@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scan_setup_msgs::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup, StageData};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
@@ -18,7 +16,6 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::blockchain_bridge::{
     BlockchainBridgeSubs, ConsumingWalletBalances, OutcomingPaymentsInstructions,
-    RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -48,8 +45,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt:
-        Option<Recipient<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>>>,
+    balances_and_payables_sub_opt: Option<Recipient<PayablePaymentSetup>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -140,12 +136,12 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
+impl Handler<PayablePaymentSetup> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: RequestBalancesToPayPayables, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PayablePaymentSetup, _ctx: &mut Self::Context) {
         self.handle_scan(
-            Self::handle_request_balances_to_pay_payables,
+            Self::handle_payable_payment_setup,
             ScanType::Payables,
             msg,
         );
@@ -252,17 +248,16 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             report_accounts_payable: recipient!(addr, OutcomingPaymentsInstructions),
-            request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
+            pps_for_blockchain_bridge: recipient!(addr, PayablePaymentSetup),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
     }
 
-    //TODO rename to something more summarizing
-    fn handle_request_balances_to_pay_payables(
+    fn handle_payable_payment_setup(
         &mut self,
-        msg: RequestBalancesToPayPayables,
+        msg: PayablePaymentSetup,
     ) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
@@ -307,18 +302,14 @@ impl BlockchainBridge {
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
-
         let estimated_gas_limit_per_transaction =
             self.blockchain_interface.estimated_gas_limit_per_payable();
-
-        let this_stage_data = ConsumingWalletBalancesAndGasParams {
+        let this_stage_data = StageData::FinancialDetails {
             consuming_wallet_balances,
             estimated_gas_limit_per_transaction,
             desired_gas_price_gwei,
         };
-
-        let msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams> =
-            (msg, this_stage_data).into();
+        let msg = PayablePaymentSetup::from((msg, this_stage_data));
 
         self.balances_and_payables_sub_opt
             .as_ref()
@@ -513,7 +504,9 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::test_utils::{
+        make_initial_payable_payment_setup_message, make_pending_payable_fingerprint,
+    };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
@@ -667,9 +660,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant() {
         let system = System::new(
-            "handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant",
+            "handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant",
         );
         let get_gas_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
@@ -691,7 +684,7 @@ mod tests {
             PersistentConfigurationMock::default().gas_price_result(Ok(146));
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
-        let qualified_accounts = vec![
+        let qualified_payables = vec![
             PayableAccount {
                 wallet: wallet_1.clone(),
                 balance_wei: 78_654_321_124,
@@ -718,16 +711,16 @@ mod tests {
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        send_bind_message!(subject_subs, peer_actors);
-
-        addr.try_send(RequestBalancesToPayPayables {
-            accounts: qualified_accounts.clone(),
-            response_skeleton_opt: Some(ResponseSkeleton {
+        let msg = make_initial_payable_payment_setup_message(
+            qualified_payables.clone(),
+            Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
             }),
-        })
-        .unwrap();
+        );
+        send_bind_message!(subject_subs, peer_actors);
+
+        addr.try_send(msg.clone()).unwrap();
 
         System::current().stop();
         system.run();
@@ -737,18 +730,11 @@ mod tests {
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &PayablePaymentSetup<
-            ConsumingWalletBalancesAndGasParams,
-        > = accountant_received_payment.get_record(0);
-        let expected_msg: PayablePaymentSetup<ConsumingWalletBalancesAndGasParams> = (
-            RequestBalancesToPayPayables {
-                accounts: qualified_accounts,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 11122,
-                    context_id: 444,
-                }),
-            },
-            ConsumingWalletBalancesAndGasParams {
+        let reported_balances_and_qualified_accounts: &PayablePaymentSetup =
+            accountant_received_payment.get_record(0);
+        let expected_msg: PayablePaymentSetup = (
+            msg,
+            StageData::FinancialDetails {
                 consuming_wallet_balances: wallet_balances_found,
                 estimated_gas_limit_per_transaction: 51_546,
                 desired_gas_price_gwei: 146,
@@ -779,18 +765,18 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = RequestBalancesToPayPayables {
-            accounts: vec![PayableAccount {
+        let request = make_initial_payable_payment_setup_message(
+            vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
-            response_skeleton_opt: Some(ResponseSkeleton {
+            Some(ResponseSkeleton {
                 client_id: 11,
                 context_id: 2323,
             }),
-        };
+        );
         let subject_addr = subject.start();
         let system = System::new(test_name);
 
@@ -817,9 +803,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance() {
         let test_name =
-            "handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance";
+            "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default().get_gas_balance_result(Err(
             BlockchainError::QueryFailed("Lazy and yet you're asking for balances?".to_string()),
         ));
@@ -830,9 +816,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_token_balance() {
         let test_name =
-            "handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance";
+            "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
@@ -845,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_balances_to_pay_payables_fails_at_missing_consuming_wallet() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
@@ -854,17 +840,17 @@ mod tests {
             false,
             None,
         );
-        let request = RequestBalancesToPayPayables {
-            accounts: vec![PayableAccount {
+        let request = make_initial_payable_payment_setup_message(
+            vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
-            response_skeleton_opt: None,
-        };
+            None,
+        );
 
-        let result = subject.handle_request_balances_to_pay_payables(request);
+        let result = subject.handle_payable_payment_setup(request);
 
         assert_eq!(
             result,
@@ -876,7 +862,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_balances_to_pay_payables_fails_on_gas_price_query() {
+    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_gas_price_query() {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(456789)))
             .get_token_balance_result(Ok(U256::from(7890123456_u64)));
@@ -890,20 +876,20 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
-        let request = RequestBalancesToPayPayables {
-            accounts: vec![PayableAccount {
+        let request = make_initial_payable_payment_setup_message(
+            vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 123456,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
-            response_skeleton_opt: Some(ResponseSkeleton {
+            Some(ResponseSkeleton {
                 client_id: 123,
                 context_id: 222,
             }),
-        };
+        );
 
-        let result = subject.handle_request_balances_to_pay_payables(request);
+        let result = subject.handle_payable_payment_setup(request);
 
         assert_eq!(
             result,
