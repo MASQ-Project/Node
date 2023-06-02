@@ -601,6 +601,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use NeighborhoodMode::ZeroHop;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -642,7 +643,12 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::base_and(vec![RatePack])),
+            &mut configure_persistent_config(vec![
+                PastNeighbors,
+                GasPrice,
+                MappingProtocol,
+                RatePack,
+            ]),
             &mut BootstrapperConfig::new(),
         );
 
@@ -691,7 +697,12 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::base_and(vec![RatePack])),
+            &mut configure_persistent_config(vec![
+                PastNeighbors,
+                GasPrice,
+                MappingProtocol,
+                RatePack,
+            ]),
             &mut BootstrapperConfig::new(),
         );
 
@@ -725,7 +736,12 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::base_and(vec![RatePack])),
+            &mut configure_persistent_config(vec![
+                PastNeighbors,
+                GasPrice,
+                MappingProtocol,
+                RatePack,
+            ]),
             &mut BootstrapperConfig::new(),
         );
 
@@ -775,8 +791,13 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::base_and(vec![RatePack]))
-                .check_password_result(Ok(false)),
+            &mut configure_persistent_config(vec![
+                PastNeighbors,
+                GasPrice,
+                MappingProtocol,
+                RatePack,
+            ])
+            .check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -804,7 +825,7 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base()),
+            &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol]),
             &mut BootstrapperConfig::new(),
         );
 
@@ -853,7 +874,7 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base()),
+            &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol]),
             &mut BootstrapperConfig::new(),
         );
 
@@ -886,16 +907,12 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base()).check_password_result(Ok(false)),
+            &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
-        assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
-            })
-        );
+        assert_eq!(result, Ok(NeighborhoodConfig { mode: ZeroHop }));
     }
 
     #[test]
@@ -915,7 +932,8 @@ mod tests {
         let result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
             &multi_config,
-            &mut configure_persistent_config(PCField::just_base()).check_password_result(Ok(false)),
+            &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .check_password_result(Ok(false)),
             &mut BootstrapperConfig::new(),
         );
 
@@ -933,7 +951,8 @@ mod tests {
     ) {
         running_test();
         let mut persistent_config =
-            configure_persistent_config(PCField::just_base()).check_password_result(Ok(false));
+            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .check_password_result(Ok(false));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -970,9 +989,10 @@ mod tests {
     fn get_past_neighbors_handles_unavailable_password_for_parse_args_configuration_dao_real() {
         //sets the password in the database - we'll have to resolve if the use case is appropriate
         running_test();
-        let mut persistent_config = configure_persistent_config(PCField::just_base())
-            .check_password_result(Ok(true))
-            .change_password_result(Ok(()));
+        let mut persistent_config =
+            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .check_password_result(Ok(true))
+                .change_password_result(Ok(())); // TODO: Do we need a change_password_result here?
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1225,9 +1245,7 @@ mod tests {
 
         assert_eq!(
             config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
-            }
+            NeighborhoodConfig { mode: ZeroHop }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(
@@ -1274,9 +1292,7 @@ mod tests {
 
         assert_eq!(
             config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
-            }
+            NeighborhoodConfig { mode: ZeroHop }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty())
@@ -2367,10 +2383,11 @@ mod tests {
         .unwrap();
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_persistent_config(PCField::just_base())
-            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()));
+        let mut persistent_config =
+            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
+                .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+                .set_mapping_protocol_result(Ok(()));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
@@ -2387,7 +2404,7 @@ mod tests {
         let multi_config = make_simplified_multi_config(["--mapping-protocol"]);
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_persistent_config(PCField::just_base())
+        let mut persistent_config = configure_persistent_config(vec![])
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -2403,7 +2420,7 @@ mod tests {
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
         let multi_config = make_simplified_multi_config(["--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
-        let mut persistent_config = configure_persistent_config(PCField::just_base())
+        let mut persistent_config = configure_persistent_config(vec![])
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
@@ -2429,9 +2446,10 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
-        let mut persistent_config = configure_persistent_config(PCField::just_base())
-            .mapping_protocol_result(Ok(Some(Pcp)))
-            .set_mapping_protocol_result(Err(NotPresent));
+        let mut persistent_config =
+            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
+                .mapping_protocol_result(Ok(Some(Pcp)))
+                .set_mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 

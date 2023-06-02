@@ -550,29 +550,6 @@ pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorE
     }
 }
 
-// fn get_consuming_wallet_from_private_key(
-//     multi_config: &MultiConfig,
-// ) -> Result<Option<Wallet>, ConfiguratorError> {
-//     match value_m!(multi_config, "consuming-private-key", String) {
-//         Some(consuming_private_key_string) => {
-//             match consuming_private_key_string.from_hex::<Vec<u8>>() {
-//                 Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
-//                     Ok(keypair) => Ok(Some(Wallet::from(keypair))),
-//                     Err(e) => panic!(
-//                         "Internal error: bad clap validation for consuming-private-key: {:?}",
-//                         e
-//                     ),
-//                 },
-//                 Err(e) => panic!(
-//                     "Internal error: bad clap validation for consuming-private-key: {:?}",
-//                     e
-//                 ),
-//             }
-//         }
-//         None => Ok(None),
-//     }
-// }
-
 pub fn get_db_password(
     multi_config: &MultiConfig,
     config: &mut BootstrapperConfig,
@@ -614,16 +591,11 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfigurationReal,
     };
-    use crate::node_configurator::compute_mapping_protocol_opt;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
-    use crate::sub_lib::neighborhood::{
-        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
-    };
-    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::PCField::{
@@ -639,9 +611,8 @@ mod tests {
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{array_of_borrows_to_vec, running_test, AutomapProtocol};
+    use masq_lib::utils::{array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::fs::File;
     use std::io::Write;
@@ -764,419 +735,33 @@ mod tests {
         );
     }
 
-    #[test]
-    fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(ArgsBuilder::new().into()))],
-        )
-        .unwrap();
-        let logger = Logger::new("test");
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
-
-        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, Some(AutomapProtocol::Pmp));
-        // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
-    }
-
-    #[test]
-    fn compute_mapping_protocol_saves_computed_value_if_different() {
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--mapping-protocol", "IGDP")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-        let logger = Logger::new("test");
-        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config =
-            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
-                .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-                .set_mapping_protocol_result(Ok(()));
-
-        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, Some(AutomapProtocol::Igdp));
-        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_mapping_protocol_params,
-            vec![Some(AutomapProtocol::Igdp)]
-        );
-    }
-
-    #[test]
-    fn compute_mapping_protocol_blanks_database_if_command_line_with_missing_value() {
-        let multi_config = make_simplified_multi_config(["--mapping-protocol"]);
-        let logger = Logger::new("test");
-        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()));
-
-        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, None);
-        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq!(*set_mapping_protocol_params, vec![None]);
-    }
-
-    #[test]
-    fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
-        let multi_config = make_simplified_multi_config(["--mapping-protocol", "igdp"]);
-        let logger = Logger::new("test");
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
-
-        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, Some(AutomapProtocol::Igdp));
-        // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
-    }
-
-    #[test]
-    #[should_panic(expected = "Error retrieving mapping protocol from CONFIG table")]
-    fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
-        let multi_config = make_simplified_multi_config([]);
-        let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config =
-            PersistentConfigurationMock::new().mapping_protocol_result(Err(NotPresent));
-
-        compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-    }
-
-    #[test]
-    fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
-        init_test_logging();
-        let multi_config = make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
-        let logger = Logger::new("BAD_MP_WRITE");
-        let mut persistent_config =
-            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
-                .set_mapping_protocol_result(Err(NotPresent));
-
-        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, Some(AutomapProtocol::Igdp));
-        TestLogHandler::new().exists_log_containing(
-            "WARN: BAD_MP_WRITE: Could not save mapping protocol to database: NotPresent",
-        );
-    }
-
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
     }
 
     #[test]
-    fn make_neighborhood_config_standard_happy_path() {
+    fn get_past_neighbors_handles_non_password_error() {
         running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "standard")
-                    .param("--ip", "1.2.3.4")
-                    .param(
-                        "--neighbors",
-                        "masq://polygon-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://polygon-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",
-                    )
-                    .into(),
-            ))]
-        ).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(false))
+            .past_neighbors_result(Err(NotPresent));
+        let mut unprivileged_config = BootstrapperConfig::new();
+        unprivileged_config.db_password_opt = Some("password".to_string());
 
-        let result = make_neighborhood_config(
+        let result = get_past_neighbors(
             &multi_config,
-            Some(&mut configure_persistent_config(vec![
-                PastNeighbors,
-                GasPrice,
-                MappingProtocol,
-            ])),
-            &mut BootstrapperConfig::new(),
-        );
-
-        let dummy_cryptde = CryptDEReal::new(DEFAULT_CHAIN);
-        let dummy_cryptde_ref: &dyn CryptDE = &dummy_cryptde;
-        assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
-                    vec![
-                        NodeDescriptor::try_from((
-                            dummy_cryptde_ref,
-                            "masq://polygon-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345"
-                        ))
-                        .unwrap(),
-                        NodeDescriptor::try_from((
-                            dummy_cryptde_ref,
-                            "masq://polygon-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567"
-                        ))
-                        .unwrap()
-                    ],
-                    DEFAULT_RATE_PACK
-                )
-            })
-        );
-    }
-
-    #[test]
-    fn make_neighborhood_config_standard_missing_ip() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "standard")
-                    .param(
-                        "--neighbors",
-                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
-                    )
-                    .param("--fake-public-key", "booga")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(&mut configure_persistent_config(vec![
-                PastNeighbors,
-                GasPrice,
-                MappingProtocol,
-            ])),
-            &mut BootstrapperConfig::new(),
-        );
-
-        let node_addr = match result {
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(node_addr, _, _),
-            }) => node_addr,
-            x => panic!("Wasn't expecting {:?}", x),
-        };
-        assert_eq!(node_addr.ip_addr(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
-    }
-
-    #[test]
-    fn make_neighborhood_config_originate_only_doesnt_need_ip() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "originate-only")
-                    .param(
-                        "--neighbors",
-                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
-                    )
-                    .param("--fake-public-key", "booga")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(&mut configure_persistent_config(vec![
-                PastNeighbors,
-                GasPrice,
-                MappingProtocol,
-            ])),
-            &mut BootstrapperConfig::new(),
+            &mut persistent_config,
+            &mut unprivileged_config,
         );
 
         assert_eq!(
             result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::OriginateOnly(
-                    vec![
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345"
-                        ))
-                        .unwrap(),
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567"
-                        ))
-                        .unwrap()
-                    ],
-                    DEFAULT_RATE_PACK
-                )
-            })
+            Err(ConfiguratorError::new(vec![ParamError::new(
+                "[past neighbors]",
+                "NotPresent"
+            )]))
         );
-    }
-
-    #[test]
-    fn make_neighborhood_config_originate_only_does_need_at_least_one_neighbor() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "originate-only")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(
-                &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                    .check_password_result(Ok(false)),
-            ),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq! (result, Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified")))
-    }
-
-    #[test]
-    fn make_neighborhood_config_consume_only_doesnt_need_ip() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "consume-only")
-                    .param(
-                        "--neighbors",
-                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
-                    )
-                    .param("--fake-public-key", "booga")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(&mut configure_persistent_config(vec![
-                PastNeighbors,
-                GasPrice,
-                MappingProtocol,
-            ])),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::try_from((
-                        main_cryptde(),
-                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345"
-                    ))
-                    .unwrap(),
-                    NodeDescriptor::try_from((
-                        main_cryptde(),
-                        "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567"
-                    ))
-                    .unwrap()
-                ],)
-            })
-        );
-    }
-
-    #[test]
-    fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "consume-only")
-                    .param("--dns-servers", "1.1.1.1")
-                    .param("--fake-public-key", "booga")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(&mut configure_persistent_config(vec![
-                PastNeighbors,
-                GasPrice,
-                MappingProtocol,
-            ])),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode consume-only without --neighbors specified"
-            )
-            .another_required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified"
-            ))
-        )
-    }
-
-    #[test]
-    fn make_neighborhood_config_zero_hop_doesnt_need_ip_or_neighbors() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "zero-hop")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(
-                &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                    .check_password_result(Ok(false)),
-            ),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq!(result, Ok(NeighborhoodConfig { mode: ZeroHop }));
-    }
-
-    #[test]
-    fn make_neighborhood_config_zero_hop_cant_tolerate_ip() {
-        running_test();
-        let multi_config = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(CommandLineVcl::new(
-                ArgsBuilder::new()
-                    .param("--neighborhood-mode", "zero-hop")
-                    .param("--ip", "1.2.3.4")
-                    .into(),
-            ))],
-        )
-        .unwrap();
-
-        let result = make_neighborhood_config(
-            &multi_config,
-            Some(
-                &mut configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                    .check_password_result(Ok(false)),
-            ),
-            &mut BootstrapperConfig::new(),
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::required(
-                "neighborhood-mode",
-                "Node cannot run as --neighborhood-mode zero-hop if --ip is specified"
-            ))
-        )
     }
 
     #[test]
@@ -1196,7 +781,7 @@ mod tests {
                     .into(),
             ))],
         )
-        .unwrap();
+            .unwrap();
 
         let result = make_neighborhood_config(
             &multi_config,
@@ -1235,71 +820,6 @@ mod tests {
         let result = get_public_ip(&multi_config);
 
         assert_eq!(result, Ok(IpAddr::from_str("4.3.2.1").unwrap()));
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_good_password_but_no_past_neighbors() {
-        running_test();
-        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config =
-            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                .past_neighbors_result(Ok(None));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        unprivileged_config.db_password_opt = Some("password".to_string());
-
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        )
-        .unwrap();
-
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_unavailable_password() {
-        running_test();
-        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config =
-            configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
-                .check_password_result(Ok(true));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        unprivileged_config.db_password_opt = Some("password".to_string());
-
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        )
-        .unwrap();
-
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn get_past_neighbors_handles_non_password_error() {
-        running_test();
-        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(false))
-            .past_neighbors_result(Err(NotPresent));
-        let mut unprivileged_config = BootstrapperConfig::new();
-        unprivileged_config.db_password_opt = Some("password".to_string());
-
-        let result = get_past_neighbors(
-            &multi_config,
-            &mut persistent_config,
-            &mut unprivileged_config,
-        );
-
-        assert_eq!(
-            result,
-            Err(ConfiguratorError::new(vec![ParamError::new(
-                "[past neighbors]",
-                "NotPresent"
-            )]))
-        );
     }
 
     #[test]
