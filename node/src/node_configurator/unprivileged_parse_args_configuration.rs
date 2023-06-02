@@ -214,17 +214,11 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    // Priority: Multi Config > Persistent Configuration
-    // TODO: Store min_hops_count inside Persistent Configuration from multi config
-
-    // TODO: Pick default from the Persistent Configuration (DB must contain default when newly created)
-    // let min_hops_count = value_m!(multi_config, "min-hops", Hops)
-    //     .expect("Clap schema didn't specify the default value.");
     let min_hops_count: Hops = match value_m!(multi_config, "min-hops", Hops) {
         Some(hops) => hops,
         None => match persistent_config.min_hops_count() {
             Ok(hops) => hops,
-            Err(e) => todo!("this persistent config error should be prevented"),
+            Err(e) => panic!("Unable to find min_hops_count value in database: {:?}", e),
         },
     };
 
@@ -734,37 +728,30 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn make_neighborhood_config_picks_min_hops_count_value_from_multi_config_and_saves_it_is_db() {
-    //     running_test();
-    //     let multi_config = make_new_multi_config(
-    //         &app_node(),
-    //         vec![Box::new(CommandLineVcl::new(
-    //             ArgsBuilder::new()
-    //                 .param("--neighborhood-mode", "standard")
-    //                 .param("--min-hops", "1")
-    //                 // .param("--ip", "1.2.3.4")
-    //                 // .param(
-    //                 //     "--neighbors",
-    //                 //     &format!("masq://{identifier}:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://{identifier}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
-    //                 // )
-    //                 .into(),
-    //         ))],
-    //     )
-    //     .unwrap();
-    //     let mut persistent_config =
-    //         configure_default_persistent_config(RATE_PACK).set_min_hops_count_result(Ok(()));
-    //
-    //     let result = make_neighborhood_config(
-    //         &UnprivilegedParseArgsConfigurationDaoReal {},
-    //         &multi_config,
-    //         &mut persistent_config,
-    //         &mut BootstrapperConfig::new(),
-    //     );
-    //
-    //     let min_hops_count = result.unwrap().min_hops_count;
-    //     assert_eq!(min_hops_count, Hops::OneHop);
-    // }
+    #[test]
+    #[should_panic(expected = "Unable to find min_hops_count value in database: NotPresent")]
+    fn node_panics_if_min_hops_count_value_does_not_exist_inside_multi_config_or_db() {
+        running_test();
+        let multi_config = make_new_multi_config(
+            &app_node(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "standard")
+                    .opt("--min-hops")
+                    .into(),
+            ))],
+        )
+        .unwrap();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .min_hops_count_result(Err(PersistentConfigError::NotPresent));
+
+        let _result = make_neighborhood_config(
+            &UnprivilegedParseArgsConfigurationDaoReal {},
+            &multi_config,
+            &mut persistent_config,
+            &mut BootstrapperConfig::new(),
+        );
+    }
 
     #[test]
     fn make_neighborhood_config_standard_missing_min_hops_count() {
