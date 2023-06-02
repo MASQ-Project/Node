@@ -54,6 +54,7 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use time::format_description::parse;
@@ -934,27 +935,35 @@ impl BeginScanError {
 }
 
 pub struct ScanSchedulers {
-    pub pending_payable: PeriodicalScanScheduler<ScanForPendingPayables>,
-    pub payable: PeriodicalScanScheduler<ScanForPayables>,
-    pub receivable: PeriodicalScanScheduler<ScanForReceivables>,
+    pub schedulers: HashMap<ScanType, Box<dyn ScanScheduler>>,
 }
 
 impl ScanSchedulers {
     pub fn new(scan_intervals: ScanIntervals) -> Self {
-        ScanSchedulers {
-            pending_payable: PeriodicalScanScheduler {
-                handle: Box::new(NotifyLaterHandleReal::default()),
-                interval: scan_intervals.pending_payable_scan_interval,
-            },
-            payable: PeriodicalScanScheduler {
-                handle: Box::new(NotifyLaterHandleReal::default()),
-                interval: scan_intervals.payable_scan_interval,
-            },
-            receivable: PeriodicalScanScheduler {
-                handle: Box::new(NotifyLaterHandleReal::default()),
-                interval: scan_intervals.receivable_scan_interval,
-            },
-        }
+        let schedulers = HashMap::from_iter([
+            (
+                ScanType::Payables,
+                Box::new(PeriodicalScanScheduler::<ScanForPayables> {
+                    handle: Box::new(NotifyLaterHandleReal::default()),
+                    interval: scan_intervals.payable_scan_interval,
+                }) as Box<dyn ScanScheduler>,
+            ),
+            (
+                ScanType::PendingPayables,
+                Box::new(PeriodicalScanScheduler::<ScanForPendingPayables> {
+                    handle: Box::new(NotifyLaterHandleReal::default()),
+                    interval: scan_intervals.pending_payable_scan_interval,
+                }),
+            ),
+            (
+                ScanType::Receivables,
+                Box::new(PeriodicalScanScheduler::<ScanForReceivables> {
+                    handle: Box::new(NotifyLaterHandleReal::default()),
+                    interval: scan_intervals.receivable_scan_interval,
+                }),
+            ),
+        ]);
+        ScanSchedulers { schedulers }
     }
 }
 
@@ -963,27 +972,43 @@ pub struct PeriodicalScanScheduler<T: Default> {
     pub interval: Duration,
 }
 
-impl<T: Default> PeriodicalScanScheduler<T> {
-    pub fn schedule(&self, ctx: &mut Context<Accountant>) {
+pub trait ScanScheduler {
+    fn schedule(&self, ctx: &mut Context<Accountant>);
+
+    declare_as_any!();
+
+    #[cfg(test)]
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
+    fn schedule(&self, ctx: &mut Context<Accountant>) {
         // the default of the message implies response_skeleton_opt to be None
         // because scheduled scans don't respond
         let _ = self.handle.notify_later(T::default(), self.interval, ctx);
+    }
+
+    implement_as_any!();
+
+    #[cfg(test)]
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::{
-        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
-        ScannerCommon, Scanners,
+        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, ScanSchedulers,
+        Scanner, ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
-        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
-        ReceivableScannerBuilder,
+        assert_real_scan_schedulers, make_custom_payment_thresholds, make_payable_account,
+        make_payables, make_pending_payable_fingerprint, make_receivable_account,
+        BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ReceivableScannerBuilder,
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
@@ -1009,7 +1034,8 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
-        DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
+        DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
+        DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::make_wallet;
     use actix::{Message, System};
@@ -2848,5 +2874,21 @@ mod tests {
             &logger,
             &log_handler,
         );
+    }
+
+    #[test]
+    fn scan_schedulers_can_be_properly_initialized() {
+        let payable_interval = Duration::from_secs(240);
+        let pending_payable_interval = Duration::from_secs(300);
+        let receivable_interval = Duration::from_secs(360);
+        let scan_intervals = ScanIntervals {
+            payable_scan_interval: payable_interval,
+            pending_payable_scan_interval: pending_payable_interval,
+            receivable_scan_interval: receivable_interval,
+        };
+
+        let result = ScanSchedulers::new(scan_intervals);
+
+        assert_real_scan_schedulers(&result, scan_intervals)
     }
 }

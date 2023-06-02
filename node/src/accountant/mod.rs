@@ -81,7 +81,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
     suppress_initial_scans: bool,
-    consuming_wallet: Option<Wallet>,
+    consuming_wallet_opt: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
@@ -230,7 +230,7 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
-        self.scan_schedulers.payable.schedule(ctx);
+        self.schedule_next_scan(ScanType::Payables, ctx);
     }
 }
 
@@ -239,7 +239,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
-        self.scan_schedulers.pending_payable.schedule(ctx);
+        self.schedule_next_scan(ScanType::PendingPayables, ctx);
     }
 }
 
@@ -248,7 +248,7 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        self.scan_schedulers.receivable.schedule(ctx);
+        self.schedule_next_scan(ScanType::Receivables, ctx);
     }
 }
 
@@ -417,7 +417,7 @@ impl Accountant {
 
         Accountant {
             suppress_initial_scans: config.suppress_initial_scans,
-            consuming_wallet: config.consuming_wallet_opt.clone(),
+            consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
             payable_dao,
             receivable_dao,
@@ -532,7 +532,7 @@ impl Accountant {
     }
 
     fn our_wallet(&self, wallet: &Wallet) -> bool {
-        match &self.consuming_wallet {
+        match &self.consuming_wallet_opt {
             Some(ref consuming) if consuming.address() == wallet.address() => true,
             _ => wallet.address() == self.earning_wallet.address(),
         }
@@ -555,6 +555,14 @@ impl Accountant {
                 .request_transaction_receipts,
         );
         info!(self.logger, "Accountant bound");
+    }
+
+    fn schedule_next_scan(&self, scan_type: ScanType, ctx: &mut Context<Self>) {
+        self.scan_schedulers
+            .schedulers
+            .get(&scan_type)
+            .unwrap_or_else(|| panic!("Scan Scheduler {:?} not properly prepared", scan_type))
+            .schedule(ctx)
     }
 
     fn handle_report_routing_service_provided_message(
@@ -1007,10 +1015,11 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
-        PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
-        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
+        assert_real_scan_schedulers, bc_from_earning_wallet, bc_from_wallets, make_payable_account,
+        make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
+        PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1021,12 +1030,11 @@ mod tests {
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
-        DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::{
         ConsumingWalletBalances, OutcomingPaymentsInstructions,
     };
-    use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1168,24 +1176,10 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let scan_timings = result.scan_schedulers;
-        scan_timings
-            .pending_payable
-            .handle
-            .as_any()
-            .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
-            .unwrap();
-        scan_timings
-            .payable
-            .handle
-            .as_any()
-            .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
-            .unwrap();
-        scan_timings
-            .receivable
-            .handle
-            .as_any()
-            .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
+        assert_real_scan_schedulers(&result.scan_schedulers, ScanIntervals::default());
+        assert_eq!(result.consuming_wallet_opt, None);
+        assert_eq!(*result.earning_wallet, *DEFAULT_EARNING_WALLET);
+        assert_eq!(result.suppress_initial_scans, false);
         result
             .message_id_generator
             .as_any()
@@ -1953,10 +1947,14 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
-        subject.scan_schedulers.receivable.handle = Box::new(
-            NotifyLaterHandleMock::default()
-                .notify_later_params(&notify_later_receivable_params_arc)
-                .permit_to_send_out(),
+        subject.scan_schedulers.update_scheduler(
+            ScanType::Receivables,
+            Some(Box::new(
+                NotifyLaterHandleMock::default()
+                    .notify_later_params(&notify_later_receivable_params_arc)
+                    .permit_to_send_out(),
+            )),
+            None,
         );
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -2020,10 +2018,14 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.scan_schedulers.pending_payable.handle = Box::new(
-            NotifyLaterHandleMock::default()
-                .notify_later_params(&notify_later_pending_payable_params_arc)
-                .permit_to_send_out(),
+        subject.scan_schedulers.update_scheduler(
+            ScanType::PendingPayables,
+            Some(Box::new(
+                NotifyLaterHandleMock::default()
+                    .notify_later_params(&notify_later_pending_payable_params_arc)
+                    .permit_to_send_out(),
+            )),
+            None,
         );
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -2089,10 +2091,14 @@ mod tests {
         subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.scan_schedulers.payable.handle = Box::new(
-            NotifyLaterHandleMock::default()
-                .notify_later_params(&notify_later_payables_params_arc)
-                .permit_to_send_out(),
+        subject.scan_schedulers.update_scheduler(
+            ScanType::Payables,
+            Some(Box::new(
+                NotifyLaterHandleMock::default()
+                    .notify_later_params(&notify_later_payables_params_arc)
+                    .permit_to_send_out(),
+            )),
+            None,
         );
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
@@ -3275,7 +3281,11 @@ mod tests {
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.scan_schedulers.pending_payable.handle = Box::new(notify_later_half_mock);
+                subject.scan_schedulers.update_scheduler(
+                    ScanType::PendingPayables,
+                    Some(Box::new(notify_later_half_mock)),
+                    None,
+                );
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
