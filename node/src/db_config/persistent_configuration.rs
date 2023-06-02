@@ -342,7 +342,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match result {
             None => Err(PersistentConfigError::NotPresent),
             Some(Ok(hops)) => Ok(hops),
-            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)), // This match arm is not tested, not even at other places
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
         }
     }
 

@@ -431,7 +431,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("min-hops")
             .long("min-hops")
             .value_name("MIN_HOPS")
-            // .default_value("3")
             .required(false)
             .min_values(0)
             .max_values(1)

@@ -1176,12 +1176,11 @@ mod tests {
                     .add_mapping_result(Ok(())),
             )),
         );
-        let persistent_config = PersistentConfigurationMock::new();
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
-            Box::new(persistent_config),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
