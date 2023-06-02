@@ -548,19 +548,17 @@ impl Neighborhood {
     }
 
     fn validate_database_min_hops_count(&self) {
-        let persistent_config = self
-            .persistent_config_opt
-            .as_ref()
-            .expect("Wasn't able to retrieve persistent config");
-        let from_db = persistent_config
-            .min_hops_count()
-            .expect("Min Hops Count value is not initialized inside Database."); // TODO: Write test for this panic
-        let demanded = self.min_hops_count;
-        if demanded != from_db {
-            panic!(
-                "Database with wrong min hops count value detected; expected: {:?}, was: {:?}",
-                demanded, from_db
-            )
+        if let Some(persistent_config) = self.persistent_config_opt.as_ref() {
+            let from_db = persistent_config
+                .min_hops_count()
+                .expect("Min Hops Count value is not initialized inside Database");
+            let demanded = self.min_hops_count;
+            if demanded != from_db {
+                panic!(
+                    "Database with wrong min hops count value detected; expected: {:?}, was: {:?}",
+                    demanded, from_db
+                )
+            }
         }
     }
 
@@ -4644,6 +4642,45 @@ mod tests {
         system.run();
         let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
         assert_eq!(*min_hops_count_params, vec![()]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Min Hops Count value is not initialized inside Database: NotPresent"
+    )]
+    fn node_panics_when_it_cannot_find_min_hops_count_value_inside_persistent_configuration() {
+        let test_name =
+            "node_panics_when_it_cannot_find_min_hops_count_value_inside_persistent_configuration";
+        let mut subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&make_ip(0), &[1234]),
+                        vec![make_node_descriptor(make_ip(1))],
+                        rate_pack(100),
+                    ),
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                },
+                make_wallet("earning"),
+                None,
+                test_name,
+            ),
+        );
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new()
+                .min_hops_count_result(Err(PersistentConfigError::NotPresent)),
+        ));
+        let system = System::new(test_name);
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+        let sub = addr.recipient::<StartMessage>();
+
+        sub.try_send(StartMessage {}).unwrap();
+
+        System::current().stop();
+        system.run();
     }
 
     #[test]
