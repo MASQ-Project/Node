@@ -30,7 +30,7 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::{ScanTimings, Scanners};
+use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -88,7 +88,7 @@ pub struct Accountant {
     pending_payable_dao: Box<dyn PendingPayableDao>,
     crashable: bool,
     scanners: Scanners,
-    scan_timings: ScanTimings,
+    scan_schedulers: ScanSchedulers,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     outcoming_payments_instructions_sub_opt: Option<Recipient<OutcomingPaymentsInstructions>>,
     pps_for_blockchain_bridge_sub_opt: Option<Recipient<PayablePaymentSetup>>,
@@ -230,7 +230,7 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
-        self.scan_timings.payable.next_scan_period(ctx);
+        self.scan_schedulers.payable.schedule(ctx);
     }
 }
 
@@ -239,7 +239,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
-        self.scan_timings.pending_payable.next_scan_period(ctx);
+        self.scan_schedulers.pending_payable.schedule(ctx);
     }
 }
 
@@ -248,7 +248,7 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        self.scan_timings.receivable.next_scan_period(ctx);
+        self.scan_schedulers.receivable.schedule(ctx);
     }
 }
 
@@ -424,7 +424,7 @@ impl Accountant {
             pending_payable_dao,
             scanners,
             crashable: config.crash_point == CrashPoint::Message,
-            scan_timings: ScanTimings::new(scan_intervals),
+            scan_schedulers: ScanSchedulers::new(scan_intervals),
             financial_statistics: Rc::clone(&financial_statistics),
             outcoming_payments_instructions_sub_opt: None,
             pps_for_blockchain_bridge_sub_opt: None,
@@ -644,7 +644,7 @@ impl Accountant {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 self.scanners
                     .payable
-                    .get_special_payments_instructions(unaccepted_msg, &self.logger)
+                    .exacting_payments_instructions(unaccepted_msg, &self.logger)
             }
             Err(_e) => todo!("be completed by GH-711"),
         };
@@ -1001,7 +1001,7 @@ mod tests {
     use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scan_setup_msgs::StageData;
-    use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
+    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1168,7 +1168,7 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let scan_timings = result.scan_timings;
+        let scan_timings = result.scan_schedulers;
         scan_timings
             .pending_payable
             .handle
@@ -1525,8 +1525,8 @@ mod tests {
         let (cwbqp_msg, captured_now, logger_clone) = adjust_payments_params.remove(0);
         assert_eq!(
             cwbqp_msg,
-            AwaitingAdjustment {
-                original_msg: consuming_balances_and_qualified_payments,
+            AwaitedAdjustment {
+                original_setup_msg: consuming_balances_and_qualified_payments,
                 adjustment: Adjustment::MasqToken
             }
         );
@@ -1953,7 +1953,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
-        subject.scan_timings.receivable.handle = Box::new(
+        subject.scan_schedulers.receivable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
@@ -2020,7 +2020,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.scan_timings.pending_payable.handle = Box::new(
+        subject.scan_schedulers.pending_payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
                 .permit_to_send_out(),
@@ -2089,7 +2089,7 @@ mod tests {
         subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.scan_timings.payable.handle = Box::new(
+        subject.scan_schedulers.payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
                 .permit_to_send_out(),
@@ -3275,7 +3275,7 @@ mod tests {
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
+                subject.scan_schedulers.pending_payable.handle = Box::new(notify_later_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();

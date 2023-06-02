@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
-use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
+use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use masq_lib::logger::Logger;
 #[cfg(test)]
@@ -17,7 +17,7 @@ pub trait PaymentAdjuster {
 
     fn adjust_payments(
         &self,
-        setup: AwaitingAdjustment,
+        setup: AwaitedAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPaymentsInstructions;
@@ -38,13 +38,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
     fn adjust_payments(
         &self,
-        setup: AwaitingAdjustment,
+        setup: AwaitedAdjustment,
         _now: SystemTime,
         _logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         OutcomingPaymentsInstructions {
-            accounts: setup.original_msg.qualified_payables,
-            response_skeleton_opt: setup.original_msg.response_skeleton_opt,
+            accounts: setup.original_setup_msg.qualified_payables,
+            response_skeleton_opt: setup.original_setup_msg.response_skeleton_opt,
         }
     }
 
@@ -77,7 +77,7 @@ pub enum AnalysisError {}
 mod tests {
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup, StageData};
-    use crate::accountant::scanners::scan_mid_procedures::AwaitingAdjustment;
+    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::ResponseSkeleton;
     use crate::sub_lib::blockchain_bridge::{
@@ -148,8 +148,8 @@ mod tests {
             let payable_1 = payable_1.clone();
             let payable_2 = payable_2.clone();
             move |adjustment: Adjustment, response_skeleton_opt: Option<ResponseSkeleton>| {
-                AwaitingAdjustment {
-                    original_msg: PayablePaymentSetup {
+                AwaitedAdjustment {
+                    original_setup_msg: PayablePaymentSetup {
                         qualified_payables: vec![payable_1, payable_2],
                         this_stage_data_opt: Some(FinancialDetails {
                             consuming_wallet_balances: ConsumingWalletBalances {

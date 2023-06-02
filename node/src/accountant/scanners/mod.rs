@@ -10,7 +10,7 @@ use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitingAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+    AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
@@ -258,20 +258,20 @@ impl PayableScannerMiddleProcedures for PayableScanner {
         &self,
         msg: PayablePaymentSetup,
         logger: &Logger,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitingAdjustment>, String> {
+    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
         match self.payment_adjuster.is_adjustment_required(&msg, logger) {
             Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
                 accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,
             })),
-            Ok(Some(adjustment)) => Ok(Either::Right(AwaitingAdjustment::new(msg, adjustment))),
+            Ok(Some(adjustment)) => Ok(Either::Right(AwaitedAdjustment::new(msg, adjustment))),
             Err(_e) => todo!("be implemented with GH-711"),
         }
     }
 
-    fn get_special_payments_instructions(
+    fn exacting_payments_instructions(
         &self,
-        setup: AwaitingAdjustment,
+        setup: AwaitedAdjustment,
         logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         let now = SystemTime::now();
@@ -933,24 +933,24 @@ impl BeginScanError {
     }
 }
 
-pub struct ScanTimings {
-    pub pending_payable: PeriodicalScanConfig<ScanForPendingPayables>,
-    pub payable: PeriodicalScanConfig<ScanForPayables>,
-    pub receivable: PeriodicalScanConfig<ScanForReceivables>,
+pub struct ScanSchedulers {
+    pub pending_payable: PeriodicalScanScheduler<ScanForPendingPayables>,
+    pub payable: PeriodicalScanScheduler<ScanForPayables>,
+    pub receivable: PeriodicalScanScheduler<ScanForReceivables>,
 }
 
-impl ScanTimings {
+impl ScanSchedulers {
     pub fn new(scan_intervals: ScanIntervals) -> Self {
-        ScanTimings {
-            pending_payable: PeriodicalScanConfig {
+        ScanSchedulers {
+            pending_payable: PeriodicalScanScheduler {
                 handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.pending_payable_scan_interval,
             },
-            payable: PeriodicalScanConfig {
+            payable: PeriodicalScanScheduler {
                 handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.payable_scan_interval,
             },
-            receivable: PeriodicalScanConfig {
+            receivable: PeriodicalScanScheduler {
                 handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.receivable_scan_interval,
             },
@@ -958,13 +958,13 @@ impl ScanTimings {
     }
 }
 
-pub struct PeriodicalScanConfig<T: Default> {
+pub struct PeriodicalScanScheduler<T: Default> {
     pub handle: Box<dyn NotifyLaterHandle<T, Accountant>>,
     pub interval: Duration,
 }
 
-impl<T: Default> PeriodicalScanConfig<T> {
-    pub fn next_scan_period(&self, ctx: &mut Context<Accountant>) {
+impl<T: Default> PeriodicalScanScheduler<T> {
+    pub fn schedule(&self, ctx: &mut Context<Accountant>) {
         // the default of the message implies response_skeleton_opt to be None
         // because scheduled scans don't respond
         let _ = self.handle.notify_later(T::default(), self.interval, ctx);
