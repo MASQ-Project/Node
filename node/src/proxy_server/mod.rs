@@ -321,7 +321,7 @@ impl ProxyServer {
                         dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
                         accountant_sub: self.out_subs("Accountant").accountant.clone(),
                         add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-                        is_decentralized: false,
+                        is_decentralized: true,
                     };
                     let route_source = self.out_subs("Neighborhood").route_source.clone();
                     let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
@@ -372,38 +372,6 @@ impl ProxyServer {
                     &response.stream_key
                 )
             }
-        }
-    }
-
-    fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr) {
-        let tmp_timestamp = SystemTime::now();
-        let retire_stream_key = true;
-        // TODO: Replace these vars with real ones
-
-        let args = TryTransmitToHopperArgs{
-            main_cryptde: self.main_cryptde,
-            payload: retries.unsuccessful_request.clone(),
-            source_addr,
-            timestamp: tmp_timestamp,
-            logger: self.logger.clone(),
-            retire_stream_key_sub_opt: if retire_stream_key {
-                Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
-            } else {
-                None
-            },
-            hopper_sub: self.out_subs("Hopper").hopper.clone(),
-            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
-            accountant_sub: self.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-            is_decentralized: false,
-        };
-        let route_source = self.out_subs("Neighborhood").route_source.clone();
-        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
-        let IBCDHelperReal = IBCDHelperReal::new();
-
-        match IBCDHelperReal.request_route_and_transmit(args, route_source, add_route_sub) {
-            Ok(_) => { todo!(" FIX ME") }
-            Err(_) => { todo!(" FIX ME") }
         }
     }
 
@@ -4611,12 +4579,6 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        // let report_recipient = blockchain_bridge
-        //     .system_stop_conditions(match_every_type_id!(ReportAccountsPayable))
-        //     .start()
-        //     .recipient();
-
-        // System::current().stop();
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
