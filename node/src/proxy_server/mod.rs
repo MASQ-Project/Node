@@ -296,15 +296,52 @@ impl ProxyServer {
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
                 //TODO we want to put our new logic here (GH-651)
-                match self.dns_failure_retries.get_mut(&response.stream_key) {
-                    Some(retries) => match retries.retries_left {
-                        0 => (),
-                        _ => todo!("Fix this also") //self.handle_request_retry(retries, socket_addr, ),
-                    },
-                    None => {
-                        todo!("my feeling is the code is broken in such a case...maybe even panic")
+                let mut retry = self.dns_failure_retries.remove(&response.stream_key).unwrap_or_else(|| {
+                    todo!("my feeling is the code is broken in such a case...maybe even panic");
+                });
+
+                if retry.retries_left > 0 {
+                    // self.handle_request_retry(retry, socket_addr);
+                    let tmp_timestamp = SystemTime::now();
+                    let retire_stream_key = true;
+                    // TODO: Replace these vars with real ones
+
+                    let args = TryTransmitToHopperArgs{
+                        main_cryptde: self.main_cryptde,
+                        payload: retry.unsuccessful_request.clone(),
+                        source_addr: socket_addr,
+                        timestamp: tmp_timestamp,
+                        logger: self.logger.clone(),
+                        retire_stream_key_sub_opt: if retire_stream_key {
+                            Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
+                        } else {
+                            None
+                        },
+                        hopper_sub: self.out_subs("Hopper").hopper.clone(),
+                        dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
+                        accountant_sub: self.out_subs("Accountant").accountant.clone(),
+                        add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
+                        is_decentralized: false,
+                    };
+                    let route_source = self.out_subs("Neighborhood").route_source.clone();
+                    let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
+                    let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
+
+                    match inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub) {
+                        Ok(_) => { retry.retries_left -= 1; }
+                        Err(_) => { todo!(" FIX ME") }
                     }
-                };
+
+                }
+                // match  {
+                //     Some(retries) => match retries.retries_left {
+                //         0 => (),
+                //         _ => self.handle_request_retry(retries, socket_addr, ),
+                //     },
+                //     None => {
+                //         todo!("my feeling is the code is broken in such a case...maybe even panic")
+                //     }
+                // };
 
                 self.subs
                     .as_ref()
@@ -339,31 +376,35 @@ impl ProxyServer {
     }
 
     fn handle_request_retry(&self, retries: &mut DNSFailureRetry, source_addr: SocketAddr) {
-        // let tmp_timestamp = SystemTime::now(); //
-        // let retire_stream_key = true;
-        // let movable_args = TryTransmitToHopperArgs{
-        //     common_opt: Some(TTHCommonArgs {
-        //         main_cryptde: self.main_cryptde,
-        //         payload: retries.unsuccessful_request.clone(),
-        //         source_addr,
-        //         timestamp: tmp_timestamp,
-        //         is_decentralized: self.is_decentralized,
-        //     }),
-        //     logger: self.logger.clone(),
-        //     retire_stream_key_sub_opt: if retire_stream_key {
-        //         Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
-        //     } else {
-        //         None
-        //     },
-        //     hopper_sub: self.out_subs("Hopper").hopper.clone(),
-        //     dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
-        //     accountant_sub: self.out_subs("Accountant").accountant.clone(),
-        //     add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-        // };
-        // let route_source = self.out_subs("Neighborhood").route_source.clone();
-        // let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
-        // self.request_route_and_transmit(movable_args, route_source, add_route_sub) // TODO
-        todo!("Fix this later");
+        let tmp_timestamp = SystemTime::now();
+        let retire_stream_key = true;
+        // TODO: Replace these vars with real ones
+
+        let args = TryTransmitToHopperArgs{
+            main_cryptde: self.main_cryptde,
+            payload: retries.unsuccessful_request.clone(),
+            source_addr,
+            timestamp: tmp_timestamp,
+            logger: self.logger.clone(),
+            retire_stream_key_sub_opt: if retire_stream_key {
+                Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
+            } else {
+                None
+            },
+            hopper_sub: self.out_subs("Hopper").hopper.clone(),
+            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
+            accountant_sub: self.out_subs("Accountant").accountant.clone(),
+            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
+            is_decentralized: false,
+        };
+        let route_source = self.out_subs("Neighborhood").route_source.clone();
+        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
+        let IBCDHelperReal = IBCDHelperReal::new();
+
+        match IBCDHelperReal.request_route_and_transmit(args, route_source, add_route_sub) {
+            Ok(_) => { todo!(" FIX ME") }
+            Err(_) => { todo!(" FIX ME") }
+        }
     }
 
     fn handle_client_response_payload(
@@ -892,6 +933,13 @@ pub trait IBCDHelper {
         msg: InboundClientData,
         retire_stream_key: bool,
     ) -> Result<(), String>;
+
+    fn request_route_and_transmit(
+        &self,
+        tth_args: TryTransmitToHopperArgs,
+        route_source: Recipient<RouteQueryMessage>,
+        add_route_sub: Recipient<AddRouteMessage>,
+    ) -> Result<(), String>;
 }
 
 trait RouteQueryResponseResolver: Send {
@@ -1031,9 +1079,7 @@ impl IBCDHelper for IBCDHelperReal {
             self.request_route_and_transmit(tth_args, route_source, add_route_sub)
         }
     }
-}
 
-impl IBCDHelperReal {
     fn request_route_and_transmit(
         &self,
         tth_args: TryTransmitToHopperArgs,
@@ -1064,6 +1110,10 @@ impl IBCDHelperReal {
         );
         Ok(())
     }
+}
+
+impl IBCDHelperReal {
+
 
     fn resolve_route_query_response(
         tth_args: TryTransmitToHopperArgs,
@@ -1133,6 +1183,7 @@ struct DNSFailureRetry {
     retries_left: usize,
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1168,6 +1219,7 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
+    use crate::test_utils::recorder_stop_conditions::{StopConditions, StopCondition};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1180,6 +1232,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
+    use std::any::TypeId;
 
     #[derive(Default)]
     struct RouteQueryResponseResolverFactoryMock {
@@ -1350,6 +1403,10 @@ mod tests {
             self.handle_normal_client_data_results
                 .borrow_mut()
                 .remove(0)
+        }
+
+        fn request_route_and_transmit(&self, tth_args: TryTransmitToHopperArgs, route_source: Recipient<RouteQueryMessage>, add_route_sub: Recipient<AddRouteMessage>) -> Result<(), String> {
+            todo!()
         }
     }
 
@@ -4496,7 +4553,7 @@ mod tests {
                 1234,
             ),
         };
-        let neighborhood_mock = neighborhood_mock.route_query_response(Some(route_query_response_expected.clone()));
+        let neighborhood_mock = neighborhood_mock.system_stop_conditions(match_every_type_id!(RouteQueryMessage)).route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4554,7 +4611,12 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop();
+        // let report_recipient = blockchain_bridge
+        //     .system_stop_conditions(match_every_type_id!(ReportAccountsPayable))
+        //     .start()
+        //     .recipient();
+
+        // System::current().stop();
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
