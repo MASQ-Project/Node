@@ -278,6 +278,7 @@ impl ProxyServer {
         };
         let server_name_opt = return_route_info.hostname_opt.clone();
         let response = &msg.payload;
+
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
                 if let Some(server_name) = server_name_opt {
@@ -321,11 +322,12 @@ impl ProxyServer {
                     match inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub) {
                         Ok(_) => {
                             retry.retries_left -= 1;
-                            todo!("Please add retries back");
+                            self.dns_failure_retries.insert(response.stream_key, retry.clone());
                         }
                         Err(_) => { todo!(" FIX ME") }
                     }
                 }
+
 
                 // match  {
                 //     Some(retries) => match retries.retries_left {
@@ -357,7 +359,9 @@ impl ProxyServer {
                     self.logger,
                     "Retiring stream key {}: DnsResolveFailure", &response.stream_key
                 );
-                self.purge_stream_key(&response.stream_key);
+                if retry.retries_left == 0 {
+                    self.purge_stream_key(&response.stream_key);
+                }
             }
             None => {
                 error!(self.logger,
@@ -1140,6 +1144,7 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
     }
 }
 
+#[derive(Clone)]
 struct DNSFailureRetry {
     unsuccessful_request: ClientRequestPayload_0v1,
     retries_left: usize,
@@ -4612,6 +4617,109 @@ mod tests {
             route_query_message_response.unwrap().unwrap(),
             route_query_response_expected
         );
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_sent_request_retry_three_times() {
+        let system = System::new("test");
+        // let resolve_message_params_arc = Arc::new(Mutex::new(vec![]));
+        let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = make_wallet("exit wallet");
+        let expected_services = vec![ExpectedService::Exit(
+            exit_public_key.clone(),
+            exit_wallet,
+            rate_pack(10),
+        )];
+        let route_query_response_expected = RouteQueryResponse {
+            route: make_meaningless_route(),
+            expected_services: ExpectedServices::RoundTrip(
+                expected_services.clone(),
+                expected_services.clone(),
+                1234,
+            ),
+        };
+
+        let neighborhood_mock = neighborhood_mock
+            .system_stop_conditions(StopConditions::All(vec![
+            StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>()),
+            StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>()),
+            StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>())]))
+            .route_query_response(Some(route_query_response_expected.clone()));
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let mut dns_failure_retries_hash_map = HashMap::new();
+        let client_payload = make_request_payload(111, cryptde);
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: client_payload.clone(),
+                retries_left: 3,
+            },
+        );
+        subject.dns_failure_retries = dns_failure_retries_hash_map;
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: expected_services.clone(),
+                protocol: ProxyProtocol::HTTP,
+                hostname_opt: Some("server.com".to_string()),
+            },
+        );
+
+        let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
+            .make_result(Box::new(RouteQueryResponseResolverMock::default()))
+            .make_result(Box::new(RouteQueryResponseResolverMock::default()))
+            .make_result(Box::new(RouteQueryResponseResolverMock::default()));
+
+        subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal {
+            factory: Box::new(message_resolver_factory),
+        }));
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood_mock)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(expired_cores_package.clone()).unwrap();
+        subject_addr.try_send(expired_cores_package.clone()).unwrap();
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        subject_addr.try_send(AssertionsMessage {
+            assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                let retry = proxy_server.dns_failure_retries.get(&stream_key).unwrap();
+                assert_eq!(retry.retries_left , 0);
+            }),
+        })
+            .unwrap();
+
+        let before = SystemTime::now();
+        system.run();
+        let after = SystemTime::now();
+
+
     }
 
     #[test]
