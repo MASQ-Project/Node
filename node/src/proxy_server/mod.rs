@@ -301,22 +301,13 @@ impl ProxyServer {
                 });
 
                 if retry.retries_left > 0 {
-                    // self.handle_request_retry(retry, socket_addr);
-                    let tmp_timestamp = SystemTime::now();
-                    let retire_stream_key = true;
-                    // TODO: Replace these vars with real ones
-
                     let args = TryTransmitToHopperArgs{
                         main_cryptde: self.main_cryptde,
                         payload: retry.unsuccessful_request.clone(),
                         source_addr: socket_addr,
-                        timestamp: tmp_timestamp,
+                        timestamp: SystemTime::now(),
                         logger: self.logger.clone(),
-                        retire_stream_key_sub_opt: if retire_stream_key {
-                            Some(self.out_subs("ProxyServer").stream_shutdown_sub.clone())
-                        } else {
-                            None
-                        },
+                        retire_stream_key_sub_opt: None,
                         hopper_sub: self.out_subs("Hopper").hopper.clone(),
                         dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
                         accountant_sub: self.out_subs("Accountant").accountant.clone(),
@@ -328,11 +319,14 @@ impl ProxyServer {
                     let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
 
                     match inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub) {
-                        Ok(_) => { retry.retries_left -= 1; }
+                        Ok(_) => {
+                            retry.retries_left -= 1;
+                            todo!("Please add retries back");
+                        }
                         Err(_) => { todo!(" FIX ME") }
                     }
-
                 }
+
                 // match  {
                 //     Some(retries) => match retries.retries_left {
                 //         0 => (),
@@ -1182,7 +1176,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::unshared_test_utils::{AssertionsMessage, prove_that_crash_request_handler_is_hooked_up};
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
@@ -1201,6 +1195,18 @@ mod tests {
     use std::thread;
     use std::time::SystemTime;
     use std::any::TypeId;
+
+    impl Handler<AssertionsMessage<ProxyServer>> for ProxyServer {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            msg: AssertionsMessage<ProxyServer>,
+            _ctx: &mut Self::Context,
+        ) -> Self::Result {
+            (msg.assertions)(self)
+        }
+    }
 
     #[derive(Default)]
     struct RouteQueryResponseResolverFactoryMock {
@@ -4579,17 +4585,28 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
+        subject_addr.try_send(AssertionsMessage {
+            assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                let retry = proxy_server.dns_failure_retries.get(&stream_key).unwrap();
+                assert_eq!(retry.retries_left , 2);
+            }),
+        })
+            .unwrap();
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
         let mut resolve_message_params = resolve_message_params_arc.lock().unwrap();
         let (transmit_to_hopper_args, route_query_message_response) =
             resolve_message_params.remove(0);
-        assert!(resolve_message_params.is_empty());
         let args = transmit_to_hopper_args;
+        // let retry = subject.dns_failure_retries.get(&stream_key).unwrap();
+        // assert_eq!(retry.retries_left , 2);
+
+        assert!(resolve_message_params.is_empty());
         assert_eq!(args.payload, client_payload);
         assert_eq!(args.source_addr, socket_addr);
         assert!(before <= args.timestamp && args.timestamp <= after);
+        assert!(args.retire_stream_key_sub_opt.is_none());
         assert_eq!(args.is_decentralized, true);
         assert_eq!(
             route_query_message_response.unwrap().unwrap(),
