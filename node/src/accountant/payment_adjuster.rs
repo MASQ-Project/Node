@@ -47,33 +47,27 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         let qualified_payables = msg.qualified_payables.as_slice();
-
-        // let total_gas_required_gwei =
-        //     U256::from(msg.this_stage_data.estimated_gas_limit_per_transaction)
-        //         * U256::from(qualified_payables.len())
-        //         * U256::from(msg.this_stage_data.desired_gas_price_gwei);
-        // eprintln!("total gwei required: {}", total_gas_required_gwei);
-        // let total_gas_required_wei = gwei_to_wei::<U256, _>(total_gas_required_gwei);
-        // eprintln!("available wei: {}", msg.this_stage_data.consuming_wallet_balances.gas_currency_wei);
-        // let limit_by_gas_opt = if total_gas_required_wei
-        //     <= msg
-        //         .this_stage_data
-        //         .consuming_wallet_balances
-        //         .gas_currency_wei
-        // {
-        //     //TODO drive in both < and =
-        //     false
-        // } else {
-        //     true
-        // };
-
         //TODO use question mark later
-        let limit_by_gas_opt = match Self::determine_feasible_count_to_pay_regarding_gas(
+        let limit_by_gas_opt = match Self::determine_transactions_count_limint_by_gas(
             &msg.this_stage_data,
             qualified_payables.len(),
         ) {
             Ok(None) => None,
-            Ok(Some(limiting_count)) => Some(limiting_count),
+            Ok(Some(limiting_count)) => {
+                warning!(
+                    logger,
+                    "Gas amount {} wei cannot cover anticipated fees from sending {} \
+                transactions. Maximum is {}. The payments need to be adjusted in \
+                their count.",
+                    msg.this_stage_data
+                        .consuming_wallet_balances
+                        .masq_tokens_wei
+                        .separate_with_commas(),
+                    qualified_payables.len(),
+                    limiting_count
+                );
+                Some(limiting_count)
+            }
             Err(e) => todo!(),
         };
 
@@ -89,7 +83,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         } else if U256::from(Self::find_smallest_debt(qualified_payables)) > cw_masq_balance {
             todo!()
         } else {
-            Self::log_adjustment_required(logger, required_masq_sum, cw_masq_balance);
+            Self::log_adjustment_by_masq_required(logger, required_masq_sum, cw_masq_balance);
 
             true
         };
@@ -173,7 +167,7 @@ impl PaymentAdjusterReal {
             .into()
     }
 
-    fn determine_feasible_count_to_pay_regarding_gas(
+    fn determine_transactions_count_limint_by_gas(
         tech_info: &ConsumingWalletBalancesAndGasParams,
         required_max_count: usize,
     ) -> Result<Option<u16>, AnalysisError> {
@@ -340,7 +334,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn log_adjustment_required(logger: &Logger, payables_sum: U256, cw_masq_balance: U256) {
+    fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: U256, cw_masq_balance: U256) {
         warning!(
             logger,
             "Total of {} wei in MASQ was ordered while the consuming wallet held \
@@ -547,12 +541,11 @@ mod tests {
                 limiting_count: expected_limiting_count
             }))
         );
-        // TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Payments for wallets \
-        // 0x00000000000000000000000077616c6c65743835, 0x00000000000000000000000077616c6c65743136 would \
-        // require 100 gwei wei while the consuming wallet holds only 100,000,000,000 wei. \
-        // Going to adjust them to fit in the limit, by cutting back the number of payments or their \
-        // size."));
-        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: blaaaah msg"));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {test_name}: Gas amount 18,446,744,073,709,551,615,000,000,000 wei \
+        cannot cover anticipated fees from sending 3 transactions. Maximum is 2. \
+        The payments need to be adjusted in their count."
+        ));
     }
 
     #[test]
