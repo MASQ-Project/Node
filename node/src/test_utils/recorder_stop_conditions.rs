@@ -124,6 +124,13 @@ macro_rules! match_every_type_id{
     }
 }
 
+#[macro_export]
+macro_rules! type_id{
+    ($message: ident) => {
+        TypeId::of::<$message>()
+    }
+}
+
 mod tests {
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForPayables};
     use crate::daemon::crash_notification::CrashNotification;
@@ -311,5 +318,13 @@ mod tests {
             }
             StopConditions::Any(_) => panic!("Stage 2: expected StopConditions::All, not ...Any"),
         }
+    }
+
+    #[test]
+    fn macro_for_type_id_works() {
+        let type_id = type_id!(ScanForPayables);
+        let expected_type_id = TypeId::of::<ScanForPayables>();
+
+        assert_eq!(type_id, expected_type_id);
     }
 }
