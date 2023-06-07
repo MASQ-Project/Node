@@ -444,7 +444,7 @@ impl IgdpTransactor {
             return Finished::Yes;
         };
         if let Ok((old_public_ip, current_public_ip)) = Self::retrieve_old_and_new_public_ips(
-            inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
+            inner.gateway_opt.as_ref().expectv("gateway").as_ref(),
             &inner,
             change_handler,
         ) {
@@ -564,7 +564,7 @@ trait MappingAdder: Send {
         &self,
         gateway: &dyn GatewayWrapper,
         hole_port: u16,
-        lifetime: u32,
+        lifetime_in_seconds: u32,
     ) -> Result<u32, AutomapError>;
 }
 
@@ -662,6 +662,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use itertools::Itertools;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -828,12 +829,12 @@ mod tests {
             &self,
             gateway: &dyn GatewayWrapper,
             hole_port: u16,
-            lifetime: u32,
+            lifetime_in_seconds: u32,
         ) -> Result<u32, AutomapError> {
             self.add_mapping_params.lock().unwrap().push((
                 addr_of!(*gateway) as *const (),
                 hole_port,
-                lifetime,
+                lifetime_in_seconds,
             ));
             self.add_mapping_results.borrow_mut().remove(0)
         }
@@ -1270,16 +1271,11 @@ mod tests {
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(another_ip));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
-        assert_eq!(hole_port, 6666);
-        assert_eq!(lifetime, 600);
-        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
-        assert_eq!(hole_port, 6666);
-        assert_eq!(lifetime, 600);
-        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
-        assert_eq!(hole_port, 6666);
-        assert_eq!(lifetime, 600);
-        assert_eq!(add_mapping_params.is_empty(), true);
+        assert_eq!(*add_mapping_params.iter().map(|x| (x.1, x.2)).collect_vec(), vec![
+            (6666, 600),
+            (6666, 600),
+            (6666, 600),
+        ]);
     }
 
     #[test]
@@ -1495,9 +1491,9 @@ mod tests {
             &Some(mapping_config),
         );
 
-        let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
+        let (_, hole_port, lifetime_in_seconds) = add_mapping_params_arc.lock().unwrap().remove(0);
         assert_eq!(hole_port, 6689);
-        assert_eq!(lifetime, 1);
+        assert_eq!(lifetime_in_seconds, 1);
     }
 
     #[test]

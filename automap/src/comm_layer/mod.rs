@@ -22,103 +22,101 @@ pub const DEFAULT_MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AutomapErrorCause {
-    UserError,
     NetworkConfiguration,
-    ProtocolNotImplemented,
-    ProtocolFailed,
     ProbeServerIssue,
+    ProtocolFailed,
+    ProtocolNotImplemented,
     ProbeFailed,
-    SocketFailure,
     RouterFailure,
+    SocketFailure,
     Unknown(String),
+    UserError,
 }
 
-// TODO: Maybe we need a kind of AutomapError that gives up and kills the system, _and_ a kind
-// of AutomapError that just makes the system log an angry message and keep going.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AutomapError {
-    Unknown,
-    NoLocalIpAddress,
+    AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
     CantFindDefaultGateway,
-    IPv6Unsupported(Ipv6Addr),
+    DeleteMappingError(String),
     FindRouterError(String),
     GetPublicIpError(String),
-    SocketBindingError(String, SocketAddr),
-    SocketSendError(AutomapErrorCause),
-    SocketReceiveError(AutomapErrorCause),
-    PacketParseError(ParseError),
-    ProtocolError(String),
-    PermanentLeasesOnly,
-    TemporaryMappingError(String),
-    PermanentMappingError(String),
-    ProbeServerConnectError(String),
-    ProbeRequestError(AutomapErrorCause, String),
-    ProbeReceiveError(String),
-    DeleteMappingError(String),
-    TransactionFailure(String),
-    AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
     HousekeeperAlreadyRunning,
     HousekeeperCrashed,
+    IPv6Unsupported(Ipv6Addr),
+    NoLocalIpAddress,
+    PacketParseError(ParseError),
+    PermanentLeasesOnly,
+    PermanentMappingError(String),
+    ProbeReceiveError(String),
+    ProbeRequestError(AutomapErrorCause, String),
+    ProbeServerConnectError(String),
+    ProtocolError(String),
+    SocketBindingError(String, SocketAddr),
+    SocketReceiveError(AutomapErrorCause),
+    SocketSendError(AutomapErrorCause),
+    TemporaryMappingError(String),
+    TransactionFailure(String),
+    Unknown,
 }
 
 impl AutomapError {
     pub fn cause(&self) -> AutomapErrorCause {
         match self {
-            AutomapError::Unknown => AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
-            AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::CantFindDefaultGateway => AutomapErrorCause::ProtocolNotImplemented,
-            AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
             AutomapError::FindRouterError(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::GetPublicIpError(_) => AutomapErrorCause::ProtocolNotImplemented,
-            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
-            AutomapError::SocketSendError(aec) => aec.clone(),
-            AutomapError::SocketReceiveError(aec) => aec.clone(),
-            AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,
-            AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolNotImplemented,
-            AutomapError::PermanentLeasesOnly => {
-                AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string())
-            }
-            AutomapError::PermanentMappingError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::TemporaryMappingError(_) => AutomapErrorCause::RouterFailure,
-            AutomapError::ProbeServerConnectError(_) => AutomapErrorCause::ProbeServerIssue,
-            AutomapError::ProbeRequestError(aec, _) => aec.clone(),
-            AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
-            AutomapError::DeleteMappingError(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
-            AutomapError::AllProtocolsFailed(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::HousekeeperAlreadyRunning => {
                 AutomapErrorCause::Unknown("Sequencing error".to_string())
             }
             AutomapError::HousekeeperCrashed => {
                 AutomapErrorCause::Unknown("Thread crash".to_string())
             }
+            AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
+            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
+            AutomapError::SocketReceiveError(aec) => aec.clone(),
+            AutomapError::SocketSendError(aec) => aec.clone(),
+            AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,
+            AutomapError::PermanentLeasesOnly => {
+                AutomapErrorCause::Unknown("Can't handle permanent-only leases".to_string())
+            }
+            AutomapError::PermanentMappingError(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::ProbeReceiveError(_) => AutomapErrorCause::ProbeFailed,
+            AutomapError::ProbeRequestError(aec, _) => aec.clone(),
+            AutomapError::ProbeServerConnectError(_) => AutomapErrorCause::ProbeServerIssue,
+            AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolNotImplemented,
+            AutomapError::TemporaryMappingError(_) => AutomapErrorCause::RouterFailure,
+            AutomapError::TransactionFailure(_) => AutomapErrorCause::ProtocolFailed,
+            AutomapError::Unknown => AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
         }
     }
 
     pub fn should_crash(&self) -> bool {
         match self {
-            AutomapError::Unknown => true,
-            AutomapError::NoLocalIpAddress => true,
+            AutomapError::AllProtocolsFailed(_) => true,
             AutomapError::CantFindDefaultGateway => true,
-            AutomapError::IPv6Unsupported(_) => true,
+            AutomapError::DeleteMappingError(_) => false,
             AutomapError::FindRouterError(_) => true,
             AutomapError::GetPublicIpError(_) => true,
-            AutomapError::SocketBindingError(_, _) => true,
-            AutomapError::SocketSendError(_) => true,
-            AutomapError::SocketReceiveError(_) => true,
-            AutomapError::PacketParseError(_) => true,
-            AutomapError::ProtocolError(_) => true,
-            AutomapError::PermanentLeasesOnly => false,
-            AutomapError::TemporaryMappingError(_) => false,
-            AutomapError::PermanentMappingError(_) => true,
-            AutomapError::ProbeServerConnectError(_) => true,
-            AutomapError::ProbeRequestError(_, _) => true,
-            AutomapError::ProbeReceiveError(_) => true,
-            AutomapError::DeleteMappingError(_) => false,
-            AutomapError::TransactionFailure(_) => true,
-            AutomapError::AllProtocolsFailed(_) => true,
             AutomapError::HousekeeperAlreadyRunning => false,
             AutomapError::HousekeeperCrashed => false,
+            AutomapError::IPv6Unsupported(_) => true,
+            AutomapError::NoLocalIpAddress => true,
+            AutomapError::PacketParseError(_) => true,
+            AutomapError::PermanentLeasesOnly => false,
+            AutomapError::PermanentMappingError(_) => true,
+            AutomapError::ProbeReceiveError(_) => true,
+            AutomapError::ProbeRequestError(_, _) => true,
+            AutomapError::ProbeServerConnectError(_) => true,
+            AutomapError::ProtocolError(_) => true,
+            AutomapError::SocketBindingError(_, _) => true,
+            AutomapError::SocketReceiveError(_) => true,
+            AutomapError::SocketSendError(_) => true,
+            AutomapError::TemporaryMappingError(_) => false,
+            AutomapError::TransactionFailure(_) => true,
+            AutomapError::Unknown => true,
         }
     }
 }
@@ -196,11 +194,7 @@ mod tests {
     fn causes_work() {
         let errors_and_expectations = vec![
             (
-                AutomapError::Unknown,
-                AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
-            ),
-            (
-                AutomapError::NoLocalIpAddress,
+                AutomapError::AllProtocolsFailed(vec![]),
                 AutomapErrorCause::NetworkConfiguration,
             ),
             (
@@ -208,8 +202,8 @@ mod tests {
                 AutomapErrorCause::ProtocolNotImplemented,
             ),
             (
-                AutomapError::IPv6Unsupported(Ipv6Addr::from_str("::").unwrap()),
-                AutomapErrorCause::NetworkConfiguration,
+                AutomapError::DeleteMappingError(String::new()),
+                AutomapErrorCause::ProtocolFailed,
             ),
             (
                 AutomapError::FindRouterError(String::new()),
@@ -220,26 +214,19 @@ mod tests {
                 AutomapErrorCause::ProtocolNotImplemented,
             ),
             (
-                AutomapError::SocketBindingError(
-                    String::new(),
-                    SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                ),
-                AutomapErrorCause::UserError,
+                AutomapError::HousekeeperAlreadyRunning,
+                AutomapErrorCause::Unknown("Sequencing error".to_string()),
             ),
             (
-                AutomapError::SocketSendError(AutomapErrorCause::Unknown("Booga".to_string())),
-                AutomapErrorCause::Unknown("Booga".to_string()),
+                AutomapError::IPv6Unsupported(Ipv6Addr::from_str("::").unwrap()),
+                AutomapErrorCause::NetworkConfiguration,
             ),
             (
-                AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("Booga".to_string())),
-                AutomapErrorCause::Unknown("Booga".to_string()),
+                AutomapError::NoLocalIpAddress,
+                AutomapErrorCause::NetworkConfiguration,
             ),
             (
                 AutomapError::PacketParseError(ParseError::WrongVersion(3)),
-                AutomapErrorCause::ProtocolNotImplemented,
-            ),
-            (
-                AutomapError::ProtocolError(String::new()),
                 AutomapErrorCause::ProtocolNotImplemented,
             ),
             (
@@ -251,36 +238,47 @@ mod tests {
                 AutomapErrorCause::ProtocolFailed,
             ),
             (
-                AutomapError::TemporaryMappingError(String::new()),
-                AutomapErrorCause::RouterFailure,
-            ),
-            (
-                AutomapError::ProbeServerConnectError(String::new()),
-                AutomapErrorCause::ProbeServerIssue,
+                AutomapError::ProbeReceiveError(String::new()),
+                AutomapErrorCause::ProbeFailed,
             ),
             (
                 AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, String::new()),
                 AutomapErrorCause::ProbeFailed,
             ),
             (
-                AutomapError::ProbeReceiveError(String::new()),
-                AutomapErrorCause::ProbeFailed,
+                AutomapError::ProbeServerConnectError(String::new()),
+                AutomapErrorCause::ProbeServerIssue,
             ),
             (
-                AutomapError::DeleteMappingError(String::new()),
-                AutomapErrorCause::ProtocolFailed,
+                AutomapError::ProtocolError(String::new()),
+                AutomapErrorCause::ProtocolNotImplemented,
+            ),
+            (
+                AutomapError::SocketBindingError(
+                    String::new(),
+                    SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                ),
+                AutomapErrorCause::UserError,
+            ),
+            (
+                AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("Booga".to_string())),
+                AutomapErrorCause::Unknown("Booga".to_string()),
+            ),
+            (
+                AutomapError::SocketSendError(AutomapErrorCause::Unknown("Booga".to_string())),
+                AutomapErrorCause::Unknown("Booga".to_string()),
+            ),
+            (
+                AutomapError::TemporaryMappingError(String::new()),
+                AutomapErrorCause::RouterFailure,
             ),
             (
                 AutomapError::TransactionFailure(String::new()),
                 AutomapErrorCause::ProtocolFailed,
             ),
             (
-                AutomapError::AllProtocolsFailed(vec![]),
-                AutomapErrorCause::NetworkConfiguration,
-            ),
-            (
-                AutomapError::HousekeeperAlreadyRunning,
-                AutomapErrorCause::Unknown("Sequencing error".to_string()),
+                AutomapError::Unknown,
+                AutomapErrorCause::Unknown("Explicitly unknown".to_string()),
             ),
         ];
 
@@ -295,12 +293,28 @@ mod tests {
     #[test]
     fn should_crash_works() {
         vec![
-            (AutomapError::Unknown, true),
-            (AutomapError::NoLocalIpAddress, true),
+            (AutomapError::AllProtocolsFailed(vec![]), true),
             (AutomapError::CantFindDefaultGateway, true),
-            (AutomapError::IPv6Unsupported(Ipv6Addr::UNSPECIFIED), true),
+            (AutomapError::DeleteMappingError("".to_string()), false),
             (AutomapError::FindRouterError("".to_string()), true),
             (AutomapError::GetPublicIpError("".to_string()), true),
+            (AutomapError::HousekeeperAlreadyRunning, false),
+            (AutomapError::HousekeeperCrashed, false),
+            (AutomapError::IPv6Unsupported(Ipv6Addr::UNSPECIFIED), true),
+            (AutomapError::NoLocalIpAddress, true),
+            (
+                AutomapError::PacketParseError(ParseError::WrongVersion(0)),
+                true,
+            ),
+            (AutomapError::PermanentLeasesOnly, false),
+            (AutomapError::PermanentMappingError("".to_string()), true),
+            (AutomapError::ProbeServerConnectError("".to_string()), true),
+            (AutomapError::ProbeReceiveError("".to_string()), true),
+            (
+                AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, "".to_string()),
+                true,
+            ),
+            (AutomapError::ProtocolError("".to_string()), true),
             (
                 AutomapError::SocketBindingError(
                     "".to_string(),
@@ -309,32 +323,16 @@ mod tests {
                 true,
             ),
             (
-                AutomapError::SocketSendError(AutomapErrorCause::Unknown("".to_string())),
-                true,
-            ),
-            (
                 AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("".to_string())),
                 true,
             ),
             (
-                AutomapError::PacketParseError(ParseError::WrongVersion(0)),
+                AutomapError::SocketSendError(AutomapErrorCause::Unknown("".to_string())),
                 true,
             ),
-            (AutomapError::ProtocolError("".to_string()), true),
-            (AutomapError::PermanentLeasesOnly, false),
             (AutomapError::TemporaryMappingError("".to_string()), false),
-            (AutomapError::PermanentMappingError("".to_string()), true),
-            (AutomapError::ProbeServerConnectError("".to_string()), true),
-            (
-                AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, "".to_string()),
-                true,
-            ),
-            (AutomapError::ProbeReceiveError("".to_string()), true),
-            (AutomapError::DeleteMappingError("".to_string()), false),
             (AutomapError::TransactionFailure("".to_string()), true),
-            (AutomapError::AllProtocolsFailed(vec![]), true),
-            (AutomapError::HousekeeperAlreadyRunning, false),
-            (AutomapError::HousekeeperCrashed, false),
+            (AutomapError::Unknown, true),
         ]
         .into_iter()
         .for_each(|(error, should_crash)| {
