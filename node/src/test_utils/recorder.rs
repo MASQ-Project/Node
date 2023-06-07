@@ -55,11 +55,13 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use crate::type_id;
+
 
 #[derive(Default)]
 pub struct Recorder {
@@ -162,7 +164,7 @@ impl Handler<RouteQueryMessage> for Recorder {
         msg: RouteQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        self.record(msg);
+        self.handle_msg(msg);
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",

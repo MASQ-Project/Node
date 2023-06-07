@@ -1154,7 +1154,7 @@ struct DNSFailureRetry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::match_every_type_id;
+    use crate::{match_every_type_id, type_id};
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -4532,6 +4532,7 @@ mod tests {
                 1234,
             ),
         };
+
         let neighborhood_mock = neighborhood_mock.system_stop_conditions(match_every_type_id!(RouteQueryMessage)).route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
