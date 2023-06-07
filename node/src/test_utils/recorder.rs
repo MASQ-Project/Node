@@ -219,6 +219,7 @@ impl Recorder {
     }
 
     pub fn system_stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
+        panic!("Panic on system_stop_conditions");
         if self.stop_conditions_opt.is_none() {
             self.start_system_killer();
             self.stop_conditions_opt = Some(stop_conditions)
@@ -226,6 +227,12 @@ impl Recorder {
             panic!("Stop conditions must be set by a single method call. Consider to use StopConditions::All")
         };
         self
+    }
+
+    // system_stop_conditions(match_every_type_id!(RouteQueryMessage))
+    pub fn stop_on_message(mut self, type_id: TypeId) -> Recorder {
+        todo!("stop_on_message TODO");
+
     }
 
     fn start_system_killer(&mut self) {
@@ -609,5 +616,32 @@ mod tests {
             }
         );
         assert_eq!(recording.len(), 2);
+    }
+
+    #[test]
+    fn recorder_can_be_stopped_on_a_particular_message() {
+        let system = System::new("recorder_can_be_stopped_on_a_particular_message");
+        let recorder = Recorder::new().stop_on_message(type_id!(FirstMessageType));
+        let recording_arc = recorder.get_recording();
+
+        let rec_addr: Addr<Recorder> = recorder.start();
+
+        rec_addr
+            .try_send(FirstMessageType {
+                string: String::from("String"),
+            })
+            .unwrap();
+
+        system.run();
+
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(
+            recording.get_record::<FirstMessageType>(0),
+            &FirstMessageType {
+                string: String::from("String")
+            }
+        );
+        assert_eq!(recording.len(), 1);
+
     }
 }
