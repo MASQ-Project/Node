@@ -398,14 +398,7 @@ impl FromStr for Hops {
 
 impl Display for Hops {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Hops::OneHop => write!(f, "1"),
-            Hops::TwoHops => write!(f, "2"),
-            Hops::ThreeHops => write!(f, "3"),
-            Hops::FourHops => write!(f, "4"),
-            Hops::FiveHops => write!(f, "5"),
-            Hops::SixHops => write!(f, "6"),
-        }
+        write!(f, "{}", *self as usize)
     }
 }
 

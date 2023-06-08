@@ -339,7 +339,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
         let result = self.get("min_hops_count")?.map(|val| Hops::from_str(&val));
-        Self::missing_value_panic("min_hops_count")
         match result {
             None => Err(PersistentConfigError::NotPresent),
             Some(Ok(hops)) => Ok(hops),
