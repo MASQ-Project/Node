@@ -135,6 +135,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             logger.debug_enabled(),
         );
 
+        eprintln!("adjusted_accounts: {:?}", adjusted_accounts);
         debug!(
             logger,
             "{}",
@@ -335,7 +336,7 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn format_brief_accounts_summary(
+    fn format_brief_adjustment_summary(
         mut original_accounts: HashMap<Wallet, AccountAdjustmentDetails>,
         adjusted_accounts: impl Iterator<Item = (u128, Wallet, u128)>,
     ) -> String {
@@ -347,9 +348,11 @@ impl PaymentAdjusterReal {
                 };
             });
         });
+
         let (adjusted, excluded): (Vec<_>, Vec<_>) = original_accounts
             .into_iter()
             .partition(|(wallet, details)| details.adjusted_balance_opt.is_some());
+
         let adjusted_accounts_as_strings = adjusted
             .into_iter()
             .sorted_by(|(_, details_a), (_, details_b)| {
@@ -365,18 +368,17 @@ impl PaymentAdjusterReal {
                     length = WALLET_ADDRESS_LENGTH
                 )
             })
-            .chain(once("\n".to_string()))
             .join("\n");
-        eprintln!("excluded {:?}", excluded);
-        let excluded_accounts_opt = excluded.is_empty().not().then(|| todo!());
 
-        // once("Excluded less important accounts:\n".to_string())
-        //     .chain(
-        //         excluded
-        //             .into_iter()
-        //             .map(|(wallet, balance)| format!("{} {}", wallet, balance[0])),
-        //     )
-        //     .join("\n")};
+        let excluded_accounts_opt = excluded.is_empty().not().then(|| {
+            once("\nExcluded less important accounts:\n".to_string())
+                .chain(
+                    excluded
+                        .into_iter()
+                        .map(|(wallet, balance)| format!("{} {}", wallet, balance.initial_balance)),
+                )
+                .join("\n")
+        });
 
         vec![Some(adjusted_accounts_as_strings), excluded_accounts_opt]
             .into_iter()
@@ -434,7 +436,10 @@ impl PaymentAdjusterReal {
                 "Original",
                 "",
                 "Adjusted",
-                Self::format_brief_accounts_summary(original_prefabricated, prefabricated_adjusted)
+                Self::format_brief_adjustment_summary(
+                    original_prefabricated,
+                    prefabricated_adjusted
+                )
             )
             //TODO mention accounts that will be excluded completely
         }
@@ -865,7 +870,9 @@ mod tests {
         let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
 
         let expected_criteria_computation_output = emulation_of_the_actual_adjustment_algorithm(
-            (account_1, account_2, account_3),
+            account_1,
+            account_2,
+            Some(account_3),
             consuming_wallet_masq_balance_wei,
             now,
         );
@@ -888,35 +895,42 @@ mod tests {
 |0x0000000000000000000000000000000000616263 444444444444444444
 |                                           332800000000000051
 |0x000000000000000000000000000000000067686b 22000000000000
-|                                           12812800003282
-|"
+|                                           12812800003282"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
 
     fn emulation_of_the_actual_adjustment_algorithm(
-        (account_1, account_2, account_3): (PayableAccount, PayableAccount, PayableAccount),
+        account_1: PayableAccount,
+        account_2: PayableAccount,
+        account_3_opt: Option<PayableAccount>,
         consuming_wallet_masq_balance_wei: U256,
         now: SystemTime,
     ) -> Vec<PayableAccount> {
-        let time_criteria = vec![
-            secs_elapsed(account_1.last_paid_timestamp, now),
-            secs_elapsed(account_2.last_paid_timestamp, now),
-            secs_elapsed(account_3.last_paid_timestamp, now),
-        ];
-        let amount_criteria = vec![
-            account_1.balance_wei * log_10(account_1.balance_wei) as u128,
-            account_2.balance_wei * log_10(account_2.balance_wei) as u128,
-            account_3.balance_wei * log_10(account_3.balance_wei) as u128,
-        ];
+        let accounts = vec![
+            Some(account_1.clone()),
+            Some(account_2.clone()),
+            account_3_opt.clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        let time_criteria = accounts
+            .iter()
+            .map(|account| secs_elapsed(account.last_paid_timestamp, now))
+            .collect();
+        let amount_criteria = accounts
+            .iter()
+            .map(|account| account.balance_wei * log_10(account.balance_wei) as u128)
+            .collect();
+
         let final_criteria = vec![time_criteria, amount_criteria].into_iter().fold(
             vec![0, 0, 0],
-            |acc: Vec<u128>, current| {
-                vec![
-                    acc[0] + current[0],
-                    acc[1] + current[1],
-                    acc[2] + current[2],
-                ]
+            |acc: Vec<u128>, current: Vec<u128>| {
+                acc.into_iter()
+                    .zip(current.into_iter())
+                    .map(|(partial_acc, partial_current)| partial_acc + partial_current)
+                    .collect()
             },
         );
         let final_criteria_sum = U256::from(final_criteria.iter().sum::<u128>());
@@ -928,11 +942,12 @@ mod tests {
             * U256::from(multiplication_coeff)
             / final_criteria_sum)
             .as_u128();
-        let balanced_portions = vec![
-            in_ratio_fragment_of_available_balance * final_criteria[0] / multiplication_coeff,
-            in_ratio_fragment_of_available_balance * final_criteria[1] / multiplication_coeff,
-            in_ratio_fragment_of_available_balance * final_criteria[2] / multiplication_coeff,
-        ];
+        let balanced_portions = final_criteria
+            .iter()
+            .map(|criterion| {
+                in_ratio_fragment_of_available_balance * criterion / multiplication_coeff
+            })
+            .collect::<Vec<u128>>();
         let new_total_amount_to_pay = balanced_portions.iter().sum::<u128>();
         assert!(new_total_amount_to_pay <= consuming_wallet_masq_balance_wei.as_u128());
         assert!(
@@ -945,15 +960,26 @@ mod tests {
         account_1_adjusted.balance_wei = balanced_portions[0];
         let mut account_2_adjusted = account_2;
         account_2_adjusted.balance_wei = balanced_portions[1];
-        let mut account_3_adjusted = account_3;
-        account_3_adjusted.balance_wei = balanced_portions[2];
+        let account_3_adjusted_opt = {
+            match account_3_opt {
+                Some(mut account) => Some({
+                    account.balance_wei = balanced_portions[2];
+                    account
+                }),
+                None => None,
+            }
+        };
 
         vec![
-            (final_criteria[0], account_1_adjusted),
-            (final_criteria[1], account_2_adjusted),
-            (final_criteria[2], account_3_adjusted),
+            Some((final_criteria[0], account_1_adjusted)),
+            Some((final_criteria[1], account_2_adjusted)),
+            match account_3_adjusted_opt {
+                Some(account) => Some((final_criteria[2], account)),
+                None => None,
+            },
         ]
         .into_iter()
+        .flatten()
         .sorted_by(|(criterion_a, _), (criterion_b, _)| Ord::cmp(&criterion_b, &criterion_a))
         .map(|(_, account)| account)
         .collect()
@@ -1012,41 +1038,83 @@ mod tests {
                 accounts: vec![account_2, account_3],
                 response_skeleton_opt: None
             }
-        )
+        );
+        let log_msg = format!(
+            "DEBUG: {test_name}: \n\
+|Adjusted payables:
+|Account wallet                             Balance wei
+|                                           Original
+|                                           Adjusted
+|
+|0x0000000000000000000000000000000000646566 333000000000000
+|                                           333000000000000
+|0x000000000000000000000000000000000067686b 222000000000000
+|                                           222000000000000
+|
+|Excluded less important accounts:
+|
+|0x0000000000000000000000000000000000616263 111000000000000"
+        );
+        TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
 
     #[test]
     fn adjust_payments_when_masq_token_limits_the_final_transaction_count() {
+        let test_name = "adjust_payments_when_masq_token_limits_the_final_transaction_count";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 333_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+            balance_wei: 333_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(12000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 111_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            balance_wei: 111_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(10000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_3 = PayableAccount {
             wallet: make_wallet("ghk"),
-            balance_wei: 444_000_000_000_000,
+            balance_wei: 111_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
-        let zero_criteria_accounts =
-            PaymentAdjusterReal::initialize_zero_criteria(qualified_payables);
+        let subject = PaymentAdjusterReal::new();
+        let consuming_wallet_masq_balance_wei =
+            U256::from(333_000_000_000_u64 + 111_000_000_000 + 60_000_000);
+        let setup_msg = PayablePaymentSetup {
+            qualified_payables,
+            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+                FinancialAndTechDetails {
+                    consuming_wallet_balances: ConsumingWalletBalances {
+                        gas_currency_wei: U256::from(5_000_000_000_000_000_000_000_000_u128),
+                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+                        masq_tokens_wei: consuming_wallet_masq_balance_wei,
+                    },
+                    estimated_gas_limit_per_transaction: 77_000,
+                    desired_gas_price_gwei: 24,
+                },
+            )),
+            response_skeleton_opt: None,
+        };
+        let adjustment_setup = AwaitedAdjustment {
+            original_setup_msg: setup_msg,
+            adjustment: Adjustment::MasqToken,
+        };
 
-        let weights_and_accounts = PaymentAdjusterReal::apply_criteria(zero_criteria_accounts, now);
+        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
 
-        let only_accounts = weights_and_accounts
-            .iter()
-            .map(|(_, account)| account)
-            .collect::<Vec<&PayableAccount>>();
-        assert_eq!(only_accounts, vec![&account_3, &account_1, &account_2])
+        let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
+            account_1,
+            account_2,
+            None,
+            consuming_wallet_masq_balance_wei,
+            now,
+        );
+        assert_eq!(result.accounts, expected_accounts)
+        //TODO log eventually
     }
 
     #[test]
