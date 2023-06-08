@@ -3,7 +3,6 @@
 #![cfg(test)]
 
 use crate::accountant::database_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::database_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -13,37 +12,48 @@ use crate::accountant::database_access_objects::pending_payable_dao::{
 use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::payable_scan_setup_msgs::inter_actor_communication_for_payable_scanner::{
-    ConsumingWalletBalancesAndGasParams, PayablePaymentSetup,
-};
+use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scan_mid_procedures::AwaitingAdjustment;
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
+use crate::accountant::scanners::scan_mid_procedures::{
+    AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
-use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::scanners::{
+    BeginScanError, PayableScanner, PendingPayableScanner, PeriodicalScanScheduler,
+    ReceivableScanner, ScanSchedulers, Scanner,
+};
+use crate::accountant::{
+    gwei_to_wei, Accountant, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+    ScanForReceivables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, ScanIntervals};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
-use actix::System;
+use actix::{Message, System};
 use ethereum_types::H256;
 use masq_lib::logger::Logger;
+use masq_lib::messages::ScanType;
+use masq_lib::ui_gateway::NodeToUiMessage;
 use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
+use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -1381,36 +1391,35 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params:
-        Arc<Mutex<Vec<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>>>>,
+    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
     is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(AwaitingAdjustment, SystemTime)>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn is_adjustment_required(
         &self,
-        msg: &PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>,
+        msg: &PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
-            .push(msg.clone());
+            .push((msg.clone(), logger.clone()));
         self.is_adjustment_required_results.borrow_mut().remove(0)
     }
 
     fn adjust_payments(
         &self,
-        setup: AwaitingAdjustment,
+        setup: AwaitedAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         self.adjust_payments_params
             .lock()
             .unwrap()
-            .push((setup, now));
+            .push((setup, now, logger.clone()));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1418,7 +1427,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<PayablePaymentSetup<ConsumingWalletBalancesAndGasParams>>>>,
+        params: &Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1436,7 +1445,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(AwaitingAdjustment, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
@@ -1446,4 +1455,244 @@ impl PaymentAdjusterMock {
         self.adjust_payments_results.borrow_mut().push(result);
         self
     }
+}
+
+pub fn make_initial_payable_payment_setup_message(
+    qualified_payables: Vec<PayableAccount>,
+    response_skeleton_opt: Option<ResponseSkeleton>,
+) -> PayablePaymentSetup {
+    PayablePaymentSetup {
+        qualified_payables,
+        this_stage_data_opt: None,
+        response_skeleton_opt,
+    }
+}
+
+pub struct NullScanner {}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        Err(BeginScanError::CalledFromNullScanner)
+    }
+
+    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        panic!("Called finish_scan() from NullScanner");
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        panic!("Called scan_started_at() from NullScanner");
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        panic!("Called mark_as_started() from NullScanner");
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        panic!("Called mark_as_ended() from NullScanner");
+    }
+
+    implement_as_any!();
+}
+
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for NullScanner {}
+
+impl PayableScannerMiddleProcedures for NullScanner {}
+
+impl Default for NullScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NullScanner {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct ScannerMock<BeginMessage, EndMessage> {
+    begin_scan_params: Arc<Mutex<Vec<()>>>,
+    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
+    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
+    stop_system_after_last_message: RefCell<bool>,
+}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+    for ScannerMock<BeginMessage, EndMessage>
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        self.begin_scan_params.lock().unwrap().push(());
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.begin_scan_results.borrow_mut().remove(0)
+    }
+
+    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        self.end_scan_params.lock().unwrap().push(message);
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.end_scan_results.borrow_mut().remove(0)
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        intentionally_blank!()
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        intentionally_blank!()
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        intentionally_blank!()
+    }
+}
+
+impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+    pub fn new() -> Self {
+        Self {
+            begin_scan_params: Arc::new(Mutex::new(vec![])),
+            begin_scan_results: RefCell::new(vec![]),
+            end_scan_params: Arc::new(Mutex::new(vec![])),
+            end_scan_results: RefCell::new(vec![]),
+            stop_system_after_last_message: RefCell::new(false),
+        }
+    }
+
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.begin_scan_params = params.clone();
+        self
+    }
+
+    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
+        self.begin_scan_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn stop_the_system(self) -> Self {
+        self.stop_system_after_last_message.replace(true);
+        self
+    }
+
+    pub fn is_allowed_to_stop_the_system(&self) -> bool {
+        *self.stop_system_after_last_message.borrow()
+    }
+
+    pub fn is_last_message(&self) -> bool {
+        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
+    }
+
+    pub fn is_last_message_from_begin_scan(&self) -> bool {
+        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+    }
+
+    pub fn is_last_message_from_end_scan(&self) -> bool {
+        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
+    }
+}
+
+impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables>
+    for ScannerMock<PayablePaymentSetup, SentPayables>
+{
+}
+
+impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentSetup, SentPayables> {}
+
+impl ScanSchedulers {
+    pub fn update_scheduler<T: Default + 'static>(
+        &mut self,
+        scan_type: ScanType,
+        handle_opt: Option<Box<dyn NotifyLaterHandle<T, Accountant>>>,
+        interval_opt: Option<Duration>,
+    ) {
+        let scheduler = self
+            .schedulers
+            .get_mut(&scan_type)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<PeriodicalScanScheduler<T>>()
+            .unwrap();
+        if let Some(new_handle) = handle_opt {
+            scheduler.handle = new_handle
+        }
+        if let Some(new_interval) = interval_opt {
+            scheduler.interval = new_interval
+        }
+    }
+}
+
+pub fn assert_real_scan_schedulers(subject: &ScanSchedulers, scan_intervals: ScanIntervals) {
+    let payable_scheduler = subject
+        .schedulers
+        .get(&ScanType::Payables)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<PeriodicalScanScheduler<ScanForPayables>>()
+        .unwrap();
+    assert_eq!(
+        payable_scheduler.interval,
+        scan_intervals.payable_scan_interval
+    );
+    payable_scheduler
+        .handle
+        .as_any()
+        .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
+        .unwrap();
+    let pending_payable_scheduler = subject
+        .schedulers
+        .get(&ScanType::PendingPayables)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<PeriodicalScanScheduler<ScanForPendingPayables>>()
+        .unwrap();
+    assert_eq!(
+        pending_payable_scheduler.interval,
+        scan_intervals.pending_payable_scan_interval
+    );
+    pending_payable_scheduler
+        .handle
+        .as_any()
+        .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
+        .unwrap();
+    let receivable_scheduler = subject
+        .schedulers
+        .get(&ScanType::Receivables)
+        .unwrap()
+        .as_any()
+        .downcast_ref::<PeriodicalScanScheduler<ScanForReceivables>>()
+        .unwrap();
+    assert_eq!(
+        receivable_scheduler.interval,
+        scan_intervals.receivable_scan_interval
+    );
+    receivable_scheduler
+        .handle
+        .as_any()
+        .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>()
+        .unwrap();
 }

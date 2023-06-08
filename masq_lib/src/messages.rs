@@ -775,7 +775,7 @@ conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ScanType {
     Payables,
     Receivables,
