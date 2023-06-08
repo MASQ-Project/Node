@@ -339,6 +339,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
         let result = self.get("min_hops_count")?.map(|val| Hops::from_str(&val));
+        Self::missing_value_panic("min_hops_count")
         match result {
             None => Err(PersistentConfigError::NotPresent),
             Some(Ok(hops)) => Ok(hops),
@@ -347,8 +348,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_min_hops_count(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
-        let value = format!("{}", value as usize);
-        Ok(self.dao.set("min_hops_count", Some(value))?)
+        Ok(self.dao.set("min_hops_count", Some(value.to_string()))?)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -1725,7 +1725,7 @@ mod tests {
 
         let result = subject.set_min_hops_count(Hops::TwoHops);
 
-        assert!(result.is_ok());
+        assert_eq!(result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
             *set_params,
