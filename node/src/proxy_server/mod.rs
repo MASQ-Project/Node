@@ -327,6 +327,13 @@ impl ProxyServer {
                         Err(_) => { todo!(" FIX ME") }
                     }
                 }
+                if retry.retries_left == 0 {
+                    debug!(
+                        self.logger,
+                        "Retiring stream key {}: DnsResolveFailure", &response.stream_key
+                    );
+                    self.purge_stream_key(&response.stream_key);
+                }
 
 
                 // match  {
@@ -339,6 +346,7 @@ impl ProxyServer {
                 //     }
                 // };
 
+                // TODO: Should we send this statment each time or should we send it when we purge the stream key.
                 self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
@@ -355,13 +363,6 @@ impl ProxyServer {
                             ),
                     })
                     .expect("Dispatcher is dead");
-                debug!(
-                    self.logger,
-                    "Retiring stream key {}: DnsResolveFailure", &response.stream_key
-                );
-                if retry.retries_left == 0 {
-                    self.purge_stream_key(&response.stream_key);
-                }
             }
             None => {
                 error!(self.logger,
@@ -4621,7 +4622,10 @@ mod tests {
 
     #[test]
     fn handle_dns_resolve_failure_sent_request_retry_three_times() {
-        let system = System::new("test");
+        init_test_logging();
+        let test_name = "handle_dns_resolve_failure_sent_request_retry_three_times";
+        let system = System::new(test_name);
+
         // let resolve_message_params_arc = Arc::new(Mutex::new(vec![]));
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
@@ -4654,7 +4658,9 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
+        subject.logger = Logger::new(test_name);
         let stream_key = make_meaningless_stream_key();
+        let stream_key_clone = stream_key.clone();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
@@ -4711,6 +4717,14 @@ mod tests {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                 let retry = proxy_server.dns_failure_retries.get(&stream_key).unwrap();
                 assert_eq!(retry.retries_left , 0);
+
+                // let _ = self.keys_and_addrs.remove_a(stream_key);
+                // let _ = self.stream_key_routes.remove(stream_key);
+                // let _ = self.tunneled_hosts.remove(stream_key);
+
+                assert_eq!(proxy_server.keys_and_addrs.a_to_b(&stream_key), None);
+                assert_eq!(proxy_server.stream_key_routes.get(&stream_key), None);
+                assert_eq!(proxy_server.tunneled_hosts.get(&stream_key), None);
             }),
         })
             .unwrap();
@@ -4718,6 +4732,11 @@ mod tests {
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
+        ));
+
 
 
     }
