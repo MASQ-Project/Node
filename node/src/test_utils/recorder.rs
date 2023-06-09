@@ -45,7 +45,7 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
-use crate::test_utils::recorder_stop_conditions::StopConditions;
+use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
@@ -219,7 +219,6 @@ impl Recorder {
     }
 
     pub fn system_stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
-        panic!("Panic on system_stop_conditions");
         if self.stop_conditions_opt.is_none() {
             self.start_system_killer();
             self.stop_conditions_opt = Some(stop_conditions)
@@ -229,10 +228,8 @@ impl Recorder {
         self
     }
 
-    // system_stop_conditions(match_every_type_id!(RouteQueryMessage))
     pub fn stop_on_message(mut self, type_id: TypeId) -> Recorder {
-        todo!("stop_on_message TODO");
-
+        self.system_stop_conditions(StopConditions::All(vec![StopCondition::StopOnType(type_id)]))
     }
 
     fn start_system_killer(&mut self) {

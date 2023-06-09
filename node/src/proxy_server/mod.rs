@@ -4532,8 +4532,7 @@ mod tests {
                 1234,
             ),
         };
-
-        let neighborhood_mock = neighborhood_mock.system_stop_conditions(match_every_type_id!(RouteQueryMessage)).route_query_response(Some(route_query_response_expected.clone()));
+        let neighborhood_mock = neighborhood_mock.stop_on_message(type_id!(RouteQueryMessage)).route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
