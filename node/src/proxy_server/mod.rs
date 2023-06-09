@@ -705,7 +705,7 @@ impl ProxyServer {
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
         is_decentralized: bool,
-    ) {
+    )-> Result<(), String> {
         let destination_key_opt = if is_decentralized {
             expected_services.iter().find_map(|service| match service {
                 ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
@@ -716,7 +716,7 @@ impl ProxyServer {
             Some(main_cryptde.public_key().clone())
         };
         match destination_key_opt {
-            None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
+            None => Err(ProxyServer::handle_route_failure(payload, source_addr, dispatcher)),
             Some(payload_destination_key) => {
                 debug!(
                     logger,
@@ -765,19 +765,20 @@ impl ProxyServer {
                         })
                         .expect("Proxy Server is dead");
                 }
+                Ok(())
             }
         }
     }
 
     fn handle_route_failure(
         payload: ClientRequestPayload_0v1,
-        logger: &Logger,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
-    ) {
+    ) -> String {
         let target_hostname = ProxyServer::hostname(&payload);
+        let stream_key = payload.stream_key;
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
-        error!(logger, "Failed to find route to {}", target_hostname);
+        format!("Failed to find route for stream_key: {} to {}", stream_key, target_hostname)
     }
 
     fn send_route_failure(
@@ -915,7 +916,7 @@ trait RouteQueryResponseResolver: Send {
         args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-    );
+    ) -> Result<(), String>;
 }
 struct RouteQueryResponseResolverReal {}
 
@@ -925,7 +926,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         mut args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-    ) {
+    ) -> Result<(), String> {
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
@@ -936,21 +937,18 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                ProxyServer::try_transmit_to_hopper(args, route_query_response)
+                ProxyServer::try_transmit_to_hopper(args, route_query_response);
+                Ok(())
             }
             Ok(None) => {
-                ProxyServer::handle_route_failure(
+                Err(ProxyServer::handle_route_failure(
                     args.payload,
-                    &args.logger,
                     args.source_addr,
                     &args.dispatcher_sub,
-                )
+                ))
             }
             Err(e) => {
-                error!(
-                    args.logger,
-                    "Neighborhood refused to answer route request: {:?}", e
-                );
+                Err(format!("Neighborhood refused to answer route request: {:?}", e ))
             }
         }
     }
@@ -1071,8 +1069,14 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    message_resolver.resolve_message(tth_args, add_route_sub, route_result);
-                    Ok(())
+                    // let stream_key = tth_args.payload.stream_key;
+                    // let hostname_opt = tth_args.payload.target_hostname;
+                    match message_resolver.resolve_message(tth_args, add_route_sub, route_result) {
+                        Ok(_) => { todo!("Fix for the GOod case") },
+                        Err(e) => { todo!("Error Received: {}", e) }
+                    }
+                    todo!("Break some Tests XD");
+
                 }),
         );
         Ok(())
@@ -1086,7 +1090,7 @@ impl IBCDHelperReal {
         tth_args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-    ) {
+    ) -> Result<(), String> {
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
@@ -1095,19 +1099,16 @@ impl IBCDHelperReal {
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                ProxyServer::try_transmit_to_hopper(tth_args, route_query_response)
+                ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+                Ok(())
             }
-            Ok(None) => ProxyServer::handle_route_failure(
+            Ok(None) => Err(ProxyServer::handle_route_failure(
                 tth_args.payload,
-                &tth_args.logger,
                 tth_args.source_addr,
                 &tth_args.dispatcher_sub,
-            ),
+            )),
             Err(e) => {
-                error!(
-                    tth_args.logger,
-                    "Neighborhood refused to answer route request: {:?}", e
-                );
+                Err(format!("Neighborhood refused to answer route request: {:?}", e ))
             }
         }
     }
@@ -1249,11 +1250,12 @@ mod tests {
             args: TryTransmitToHopperArgs,
             add_route_sub: Recipient<AddRouteMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-        ) {
+        ) -> Result<(), String> {
             self.resolve_message_params
                 .lock()
                 .unwrap()
                 .push((args, route_result));
+            Ok(()) //TODO: Fix this Later
         }
     }
 
