@@ -47,9 +47,12 @@ impl ServerInitializer for ServerInitializerReal {
                     .as_mut()
                     .initialize_as_privileged(&params.multi_config),
             );
-
+        //panic!("ServerInitializerReal {:#?}", &params.data_directory);
+        //TODO check if we can remove chown function from code base
+        //TODO create test for fn privilege_dropped to test if chown changes rights for file, test could ask for manipulation with file owned by root after chown to real user
         self.privilege_dropper
             .chown(&params.data_directory, &params.real_user);
+        println!("ServerInitializer go drop_privileges {:#?}", &params.data_directory);
         self.privilege_dropper.drop_privileges(&params.real_user);
 
         result
@@ -114,20 +117,23 @@ impl ResultsCombiner for RunModeResult {
 
 pub struct GatheredParams<'a> {
     pub multi_config: MultiConfig<'a>,
-    pub data_directory: PathBuf,
+    pub config_file_path: PathBuf,
     pub real_user: RealUser,
+    pub data_directory: PathBuf,
 }
 
 impl<'a> GatheredParams<'a> {
     pub fn new(
         multi_config: MultiConfig<'a>,
-        data_directory: PathBuf,
+        config_file_path: PathBuf,
         real_user: RealUser,
+        data_directory: PathBuf,
     ) -> Self {
         Self {
             multi_config,
-            data_directory,
+            config_file_path,
             real_user,
+            data_directory
         }
     }
 }

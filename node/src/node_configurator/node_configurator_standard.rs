@@ -7,7 +7,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::{ExpectValue, NeighborhoodModeLight};
+use masq_lib::utils::{add_chain_specific_directories, ExpectValue, NeighborhoodModeLight};
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -23,7 +23,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_config_file_path,
+    data_directory_from_context, determine_fundamentals,
     real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
 };
 use crate::server_initializer::GatheredParams;
@@ -31,10 +31,11 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use std::str::FromStr;
+use masq_lib::blockchains::chains::Chain;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -142,11 +143,16 @@ pub fn server_initializer_collected_params<'a>(
     args: &[String],
 ) -> Result<GatheredParams<'a>, ConfiguratorError> {
     let app = app_node();
-    let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
+
+    let (config_file_path, user_specified, data_directory_opt_from_multiconfig) = determine_fundamentals(dirs_wrapper, &app, args)?;
+
+    //TODO fix this to obtain data_directgory and rename fn determine_config_file_path to determine_fundamentals
+    //TODO This function obtains path to congif file, but it is returning data_directory path
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
+    //TODO rename this multiconfig according to fact that its extended with config file arguments
     let multi_config = make_new_multi_config(
         &app,
         vec![
@@ -155,12 +161,35 @@ pub fn server_initializer_collected_params<'a>(
             config_file_vcl,
         ],
     )?;
-    let data_directory = config_file_path
+    let config_file_path = config_file_path
         .parent()
         .map(|dir| dir.to_path_buf())
         .expectv("data_directory");
     let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
-    GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
+    println!("server_initializer_collected_params chain from multiconfig: {:#?}", value_m!(multi_config, "chain", String));
+    let data_directory_opt = match data_directory_opt_from_multiconfig {
+        Some(data_dir) => data_dir,
+        None => {
+            let chain = match value_m!(multi_config, "chain", String) {
+                Some(chain) => Chain::from(chain.as_str()),
+                None => DEFAULT_CHAIN
+            };
+            data_directory_from_context(dirs_wrapper, &real_user, chain)
+        }
+    };
+
+    //TODO fetch data directory with match from multi_config from line 153 with value_m!(multi_config, "data-directory", PathBuf).expectv("data-directory");
+
+    // println!("data_directory_opt for GatheredParams {:#?}", &data_directory_opt);
+    // println!("value cain for GatheredParams {:#?}", &multi_config);
+    // //let chain = value_m!(multi_config, "chain", String).expectv("chain");
+    // println!("value data_directory for GatheredParams {:#?}", value_m!(multi_config, "data-directory", PathBuf).expectv("data-directory"));
+    // //data_directory = value_m!(multi_config, "data-directory", PathBuf).expectv("data-directory");
+    // let data_directory = match value_m!(multi_config, "data-directory", PathBuf).expectv("data-directory") {
+    //     data_directory => data_directory
+    // };
+    //TODO add next value "config_file_path" from line 145
+    GatheredParams::new(multi_config, config_file_path, real_user, data_directory_opt).wrap_to_ok()
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -191,8 +220,11 @@ pub fn privileged_parse_args(
 ) -> Result<(), ConfiguratorError> {
     let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
-    let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
+    //TODO implement match to check if data-directory contains chain
+    let directory = match data_directory_opt {
+        Some(data_directory_opt) => data_directory_opt,
+        None => add_chain_specific_directories(chain, &data_directory_from_context(dirs_wrapper, &real_user, chain))
+    };
     privileged_config.real_user = real_user;
     privileged_config.data_directory = directory;
     privileged_config.blockchain_bridge_config.chain = chain;
@@ -995,11 +1027,11 @@ mod tests {
         vec![
             (None, None, Some("/home/cooga/.local/MASQ/polygon-mainnet")),
             (Some("polygon-mumbai"), None, Some("/home/cooga/.local/MASQ/polygon-mumbai")),
-            (None, Some("booga"), Some("booga/polygon-mainnet")),
-            (Some("polygon-mumbai"), Some("booga"), Some("booga/polygon-mumbai")),
-            (None, Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mainnet")),
-            (None, Some("booga/polygon-mumbai/polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet/polygon-mainnet")),
-            (Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mumbai")),
+            (None, Some("/cooga"), Some("/cooga/polygon-mainnet")),
+            (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga/polygon-mumbai")),
+            (None, Some("/cooga/polygon-mumbai"), Some("/cooga/polygon-mumbai/polygon-mainnet")),
+            (None, Some("/cooga/polygon-mumbai/polygon-mainnet"), Some("/cooga/polygon-mumbai/polygon-mainnet/polygon-mainnet")),
+            (Some("polygon-mumbai"), Some("/cooga/polygon-mumbai"), Some("/cooga/polygon-mumbai/polygon-mumbai")),
         ].iter().for_each(|(chain_opt, data_directory_opt, expected)| {
             check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
         });

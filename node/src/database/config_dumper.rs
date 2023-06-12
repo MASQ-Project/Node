@@ -145,10 +145,10 @@ fn distill_args(
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
-    let (real_user, data_directory_opt, chain) =
+    let (real_user, _data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
+        data_directory_from_context(dirs_wrapper, &real_user, chain);
     let password_opt = value_m!(multi_config, "db-password", String);
     Ok((real_user, directory, chain, password_opt))
 }

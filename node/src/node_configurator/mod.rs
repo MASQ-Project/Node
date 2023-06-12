@@ -20,7 +20,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{add_chain_specific_directories, localhost, ExpectValue, WrapResult, add_chain_specific_directory};
+use masq_lib::utils::{add_chain_specific_directories, localhost, ExpectValue, WrapResult};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -28,11 +28,11 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-pub fn determine_config_file_path(
+pub fn determine_fundamentals(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool), ConfiguratorError> {
+) -> Result<(PathBuf, bool, Option<PathBuf>), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -58,9 +58,12 @@ pub fn determine_config_file_path(
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
+    //todo!("check for user specified data_directory from multi config");
+    //TODO enrich tuple with data_directory path, config file path just for config file
+    //TODO check if multiconfig is same as multiconfig in server initializer colected params, if yes, we can create multiconfig only once and pass it in or out - is not
     let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
-    (directory.join(config_file_path), user_specified).wrap_to_ok()
+        data_directory_from_context(dirs_wrapper, &real_user, chain);
+    (directory.join(config_file_path), user_specified, data_directory_opt).wrap_to_ok()
 }
 
 pub fn initialize_database(
@@ -107,29 +110,8 @@ pub fn real_user_data_directory_opt_and_chain(
 pub fn data_directory_from_context(
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
-    data_directory_opt: &Option<PathBuf>, //get out this var and match, use only second arm
     chain: Chain,
 ) -> PathBuf {
-    // let chain_specific_data_dir: PathBuf = match data_directory_opt {
-    //     Some(data_directory) => data_directory.clone(), //add_chain_specific_directory(chain, data_directory.as_path()),
-    //     None => {
-    //         let right_home_dir = real_user
-    //             .home_dir_opt
-    //             .as_ref()
-    //             .expect("No real-user home directory; specify --real-user");
-    //         let wrong_home_dir = dirs_wrapper
-    //             .home_dir()
-    //             .expect("No privileged home directory; specify --data-directory");
-    //         let wrong_local_data_dir = dirs_wrapper
-    //             .data_dir()
-    //             .expect("No privileged local data directory; specify --data-directory");
-    //         let adjusted_local_data_dir: &Path = wrong_local_data_dir
-    //             .strip_prefix(wrong_home_dir)
-    //             .expect("std lib failed");
-    //
-    //         right_home_dir.join(adjusted_local_data_dir).as_path() //add_chain_specific_directories(chain, right_home_dir.join(adjusted_local_data_dir).as_path())
-    //     }
-    // };
     let right_home_dir = real_user
         .home_dir_opt
         .as_ref()
@@ -140,12 +122,18 @@ pub fn data_directory_from_context(
     let wrong_local_data_dir = dirs_wrapper
         .data_dir()
         .expect("No privileged local data directory; specify --data-directory");
+    println!("wrong_home_dir: {:#?}", &wrong_home_dir);
+    println!("wrong_local_data_dir: {:#?}", &wrong_local_data_dir);
     let adjusted_local_data_dir: &Path = wrong_local_data_dir
         .strip_prefix(wrong_home_dir)
         .expect("std lib failed");
-
-    right_home_dir.join(adjusted_local_data_dir)
-    //chain_specific_data_dir
+    println!("adjusted_local_data_dir: {:#?}", &adjusted_local_data_dir);
+    let homedir = right_home_dir.join(adjusted_local_data_dir);
+    /*let chain_specific_data_dir = match homedir.as_path().ends_with(chain.rec().literal_identifier) {
+         true => homedir,
+        false => add_chain_specific_directories(chain, &homedir),
+    };*/
+    homedir
 }
 
 pub fn port_is_busy(port: u16) -> bool {
@@ -200,13 +188,11 @@ mod tests {
                 "/nonexistent_home/nonexistent_alice".to_string(),
             )),
         );
-        let data_dir_opt = None;
         let chain_name = "polygon-mumbai";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
             &real_user,
-            &data_dir_opt,
             Chain::from(chain_name),
         );
 
@@ -231,7 +217,6 @@ mod tests {
         let result = data_directory_from_context(
             &dirs_wrapper,
             &real_user,
-            &data_dir_opt,
             Chain::from(chain_name),
         );
 
@@ -257,7 +242,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified,  _data_directory_opt) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -287,7 +272,7 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_directory_opt) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -311,7 +296,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_directory_opt) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -334,7 +319,7 @@ mod tests {
             .param("--config-file", r"\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -357,7 +342,7 @@ mod tests {
             .param("--config-file", r"c:\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -380,7 +365,7 @@ mod tests {
             .param("--config-file", r"\\TMP\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -404,7 +389,7 @@ mod tests {
             .param("--config-file", r"c:tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

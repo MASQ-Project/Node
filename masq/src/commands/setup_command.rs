@@ -74,6 +74,7 @@ impl SetupCommand {
                 }
             })
             .collect::<Vec<UiSetupRequestValue>>();
+        println!("command values: {:#?}", &values);
         values.sort_by(|a, b| {
             a.name
                 .partial_cmp(&b.name)
@@ -117,9 +118,9 @@ impl SetupCommand {
                 _ => None
             }
         } ).collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
-        let (chain_name, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
+        let (_, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
         let (_, data_directory_param_status) = chain_and_data_dir.remove("data-directory").expect("data-directory is missing in setup cluster");
-
+        println!("data_directory_param_status {:#?}", &data_directory_param_status);
         inner.values.into_iter().for_each(|value| {
             //let value_value = Self::match_value_value(value.clone(), &chain_name);
             short_writeln!(

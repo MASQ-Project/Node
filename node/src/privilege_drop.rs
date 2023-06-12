@@ -109,6 +109,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
             return;
         }
         // Don't bother trying to chown if we're not root
+        println!("priviledge drop - chown: {:#?}", &file);
         if (self.id_wrapper.getgid() == 0) && (self.id_wrapper.getuid() == 0) {
             let mut command = std::process::Command::new("chown");
             let args = vec![

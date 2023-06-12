@@ -48,6 +48,7 @@ macro_rules! values_m {
     }};
 }
 
+#[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
 }

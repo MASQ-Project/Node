@@ -461,6 +461,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
         self.config = NodeConfiguratorStandardPrivileged::new().configure(multi_config)?;
+        println!("ConfiguredByPrivilege self.config.data_directory {:#?}", self.config.data_directory);
         self.logger_initializer.init(
             self.config.data_directory.clone(),
             &self.config.real_user,
@@ -493,6 +494,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         fdlimit::raise_fd_limit();
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
+        println!("initialize_as_unprivileged unprivileged_config {:#?}", &unprivileged_config);
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
