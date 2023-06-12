@@ -337,6 +337,7 @@ impl ProxyServer {
                         Err(_) => { todo!(" FIX ME") }
                     }
                 } else {
+                    self.dns_failure_retries.insert(response.stream_key, retry.clone());
                     debug!( // TODO: should we change this to warning?
                         self.logger,
                         "Retiring stream key {}: DnsResolveFailure", &response.stream_key
