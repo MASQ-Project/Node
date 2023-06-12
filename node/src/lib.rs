@@ -29,7 +29,6 @@ mod listener_handler;
 pub mod masquerader;
 pub mod neighborhood;
 pub mod node_configurator;
-#[cfg(test)]
 mod node_test_utils;
 mod null_masquerader;
 pub mod privilege_drop;
