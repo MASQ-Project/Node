@@ -129,11 +129,11 @@ pub fn data_directory_from_context(
         .expect("std lib failed");
     println!("adjusted_local_data_dir: {:#?}", &adjusted_local_data_dir);
     let homedir = right_home_dir.join(adjusted_local_data_dir);
-    /*let chain_specific_data_dir = match homedir.as_path().ends_with(chain.rec().literal_identifier) {
+    let chain_specific_data_dir = match homedir.as_path().ends_with(chain.rec().literal_identifier) {
          true => homedir,
         false => add_chain_specific_directories(chain, &homedir),
-    };*/
-    homedir
+    };
+    chain_specific_data_dir
 }
 
 pub fn port_is_busy(port: u16) -> bool {
