@@ -276,6 +276,7 @@ impl ProxyServer {
                 })
                 .clone()
         };
+
         let server_name_opt = return_route_info.hostname_opt.clone();
         let response = &msg.payload;
 
@@ -293,6 +294,8 @@ impl ProxyServer {
                             },
                         })
                         .expect("Neighborhood is dead");
+                } else {
+                // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
@@ -300,6 +303,13 @@ impl ProxyServer {
                 let mut retry = self.dns_failure_retries.remove(&response.stream_key).unwrap_or_else(|| {
                     todo!("my feeling is the code is broken in such a case...maybe even panic");
                 });
+
+                // TODO: List of points to take out dns_failure_retries
+                // when all retry have failed
+                // If it succeeds
+                // when ever purge_stream_key is called
+                //
+
 
                 if retry.retries_left > 0 {
                     let args = TryTransmitToHopperArgs{
@@ -313,7 +323,7 @@ impl ProxyServer {
                         dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
                         accountant_sub: self.out_subs("Accountant").accountant.clone(),
                         add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-                        is_decentralized: true,
+                        is_decentralized: self.is_decentralized, //TODO did this break a test? value was true
                     };
                     let route_source = self.out_subs("Neighborhood").route_source.clone();
                     let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
@@ -326,13 +336,31 @@ impl ProxyServer {
                         }
                         Err(_) => { todo!(" FIX ME") }
                     }
-                }
-                if retry.retries_left == 0 {
-                    debug!(
+                } else {
+                    debug!( // TODO: should we change this to warning?
                         self.logger,
                         "Retiring stream key {}: DnsResolveFailure", &response.stream_key
                     );
+                    // TODO: Delete stream_key out of dns_failure_retries also
                     self.purge_stream_key(&response.stream_key);
+
+                    // TODO: We need a test for this.
+                    self.subs
+                        .as_ref()
+                        .expect("Dispatcher unbound in ProxyServer")
+                        .dispatcher
+                        .try_send(TransmitDataMsg {
+                            endpoint: Endpoint::Socket(socket_addr),
+                            last_data: true,
+                            sequence_number: Some(0), // DNS resolution errors always happen on the first request
+                            data: from_protocol(return_route_info.protocol)
+                                .server_impersonator()
+                                .dns_resolution_failure_response(
+                                    &exit_public_key,
+                                    return_route_info.hostname_opt.clone(),
+                                ),
+                        })
+                        .expect("Dispatcher is dead");
                 }
 
 
@@ -346,23 +374,7 @@ impl ProxyServer {
                 //     }
                 // };
 
-                // TODO: Should we send this statment each time or should we send it when we purge the stream key.
-                self.subs
-                    .as_ref()
-                    .expect("Dispatcher unbound in ProxyServer")
-                    .dispatcher
-                    .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(socket_addr),
-                        last_data: true,
-                        sequence_number: Some(0), // DNS resolution errors always happen on the first request
-                        data: from_protocol(return_route_info.protocol)
-                            .server_impersonator()
-                            .dns_resolution_failure_response(
-                                &exit_public_key,
-                                return_route_info.hostname_opt.clone(),
-                            ),
-                    })
-                    .expect("Dispatcher is dead");
+
             }
             None => {
                 error!(self.logger,
@@ -1075,7 +1087,6 @@ impl IBCDHelper for IBCDHelperReal {
                         Ok(_) => { todo!("Fix for the GOod case") },
                         Err(e) => { todo!("Error Received: {}", e) }
                     }
-                    todo!("Break some Tests XD");
 
                 }),
         );
