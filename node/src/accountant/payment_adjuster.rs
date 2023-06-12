@@ -9,13 +9,9 @@ use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
-use futures::collect;
 use itertools::{Either, Itertools};
-use lazy_static::lazy_static;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
-use rand::distributions::uniform::SampleBorrow;
-use rusqlite::ffi::sqlite3_keyword_name;
 #[cfg(test)]
 use std::any::Any;
 use std::collections::HashMap;
@@ -77,8 +73,8 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Err(e) => todo!(),
         };
 
-        let required_masq_sum =
-            Self::sum_as_u256(qualified_payables, |payable| payable.balance_wei);
+        let required_masq_sum: U256 =
+            Self::sum_as(qualified_payables, |payable| payable.balance_wei);
         let cw_masq_balance = this_stage_data.consuming_wallet_balances.masq_tokens_wei;
 
         let required_by_masq_token = if U256::from(required_masq_sum) <= cw_masq_balance {
@@ -128,6 +124,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         };
 
         let (adjusted_accounts, debug_info_opt) = Self::run_recursively(
+            vec![],
             current_stage_data,
             initial_known_elimination_limits,
             qualified_payables,
@@ -165,8 +162,9 @@ impl PaymentAdjusterReal {
         Self {}
     }
 
-    fn sum_as_u256<T, F>(collection: &[T], arranger: F) -> U256
+    fn sum_as<N, T, F>(collection: &[T], arranger: F) -> N
     where
+        N: From<u128>,
         F: Fn(&T) -> u128,
     {
         collection.iter().map(arranger).sum::<u128>().into()
@@ -217,17 +215,18 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn find_multiplication_coeff(cw_masq_balance: U256, criteria_sum: U256) -> u128 {
+    //TODO write a test that tries really big balances...if we can kill the ceiling
+    fn find_multiplication_coeff(cw_masq_balance: u128, criteria_sum: u128) -> u128 {
         eprintln!(
             "criteria sum: {}, cw_masq_balance {}",
             criteria_sum, cw_masq_balance
         );
-        let num_len_criteria = log_10(criteria_sum.as_u128()); //TODO make the log_10 fn generic
-        let num_len_cw_balance = log_10(cw_masq_balance.as_u128());
+        let num_len_criteria = log_10(criteria_sum); //TODO make the log_10 fn generic
+        let num_len_cw_balance = log_10(cw_masq_balance);
         let smallest_mul_coeff_between = num_len_criteria
             .checked_sub(num_len_cw_balance)
             .unwrap_or(1);
-        let safe_mul_coeff = smallest_mul_coeff_between + 2; //empiric, affects the precision of the computed results
+        let safe_mul_coeff = smallest_mul_coeff_between + 6; //empiric, affects the precision of the computed results
         1_u128 * 10_u128.pow(safe_mul_coeff as u32)
     }
 
@@ -266,22 +265,46 @@ impl PaymentAdjusterReal {
     fn handle_adjustment(
         cw_masq_balance: U256,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-    ) -> Vec<PayableAccount> {
-        let criteria_sum =
-            Self::sum_as_u256(&accounts_with_individual_criteria, |(criteria, _)| {
+    ) -> AdjustmentIterationResult {
+        let required_balance_total: u128 =
+            Self::sum_as(&accounts_with_individual_criteria, |(_, account)| {
+                account.balance_wei
+            });
+        let criteria_sum: u128 = //TODO is u128 safe?
+            Self::sum_as(&accounts_with_individual_criteria, |(criteria, _)| {
                 *criteria
             });
+        if let Some(prioritized_wallets) =
+            Self::check_possible_prioritized_accounts_that_qualify_right_away(
+                required_balance_total,
+                criteria_sum,
+                &accounts_with_individual_criteria,
+            )
+        {
+            let (prioritized, remaining) = accounts_with_individual_criteria
+                .into_iter()
+                .map(|(_, account)| account)
+                .partition(|account| prioritized_wallets.contains(&account.wallet));
+            return AdjustmentIterationResult {
+                decided_accounts: prioritized,
+                remaining_accounts: remaining,
+            };
+        };
         let multiplication_coeff =
-            PaymentAdjusterReal::find_multiplication_coeff(cw_masq_balance, criteria_sum);
+            PaymentAdjusterReal::find_multiplication_coeff(cw_masq_balance.as_u128(), criteria_sum);
         eprintln!("multiplication coefficient: {}", multiplication_coeff);
         let proportional_fragment_of_cw_balance =
-            cw_masq_balance.as_u128() * multiplication_coeff / criteria_sum.as_u128();
+            cw_masq_balance.as_u128() * multiplication_coeff / criteria_sum;
 
-        Self::recreate_accounts_with_proportioned_balances(
+        let decided_accounts = Self::recreate_accounts_with_proportioned_balances(
             accounts_with_individual_criteria,
             proportional_fragment_of_cw_balance,
             multiplication_coeff,
-        )
+        );
+        AdjustmentIterationResult {
+            decided_accounts,
+            remaining_accounts: vec![],
+        }
     }
 
     fn apply_criteria(
@@ -292,17 +315,36 @@ impl PaymentAdjusterReal {
             Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
         //define individual criteria as closures to be used in a map()
 
+        //TODO always remember to use checked math operations
         let time_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
-            let criteria = now
+            let elapsed_sec: u64 = now
                 .duration_since(account.last_paid_timestamp)
                 .expect("time traveller")
-                .as_secs() as u128;
-            (criteria_sum + criteria, account)
+                .as_secs();
+            //TODO how should I treat the sqrt?
+            let divisor = (elapsed_sec as f64).sqrt().ceil() as u128;
+            let criterion = (elapsed_sec as u128)
+                .pow(4)
+                .checked_div(divisor)
+                .expect("div overflow");
+            (
+                criteria_sum.checked_add(criterion).expect("add overflow"),
+                account,
+            )
         });
         let balance_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
             let digits_weight = log_10(account.balance_wei);
-            let additional_criteria = account.balance_wei * digits_weight as u128;
-            (criteria_sum + additional_criteria, account)
+            let multiplier = (digits_weight as u128)
+                .checked_pow(3)
+                .expect("pow overflow");
+            let criterion = account
+                .balance_wei
+                .checked_mul(multiplier)
+                .expect("mul overflow");
+            (
+                criteria_sum.checked_add(criterion).expect("add overflow"),
+                account,
+            )
         });
 
         let weights_and_accounts = accounts_with_zero_criteria
@@ -328,6 +370,30 @@ impl PaymentAdjusterReal {
         }
     }
 
+    fn check_possible_prioritized_accounts_that_qualify_right_away(
+        required_balance_total: u128,
+        criteria_total: u128,
+        accounts_with_individual_criteria: &[(u128, PayableAccount)],
+    ) -> Option<Vec<Wallet>> {
+        let required_balance_for_safe_math = required_balance_total * 10_000;
+        let criteria_total_for_safe_math = criteria_total * 10_000;
+        let accounts_to_be_prioritized = accounts_with_individual_criteria
+            .iter()
+            .filter(|(criterion, account)| {
+                //account.balance_wei is still the original balance
+                let balance_ratio = required_balance_for_safe_math / (account.balance_wei * 10_000);
+                let criterion_ratio = criteria_total_for_safe_math / (criterion * 10_000);
+                balance_ratio > criterion_ratio
+            })
+            .map(|(_, account)| account.wallet.clone())
+            .collect::<Vec<Wallet>>();
+        if !accounts_to_be_prioritized.is_empty() {
+            Some(accounts_to_be_prioritized)
+        } else {
+            None
+        }
+    }
+
     fn sort_in_descendant_order_by_weights(
         unsorted: impl Iterator<Item = (u128, PayableAccount)>,
     ) -> Vec<(u128, PayableAccount)> {
@@ -337,7 +403,7 @@ impl PaymentAdjusterReal {
     }
 
     fn format_brief_adjustment_summary(
-        mut original_accounts: HashMap<Wallet, AccountAdjustmentDetails>,
+        mut original_accounts: HashMap<Wallet, AccountAdjustmentDebugDetails>,
         adjusted_accounts: impl Iterator<Item = (u128, Wallet, u128)>,
     ) -> String {
         adjusted_accounts.for_each(|(criterion, wallet, adjusted_balance)| {
@@ -413,8 +479,8 @@ impl PaymentAdjusterReal {
             Self::wallets_and_balances_with_criteria_opt(Either::Left(original))
                 .left()
                 .expectv("wallet + balance")
-                .map(|(wallet, balance)| (wallet, AccountAdjustmentDetails::new(balance)))
-                .collect::<HashMap<Wallet, AccountAdjustmentDetails>>();
+                .map(|(wallet, balance)| (wallet, AccountAdjustmentDebugDetails::new(balance)))
+                .collect::<HashMap<Wallet, AccountAdjustmentDebugDetails>>();
         move |criteria: Vec<u128>, adjusted_accounts: &[PayableAccount]| {
             let concise_input = criteria
                 .into_iter()
@@ -425,9 +491,9 @@ impl PaymentAdjusterReal {
                 Self::wallets_and_balances_with_criteria_opt(Either::Right(&concise_input)).right().expectv("criterion + wallet + balance");
             format!(
                 "\nAdjusted payables:\n\
-                {:<42} {}\n\
-                {: <42} {}\n\
-                {: <42} {}\n\
+                {:<length$} {}\n\
+                {:<length$} {}\n\
+                {:<length$} {}\n\
                 \n\
                 {}",
                 "Account wallet",
@@ -439,9 +505,9 @@ impl PaymentAdjusterReal {
                 Self::format_brief_adjustment_summary(
                     original_prefabricated,
                     prefabricated_adjusted
-                )
+                ),
+                length = WALLET_ADDRESS_LENGTH
             )
-            //TODO mention accounts that will be excluded completely
         }
     }
 
@@ -456,7 +522,8 @@ impl PaymentAdjusterReal {
     }
 
     fn run_recursively(
-        current_stage_data: FinancialAndTechDetails,
+        mut fully_qualified_accounts: Vec<PayableAccount>,
+        collected_setup_data: FinancialAndTechDetails,
         known_elimination_limits_opt: Option<KnownEliminationLimits>,
         qualified_payables: Vec<PayableAccount>,
         now: SystemTime,
@@ -479,24 +546,44 @@ impl PaymentAdjusterReal {
             known_elimination_limits_opt,
         ); //TODO check for masq token sufficiency and if still not enough run again
 
-        let adjusted_accounts: Vec<PayableAccount> = match known_elimination_limits_opt {
+        let adjustment_result = match known_elimination_limits_opt {
             Some(KnownEliminationLimits::GasCountLimit {
                 is_masq_token_insufficient,
                 ..
             }) => match is_masq_token_insufficient {
-                false => accounts_with_individual_criteria
-                    .into_iter()
-                    .map(|(_, account)| account)
-                    .collect(),
+                false => {
+                    return (
+                        accounts_with_individual_criteria
+                            .into_iter()
+                            .map(|(_, account)| account)
+                            .collect(),
+                        debug_info_opt,
+                    )
+                }
                 true => todo!(),
             },
             Some(KnownEliminationLimits::MasqTokenExcludedAccounts) => todo!(),
             None => Self::handle_adjustment(
-                current_stage_data.consuming_wallet_balances.masq_tokens_wei,
+                collected_setup_data
+                    .consuming_wallet_balances
+                    .masq_tokens_wei,
                 accounts_with_individual_criteria,
             ), //TODO test properly for both!!!
         };
-        (adjusted_accounts, debug_info_opt)
+        let adjusted_accounts = if adjustment_result.remaining_accounts.is_empty() {
+            adjustment_result.decided_accounts
+        } else {
+            return Self::run_recursively(
+                adjustment_result.decided_accounts,
+                collected_setup_data,
+                None,
+                adjustment_result.remaining_accounts,
+                now,
+                runs_in_debug,
+            );
+        };
+
+        (fully_qualified_accounts.into_iter().chain(adjusted_accounts.into_iter()).collect(), debug_info_opt)
     }
 
     // Gas{g_lim} | Masq | Both {g_lim}
@@ -532,16 +619,21 @@ fn log_10(num: u128) -> usize {
 //saves the computed criteria
 type DebugInfoOpt = Option<Vec<u128>>;
 
+struct AdjustmentIterationResult {
+    decided_accounts: Vec<PayableAccount>,
+    remaining_accounts: Vec<PayableAccount>,
+}
+
 #[derive(Debug)]
-struct AccountAdjustmentDetails {
+struct AccountAdjustmentDebugDetails {
     initial_balance: u128,
     adjusted_balance_opt: Option<u128>,
     used_criterion: u128,
 }
 
-impl AccountAdjustmentDetails {
+impl AccountAdjustmentDebugDetails {
     fn new(initial_balance: u128) -> Self {
-        AccountAdjustmentDetails {
+        AccountAdjustmentDebugDetails {
             initial_balance,
             adjusted_balance_opt: None,
             used_criterion: 0,
@@ -585,10 +677,12 @@ mod tests {
     };
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
+    use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::vec;
+    use thousands::Separable;
     use web3::types::U256;
 
     fn type_definite_conversion(gwei: u64) -> u128 {
@@ -801,12 +895,12 @@ mod tests {
 
     #[test]
     fn multiplication_coeff_for_integers_to_be_above_one_instead_of_fractional_numbers() {
-        let final_criteria_sum = U256::from(5_000_000_000_000_u64);
+        let final_criteria_sum = 5_000_000_000_000_u128;
         let consuming_wallet_balances = vec![
-            U256::from(222_222_222_222_u64),
-            U256::from(100_000),
-            U256::from(123_456_789),
-            U256::from(5_555_000_000_000_u64), //the only one bigger than the criteria sum
+            222_222_222_222_u128,
+            100_000,
+            123_456_789,
+            5_555_000_000_000, //the only one bigger than the criteria sum
         ];
 
         let result = consuming_wallet_balances
@@ -817,7 +911,130 @@ mod tests {
             })
             .collect::<Vec<u128>>();
 
-        assert_eq!(result, vec![1_000, 1_000_000_000, 1_000_000, 100])
+        assert_eq!(result, vec![10_000_000, 10_000_000_000_000, 10_000_000_000, 1_000_000])
+    }
+
+    #[test]
+    fn testing_criteria_on_overflow_safeness() {
+        let now = SystemTime::now();
+        let extremely_big_balance_wei = MASQ_TOTAL_SUPPLY as u128 * 10u128.pow(18);
+        let very_long_period_of_time_sec = 5_u64 * 365 * 24 * 60 * 60; //five years
+        let account = PayableAccount {
+            wallet: make_wallet("blah"),
+            balance_wei: extremely_big_balance_wei,
+            last_paid_timestamp: now
+                .checked_sub(Duration::from_secs(very_long_period_of_time_sec))
+                .unwrap(),
+            pending_payable_opt: None,
+        };
+        let zero_criteria_accounts = PaymentAdjusterReal::initialize_zero_criteria(vec![account]);
+        let mut criteria_and_accounts =
+            PaymentAdjusterReal::apply_criteria(zero_criteria_accounts, now);
+        assert_eq!(criteria_and_accounts.len(), 1);
+        //operands in apply_criteria have to be their checked version therefore we passed through without a panic and so no overflow occurred
+    }
+
+    #[test]
+    fn apply_criteria_returns_accounts_sorted_by_final_weights_in_descending_order() {
+        let now = SystemTime::now();
+        let account_1 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: 333_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_2 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 111_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_3 = PayableAccount {
+            wallet: make_wallet("ghk"),
+            balance_wei: 444_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
+        let zero_criteria_accounts =
+            PaymentAdjusterReal::initialize_zero_criteria(qualified_payables);
+
+        let weights_and_accounts = PaymentAdjusterReal::apply_criteria(zero_criteria_accounts, now);
+
+        let only_accounts = weights_and_accounts
+            .iter()
+            .map(|(_, account)| account)
+            .collect::<Vec<&PayableAccount>>();
+        assert_eq!(only_accounts, vec![&account_3, &account_1, &account_2])
+    }
+
+    #[test]
+    fn small_debt_with_extreme_age_is_paid_prioritized_but_not_more_money_than_required() {
+        let now = SystemTime::now();
+        let collected_setup_data = FinancialAndTechDetails {
+            consuming_wallet_balances: ConsumingWalletBalances {
+                gas_currency_wei: U256::from(u128::MAX),
+                masq_tokens_wei: U256::from(1_500_000_000_000_u64 - 25_000_000),
+            },
+            desired_gas_price_gwei: 50,
+            estimated_gas_limit_per_transaction: 55_000,
+        };
+        let balance_1 = 1_500_000_000_000;
+        let balance_2 = 25_000_000;
+        let wallet_1 = make_wallet("blah");
+        let last_paid_timestamp_1 = now.checked_sub(Duration::from_secs(5_500)).unwrap();
+        let account_1 = PayableAccount {
+            wallet: wallet_1,
+            balance_wei: balance_1,
+            last_paid_timestamp: last_paid_timestamp_1,
+            pending_payable_opt: None,
+        };
+        let account_2 = PayableAccount {
+            wallet: make_wallet("argh"),
+            balance_wei: balance_2,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(20_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2.clone()];
+
+        let (result, _) = PaymentAdjusterReal::run_recursively(
+            vec![],
+            collected_setup_data,
+            None,
+            qualified_payables.clone(),
+            now,
+            false,
+        );
+
+        //first a presentation of why this test is important
+        let total = balance_1 * 10_000 + balance_2 * 10_000;
+        let ratio_2_u128 = total / (balance_2 * 10_000);
+        let ratio_2 = ratio_2_u128 as f64 / 10_000.0;
+        let zero_criteria_accounts =
+            PaymentAdjusterReal::initialize_zero_criteria(qualified_payables);
+        let criteria = PaymentAdjusterReal::apply_criteria(zero_criteria_accounts, now);
+        let account_1_criterion = criteria[0].0 * 10_000;
+        let account_2_criterion = criteria[1].0 * 10_000;
+        let criteria_total = account_1_criterion + account_2_criterion;
+        let criterion_2_ratio = ((criteria_total / account_2_criterion) as f64) / 10_000.0;
+        //the next assertion reads as the weight of the second account grew faster and bigger than at the first account;
+        //also, the time parameter has a strong impact on the final criteria;
+        //consequences are that redistributing the new balances according to the computed weights would've attributed
+        //the second account with more tokens to pay than it had when the test started;
+        //to prevent it, we've got a rule that any account can never demand more than 100% of the initial amount
+        assert!(ratio_2 > criterion_2_ratio);
+        assert_eq!(
+            result,
+            vec![
+                 account_2, //prioritized accounts take the first places
+                PayableAccount {
+                    wallet: make_wallet("blah"),
+                    balance_wei: 1_499_972_866_199,
+                    last_paid_timestamp: last_paid_timestamp_1,
+                    pending_payable_opt: None,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -828,44 +1045,44 @@ mod tests {
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: 444_444_444_444_444_444,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1234)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_234)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 666_666_666_666_000_000_000_000,
+            balance_wei: 666_666_666_666_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(100)).unwrap(),
             pending_payable_opt: None,
         };
         let account_3 = PayableAccount {
             wallet: make_wallet("ghk"),
             balance_wei: 22_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(78910)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(50_000)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
         let subject = PaymentAdjusterReal::new();
         let accounts_sum: u128 =
-            444_444_444_444_444_444 + 666_666_666_666_000_000_000_000 + 22_000_000_000_000; //= 666_667_111_132_444_444_444_444
-        let consuming_wallet_masq_balance_wei = U256::from(accounts_sum - 600_000_000_000_000_000);
+            444_444_444_444_444_444 + 666_666_666_666_000_000 + 22_000_000_000_000; //= 1_000_022_000_000_444_444
+        let consuming_wallet_masq_balance_wei = U256::from(accounts_sum - 6_000_000_000_000_000);
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(150),
+                        gas_currency_wei: U256::from(u32::MAX),
                         masq_tokens_wei: consuming_wallet_masq_balance_wei,
                     },
-                    estimated_gas_limit_per_transaction: 165_000,
-                    desired_gas_price_gwei: 222222222222222222,
+                    estimated_gas_limit_per_transaction: 70_000,
+                    desired_gas_price_gwei: 120,
                 },
             )),
             response_skeleton_opt: None,
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::MasqToken,
-        }; //TODO what to do with the required adjustment?
+            adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual gas balance limitations
+        };
 
         let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
 
@@ -890,12 +1107,12 @@ mod tests {
 |                                           Original
 |                                           Adjusted
 |
-|0x0000000000000000000000000000000000646566 666666666666000000000000
-|                                           665599999999334400000004
+|0x0000000000000000000000000000000000646566 666666666666000000
+|                                           662903999999338801
 |0x0000000000000000000000000000000000616263 444444444444444444
-|                                           332800000000000051
+|                                           441936000010982026
 |0x000000000000000000000000000000000067686b 22000000000000
-|                                           12812800003282"
+|                                           15049998464285"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
@@ -917,11 +1134,19 @@ mod tests {
         .collect::<Vec<_>>();
         let time_criteria = accounts
             .iter()
-            .map(|account| secs_elapsed(account.last_paid_timestamp, now))
+            .map(|account| {
+                let elapsed = secs_elapsed(account.last_paid_timestamp, now);
+                let criterion = elapsed.pow(4) / (((elapsed as f64).sqrt().ceil()) as u128);
+                eprintln!("time criterion: {}", criterion.separate_with_commas());
+                criterion
+            })
             .collect();
         let amount_criteria = accounts
             .iter()
-            .map(|account| account.balance_wei * log_10(account.balance_wei) as u128)
+            .map(|account| {
+                let significance = log_10(account.balance_wei) as u128;
+                account.balance_wei * significance.pow(3)
+            } as u128)
             .collect();
 
         let final_criteria = vec![time_criteria, amount_criteria].into_iter().fold(
@@ -933,10 +1158,11 @@ mod tests {
                     .collect()
             },
         );
+        eprintln!("final criteria {:?}", final_criteria);
         let final_criteria_sum = U256::from(final_criteria.iter().sum::<u128>());
         let multiplication_coeff = PaymentAdjusterReal::find_multiplication_coeff(
-            consuming_wallet_masq_balance_wei,
-            final_criteria_sum,
+            consuming_wallet_masq_balance_wei.as_u128(),
+            final_criteria_sum.as_u128(),
         );
         let in_ratio_fragment_of_available_balance = (consuming_wallet_masq_balance_wei
             * U256::from(multiplication_coeff)
@@ -1074,16 +1300,18 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(10000)).unwrap(),
             pending_payable_opt: None,
         };
+        todo!("serious problem, thanks to the time weights we can overweight and get more than what the account required at the beginning...we need to implement a ceiling");
+        let wallet_3 = make_wallet("ghk");
+        let balance_3 = 1_000_000;
         let account_3 = PayableAccount {
-            wallet: make_wallet("ghk"),
-            balance_wei: 111_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+            wallet: wallet_3.clone(),
+            balance_wei: balance_3,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(5000)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
         let subject = PaymentAdjusterReal::new();
-        let consuming_wallet_masq_balance_wei =
-            U256::from(333_000_000_000_u64 + 111_000_000_000 + 60_000_000);
+        let consuming_wallet_masq_balance_wei = U256::from(333_000_000_000_u64 + 50_000_000_000);
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
@@ -1106,6 +1334,23 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
 
+        let expected_accounts_first_iteration = emulation_of_the_actual_adjustment_algorithm(
+            account_1.clone(),
+            account_2.clone(),
+            Some(account_3),
+            consuming_wallet_masq_balance_wei,
+            now,
+        );
+        eprintln!("print expected: {:?}", expected_accounts_first_iteration);
+        eprintln!("print all adjusted: {:?}", result.accounts);
+        let account_3_adjusted_balance = expected_accounts_first_iteration
+            .iter()
+            .find(|account| account.wallet == wallet_3)
+            .unwrap()
+            .balance_wei;
+        eprintln!("account 3 adjusted {}", account_3_adjusted_balance);
+        assert!( account_3_adjusted_balance < (balance_3 / 2), "balance for account 3 after adjustment from the first iteration is {} but we need it smaller than {}",account_3_adjusted_balance.separate_with_commas(), (balance_3 / 2).separate_with_commas());
+
         let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
             account_1,
             account_2,
@@ -1120,40 +1365,6 @@ mod tests {
     #[test]
     fn adjust_payments_when_both_parameters_limit_the_final_transaction_count() {
         todo!()
-    }
-
-    #[test]
-    fn apply_criteria_returns_accounts_sorted_by_final_weights_in_descending_order() {
-        let now = SystemTime::now();
-        let account_1 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 333_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 111_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_3 = PayableAccount {
-            wallet: make_wallet("ghk"),
-            balance_wei: 444_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
-        let zero_criteria_accounts =
-            PaymentAdjusterReal::initialize_zero_criteria(qualified_payables);
-
-        let weights_and_accounts = PaymentAdjusterReal::apply_criteria(zero_criteria_accounts, now);
-
-        let only_accounts = weights_and_accounts
-            .iter()
-            .map(|(_, account)| account)
-            .collect::<Vec<&PayableAccount>>();
-        assert_eq!(only_accounts, vec![&account_3, &account_1, &account_2])
     }
 
     #[test]
