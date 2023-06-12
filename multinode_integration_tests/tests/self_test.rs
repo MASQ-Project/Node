@@ -2,14 +2,13 @@
 
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
-use multinode_integration_tests_lib::masq_cores_client::MASQCoresClient;
 use multinode_integration_tests_lib::masq_cores_server::MASQCoresServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
-use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
@@ -23,6 +22,9 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
+use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
+use node_lib::hopper::live_cores_package::LiveCoresPackage;
+use node_lib::masquerader::Masquerader;
 
 #[test]
 fn establishes_masq_node_cluster_from_nothing() {
@@ -66,7 +68,7 @@ fn server_relays_cores_package() {
     let masquerader = JsonMasquerader::new();
     let server = MASQCoresServer::new(cluster.chain);
     let cryptde = server.main_cryptde();
-    let mut client = MASQCoresClient::new(server.local_addr(), cryptde);
+    let mut client = MASQNodeClient::new(server.local_addr());
     let mut route = Route::one_way(
         RouteSegment::new(
             vec![&cryptde.public_key(), &cryptde.public_key()],
@@ -85,7 +87,8 @@ fn server_relays_cores_package() {
     )
     .unwrap();
 
-    client.transmit_package(incipient, &masquerader, cryptde.public_key().clone());
+    transmit_package(&mut client, cryptde, incipient, &masquerader,
+                     cryptde.public_key().clone());
     let package = server.wait_for_package(Duration::from_millis(1000));
     let expired = package
         .to_expired(
@@ -209,4 +212,26 @@ fn ensure_node_is_not_running(container_name: &str, ip_address: IpAddr, port: u1
         container_name,
         ip_address
     )
+}
+
+fn transmit_package(
+    node_client: &mut MASQNodeClient,
+    cryptde: &dyn CryptDE,
+    incipient_cores_package: IncipientCoresPackage,
+    masquerader: &JsonMasquerader,
+    recipient_key: PublicKey,
+) {
+    let (live_cores_package, _) =
+        LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
+    let serialized_lcp = serde_cbor::ser::to_vec(&live_cores_package)
+        .unwrap_or_else(|_| panic!("Serializing LCP: {:?}", live_cores_package));
+    let encoded_serialized_package = cryptde
+        .encode(&recipient_key, &PlainData::new(&serialized_lcp[..]))
+        .unwrap();
+    let masqueraded = masquerader
+        .mask(encoded_serialized_package.as_slice())
+        .unwrap_or_else(|_| {
+            panic!("Masquerading {}-byte serialized LCP", serialized_lcp.len())
+        });
+    node_client.send_chunk(&masqueraded);
 }
