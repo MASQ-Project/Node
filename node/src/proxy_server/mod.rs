@@ -788,9 +788,9 @@ impl ProxyServer {
         dispatcher: &Recipient<TransmitDataMsg>,
     ) -> String {
         let target_hostname = ProxyServer::hostname(&payload);
-        let stream_key = payload.stream_key;
+        // let stream_key = payload.stream_key;
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
-        format!("Failed to find route for stream_key: {} to {}", stream_key, target_hostname)
+        format!("Failed to find route to {}", target_hostname) // TODO: Would be better if we added stream_key
     }
 
     fn send_route_failure(
@@ -1065,8 +1065,9 @@ impl IBCDHelper for IBCDHelperReal {
     ) -> Result<(), String> {
         let pld = &tth_args.payload;
         let hostname_opt = pld.target_hostname.clone();
+        let logger = tth_args.logger.clone();
         debug!(
-            tth_args.logger,
+            logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
             pld.stream_key,
             pld.sequenced_packet.sequence_number,
@@ -1083,11 +1084,15 @@ impl IBCDHelper for IBCDHelperReal {
                 .then(move |route_result| {
                     // let stream_key = tth_args.payload.stream_key;
                     // let hostname_opt = tth_args.payload.target_hostname;
-                    match message_resolver.resolve_message(tth_args, add_route_sub, route_result) {
-                        Ok(_) => { todo!("Fix for the GOod case") },
-                        Err(e) => { todo!("Error Received: {}", e) }
-                    }
 
+                    if let Err(e) = message_resolver.resolve_message(tth_args, add_route_sub, route_result) {
+                        error!(
+                            logger,
+                            "{}", e
+                        );
+                    };
+
+                    Ok(())
                 }),
         );
         Ok(())
@@ -4701,6 +4706,7 @@ mod tests {
         let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
+            .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()));
 
         subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal {
@@ -4722,6 +4728,7 @@ mod tests {
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(expired_cores_package.clone()).unwrap();
         subject_addr.try_send(expired_cores_package.clone()).unwrap();
         subject_addr.try_send(expired_cores_package.clone()).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -5464,13 +5471,13 @@ mod tests {
             retire_stream_key_sub_opt: None,
         };
 
-        IBCDHelperReal::resolve_route_query_response(
+        let result = IBCDHelperReal::resolve_route_query_response(
             tth_args,
             add_route_msg_sub,
             Err(MailboxError::Timeout),
         );
 
-        TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
+        assert_eq!(result, Err("Neighborhood refused to answer route request: MailboxError(Message delivery timed out)".to_string()));
     }
 
     #[derive(Default)]
