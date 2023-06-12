@@ -428,7 +428,7 @@ impl SetupReporterReal {
                 Some(command_line) => command_line,
                 None => vec![],
             };
-            let (config_file_path, user_specified, _data_directory_opt) =
+            let (config_file_path, user_specified, _data_directory, _real_user) =
                 determine_fundamentals(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
                 Ok(cfv) => cfv,
@@ -1435,6 +1435,7 @@ mod tests {
             .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
+        let chain_specific_data_dir = add_chain_specific_directory(TEST_DEFAULT_CHAIN, &home_dir);
         let expected_result = vec![
             ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1442,7 +1443,7 @@ mod tests {
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
-            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("data-directory", chain_specific_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),

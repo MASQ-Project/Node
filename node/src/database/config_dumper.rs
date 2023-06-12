@@ -145,10 +145,11 @@ fn distill_args(
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
-    let (real_user, _data_directory_opt, chain) =
+    let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, chain);
+    let directory = match data_directory_opt{
+        Some(data_dir) => data_dir,
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain)};
     let password_opt = value_m!(multi_config, "db-password", String);
     Ok((real_user, directory, chain, password_opt))
 }
@@ -204,17 +205,11 @@ mod tests {
             &format!(
                 "Could not find database at: {}. It is created when the Node \
          operates the first time. Running --dump-config before that has no effect",
-                data_dir
-                    .join("MASQ")
-                    .join("polygon-mainnet")
-                    .to_str()
-                    .unwrap()
+                data_dir.to_str().unwrap()
             )
         );
         let err = File::open(
             &data_dir
-                .join("MASQ")
-                .join("polygon-mainnet")
                 .join(DATABASE_FILE),
         )
         .unwrap_err();
@@ -380,12 +375,11 @@ mod tests {
             "config_dumper",
             "dump_config_dumps_existing_database_with_correct_password",
         );
-        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_data_dir,
+                    &data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::ConsumeOnly,
@@ -443,7 +437,7 @@ mod tests {
         };
         let conn = DbInitializerReal::default()
             .initialize(
-                &chain_specific_data_dir,
+                &data_dir,
                 DbInitializationConfig::panic_on_migration(),
             )
             .unwrap();

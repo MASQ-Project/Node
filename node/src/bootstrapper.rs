@@ -1148,11 +1148,10 @@ mod tests {
             .unwrap();
 
         let init_params = init_params_arc.lock().unwrap();
-        let expected_data_dir = add_chain_specific_directories(Chain::PolyMumbai, &data_dir);
         assert_eq!(
             *init_params,
             vec![(
-                expected_data_dir,
+                data_dir,
                 RealUser::new(Some(123), Some(456), Some("/home/booga".into())),
                 LevelFilter::Warn,
                 None,
