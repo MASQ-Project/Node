@@ -7,6 +7,7 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
+use std::collections::hash_map::Entry;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -311,6 +312,7 @@ impl ProxyServer {
                 //
 
 
+
                 if retry.retries_left > 0 {
                     let args = TryTransmitToHopperArgs{
                         main_cryptde: self.main_cryptde,
@@ -332,12 +334,12 @@ impl ProxyServer {
                     match inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub) {
                         Ok(_) => {
                             retry.retries_left -= 1;
-                            self.dns_failure_retries.insert(response.stream_key, retry.clone());
                         }
                         Err(_) => { todo!(" FIX ME") }
                     }
-                } else {
                     self.dns_failure_retries.insert(response.stream_key, retry.clone());
+                } else {
+                    // self.dns_failure_retries.insert(response.stream_key, retry.clone());
                     debug!( // TODO: should we change this to warning?
                         self.logger,
                         "Retiring stream key {}: DnsResolveFailure", &response.stream_key
@@ -1163,7 +1165,7 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct DNSFailureRetry {
     unsuccessful_request: ClientRequestPayload_0v1,
     retries_left: usize,
@@ -4727,39 +4729,28 @@ mod tests {
             .neighborhood(neighborhood_mock)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package.clone()).unwrap();
         subject_addr.try_send(expired_cores_package.clone()).unwrap();
         subject_addr.try_send(expired_cores_package.clone()).unwrap();
+
         subject_addr.try_send(expired_cores_package).unwrap();
 
         subject_addr.try_send(AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-                let retry = proxy_server.dns_failure_retries.get(&stream_key).unwrap();
-                assert_eq!(retry.retries_left , 0);
-
-                // let _ = self.keys_and_addrs.remove_a(stream_key);
-                // let _ = self.stream_key_routes.remove(stream_key);
-                // let _ = self.tunneled_hosts.remove(stream_key);
-
                 assert_eq!(proxy_server.keys_and_addrs.a_to_b(&stream_key), None);
                 assert_eq!(proxy_server.stream_key_routes.get(&stream_key), None);
                 assert_eq!(proxy_server.tunneled_hosts.get(&stream_key), None);
+                assert_eq!(proxy_server.dns_failure_retries.get(&stream_key), None);
             }),
         })
             .unwrap();
-
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
-
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
         ));
-
-
-
     }
 
     #[test]
