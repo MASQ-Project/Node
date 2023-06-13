@@ -255,6 +255,13 @@ impl ProxyServer {
         }
     }
 
+    fn dns_failure_retries_left(&self, stream_key: &StreamKey) -> Result<usize, String> {
+        match self.dns_failure_retries.get(stream_key) {
+            None => Err("No retry found for this stream_key".to_string()),
+            Some(retry) => Ok(retry.retries_left)
+        }
+    }
+
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
         let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
             Some(rri) => rri,
@@ -301,6 +308,14 @@ impl ProxyServer {
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
                 //TODO we want to put our new logic here (GH-651)
+
+                let retries_left = match self.dns_failure_retries_left(&response.stream_key) {
+                    Ok(retries_left) => retries_left,
+                    Err(e) => {
+                        todo!("Test my feeling is the code is broken in such a case...maybe even panic");
+                    }
+                };
+
                 let mut retry = self.dns_failure_retries.remove(&response.stream_key).unwrap_or_else(|| {
                     todo!("my feeling is the code is broken in such a case...maybe even panic");
                 });
@@ -313,20 +328,14 @@ impl ProxyServer {
 
 
 
-                if retry.retries_left > 0 {
-                    let args = TryTransmitToHopperArgs{
-                        main_cryptde: self.main_cryptde,
-                        payload: retry.unsuccessful_request.clone(),
-                        source_addr: socket_addr,
-                        timestamp: SystemTime::now(),
-                        logger: self.logger.clone(),
-                        retire_stream_key_sub_opt: None,
-                        hopper_sub: self.out_subs("Hopper").hopper.clone(),
-                        dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
-                        accountant_sub: self.out_subs("Accountant").accountant.clone(),
-                        add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-                        is_decentralized: self.is_decentralized, //TODO did this break a test? value was true
-                    };
+
+
+
+                if retries_left > 0 {
+                    let args = self.try_transmit_to_hopper_args_msg(
+                        retry.unsuccessful_request.clone(),
+                        socket_addr,
+                        SystemTime::now());
                     let route_source = self.out_subs("Neighborhood").route_source.clone();
                     let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
                     let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
@@ -339,12 +348,10 @@ impl ProxyServer {
                     }
                     self.dns_failure_retries.insert(response.stream_key, retry.clone());
                 } else {
-                    // self.dns_failure_retries.insert(response.stream_key, retry.clone());
                     debug!( // TODO: should we change this to warning?
                         self.logger,
                         "Retiring stream key {}: DnsResolveFailure", &response.stream_key
                     );
-                    // TODO: Delete stream_key out of dns_failure_retries also
                     self.purge_stream_key(&response.stream_key);
 
                     // TODO: We need a test for this.
@@ -365,19 +372,6 @@ impl ProxyServer {
                         })
                         .expect("Dispatcher is dead");
                 }
-
-
-                // match  {
-                //     Some(retries) => match retries.retries_left {
-                //         0 => (),
-                //         _ => self.handle_request_retry(retries, socket_addr, ),
-                //     },
-                //     None => {
-                //         todo!("my feeling is the code is broken in such a case...maybe even panic")
-                //     }
-                // };
-
-
             }
             None => {
                 error!(self.logger,
@@ -490,6 +484,23 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
             }
+        }
+    }
+
+
+    fn try_transmit_to_hopper_args_msg(&self, request: ClientRequestPayload_0v1, source_addr: SocketAddr, timestamp: SystemTime) -> TryTransmitToHopperArgs {
+        TryTransmitToHopperArgs {
+            main_cryptde: self.main_cryptde,
+            payload: request,
+            source_addr,
+            timestamp,
+            logger: self.logger.clone(),
+            retire_stream_key_sub_opt: None,
+            hopper_sub: self.out_subs("Hopper").hopper.clone(),
+            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
+            accountant_sub: self.out_subs("Accountant").accountant.clone(),
+            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
+            is_decentralized: self.is_decentralized, //TODO did this break a test? value was true
         }
     }
 
