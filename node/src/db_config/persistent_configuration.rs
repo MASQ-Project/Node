@@ -340,7 +340,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn min_hops_count(&self) -> Result<Hops, PersistentConfigError> {
         let result = self.get("min_hops_count")?.map(|val| Hops::from_str(&val));
         match result {
-            None => Err(PersistentConfigError::NotPresent),
+            None => Self::missing_value_panic("min_hops_count"),
             Some(Ok(hops)) => Ok(hops),
             Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
         }
@@ -1733,7 +1733,8 @@ mod tests {
     }
 
     #[test]
-    fn throws_err_when_min_hops_count_value_is_missing() {
+    #[should_panic(expected = "ever-supplied value missing: min_hops_count; database is corrupt!")]
+    fn panics_when_min_hops_count_value_is_missing() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "min_hops_count",
             None,
@@ -1741,9 +1742,7 @@ mod tests {
         ))));
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.min_hops_count();
-
-        assert_eq!(result, Err(PersistentConfigError::NotPresent))
+        let _result = subject.min_hops_count();
     }
 
     #[test]
