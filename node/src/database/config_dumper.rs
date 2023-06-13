@@ -35,9 +35,13 @@ use std::path::{Path, PathBuf};
 pub struct DumpConfigRunnerReal;
 
 impl DumpConfigRunner for DumpConfigRunnerReal {
-    fn go(&self, streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory, chain, password_opt) =
-            distill_args(&DirsWrapperReal {}, args)?;
+    fn go(
+        &self,
+        dirs_wrapper: &dyn DirsWrapper,
+        streams: &mut StdStreams,
+        args: &[String],
+    ) -> Result<(), ConfiguratorError> {
+        let (real_user, data_directory, chain, password_opt) = distill_args(dirs_wrapper, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(
@@ -166,15 +170,17 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{add_chain_specific_directories, NeighborhoodModeLight};
+    use masq_lib::utils::NeighborhoodModeLight;
     use rustc_hex::ToHex;
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
@@ -196,7 +202,7 @@ mod tests {
         let subject = DumpConfigRunnerReal;
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.go(&mut holder.streams(), args_vec.as_slice())
+            subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice())
         }))
         .unwrap_err();
 
@@ -235,7 +241,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
@@ -243,19 +249,17 @@ mod tests {
         assert_eq!(holder.stderr.get_bytes().is_empty(), true);
     }
 
-    #[test]
-    fn dump_config_dumps_existing_database_without_password() {
+    fn dump_config_dumps_existing_database_without_password(
+        database_path: PathBuf,
+        mock_dirs_wrapper_opt: Option<Box<dyn DirsWrapper>>,
+        non_default_data_directory_opt: Option<PathBuf>,
+    ) {
         let _clap_guard = ClapGuard::new();
-        let data_dir = ensure_node_home_directory_exists(
-            "config_dumper",
-            "dump_config_dumps_existing_database_without_password",
-        );
-        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_data_dir,
+                    &database_path,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::ZeroHop,
@@ -294,15 +298,22 @@ mod tests {
                 .set_blockchain_service_url("https://infura.io/ID")
                 .unwrap()
         }
-        let args_vec: Vec<String> = ArgsBuilder::new()
-            .param("--data-directory", data_dir.to_str().unwrap())
+        let mut args_builder = ArgsBuilder::new()
             .param("--real-user", "123::")
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
-            .opt("--dump-config")
-            .into();
+            .opt("--dump-config");
+        if let Some(data_dir) = non_default_data_directory_opt {
+            args_builder = args_builder.param("--data-directory", data_dir.to_str().unwrap());
+        }
+        let args_vec: Vec<String> = args_builder.into();
         let subject = DumpConfigRunnerReal;
+        let dirs_wrapper = mock_dirs_wrapper_opt.unwrap_or(Box::new(DirsWrapperReal));
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(
+            dirs_wrapper.as_ref(),
+            &mut holder.streams(),
+            args_vec.as_slice(),
+        );
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -311,10 +322,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &chain_specific_data_dir,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&database_path, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -361,6 +369,46 @@ mod tests {
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
         assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
         assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
+    }
+
+    #[test]
+    fn dump_config_dumps_existing_database_without_password_and_data_dir_specified() {
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dumper",
+            "dump_config_dumps_existing_database_without_password_and_data_dir_specified",
+        );
+        let data_dir = home_dir.join("data_dir");
+        let database_path = data_dir.clone();
+        let mock_dirs_wrapper_opt = None;
+        let non_default_data_directory_opt = Some(data_dir);
+        dump_config_dumps_existing_database_without_password(
+            database_path,
+            mock_dirs_wrapper_opt,
+            non_default_data_directory_opt,
+        );
+    }
+
+    #[test]
+    fn dump_config_dumps_existing_database_without_password_and_default_data_dir() {
+        let home_dir = ensure_node_home_directory_exists(
+            "config_dumper",
+            "dump_config_dumps_existing_database_without_password_and_default_data_dir",
+        );
+        let data_dir = home_dir.join("data_dir");
+        let database_path = data_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
+        let mock_dirs_wrapper_opt = Some(Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_dir))
+                .home_dir_result(Some(home_dir)),
+        ) as Box<dyn DirsWrapper>);
+        let non_default_data_directory_opt = None;
+        dump_config_dumps_existing_database_without_password(
+            database_path,
+            mock_dirs_wrapper_opt,
+            non_default_data_directory_opt,
+        );
     }
 
     #[test]
@@ -422,7 +470,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -476,12 +524,11 @@ mod tests {
             "config_dumper",
             "dump_config_dumps_existing_database_with_incorrect_password",
         );
-        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_data_dir,
+                    &data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::Standard,
@@ -529,7 +576,7 @@ mod tests {
             .into();
         let subject = DumpConfigRunnerReal;
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok(), "we expected Ok but got: {:?}", result);
         let output = holder.stdout.get_string();
@@ -538,10 +585,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &chain_specific_data_dir,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);

@@ -36,14 +36,14 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directories, add_chain_specific_directory, ExpectValue};
+use masq_lib::utils::{add_chain_specific_directory, ExpectValue};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = true;
+const CONSOLE_DIAGNOSTICS: bool = false;
 
 const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
 
@@ -76,6 +76,7 @@ impl SetupReporter for SetupReporterReal {
         mut existing_setup: SetupCluster,
         incoming_setup: Vec<UiSetupRequestValue>,
     ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)> {
+        eprintln!("existing setup: {:?}", existing_setup);
         let default_setup = Self::get_default_params();
         let mut blanked_out_former_values = HashMap::new();
         incoming_setup
@@ -86,8 +87,11 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let err_conflicts_for_blanked_out =
-            Self::get_err_conflicts_for_blanked_out(&blanked_out_former_values, &existing_setup);
+        let restoration_mismatch_prevention =
+            Self::restoration_mismatch_prevention_with_blanks(
+                &blanked_out_former_values,
+                &existing_setup,
+            );
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -118,56 +122,27 @@ impl SetupReporter for SetupReporterReal {
             crate::bootstrapper::RealUser::new(None, None, None)
                 .populate(self.dirs_wrapper.as_ref())
         });
-        //TODO create new function check_data_directory_chain(data_dir_opt, chain_literal)
-        //TODO int case user is setting up chain, needs to be adjusted with data_directory, as well
         let (data_directory, data_dir_status) = match all_but_configured.get("data-directory") {
-            // make let tuple with data_dir_status
             Some(uisrv) if uisrv.status == Set => {
-                // //TODO check if test is checking Configured ...
-                // if Path::new(&uisrv.value).ends_with(Path::new(chain.rec().literal_identifier))
-                // {
-                //     println!(
-                //         "setup reporter data dir match frist arm if 1 {:#?}",
-                //         &uisrv.status
-                //     );
-                //     (PathBuf::from(&uisrv.value), uisrv.status)
-                // } else {
-                //     println!(
-                //         "setup reporter data dir match frist arm if 2 {:#?}",
-                //         &uisrv.status
-                //     );
-                (
-                    add_chain_specific_directory(chain, &Path::new(&uisrv.value)),
-                    uisrv.status,
+                Self::determine_setup_value_of_set_data_directory(
+                    uisrv,
+                    &existing_setup,
+                    &incoming_setup,
+                    chain,
                 )
-                // }
             }
             _ => match data_directory_opt {
                 //this can mean only that environment variables had it
-                Some(data_dir) => (data_dir, UiSetupResponseValueStatus::Configured), //TODO is this tested?
+                Some(data_dir) => (data_dir, UiSetupResponseValueStatus::Configured),
                 None => {
                     let data_dir =
                         data_directory_from_context(self.dirs_wrapper.as_ref(), &real_user, chain);
-                    (data_dir, UiSetupResponseValueStatus::Default)
+                    (data_dir, Default)
                 }
             },
         };
-        println!(
-            "data_directory from data_directory_setup {:#?}",
-            data_directory
-        );
-        let data_directory_setup = {
-            let mut setup = HashMap::new();
-            setup.insert(
-                "data-directory".to_string(),
-                UiSetupResponseValue::new(
-                    "data-directory",
-                    &data_directory.to_str().expect("data-directory expected"),
-                    data_dir_status,
-                ),
-            );
-            setup
-        };
+        let data_directory_setup =
+            Self::construct_cluster_with_only_data_directory(&data_directory, data_dir_status);
         let (configured_setup, error_opt) =
             self.calculate_configured_setup(&all_but_configured, &data_directory);
         if let Some(error) = error_opt {
@@ -214,7 +189,7 @@ impl SetupReporter for SetupReporterReal {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
                 &blanked_out_former_values,
-                &err_conflicts_for_blanked_out,
+                &restoration_mismatch_prevention,
             ]);
             Err((setup, error_so_far))
         }
@@ -272,7 +247,7 @@ impl SetupReporterReal {
         }
     }
 
-    fn get_err_conflicts_for_blanked_out(
+    fn restoration_mismatch_prevention_with_blanks(
         blanked_out_former_values: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
@@ -289,6 +264,44 @@ impl SetupReporterReal {
                 acc
             },
         )
+    }
+
+    fn determine_setup_value_of_set_data_directory(
+        semi_clusters_val: &UiSetupResponseValue,
+        existing_setup: &SetupCluster,
+        incoming_setup: &SetupCluster,
+        chain: BlockChain,
+    ) -> (PathBuf, UiSetupResponseValueStatus) {
+        match (existing_setup.get("data-directory"), incoming_setup.get("data-directory")){
+            (_, Some(_)) => (add_chain_specific_directory(chain, &Path::new(&semi_clusters_val.value)), semi_clusters_val.status),
+            (Some(recent_value),None) =>(Self::reconstitute_data_dir_by_chain(&recent_value.value, chain), recent_value.status),
+            _ => panic!("broken code: data-directory value is neither in existing_setup or incoming_setup and yet this value \"{}\" was found in the merged cluster", semi_clusters_val.value)
+        }
+    }
+
+    fn reconstitute_data_dir_by_chain(
+        previously_processed_data_dir: &str,
+        current_chain: BlockChain,
+    ) -> PathBuf {
+        let mut path = PathBuf::from(&previously_processed_data_dir);
+        path.pop();
+        add_chain_specific_directory(current_chain, &path)
+    }
+
+    fn construct_cluster_with_only_data_directory(
+        data_directory: &Path,
+        data_dir_status: UiSetupResponseValueStatus,
+    ) -> SetupCluster {
+        let mut setup = HashMap::new();
+        setup.insert(
+            "data-directory".to_string(),
+            UiSetupResponseValue::new(
+                "data-directory",
+                &data_directory.to_str().expect("data-directory expected"),
+                data_dir_status,
+            ),
+        );
+        setup
     }
 
     fn calculate_fundamentals(
@@ -1223,11 +1236,15 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
-        let config_file_dir = add_chain_specific_directories(DEFAULT_CHAIN, &home_dir);
-        std::fs::create_dir_all(&config_file_dir).unwrap();
+        let data_dir = home_dir.join("data_dir");
+        let chain_specific_data_dir = data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
+        std::fs::create_dir_all(&chain_specific_data_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&config_file_dir, DbInitializationConfig::test_default())
+            .initialize(
+                &chain_specific_data_dir,
+                DbInitializationConfig::test_default(),
+            )
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1261,7 +1278,7 @@ mod tests {
             .unwrap();
         let incoming_setup = vec![
             ("blockchain-service-url", "https://well-known-provider.com"),
-            ("data-directory", home_dir.to_str().unwrap()),
+            ("data-directory", data_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("ip", "4.3.2.1"),
         ]
@@ -1296,7 +1313,7 @@ mod tests {
             ("crash-point", "", Blank),
             (
                 "data-directory",
-                home_dir
+                data_dir
                     .join(DEFAULT_CHAIN.rec().literal_identifier)
                     .to_str()
                     .unwrap(),
@@ -1358,6 +1375,8 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
+        let previously_processed_data_dir =
+            home_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "https://example1.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1365,7 +1384,7 @@ mod tests {
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
-            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("data-directory", previously_processed_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
@@ -1876,6 +1895,7 @@ mod tests {
         assert_eq!(presentable_result, expected_result);
     }
 
+    //TODO the three next tests could utilize a shared test body; there is too much repeated code
     #[test]
     fn get_modified_setup_default_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
@@ -1883,15 +1903,13 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_default_data_directory_depends_on_new_chain_on_success",
         );
-        let default_data_dir = base_dir
-            .join("MASQ")
-            .join(DEFAULT_CHAIN.rec().literal_identifier);
+        let data_dir = base_dir.join("data_dir");
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
-                &default_data_dir.to_string_lossy().to_string(),
+                &data_dir.to_string_lossy().to_string(),
                 Default,
             ),
         ]);
@@ -1899,13 +1917,13 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir
+
+        let expected_data_directory = data_dir
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
-                .data_dir_result(Some(base_data_dir))
+                .data_dir_result(Some(data_dir))
                 .home_dir_result(Some(base_dir)),
         );
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1925,31 +1943,28 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_user_specified_data_directory_depends_on_new_chain_on_success",
         );
-        let current_data_dir = base_dir
-            .join("MASQ")
-            .join(DEFAULT_CHAIN.rec().literal_identifier);
+        let data_dir = base_dir.join("data_dir");
+        let previously_processed_data_dir = data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
-                &current_data_dir.to_string_lossy().to_string(),
+                &previously_processed_data_dir.to_string_lossy().to_string(),
                 Set,
             ),
-            (
-                "real-user",
-                &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
-                    .to_string(),
-                Default,
-            ),
+            ("real-user", &format!("1000:1000:{:?}", base_dir), Default),
         ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = base_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
-        let dirs_wrapper = Box::new(DirsWrapperMock::new());
+        let expected_data_directory = data_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -1958,6 +1973,68 @@ mod tests {
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_data_directory_set_previously_and_now_too() {
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_data_directory_set_previously_and_now_too",
+        );
+        let default_data_dir = base_dir.join("data_dir");
+        let previously_processed_data_dir = default_data_dir
+            .join("my_special_folder")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
+        let new_data_dir = base_dir.join("new_data_dir");
+        let existing_setup = setup_cluster_from(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &previously_processed_data_dir.to_string_lossy().to_string(),
+                Set,
+            ),
+            ("real-user", &format!("1000:1000:{:?}", base_dir), Default),
+        ]);
+        let incoming_setup = vec![(
+            "data-directory",
+            &new_data_dir.to_string_lossy().to_string(),
+        )]
+        .into_iter()
+        .map(|(name, value)| UiSetupRequestValue::new(name, value))
+        .collect_vec();
+        let expected_data_directory = new_data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(default_data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
+        assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "broken code: data-directory value is neither in existing_setup or incoming_setup and yet this value \"blah/booga\" was found in the merged cluster"
+    )]
+    fn unreachable_variant_for_determine_tuple_for_data_directory_when_set() {
+        let data_dir_value = UiSetupResponseValue::new("data-directory", "blah/booga", Set);
+        let empty_existing_setup = HashMap::new();
+        let empty_incoming_setup = HashMap::new();
+
+        let _ = SetupReporterReal::determine_setup_value_of_set_data_directory(
+            &data_dir_value,
+            &empty_existing_setup,
+            &empty_incoming_setup,
+            DEFAULT_CHAIN,
+        );
     }
 
     #[test]
@@ -1993,20 +2070,12 @@ mod tests {
             ("log-level", "warn", Default),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "", Blank),
-            (
-                "real-user",
-                &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
-                    .to_string(),
-                Default,
-            ),
             ("scans", "", Blank),
         ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        //let base_data_dir = base_dir.join("data_dir");
         let expected_data_directory = base_dir
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
@@ -2066,13 +2135,7 @@ mod tests {
             ("neighborhood-mode", "originate-only", Set),
             //this causes the error: cannot run in this mode without any supplied descriptors
             ("neighbors", "", Blank),
-            (
-                "real-user",
-                &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
-                    .to_string(),
-                Default,
-            ),
+            ("real-user", &format!("1000:1000:{:?}", base_dir), Default),
             ("scans", "on", Default),
         ]);
         //blanking out the chain parameter

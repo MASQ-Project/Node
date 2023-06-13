@@ -197,7 +197,6 @@ pub fn privileged_parse_args(
 ) -> Result<(), ConfiguratorError> {
     let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
-    //TODO implement match to check if data-directory contains chain
     let directory = match data_directory_opt {
         Some(data_directory_opt) => data_directory_opt,
         None => data_directory_from_context(dirs_wrapper, &real_user, chain),
@@ -306,7 +305,7 @@ mod tests {
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{add_chain_specific_directories, array_of_borrows_to_vec, running_test};
+    use masq_lib::utils::{array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
     use std::fs::File;
@@ -440,7 +439,7 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator", //TODO this file has a different name! It's node_configurator_standard
+            "node_configurator_standard",
             "server_initializer_collected_params_can_read_parameters_from_config_file",
         );
         {
@@ -469,7 +468,7 @@ mod tests {
     fn can_read_dns_servers_and_consuming_private_key_from_config_file() {
         running_test();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
+            "node_configurator_standard",
             "can_read_wallet_parameters_from_config_file",
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
@@ -536,7 +535,7 @@ mod tests {
     fn privileged_parse_args_creates_configurations() {
         running_test();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
+            "node_configurator_standard",
             "privileged_parse_args_creates_configurations",
         );
         let args = ArgsBuilder::new()
@@ -719,14 +718,14 @@ mod tests {
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
         running_test();
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
-        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &home_dir);
+        let data_dir = home_dir.join("data_dir");
         let args = ArgsBuilder::new()
             .param("--config-file", "booga.toml") // nonexistent config file: should return error because user-specified
             .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir))
-            .data_dir_result(Some(chain_specific_data_dir));
+            .data_dir_result(Some(data_dir));
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).err();
 
         match result {

@@ -67,7 +67,12 @@ pub trait DaemonInitializerFactory {
 }
 
 pub trait DumpConfigRunner {
-    fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
+    fn go(
+        &self,
+        dirs_wrapper: &dyn DirsWrapper,
+        streams: &mut StdStreams,
+        args: &[String],
+    ) -> RunModeResult;
     declare_as_any!();
 }
 
@@ -237,7 +242,7 @@ mod tests {
 pub mod mocks {
     use crate::daemon::daemon_initializer::{RecipientsFactoryReal, RerunnerReal};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-    use crate::node_configurator::NodeConfigurator;
+    use crate::node_configurator::{DirsWrapper, NodeConfigurator};
     use crate::run_modes_factories::{
         DIClusteredParams, DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner,
         DumpConfigRunnerFactory, RunModeResult, ServerInitializer, ServerInitializerFactory,
@@ -362,7 +367,12 @@ pub mod mocks {
     }
 
     impl DumpConfigRunner for DumpConfigRunnerMock {
-        fn go(&self, _streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
+        fn go(
+            &self,
+            _dirs_wrapper: &dyn DirsWrapper,
+            _streams: &mut StdStreams,
+            args: &[String],
+        ) -> Result<(), ConfiguratorError> {
             self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }

@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_config_dumper, app_daemon, app_node};
+use crate::node_configurator::DirsWrapperReal;
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes::Leaving::{ExitCode, Not};
 use crate::run_modes_factories::{
@@ -253,7 +254,7 @@ impl Runner for RunnerReal {
     ) -> Result<(), RunnerError> {
         self.dump_config_runner_factory
             .make()
-            .go(streams, args)
+            .go(&DirsWrapperReal, streams, args) //TODO test if changing the wrapper for the mock one will break tests
             .map_err(RunnerError::Configurator)
     }
 
