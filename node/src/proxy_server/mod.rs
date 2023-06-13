@@ -1076,6 +1076,8 @@ impl IBCDHelper for IBCDHelperReal {
         );
         let payload_size = pld.sequenced_packet.data.len();
         let message_resolver = self.factory.make();
+
+
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
@@ -1083,9 +1085,7 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    // let stream_key = tth_args.payload.stream_key;
-                    // let hostname_opt = tth_args.payload.target_hostname;
-
+                    // TODO: This function can return an error that being ignored, is there a way we can collect and return this error?
                     if let Err(e) = message_resolver.resolve_message(tth_args, add_route_sub, route_result) {
                         error!(
                             logger,
