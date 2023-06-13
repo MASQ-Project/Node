@@ -2,6 +2,7 @@
 
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
+use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_7_to_8;
@@ -11,8 +12,9 @@ impl DatabaseMigration for Migrate_7_to_8 {
         &self,
         mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
-        let statement =
-            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops_count', '3', 0)";
+        let statement = format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops_count', '{DEFAULT_MIN_HOPS_COUNT}', 0)",
+        );
         mig_declaration_utilities.execute_upon_transaction(&[&statement])
     }
 
@@ -24,16 +26,15 @@ impl DatabaseMigration for Migrate_7_to_8 {
 #[cfg(test)]
 mod tests {
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::db_migrations::db_migrator::DatabaseMigration;
     use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::test_utils::database_utils::{
         bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
     };
-    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::NeighborhoodModeLight;
 
     #[test]
     fn old_version_says_7() {
@@ -56,31 +57,23 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             subject
-                .initialize_to_version(
-                    &dir_path,
-                    start_at,
-                    DbInitializationConfig::create_or_migrate(make_external_data()),
-                )
+                .initialize_to_version(&dir_path, start_at, DbInitializationConfig::test_default())
                 .unwrap();
         }
 
         let result = subject.initialize_to_version(
             &dir_path,
             start_at + 1,
-            DbInitializationConfig::create_or_migrate(ExternalData::new(
-                DEFAULT_CHAIN,
-                NeighborhoodModeLight::ConsumeOnly,
-                None,
-            )),
+            DbInitializationConfig::create_or_migrate(make_external_data()),
         );
 
         let connection = result.unwrap();
-        let (bchs_value, bchs_encrypted) =
-            retrieve_config_row(connection.as_ref(), "min_hops_count");
-        assert_eq!(bchs_value, Some("3".to_string()));
-        assert_eq!(bchs_encrypted, false);
-        let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(cs_value, Some("8".to_string()));
-        assert_eq!(cs_encrypted, false);
+        let (mhc_value, mhc_encrypted) = retrieve_config_row(connection.as_ref(), "min_hops_count");
+        assert_eq!(mhc_value, Some(DEFAULT_MIN_HOPS_COUNT.to_string()));
+        assert_eq!(mhc_encrypted, false);
+        let (schv_value, schv_encrypted) =
+            retrieve_config_row(connection.as_ref(), "schema_version");
+        assert_eq!(schv_value, Some("8".to_string()));
+        assert_eq!(schv_encrypted, false);
     }
 }
