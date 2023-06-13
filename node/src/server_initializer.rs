@@ -52,7 +52,10 @@ impl ServerInitializer for ServerInitializerReal {
         //TODO create test for fn privilege_dropped to test if chown changes rights for file, test could ask for manipulation with file owned by root after chown to real user
         self.privilege_dropper
             .chown(&params.data_directory, &params.real_user);
-        println!("ServerInitializer go drop_privileges {:#?}", &params.data_directory);
+        println!(
+            "ServerInitializer go drop_privileges {:#?}",
+            &params.data_directory
+        );
         self.privilege_dropper.drop_privileges(&params.real_user);
 
         result
@@ -133,7 +136,7 @@ impl<'a> GatheredParams<'a> {
             multi_config,
             config_file_path,
             real_user,
-            data_directory
+            data_directory,
         }
     }
 }

@@ -32,7 +32,7 @@ pub fn determine_fundamentals(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, PathBuf,RealUser), ConfiguratorError> {
+) -> Result<(PathBuf, bool, PathBuf, RealUser), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -54,15 +54,20 @@ pub fn determine_fundamentals(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path: PathBuf = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
+    let config_file_path: PathBuf =
+        value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let data_directory = match data_directory_opt{
+    let data_directory = match data_directory_opt {
         Some(data_dir) => data_dir,
-        None => data_directory_from_context(dirs_wrapper, &real_user, chain)
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain),
     };
-    let config_file_path = if config_file_path.is_relative(){data_directory.join(config_file_path)}else{config_file_path};
+    let config_file_path = if config_file_path.is_relative() {
+        data_directory.join(config_file_path)
+    } else {
+        config_file_path
+    };
 
     //TODO check out if config_file_path and user_specified belong together
     (config_file_path, user_specified, data_directory, real_user).wrap_to_ok()
@@ -188,11 +193,8 @@ mod tests {
         );
         let chain_name = "polygon-mumbai";
 
-        let result = data_directory_from_context(
-            &dirs_wrapper,
-            &real_user,
-            Chain::from(chain_name),
-        );
+        let result =
+            data_directory_from_context(&dirs_wrapper, &real_user, Chain::from(chain_name));
 
         assert_eq!(
             result,
@@ -218,7 +220,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified,  _data_dir, _real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -247,7 +249,7 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified, _data_dir,_real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -270,7 +272,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir,_real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

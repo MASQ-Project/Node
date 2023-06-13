@@ -24,8 +24,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals,
-    real_user_data_directory_opt_and_chain
+    data_directory_from_context, determine_fundamentals, real_user_data_directory_opt_and_chain,
 };
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::PublicKey;
@@ -144,7 +143,8 @@ pub fn server_initializer_collected_params<'a>(
 ) -> Result<GatheredParams<'a>, ConfiguratorError> {
     let app = app_node();
 
-    let (config_file_path, user_specified, data_directory, real_user) = determine_fundamentals(dirs_wrapper, &app, args)?;
+    let (config_file_path, user_specified, data_directory, real_user) =
+        determine_fundamentals(dirs_wrapper, &app, args)?;
 
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
@@ -158,8 +158,15 @@ pub fn server_initializer_collected_params<'a>(
             config_file_vcl,
         ],
     )?;
-    let config_file_path = value_m!(full_multi_config, "config-file", PathBuf).expect("defaulted param");
-    GatheredParams::new(full_multi_config, config_file_path, real_user, data_directory).wrap_to_ok()
+    let config_file_path =
+        value_m!(full_multi_config, "config-file", PathBuf).expect("defaulted param");
+    GatheredParams::new(
+        full_multi_config,
+        config_file_path,
+        real_user,
+        data_directory,
+    )
+    .wrap_to_ok()
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -193,7 +200,7 @@ pub fn privileged_parse_args(
     //TODO implement match to check if data-directory contains chain
     let directory = match data_directory_opt {
         Some(data_directory_opt) => data_directory_opt,
-        None => data_directory_from_context(dirs_wrapper, &real_user, chain)
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain),
     };
     privileged_config.real_user = real_user;
     privileged_config.data_directory = directory;
@@ -988,7 +995,11 @@ mod tests {
         assert_eq!(result, expected)
     }
 
-    fn check_data_directory_combinations(chain_opt: Option<&str>, data_directory_opt: Option<&str>, expected: Option<&str>) {
+    fn check_data_directory_combinations(
+        chain_opt: Option<&str>,
+        data_directory_opt: Option<&str>,
+        expected: Option<&str>,
+    ) {
         let home_dir = PathBuf::from("/home/cooga");
         let standard_data_dir = PathBuf::from("/home/cooga/.local");
 
@@ -1006,7 +1017,7 @@ mod tests {
                 .param("--real-user", "999:999:/home/cooga"),
             (None, None) => ArgsBuilder::new()
                 .param("--chain", "polygon-mainnet")
-                .param("--real-user", "999:999:/home/cooga")
+                .param("--real-user", "999:999:/home/cooga"),
         };
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = match data_directory_opt {
@@ -1015,7 +1026,7 @@ mod tests {
                 .data_dir_result(Some(PathBuf::from(data_directory_opt))),
             None => DirsWrapperMock::new()
                 .home_dir_result(Some(home_dir))
-                .data_dir_result(Some(PathBuf::from(standard_data_dir)))
+                .data_dir_result(Some(PathBuf::from(standard_data_dir))),
         };
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
             .unwrap()
@@ -1027,17 +1038,36 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory() {
+    fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory(
+    ) {
         running_test();
         vec![
             (None, None, Some("/home/cooga/.local/MASQ/polygon-mainnet")),
-            (Some("polygon-mumbai"), None, Some("/home/cooga/.local/MASQ/polygon-mumbai")),
+            (
+                Some("polygon-mumbai"),
+                None,
+                Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+            ),
             (None, Some("/cooga"), Some("/cooga")),
             (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
-            (None, Some("/cooga/polygon-mumbai"), Some("/cooga/polygon-mumbai")),
-            (None, Some("/cooga/polygon-mumbai/polygon-mainnet"), Some("/cooga/polygon-mumbai/polygon-mainnet")),
-            (Some("polygon-mumbai"), Some("/cooga/polygon-mumbai"), Some("/cooga/polygon-mumbai")),
-        ].iter().for_each(|(chain_opt, data_directory_opt, expected)| {
+            (
+                None,
+                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+            ),
+            (
+                None,
+                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+            ),
+            (
+                Some("polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+            ),
+        ]
+        .iter()
+        .for_each(|(chain_opt, data_directory_opt, expected)| {
             check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
         });
     }

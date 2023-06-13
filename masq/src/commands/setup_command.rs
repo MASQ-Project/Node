@@ -4,20 +4,23 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::messages::{UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
+use masq_lib::messages::{
+    UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
+    UiSetupResponseValue, UiSetupResponseValueStatus,
+};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::{add_chain_specific_directory, index_of_from};
-use std::iter::Iterator;
 #[cfg(test)]
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
+use std::iter::Iterator;
 use std::path::PathBuf;
-use masq_lib::blockchains::chains::Chain;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -111,16 +114,25 @@ impl SetupCommand {
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
 
-        let mut chain_and_data_dir = inner.values.iter().flat_map(|p| {
-            match p.name.as_str() {
+        let mut chain_and_data_dir = inner
+            .values
+            .iter()
+            .flat_map(|p| match p.name.as_str() {
                 "chain" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
                 "data-directory" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
-                _ => None
-            }
-        } ).collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
-        let (_, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
-        let (_, data_directory_param_status) = chain_and_data_dir.remove("data-directory").expect("data-directory is missing in setup cluster");
-        println!("data_directory_param_status {:#?}", &data_directory_param_status);
+                _ => None,
+            })
+            .collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
+        let (_, chain_param_status) = chain_and_data_dir
+            .remove("chain")
+            .expect("Chain name is missing in setup cluster");
+        let (_, data_directory_param_status) = chain_and_data_dir
+            .remove("data-directory")
+            .expect("data-directory is missing in setup cluster");
+        println!(
+            "data_directory_param_status {:#?}",
+            &data_directory_param_status
+        );
         inner.values.into_iter().for_each(|value| {
             //let value_value = Self::match_value_value(value.clone(), &chain_name);
             short_writeln!(
@@ -145,7 +157,9 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
-        if chain_param_status != UiSetupResponseValueStatus::Default || data_directory_param_status != UiSetupResponseValueStatus::Default {
+        if chain_param_status != UiSetupResponseValueStatus::Default
+            || data_directory_param_status != UiSetupResponseValueStatus::Default
+        {
             short_writeln!(
                 stdout,
                 "NOTE: your data directory was modified to match chain parameter.\n"
@@ -414,9 +428,13 @@ NAME                          VALUE                                             
             process_setup_command_for_given_attributes(chain_opt_real, data_directory_opt_real, &expected, *status_chain, *status_data_dir);
         });
     }
-    fn process_setup_command_for_given_attributes(chain: &str, data_directory: &str, expected: &str,
-                                                  status_chain: UiSetupResponseValueStatus,
-                                                  status_data_dir: UiSetupResponseValueStatus ) {
+    fn process_setup_command_for_given_attributes(
+        chain: &str,
+        data_directory: &str,
+        expected: &str,
+        status_chain: UiSetupResponseValueStatus,
+        status_data_dir: UiSetupResponseValueStatus,
+    ) {
         let message = UiSetupResponse {
             running: false,
             values: vec![
@@ -430,7 +448,6 @@ NAME                          VALUE                                             
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &mut stdout);
 
-        assert_eq! (handle.stdout_so_far(), expected);
+        assert_eq!(handle.stdout_so_far(), expected);
     }
 }
-

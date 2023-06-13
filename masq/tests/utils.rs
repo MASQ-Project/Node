@@ -109,7 +109,7 @@ impl StdinHandle {
         match self.stdin.write_fmt(format_args!("{}\n", command)) {
             Ok(_) => match self.stdin.flush() {
                 Ok(_) => (),
-                Err(e) => panic!("flush failed in type_command: {}", e)
+                Err(e) => panic!("flush failed in type_command: {}", e),
             },
             Err(e) => {
                 panic!("type_command write failed: {}", e)

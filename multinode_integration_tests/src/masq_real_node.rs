@@ -905,8 +905,7 @@ impl MASQRealNode {
     pub fn node_home_dir(root_dir: &str, name: &str) -> String {
         format!(
             "{}/multinode_integration_tests/generated/node_homes/{}",
-            root_dir,
-            name
+            root_dir, name
         )
     }
 
@@ -1153,7 +1152,8 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
-        let chain_specific_diretory = add_chain_specific_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
+        let chain_specific_diretory =
+            add_chain_specific_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {

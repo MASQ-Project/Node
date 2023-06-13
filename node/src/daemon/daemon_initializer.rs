@@ -116,7 +116,10 @@ impl DaemonInitializerReal {
         mut params: DIClusteredParams,
     ) -> DaemonInitializerReal {
         let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
-        println!("DaemonInitializerReal params.dirs_wrapper {:#?}", &params.dirs_wrapper.home_dir());
+        println!(
+            "DaemonInitializerReal params.dirs_wrapper {:#?}",
+            &params.dirs_wrapper.home_dir()
+        );
         let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
         let dirs_home_dir = dirs_home_dir_opt
             .as_ref()

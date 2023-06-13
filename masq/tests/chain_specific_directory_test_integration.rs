@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::thread;
-use std::time::Duration;
 use crate::utils::{DaemonProcess, MasqProcess};
 use masq_lib::utils::find_free_port;
+use std::thread;
+use std::time::Duration;
 
 mod utils;
 
@@ -16,7 +16,7 @@ fn ensure_data_directory_has_specific_chain_direcotry_within() {
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",
         *&port.to_string().to_owned().as_str(),
-        "setup"
+        "setup",
     ]);
 
     thread::sleep(Duration::from_millis(1000));
@@ -38,7 +38,10 @@ fn ensure_data_directory_has_specific_chain_direcotry_within() {
     stdin_handle.type_command("exit");
 
     let (stdout2, _stderr2, _exit_code2) = masq_handle2.stop();
-    let expected = format!("{:29} {:64} {}", "data-directory", "/home/booga/masqhome/polygon-mainnet", "Set" );
+    let expected = format!(
+        "{:29} {:64} {}",
+        "data-directory", "/home/booga/masqhome/polygon-mainnet", "Set"
+    );
     if !stdout2.contains(&expected) {
         println!("\nstdout: {} \n", stdout2);
         panic!("Wrong directory: missing chain specific directory when Set");

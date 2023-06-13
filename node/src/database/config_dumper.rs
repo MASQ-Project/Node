@@ -147,9 +147,10 @@ fn distill_args(
     let multi_config = make_new_multi_config(&app, vcls)?;
     let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let directory = match data_directory_opt{
+    let directory = match data_directory_opt {
         Some(data_dir) => data_dir,
-        None => data_directory_from_context(dirs_wrapper, &real_user, chain)};
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain),
+    };
     let password_opt = value_m!(multi_config, "db-password", String);
     Ok((real_user, directory, chain, password_opt))
 }
@@ -208,11 +209,7 @@ mod tests {
                 data_dir.to_str().unwrap()
             )
         );
-        let err = File::open(
-            &data_dir
-                .join(DATABASE_FILE),
-        )
-        .unwrap_err();
+        let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound)
     }
 
@@ -225,9 +222,7 @@ mod tests {
         //let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         create_dir_all(&data_dir)
             .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
-        let conn = bring_db_0_back_to_life_and_return_connection(
-            &data_dir.join(DATABASE_FILE),
-        );
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -436,10 +431,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &data_dir,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
