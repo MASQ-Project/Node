@@ -7,7 +7,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::{add_chain_specific_directories, ExpectValue, NeighborhoodModeLight};
+use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -25,18 +25,17 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_fundamentals,
-    real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
+    real_user_data_directory_opt_and_chain
 };
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
+use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use std::str::FromStr;
-use masq_lib::blockchains::chains::Chain;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -303,7 +302,7 @@ mod tests {
     use masq_lib::utils::{add_chain_specific_directories, array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    use std::fs::{create_dir_all, File};
+    use std::fs::File;
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};

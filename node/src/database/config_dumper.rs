@@ -222,11 +222,11 @@ mod tests {
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
         );
-        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
-        create_dir_all(&chain_specific_data_dir)
+        //let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        create_dir_all(&data_dir)
             .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
         let conn = bring_db_0_back_to_life_and_return_connection(
-            &chain_specific_data_dir.join(DATABASE_FILE),
+            &data_dir.join(DATABASE_FILE),
         );
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();

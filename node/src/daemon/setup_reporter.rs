@@ -106,7 +106,7 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
-        let (real_user_opt, data_directory_opt, chain) =
+        let (real_user_opt, _data_directory_opt, chain) =
             match Self::calculate_fundamentals(self.dirs_wrapper.as_ref(), &all_but_configured) {
                 Ok(triple) => triple,
                 Err(error) => {
@@ -1277,7 +1277,7 @@ mod tests {
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
-            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("data-directory", home_dir.join(DEFAULT_CHAIN.rec().literal_identifier).to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", &dns_servers_str, dns_servers_status),
             ("earning-wallet", "", Blank),
@@ -1370,7 +1370,7 @@ mod tests {
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
-            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("data-directory", home_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier).to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
@@ -1947,7 +1947,7 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let base_data_dir = base_dir.join("data_dir");
+        //let base_data_dir = base_dir.join("data_dir");
         let expected_data_directory = base_dir
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
@@ -2439,10 +2439,9 @@ mod tests {
             "setup_reporter",
             "config_file_not_specified_but_exists",
         );
-        let data_dir_chain_path = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
         {
-            let config_file_path = data_dir_chain_path.join("config.toml");
-            create_dir_all(&data_dir_chain_path)
+            let config_file_path = data_directory.join("config.toml");
+            create_dir_all(&data_directory)
                 .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
             let mut config_file = File::create(config_file_path).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
@@ -2460,7 +2459,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
         let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, &*data_dir_chain_path);
+            .calculate_configured_setup(&setup, &*data_directory);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 
@@ -2470,10 +2469,8 @@ mod tests {
             "setup_reporter",
             "config_file_has_relative_directory_that_exists_in_data_directory",
         );
-        let chain_specific_dir =
-            add_chain_specific_directories(Blockchain::PolyMumbai, &data_directory);
         {
-            let config_file_dir = chain_specific_dir.join("booga");
+            let config_file_dir = data_directory.join("booga");
             std::fs::create_dir_all(&config_file_dir).unwrap();
             let config_file_path = config_file_dir.join("special.toml");
             let mut config_file = File::create(config_file_path).unwrap();
