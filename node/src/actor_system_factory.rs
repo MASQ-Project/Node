@@ -1322,7 +1322,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
-            Box::new(PersistentConfigurationMock::new().set_min_hops_count_result(Ok(()))),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
