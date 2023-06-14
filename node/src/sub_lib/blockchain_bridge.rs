@@ -57,7 +57,7 @@ impl SkeletonOptHolder for OutcomingPaymentsInstructions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
     pub gas_currency_wei: U256,
-    pub masq_tokens_wei: U256,
+    pub masq_tokens_wei: U256, //TODO should be u128 instead
 }
 
 #[cfg(test)]
