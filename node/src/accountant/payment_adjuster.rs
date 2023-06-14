@@ -63,6 +63,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Ok(None) => None,
             Ok(Some(limiting_count)) => {
                 Self::log_insufficient_gas_balance(
+                    //TODO user needs to supply up the wallet!!
                     logger,
                     qualified_payables,
                     this_stage_data,
@@ -85,6 +86,8 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Ok(required) => required,
             Err(e) => todo!(),
         };
+
+        //TODO add logging similar to the above one... but also instruct the user to supply up their wallet
 
         match (limit_by_gas_opt, required_by_masq_token) {
             (None, false) => Ok(None),
@@ -115,16 +118,16 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                     &qualified_payables,
                 ));
 
-        let initial_known_elimination_limits = match setup.adjustment {
+        let gas_limitation_context_opt = match setup.adjustment {
             Adjustment::Gas {
                 limited_count_from_gas,
-            } => Some(KnownEliminationLimits {
+            } => Some(GasLimitationContext {
                 limited_count_from_gas,
                 is_masq_token_insufficient: false,
             }),
             Adjustment::Both {
                 limited_count_from_gas,
-            } => Some(KnownEliminationLimits {
+            } => Some(GasLimitationContext {
                 limited_count_from_gas,
                 is_masq_token_insufficient: true,
             }),
@@ -134,7 +137,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let (adjusted_accounts, debug_info_opt) = Self::run_recursively(
             vec![],
             current_stage_data,
-            initial_known_elimination_limits,
+            gas_limitation_context_opt,
             qualified_payables,
             now,
             logger,
@@ -222,12 +225,13 @@ impl PaymentAdjusterReal {
 
     //TODO write a test that tries really big balances...if we can kill the ceiling
     fn find_multiplication_coeff(cw_masq_balance: u128, criteria_sum: u128) -> u128 {
+        const EMPIRIC_PRECISION_LEVERAGING_COEFFICIENT: usize = 6;
         let num_len_criteria = log_10(criteria_sum); //TODO make the log_10 fn generic
         let num_len_cw_balance = log_10(cw_masq_balance);
         let smallest_mul_coeff_between = num_len_criteria
             .checked_sub(num_len_cw_balance)
             .unwrap_or(1);
-        let safe_mul_coeff = smallest_mul_coeff_between + 6; //empiric, affects the precision of the computed results
+        let safe_mul_coeff = smallest_mul_coeff_between + EMPIRIC_PRECISION_LEVERAGING_COEFFICIENT;
         1_u128 * 10_u128.pow(safe_mul_coeff as u32)
     }
 
@@ -256,7 +260,6 @@ impl PaymentAdjusterReal {
                 let original_balance = account.balance_wei;
                 let proposed_adjusted_balance =
                     criteria_sum * proportional_fragment_of_cw_balance / multiplication_coeff;
-                eprintln!("prod balanced portions: {}", proposed_adjusted_balance);
                 if proposed_adjusted_balance < original_balance / 2
                 //TODO write a small test to add '=' too
                 {
@@ -294,14 +297,14 @@ impl PaymentAdjusterReal {
     }
 
     fn handle_masq_token_adjustment(
-        cw_masq_balance: U256,
+        cw_masq_balance: u128,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
     ) -> AdjustmentIterationResult {
         let required_balance_total: u128 =
             Self::sum_as(&accounts_with_individual_criteria, |(_, account)| {
                 account.balance_wei
             });
-        let criteria_sum: u128 = //TODO is u128 safe?
+        let criteria_sum: u128 =
             Self::sum_as(&accounts_with_individual_criteria, |(criteria, _)| {
                 *criteria
             });
@@ -325,9 +328,8 @@ impl PaymentAdjusterReal {
             };
         };
         let multiplication_coeff =
-            PaymentAdjusterReal::find_multiplication_coeff(cw_masq_balance.as_u128(), criteria_sum);
+            PaymentAdjusterReal::find_multiplication_coeff(cw_masq_balance, criteria_sum);
         let proportional_fragment_of_cw_balance = cw_masq_balance
-            .as_u128()
             .checked_mul(multiplication_coeff)
             .expect("mul overflow")
             .checked_div(criteria_sum)
@@ -386,7 +388,6 @@ impl PaymentAdjusterReal {
                 .duration_since(account.last_paid_timestamp)
                 .expect("time traveller")
                 .as_secs();
-            //TODO how should I treat the sqrt?
             let divisor = (elapsed_sec as f64).sqrt().ceil() as u128;
             let criterion = (elapsed_sec as u128)
                 .pow(4)
@@ -618,12 +619,11 @@ impl PaymentAdjusterReal {
     fn run_recursively(
         fully_qualified_accounts: Vec<PayableAccount>,
         collected_setup_data: FinancialAndTechDetails,
-        known_elimination_limits_opt: Option<KnownEliminationLimits>,
+        gas_limitation_context_opt: Option<GasLimitationContext>,
         qualified_payables: Vec<PayableAccount>,
         now: SystemTime,
         logger: &Logger,
     ) -> (Vec<PayableAccount>, DebugInfoOpt) {
-        eprintln!("run recursively input:\n fully_qualified_accounts: {:?}, qualified_payables: {:?}, consuming_wallet: {}\n", fully_qualified_accounts, qualified_payables, collected_setup_data.consuming_wallet_balances.masq_tokens_wei);
         let accounts_with_zero_criteria = Self::initialize_zero_criteria(qualified_payables);
 
         let accounts_with_individual_criteria =
@@ -636,49 +636,21 @@ impl PaymentAdjusterReal {
                 .collect()
         });
 
-        let adjustment_result: AdjustmentIterationResult = match known_elimination_limits_opt {
-            Some(known_limits) => {
-                let weighted_accounts_cut_by_gas = Self::cut_back_by_gas_count_limit(
-                    accounts_with_individual_criteria,
-                    known_limits.limited_count_from_gas,
-                );
-                match known_limits.is_masq_token_insufficient {
-                    true => {
-                        match Self::check_need_of_masq_balances_adjustment(
-                            logger,
-                            Either::Right(&weighted_accounts_cut_by_gas),
-                            collected_setup_data
-                                .consuming_wallet_balances
-                                .masq_tokens_wei
-                                .as_u128(),
-                        ) {
-                            Ok(is_needed) => match is_needed {
-                                true => Self::handle_masq_token_adjustment(
-                                    collected_setup_data
-                                        .consuming_wallet_balances
-                                        .masq_tokens_wei,
-                                    weighted_accounts_cut_by_gas,
-                                ),
-                                false => todo!(),
-                            },
-                            Err(e) => todo!(),
-                        }
-                    }
-                    false => {
-                        return (
-                            Self::rebuild_accounts(weighted_accounts_cut_by_gas),
-                            debug_info_opt,
-                        )
-                    }
-                }
-            }
-            None => Self::handle_masq_token_adjustment(
+        let adjustment_result: AdjustmentIterationResult =
+            match Self::give_the_job_to_adjustment_workers(
+                gas_limitation_context_opt,
+                accounts_with_individual_criteria,
                 collected_setup_data
                     .consuming_wallet_balances
-                    .masq_tokens_wei,
-                accounts_with_individual_criteria,
-            ),
-        };
+                    .masq_tokens_wei
+                    .as_u128(),
+                logger,
+            ) {
+                AdjustmentCompletion::Finished(accounts_adjusted) => {
+                    return (accounts_adjusted, debug_info_opt)
+                }
+                AdjustmentCompletion::Continue(iteration_result) => iteration_result,
+            };
 
         Self::log_info_for_disqualified_accounts(logger, &adjustment_result.disqualified_accounts);
 
@@ -710,8 +682,50 @@ impl PaymentAdjusterReal {
         )
     }
 
-    // Gas{g_lim} | Masq | Both {g_lim}
-    // Gas{lim} | Masq {accounts}    ...Gas is always applied just once
+    fn give_the_job_to_adjustment_workers(
+        gas_limitation_context_opt: Option<GasLimitationContext>,
+        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        cw_masq_balance_wei: u128,
+        logger: &Logger,
+    ) -> AdjustmentCompletion {
+        match gas_limitation_context_opt {
+            Some(known_limits) => {
+                let weighted_accounts_cut_by_gas = Self::cut_back_by_gas_count_limit(
+                    accounts_with_individual_criteria,
+                    known_limits.limited_count_from_gas,
+                );
+                match known_limits.is_masq_token_insufficient {
+                    true => {
+                        match Self::check_need_of_masq_balances_adjustment(
+                            logger,
+                            Either::Right(&weighted_accounts_cut_by_gas),
+                            cw_masq_balance_wei,
+                        ) {
+                            Ok(is_needed) => match is_needed {
+                                true => AdjustmentCompletion::Continue(
+                                    Self::handle_masq_token_adjustment(
+                                        cw_masq_balance_wei,
+                                        weighted_accounts_cut_by_gas,
+                                    ),
+                                ),
+                                false => AdjustmentCompletion::Finished(Self::rebuild_accounts(
+                                    weighted_accounts_cut_by_gas,
+                                )),
+                            },
+                            Err(e) => todo!(),
+                        }
+                    }
+                    false => AdjustmentCompletion::Finished(Self::rebuild_accounts(
+                        weighted_accounts_cut_by_gas,
+                    )),
+                }
+            }
+            None => AdjustmentCompletion::Continue(Self::handle_masq_token_adjustment(
+                cw_masq_balance_wei,
+                accounts_with_individual_criteria,
+            )),
+        }
+    }
 
     fn log_insufficient_gas_balance(
         logger: &Logger,
@@ -792,6 +806,11 @@ enum DecidedPayableAccountResolution {
     Revert,
 }
 
+enum AdjustmentCompletion {
+    Finished(Vec<PayableAccount>),
+    Continue(AdjustmentIterationResult),
+}
+
 impl DecidedPayableAccount {
     fn new(adjusted_account: PayableAccount, former_balance: u128) -> Self {
         Self {
@@ -858,7 +877,7 @@ pub enum Adjustment {
 }
 
 #[derive(Clone, Copy)]
-struct KnownEliminationLimits {
+struct GasLimitationContext {
     limited_count_from_gas: u16,
     is_masq_token_insufficient: bool,
 }
@@ -887,7 +906,7 @@ mod tests {
     use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::time::{Duration, SystemTime};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use std::vec;
     use thousands::Separable;
     use web3::types::U256;
@@ -1214,7 +1233,7 @@ mod tests {
     }
 
     #[test]
-    fn small_debt_with_extreme_age_is_paid_prioritized_but_not_more_money_than_required() {
+    fn small_debt_with_extreme_age_is_paid_prioritized_but_not_with_more_money_than_required() {
         let now = SystemTime::now();
         let collected_setup_data = FinancialAndTechDetails {
             consuming_wallet_balances: ConsumingWalletBalances {
@@ -1470,9 +1489,9 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_gas_limits_the_final_transaction_count() {
+    fn adjust_payments_when_only_gas_limits_the_final_transaction_count() {
         init_test_logging();
-        let test_name = "adjust_payments_when_gas_limits_the_final_transaction_count";
+        let test_name = "adjust_payments_when_only_gas_limits_the_final_transaction_count";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -1545,9 +1564,9 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_masq_token_limits_the_final_transaction_count() {
+    fn adjust_payments_when_only_masq_token_limits_the_final_transaction_count() {
         init_test_logging();
-        let test_name = "adjust_payments_when_masq_token_limits_the_final_transaction_count";
+        let test_name = "adjust_payments_when_only_masq_token_limits_the_final_transaction_count";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("def"),
@@ -1703,7 +1722,134 @@ mod tests {
                 accounts: expected_accounts,
                 response_skeleton_opt: None
             }
-        )
+        );
+    }
+
+    #[test]
+    fn adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut(
+    ) {
+        init_test_logging();
+        let test_name = "adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut";
+        let now = SystemTime::now();
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 111_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_2 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: 333_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_3 = PayableAccount {
+            wallet: make_wallet("ghk"),
+            balance_wei: 222_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let subject = PaymentAdjusterReal::new();
+        let consuming_wallet_masq_balance = 333_000_000_000_000_u128 + 222_000_000_000_000 + 1;
+        let setup_msg = PayablePaymentSetup {
+            qualified_payables,
+            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+                FinancialAndTechDetails {
+                    consuming_wallet_balances: ConsumingWalletBalances {
+                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+                    },
+                    estimated_gas_limit_per_transaction: 77_000,
+                    desired_gas_price_gwei: 24,
+                },
+            )),
+            response_skeleton_opt: None,
+        };
+        let adjustment_setup = AwaitedAdjustment {
+            original_setup_msg: setup_msg,
+            adjustment: Adjustment::Both {
+                limited_count_from_gas: 2,
+            },
+        };
+
+        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            OutcomingPaymentsInstructions {
+                accounts: vec![account_2, account_3],
+                response_skeleton_opt: None
+            }
+        );
+    }
+
+    #[test]
+    fn adjust_payments_when_both_parameters_and_masq_as_well_as_gas_will_limit_the_count() {
+        init_test_logging();
+        let test_name =
+            "adjust_payments_when_both_parameters_and_masq_as_well_as_gas_will_limit_the_count";
+        let now = SystemTime::now();
+        //thrown away by gas
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 44_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            pending_payable_opt: None,
+        };
+        //thrown away because not enough significant
+        let account_2 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: 55_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let wallet_3 = make_wallet("ghk");
+        let last_paid_timestamp_3 = now.checked_sub(Duration::from_secs(4444)).unwrap();
+        let account_3 = PayableAccount {
+            wallet: wallet_3.clone(),
+            balance_wei: 333_000_000_000_000,
+            last_paid_timestamp: last_paid_timestamp_3,
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let subject = PaymentAdjusterReal::new();
+        let consuming_wallet_masq_balance = 300_000_000_000_000_u128;
+        let setup_msg = PayablePaymentSetup {
+            qualified_payables,
+            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+                FinancialAndTechDetails {
+                    consuming_wallet_balances: ConsumingWalletBalances {
+                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+                    },
+                    estimated_gas_limit_per_transaction: 77_000,
+                    desired_gas_price_gwei: 24,
+                },
+            )),
+            response_skeleton_opt: None,
+        };
+        let adjustment_setup = AwaitedAdjustment {
+            original_setup_msg: setup_msg,
+            adjustment: Adjustment::Both {
+                limited_count_from_gas: 2,
+            },
+        };
+
+        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+
+        assert_eq!(result.accounts.len(), 1);
+        assert_eq!(result.response_skeleton_opt, None);
+        let only_account = &result.accounts[0];
+        assert_eq!(&only_account.wallet, &wallet_3);
+        assert!(
+            ((300_000_000_000_000 * 1000) / 1001) <= only_account.balance_wei
+                && only_account.balance_wei <= 300_000_000_000_000
+        );
+        assert_eq!(only_account.last_paid_timestamp, last_paid_timestamp_3);
+        assert_eq!(only_account.pending_payable_opt, None)
     }
 
     fn secs_elapsed(timestamp: SystemTime, now: SystemTime) -> u128 {
