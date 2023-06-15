@@ -13,7 +13,7 @@ impl DatabaseMigration for Migrate_7_to_8 {
         mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         let statement = format!(
-            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops_count', '{DEFAULT_MIN_HOPS_COUNT}', 0)",
+            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops', '{DEFAULT_MIN_HOPS_COUNT}', 0)",
         );
         mig_declaration_utilities.execute_upon_transaction(&[&statement])
     }
@@ -68,7 +68,7 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (mhc_value, mhc_encrypted) = retrieve_config_row(connection.as_ref(), "min_hops_count");
+        let (mhc_value, mhc_encrypted) = retrieve_config_row(connection.as_ref(), "min_hops");
         assert_eq!(mhc_value, Some(DEFAULT_MIN_HOPS_COUNT.to_string()));
         assert_eq!(mhc_encrypted, false);
         let (schv_value, schv_encrypted) =

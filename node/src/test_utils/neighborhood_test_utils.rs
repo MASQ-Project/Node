@@ -97,11 +97,11 @@ pub fn neighborhood_from_nodes(
                 vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
                 *root.rate_pack(),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         },
         None => NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         },
     };
     config.earning_wallet = root.earning_wallet();

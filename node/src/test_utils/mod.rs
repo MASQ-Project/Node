@@ -682,7 +682,7 @@ pub mod unshared_test_utils {
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
             .blockchain_service_url_result(Ok(None))
-            .min_hops_count_result(Ok(MIN_HOPS_COUNT_FOR_TEST))
+            .min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST))
     }
 
     pub fn default_persistent_config_just_accountant_config(

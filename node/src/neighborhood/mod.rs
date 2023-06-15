@@ -94,7 +94,7 @@ pub struct Neighborhood {
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
     mode: NeighborhoodModeLight,
-    min_hops_count: Hops,
+    min_hops: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -410,7 +410,7 @@ enum RouteDirection {
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
-        let min_hops_count = neighborhood_config.min_hops_count;
+        let min_hops = neighborhood_config.min_hops;
         let neighborhood_mode = &neighborhood_config.mode;
         let mode: NeighborhoodModeLight = neighborhood_mode.into();
         let neighbor_configs = neighborhood_mode.neighbor_configs();
@@ -454,7 +454,7 @@ impl Neighborhood {
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             mode,
-            min_hops_count,
+            min_hops,
             next_return_route_id: 0,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
@@ -491,7 +491,7 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         debug!(self.logger, "Connecting to persistent database");
         self.connect_database();
-        self.validate_database_min_hops_count();
+        self.validate_database_min_hops();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
 
@@ -547,12 +547,12 @@ impl Neighborhood {
         }
     }
 
-    fn validate_database_min_hops_count(&self) {
+    fn validate_database_min_hops(&self) {
         if let Some(persistent_config) = self.persistent_config_opt.as_ref() {
             let from_db = persistent_config
-                .min_hops_count()
+                .min_hops()
                 .expect("Min Hops Count value is not initialized inside Database");
-            let demanded = self.min_hops_count;
+            let demanded = self.min_hops;
             if demanded != from_db {
                 panic!(
                     "Database with wrong min hops count value detected; expected: {:?}, was: {:?}",
@@ -743,7 +743,7 @@ impl Neighborhood {
         let neighborhood_metadata = NeighborhoodMetadata {
             connection_progress_peers: self.overall_connection_status.get_peer_addrs(),
             cpm_recipient,
-            min_hops_count: self.min_hops_count,
+            min_hops: self.min_hops,
         };
         let acceptance_result = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
@@ -836,7 +836,7 @@ impl Neighborhood {
         if self.handle_route_query_message(msg).is_some() {
             debug!(
                 &self.logger,
-                "The connectivity check has found a {}-hop route.", self.min_hops_count as usize
+                "The connectivity check has found a {}-hop route.", self.min_hops as usize
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
@@ -962,7 +962,7 @@ impl Neighborhood {
         let over = self.make_route_segment(
             self.cryptde.public_key(),
             request_msg.target_key_opt.as_ref(),
-            self.min_hops_count as usize,
+            self.min_hops as usize,
             request_msg.target_component,
             request_msg.payload_size,
             RouteDirection::Over,
@@ -977,7 +977,7 @@ impl Neighborhood {
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(self.cryptde.public_key()),
-            self.min_hops_count as usize,
+            self.min_hops as usize,
             request_msg
                 .return_component_opt
                 .expect("No return component"),
@@ -1673,17 +1673,14 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_count_is_set_inside_neighborhood() {
-        let min_hops_count = Hops::SixHops;
+    fn min_hops_is_set_inside_neighborhood() {
+        let min_hops = Hops::SixHops;
         let mode = NeighborhoodMode::Standard(
             NodeAddr::new(&make_ip(1), &[1234, 2345]),
             vec![make_node_descriptor(make_ip(2))],
             rate_pack(100),
         );
-        let neighborhood_config = NeighborhoodConfig {
-            mode,
-            min_hops_count,
-        };
+        let neighborhood_config = NeighborhoodConfig { mode, min_hops };
 
         let subject = Neighborhood::new(
             main_cryptde(),
@@ -1691,11 +1688,11 @@ mod tests {
                 neighborhood_config,
                 make_wallet("earning"),
                 None,
-                "min_hops_count_is_set_inside_neighborhood",
+                "min_hops_is_set_inside_neighborhood",
             ),
         );
 
-        assert_eq!(subject.min_hops_count, Hops::SixHops);
+        assert_eq!(subject.min_hops, Hops::SixHops);
     }
 
     #[test]
@@ -1712,7 +1709,7 @@ mod tests {
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_COUNT_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1737,7 +1734,7 @@ mod tests {
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_COUNT_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1758,7 +1755,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1787,7 +1784,7 @@ mod tests {
                         vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1826,7 +1823,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1834,7 +1831,7 @@ mod tests {
             ),
         );
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_count_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
         ));
         subject.data_directory = data_dir;
         let addr = subject.start();
@@ -1878,7 +1875,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1958,7 +1955,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2427,7 +2424,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2504,7 +2501,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -2579,7 +2576,7 @@ mod tests {
         let system =
             System::new("route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet");
         let mut subject = make_standard_subject();
-        subject.min_hops_count = Hops::OneHop;
+        subject.min_hops = Hops::OneHop;
         subject
             .neighborhood_database
             .root_mut()
@@ -2661,7 +2658,7 @@ mod tests {
     ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops");
         let mut subject = make_standard_subject();
-        subject.min_hops_count = Hops::OneHop;
+        subject.min_hops = Hops::OneHop;
         let a = &make_node_record(1234, true);
         let b = &subject.neighborhood_database.root().clone();
         let c = &make_node_record(3456, true);
@@ -2693,7 +2690,7 @@ mod tests {
     ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet");
         let mut subject = make_standard_subject();
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
@@ -2783,7 +2780,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
         subject
             .neighborhood_database
             .root_mut()
@@ -2903,7 +2900,7 @@ mod tests {
         let cryptde = main_cryptde();
         let system = System::new("return_route_ids_increase");
         let (_, _, _, mut subject) = make_o_r_e_subject();
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
@@ -2934,7 +2931,7 @@ mod tests {
         let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
         let (o, r, e, mut subject) = make_o_r_e_subject();
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let set_wallet_sub = addr.clone().recipient::<SetConsumingWalletMessage>();
         let route_sub = addr.recipient::<RouteQueryMessage>();
@@ -3376,7 +3373,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3775,7 +3772,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -3807,7 +3804,7 @@ mod tests {
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
-        subject.min_hops_count = hops;
+        subject.min_hops = hops;
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
@@ -4498,7 +4495,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4561,7 +4558,7 @@ mod tests {
                         vec![debut_target.clone()],
                         rate_pack(100),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4569,7 +4566,7 @@ mod tests {
             ),
         );
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_count_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
         ));
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
@@ -4604,11 +4601,11 @@ mod tests {
     }
 
     #[test]
-    fn node_validates_min_hops_count_value_from_persistent_configuration() {
-        let test_name = "node_validates_min_hops_count_value_from_persistent_configuration";
-        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let min_hops_count_in_neighborhood = Hops::SixHops;
-        let min_hops_count_in_persistent_configuration = min_hops_count_in_neighborhood;
+    fn node_validates_min_hops_value_from_persistent_configuration() {
+        let test_name = "node_validates_min_hops_value_from_persistent_configuration";
+        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
+        let min_hops_in_neighborhood = Hops::SixHops;
+        let min_hops_in_persistent_configuration = min_hops_in_neighborhood;
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -4618,7 +4615,7 @@ mod tests {
                         vec![make_node_descriptor(make_ip(1))],
                         rate_pack(100),
                     ),
-                    min_hops_count: min_hops_count_in_neighborhood,
+                    min_hops: min_hops_in_neighborhood,
                 },
                 make_wallet("earning"),
                 None,
@@ -4627,8 +4624,8 @@ mod tests {
         );
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
-                .min_hops_count_params(&min_hops_count_params_arc)
-                .min_hops_count_result(Ok(min_hops_count_in_persistent_configuration)),
+                .min_hops_params(&min_hops_params_arc)
+                .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
@@ -4640,17 +4637,17 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_count_params, vec![()]);
+        let min_hops_params = min_hops_params_arc.lock().unwrap();
+        assert_eq!(*min_hops_params, vec![()]);
     }
 
     #[test]
     #[should_panic(
         expected = "Min Hops Count value is not initialized inside Database: NotPresent"
     )]
-    fn node_panics_when_it_cannot_find_min_hops_count_value_inside_persistent_configuration() {
+    fn node_panics_when_it_cannot_find_min_hops_value_inside_persistent_configuration() {
         let test_name =
-            "node_panics_when_it_cannot_find_min_hops_count_value_inside_persistent_configuration";
+            "node_panics_when_it_cannot_find_min_hops_value_inside_persistent_configuration";
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -4660,7 +4657,7 @@ mod tests {
                         vec![make_node_descriptor(make_ip(1))],
                         rate_pack(100),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,
@@ -4669,7 +4666,7 @@ mod tests {
         );
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
-                .min_hops_count_result(Err(PersistentConfigError::NotPresent)),
+                .min_hops_result(Err(PersistentConfigError::NotPresent)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
@@ -4687,12 +4684,12 @@ mod tests {
     #[should_panic(
         expected = "Database with wrong min hops count value detected; expected: SixHops, was: TwoHops"
     )]
-    fn node_panics_when_min_hops_count_value_in_neighborhood_is_different_from_persistent_configuration(
-    ) {
-        let test_name = "node_panics_when_min_hops_count_value_in_neighborhood_is_different_from_persistent_configuration";
-        let min_hops_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let min_hops_count_in_neighborhood = Hops::SixHops;
-        let min_hops_count_in_persistent_configuration = Hops::TwoHops;
+    fn node_panics_when_min_hops_value_in_neighborhood_is_different_from_persistent_configuration()
+    {
+        let test_name = "node_panics_when_min_hops_value_in_neighborhood_is_different_from_persistent_configuration";
+        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
+        let min_hops_in_neighborhood = Hops::SixHops;
+        let min_hops_in_persistent_configuration = Hops::TwoHops;
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -4702,7 +4699,7 @@ mod tests {
                         vec![make_node_descriptor(make_ip(1))],
                         rate_pack(100),
                     ),
-                    min_hops_count: min_hops_count_in_neighborhood,
+                    min_hops: min_hops_in_neighborhood,
                 },
                 make_wallet("earning"),
                 None,
@@ -4711,8 +4708,8 @@ mod tests {
         );
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
-                .min_hops_count_params(&min_hops_count_params_arc)
-                .min_hops_count_result(Ok(min_hops_count_in_persistent_configuration)),
+                .min_hops_params(&min_hops_params_arc)
+                .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
@@ -4724,8 +4721,8 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let min_hops_count_params = min_hops_count_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_count_params, vec![()]);
+        let min_hops_params = min_hops_params_arc.lock().unwrap();
+        assert_eq!(*min_hops_params, vec![()]);
     }
 
     /*
@@ -4885,7 +4882,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -4947,7 +4944,7 @@ mod tests {
                             vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
-                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5014,7 +5011,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5078,7 +5075,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -5120,12 +5117,12 @@ mod tests {
     #[test]
     fn make_round_trip_route_returns_error_when_no_non_next_door_neighbor_found() {
         // Make a triangle of Nodes
-        let min_hops_count = Hops::TwoHops;
+        let min_hops = Hops::TwoHops;
         let one_next_door_neighbor = make_node_record(3333, true);
         let another_next_door_neighbor = make_node_record(4444, true);
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&one_next_door_neighbor));
-        subject.min_hops_count = min_hops_count;
+        subject.min_hops = min_hops;
 
         subject
             .neighborhood_database
@@ -5160,7 +5157,7 @@ mod tests {
         assert_eq!(
             Err(format!(
                 "Couldn't find any routes: at least {}-hop from {} to ProxyClient at Unknown",
-                min_hops_count as usize,
+                min_hops as usize,
                 main_cryptde().public_key()
             )),
             result
@@ -5174,7 +5171,7 @@ mod tests {
 
         let subject_node = make_global_cryptde_node_record(666, true); // 9e7p7un06eHs6frl5A
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&next_door_neighbor));
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
 
         subject
             .neighborhood_database
@@ -5237,15 +5234,15 @@ mod tests {
         assert_eq!(expected_public_keys, actual_keys);
     }
 
-    fn assert_route_query_message(min_hops_count: Hops) {
-        let hops = min_hops_count as usize;
+    fn assert_route_query_message(min_hops: Hops) {
+        let hops = min_hops as usize;
         let nodes_count = hops + 1;
         let root_node = make_global_cryptde_node_record(4242, true);
         let mut nodes = make_node_records(nodes_count as u16);
         nodes[0] = root_node;
         let db = linearly_connect_nodes(&nodes);
         let mut subject = neighborhood_from_nodes(db.root(), nodes.get(1));
-        subject.min_hops_count = min_hops_count;
+        subject.min_hops = min_hops;
         subject.neighborhood_database = db;
 
         let result = subject.make_round_trip_route(RouteQueryMessage {
@@ -5323,7 +5320,7 @@ mod tests {
 
     fn check_fee_preference(payload_size: usize, a_not_b: bool) {
         let mut subject = make_standard_subject();
-        subject.min_hops_count = Hops::TwoHops;
+        subject.min_hops = Hops::TwoHops;
         let db = &mut subject.neighborhood_database;
         let o = &db.root().public_key().clone();
         let a = &db.add_node(make_node_record(2345, true)).unwrap();
@@ -5590,7 +5587,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,
@@ -5959,7 +5956,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -5983,7 +5980,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
-                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,

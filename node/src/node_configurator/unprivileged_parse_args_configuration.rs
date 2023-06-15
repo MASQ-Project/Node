@@ -213,19 +213,16 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_count: Hops = match value_m!(multi_config, "min-hops", Hops) {
+    let min_hops: Hops = match value_m!(multi_config, "min-hops", Hops) {
         Some(hops) => hops,
-        None => match persistent_config.min_hops_count() {
+        None => match persistent_config.min_hops() {
             Ok(hops) => hops,
-            Err(e) => panic!("Unable to find min_hops_count value in database: {:?}", e),
+            Err(e) => panic!("Unable to find min_hops value in database: {:?}", e),
         },
     };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
-        Ok(mode) => Ok(NeighborhoodConfig {
-            mode,
-            min_hops_count,
-        }),
+        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops }),
         Err(e) => Err(e),
     }
 }
@@ -722,14 +719,14 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: Hops::OneHop,
+                min_hops: Hops::OneHop,
             })
         );
     }
 
     #[test]
-    #[should_panic(expected = "Unable to find min_hops_count value in database: NotPresent")]
-    fn node_panics_if_min_hops_count_value_does_not_exist_inside_multi_config_or_db() {
+    #[should_panic(expected = "Unable to find min_hops value in database: NotPresent")]
+    fn node_panics_if_min_hops_value_does_not_exist_inside_multi_config_or_db() {
         running_test();
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -742,7 +739,7 @@ mod tests {
         )
         .unwrap();
         let mut persistent_config = PersistentConfigurationMock::new()
-            .min_hops_count_result(Err(PersistentConfigError::NotPresent));
+            .min_hops_result(Err(PersistentConfigError::NotPresent));
 
         let _result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
@@ -753,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_standard_missing_min_hops_count() {
+    fn make_neighborhood_config_standard_missing_min_hops() {
         running_test();
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -777,13 +774,12 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        let min_hops_count = result.unwrap().min_hops_count;
-        assert_eq!(min_hops_count, Hops::ThreeHops);
+        let min_hops = result.unwrap().min_hops;
+        assert_eq!(min_hops, Hops::ThreeHops);
     }
 
     #[test]
-    fn make_neighborhood_config_standard_uses_default_value_when_no_min_hops_count_value_is_provided(
-    ) {
+    fn make_neighborhood_config_standard_uses_default_value_when_no_min_hops_value_is_provided() {
         running_test();
         let args = ArgsBuilder::new()
             .param("--neighborhood-mode", "standard")
@@ -803,13 +799,12 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        let min_hops_count = result.unwrap().min_hops_count;
-        assert_eq!(min_hops_count, Hops::ThreeHops);
+        let min_hops = result.unwrap().min_hops;
+        assert_eq!(min_hops, Hops::ThreeHops);
     }
 
     #[test]
-    fn make_neighborhood_config_standard_throws_err_when_undesirable_min_hops_count_value_is_provided(
-    ) {
+    fn make_neighborhood_config_standard_throws_err_when_undesirable_min_hops_value_is_provided() {
         running_test();
         let args = ArgsBuilder::new()
             .param("--neighborhood-mode", "standard")
@@ -859,7 +854,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                min_hops_count: Hops::ThreeHops,
+                min_hops: Hops::ThreeHops,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
@@ -2636,7 +2631,7 @@ mod tests {
         gas_price_opt: Option<u64>,
         past_neighbors_opt: Option<&str>,
         rate_pack_opt: Option<RatePack>,
-        min_hops_count_opt: Option<Hops>,
+        min_hops_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
         let consuming_wallet_private_key_opt =
             consuming_wallet_private_key_opt.map(|x| x.to_string());
@@ -2655,7 +2650,7 @@ mod tests {
             _ => Ok(None),
         };
         let rate_pack = rate_pack_opt.unwrap_or(DEFAULT_RATE_PACK);
-        let min_hops_count = min_hops_count_opt.unwrap_or(MIN_HOPS_COUNT_FOR_TEST);
+        let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_COUNT_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
             .earning_wallet_address_result(
@@ -2666,6 +2661,6 @@ mod tests {
             .past_neighbors_result(past_neighbors_result)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .rate_pack_result(Ok(rate_pack))
-            .min_hops_count_result(Ok(min_hops_count))
+            .min_hops_result(Ok(min_hops))
     }
 }

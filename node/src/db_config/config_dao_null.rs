@@ -110,7 +110,7 @@ impl Default for ConfigDaoNull {
         data.insert("past_neighbors".to_string(), (None, true));
         data.insert("mapping_protocol".to_string(), (None, false));
         data.insert(
-            "min_hops_count".to_string(),
+            "min_hops".to_string(),
             (Some(DEFAULT_MIN_HOPS_COUNT.to_string()), false),
         );
         data.insert("earning_wallet_address".to_string(), (None, false));
@@ -176,12 +176,8 @@ mod tests {
             ConfigDaoRecord::new("gas_price", Some("1"), false)
         );
         assert_eq!(
-            subject.get("min_hops_count").unwrap(),
-            ConfigDaoRecord::new(
-                "min_hops_count",
-                Some(&DEFAULT_MIN_HOPS_COUNT.to_string()),
-                false
-            )
+            subject.get("min_hops").unwrap(),
+            ConfigDaoRecord::new("min_hops", Some(&DEFAULT_MIN_HOPS_COUNT.to_string()), false)
         );
         assert_eq!(
             subject.get("payment_thresholds").unwrap(),

@@ -70,16 +70,16 @@ fn http_end_to_end_routing_test() {
     );
 }
 
-fn assert_http_end_to_end_routing_test(min_hops_count: Hops) {
+fn assert_http_end_to_end_routing_test(min_hops: Hops) {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let config = NodeStartupConfigBuilder::standard()
-        .min_hops_count(min_hops_count)
+        .min_hops(min_hops)
         .chain(cluster.chain)
         .consuming_wallet_info(make_consuming_wallet_info("first_node"))
         .build();
     let first_node = cluster.start_real_node(config);
 
-    let nodes_count = 2 * (min_hops_count as usize) + 1;
+    let nodes_count = 2 * (min_hops as usize) + 1;
     let nodes = (0..nodes_count)
         .map(|_| {
             cluster.start_real_node(
@@ -106,7 +106,7 @@ fn assert_http_end_to_end_routing_test(min_hops_count: Hops) {
 }
 
 #[test]
-fn http_end_to_end_routing_test_with_different_min_hops_count() {
+fn http_end_to_end_routing_test_with_different_min_hops() {
     // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
     // You may fix it by increasing the timeout for the client.
     assert_http_end_to_end_routing_test(Hops::OneHop);

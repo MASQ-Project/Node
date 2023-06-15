@@ -235,7 +235,7 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
-            "min_hops_count",
+            "min_hops",
             Some(&DEFAULT_MIN_HOPS_COUNT.to_string()),
             false,
             "min hops count",
@@ -1039,7 +1039,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
-        verify(&mut config_vec, "min_hops_count", Some("3"), false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,
             "neighborhood_mode",
