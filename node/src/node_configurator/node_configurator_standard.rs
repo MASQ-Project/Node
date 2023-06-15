@@ -247,11 +247,13 @@ fn configure_database(
     config: &BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    // We don't want to panic in case clandestine_port or blockchain_service_url is not configured
+    // inside the bootstrap config
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
             return Err(pce.into_configurator_error("clandestine-port"));
         }
-    } // TODO: Shouldn't we be testing for the else case when no clandestine port is returned
+    }
     let neighborhood_mode_light: NeighborhoodModeLight = (&config.neighborhood_config.mode).into();
     if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
