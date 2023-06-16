@@ -245,7 +245,7 @@ impl StreamHandlerPool {
             .expect("StreamHandlerPool is unbound")
             .remove_sub
             .clone();
-        let stream_shutdown_sub: Recipient<StreamShutdownMsg> = self
+        let dispatcher_sub: Recipient<StreamShutdownMsg> = self
             .dispatcher_subs_opt
             .as_ref()
             .expect("Dispatcher is unbound")
@@ -256,7 +256,7 @@ impl StreamHandlerPool {
             origin_port,
             ibcd_sub,
             remove_sub,
-            stream_shutdown_sub,
+            dispatcher_sub,
             port_configuration.discriminator_factories.clone(),
             port_configuration.is_clandestine,
             peer_addr,
@@ -388,7 +388,7 @@ impl StreamHandlerPool {
             stream_shutdown_msg.stream_type,
             if stream_shutdown_msg.report_to_counterpart {""} else {"don't "}
         );
-        msg.sub
+        msg.dispatcher_sub
             .try_send(stream_shutdown_msg)
             .expect("StreamShutdownMsg target is dead");
     }
@@ -606,7 +606,7 @@ struct StreamStartFailureHandler {
     pub remove_neighbor_sub: Recipient<RemoveNeighborMessage>,
     pub logger: Logger,
     pub peer_addr: SocketAddr,
-    pub sub: Recipient<StreamShutdownMsg>,
+    pub dispatcher_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl StreamStartFailureHandler {
@@ -637,7 +637,7 @@ impl StreamStartFailureHandler {
                 .expect("Neighborhood Unbound"),
             logger: pool.logger.clone(),
             peer_addr,
-            sub: pool
+            dispatcher_sub: pool
                 .dispatcher_subs_opt
                 .as_ref()
                 .expect("Dispatcher is dead")
@@ -659,7 +659,7 @@ impl StreamStartFailureHandler {
                 peer_addr: self.peer_addr,
                 local_addr: SocketAddr::new(localhost(), 0), // irrelevant; stream was never opened
                 stream_type: RemovedStreamType::Clandestine,
-                sub: self.sub,
+                dispatcher_sub: self.dispatcher_sub,
             })
             .expect("StreamHandlerPool is dead");
         let remove_node_message = RemoveNeighborMessage {
@@ -1170,7 +1170,7 @@ mod tests {
                     peer_addr,
                     local_addr,
                     stream_type: RemovedStreamType::Clandestine,
-                    sub: peer_actors.dispatcher.stream_shutdown_sub,
+                    dispatcher_sub: peer_actors.dispatcher.stream_shutdown_sub,
                 })
                 .unwrap();
 
@@ -1211,7 +1211,7 @@ mod tests {
             peer_addr,
             local_addr,
             stream_type: RemovedStreamType::Clandestine,
-            sub,
+            dispatcher_sub: sub,
         });
 
         System::current().stop_with_code(0);
@@ -1246,7 +1246,7 @@ mod tests {
                 reception_port: HTTP_PORT,
                 sequence_number: 1234,
             }),
-            sub,
+            dispatcher_sub: sub,
         });
 
         System::current().stop_with_code(0);
@@ -1282,7 +1282,7 @@ mod tests {
             peer_addr,
             local_addr,
             stream_type: RemovedStreamType::Clandestine,
-            sub,
+            dispatcher_sub: sub,
         });
 
         System::current().stop_with_code(0);

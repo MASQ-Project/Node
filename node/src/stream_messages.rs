@@ -48,7 +48,7 @@ pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,
-    pub sub: Recipient<StreamShutdownMsg>,
+    pub dispatcher_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl Debug for RemoveStreamMsg {
