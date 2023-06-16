@@ -274,12 +274,9 @@ impl ProxyServer {
         let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
         let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
 
-        match inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub) {
-            Ok(_) => {
-                retry.retries_left -= 1;
-            }
-            Err(_) => { todo!(" FIX ME") }
-        }
+
+        inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub);
+        retry.retries_left -= 1;
         self.dns_failure_retries.insert(stream_key.clone(), retry.clone());
     }
 
@@ -949,7 +946,7 @@ pub trait IBCDHelper {
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>,
         add_route_sub: Recipient<AddRouteMessage>,
-    ) -> Result<(), String>;
+    );
 }
 
 trait RouteQueryResponseResolver: Send {
@@ -958,7 +955,7 @@ trait RouteQueryResponseResolver: Send {
         args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-    ) -> Result<(), String>;
+    );
 }
 struct RouteQueryResponseResolverReal {}
 
@@ -968,7 +965,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         mut args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-    ) -> Result<(), String> {
+    ) {
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
@@ -980,17 +977,17 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
                     })
                     .expect("ProxyServer is dead");
                 ProxyServer::try_transmit_to_hopper(args, route_query_response);
-                Ok(())
             }
             Ok(None) => {
-                Err(ProxyServer::handle_route_failure(
+                let error_message = ProxyServer::handle_route_failure(
                     args.payload,
                     args.source_addr,
                     &args.dispatcher_sub,
-                ))
+                );
+                error!(args.logger, "{}", error_message);
             }
             Err(e) => {
-                Err(format!("Neighborhood refused to answer route request: {:?}", e ))
+                error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
             }
         }
     }
@@ -1083,16 +1080,17 @@ impl IBCDHelper for IBCDHelperReal {
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-            self.request_route_and_transmit(tth_args, route_source, add_route_sub)
+            self.request_route_and_transmit(tth_args, route_source, add_route_sub);
+            Ok(())
         }
     }
 
     fn request_route_and_transmit(
         &self,
         tth_args: TryTransmitToHopperArgs,
-        route_source: Recipient<RouteQueryMessage>,
+        route_source: Recipient<RouteQueryMessage>, // TODO: Rename route_source to something with neighborhood or / and add sub suffix
         add_route_sub: Recipient<AddRouteMessage>,
-    ) -> Result<(), String> {
+    ) {
         let pld = &tth_args.payload;
         let hostname_opt = pld.target_hostname.clone();
         let logger = tth_args.logger.clone();
@@ -1114,18 +1112,15 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    // TODO: This function can return an error that being ignored, is there a way we can collect and return this error?
-                    if let Err(e) = message_resolver.resolve_message(tth_args, add_route_sub, route_result) {
-                        error!(
-                            logger,
-                            "{}", e
-                        );
-                    };
+
+                    // TODO: Handle Error logging within resolve_message
+                    // TODO: Inside of resolve_message, when we hit an error. look at sending `send_route_failure` and update retry_routes.
+                    // TODO: TTLHashmap look into using this for clean up if all else fails.
+                    message_resolver.resolve_message(tth_args, add_route_sub, route_result);
 
                     Ok(())
                 }),
         );
-        Ok(())
     }
 }
 
@@ -1296,12 +1291,11 @@ mod tests {
             args: TryTransmitToHopperArgs,
             add_route_sub: Recipient<AddRouteMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-        ) -> Result<(), String> {
+        ) {
             self.resolve_message_params
                 .lock()
                 .unwrap()
                 .push((args, route_result));
-            Ok(()) //TODO: Fix this Later
         }
     }
 
@@ -1433,7 +1427,7 @@ mod tests {
                 .remove(0)
         }
 
-        fn request_route_and_transmit(&self, tth_args: TryTransmitToHopperArgs, route_source: Recipient<RouteQueryMessage>, add_route_sub: Recipient<AddRouteMessage>) -> Result<(), String> {
+        fn request_route_and_transmit(&self, tth_args: TryTransmitToHopperArgs, route_source: Recipient<RouteQueryMessage>, add_route_sub: Recipient<AddRouteMessage>) {
             todo!()
         }
     }
