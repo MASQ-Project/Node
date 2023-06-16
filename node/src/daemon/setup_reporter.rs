@@ -11,6 +11,7 @@ use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 use crate::node_configurator::node_configurator_standard::privileged_parse_args;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoNull,
@@ -835,6 +836,27 @@ impl ValueRetriever for MinHops {
     fn value_name(&self) -> &'static str {
         "min-hops"
     }
+
+    // TODO: Should we implement this function?
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        match persistent_config.min_hops() {
+            Ok(min_hops_in_db) => {
+                if min_hops_in_db == DEFAULT_MIN_HOPS_COUNT {
+                    Some((min_hops_in_db.to_string(), Configured))
+                } else {
+                    todo!(
+                        "Different value found in database, expected: {DEFAULT_MIN_HOPS_COUNT}, found: {min_hops_in_db}",
+                    )
+                }
+            }
+            Err(e) => todo!("Database is corrupt: {e}"),
+        }
+    }
 }
 
 struct NeighborhoodMode {}
@@ -1211,6 +1233,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
+        let min_hops_value = config.min_hops();
+        eprintln!("Min Hops Count: {:?}", min_hops_value);
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
         config
@@ -1283,7 +1307,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
-            ("min-hops", "", Blank),
+            ("min-hops", "3", Configured),
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
