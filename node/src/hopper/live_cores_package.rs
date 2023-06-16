@@ -102,7 +102,7 @@ mod tests {
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 

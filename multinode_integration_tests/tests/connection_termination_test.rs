@@ -232,7 +232,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     // Kill desirable neighbor
     desirable_but_down_node.kill();
     // Debut a new Node
-    debuter_node.transmit_debut(&masq_real_node).unwrap();
+    debuter_node.transmit_ipchange_or_debut(&masq_real_node).unwrap();
     // What's the return Gossip?
     let (gossip, ip_addr) = debuter_node
         .wait_for_gossip(Duration::from_secs(2))

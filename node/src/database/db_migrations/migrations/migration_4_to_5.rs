@@ -92,13 +92,14 @@ mod tests {
     use ethereum_types::BigEndianHash;
     use itertools::Itertools;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::types::Value::Null;
     use rusqlite::ToSql;
     use std::collections::HashMap;
     use std::time::SystemTime;
     use web3::types::{H256, U256};
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn migration_from_4_to_5_without_pending_transactions() {

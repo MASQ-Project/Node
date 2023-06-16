@@ -195,7 +195,7 @@ mod tests {
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{Connection, Error};
     use std::cell::RefCell;

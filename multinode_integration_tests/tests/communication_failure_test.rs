@@ -60,7 +60,7 @@ fn neighborhood_notified_of_newly_missing_node() {
     );
     let witness_node = cluster
         .start_mock_node_with_public_key(vec![find_free_port()], &PublicKey::new(&[5, 6, 7, 8]));
-    witness_node.transmit_debut(&originating_node).unwrap();
+    witness_node.transmit_ipchange_or_debut(&originating_node).unwrap();
     let (introductions, _) = witness_node
         .wait_for_gossip(Duration::from_millis(1000))
         .unwrap();

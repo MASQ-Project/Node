@@ -548,8 +548,3 @@ pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
         .initialize(home_dir, DbInitializationConfig::panic_on_migration())
         .unwrap()
 }
-
-pub fn handle_connection_error(stream: TcpStream) {
-    let _ = stream.shutdown(Shutdown::Both);
-    thread::sleep(Duration::from_millis(1000));
-}

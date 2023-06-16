@@ -8,7 +8,7 @@ use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -579,7 +579,19 @@ impl MASQMockNode {
     }
 
     fn make_node_args(node_addr: &NodeAddr) -> Vec<String> {
-        vec![format!("{}", node_addr)]
+        vec![Self::add_tcp_specifications(format!("{}", node_addr))]
+    }
+
+    fn add_tcp_specifications(node_addr_str: String) -> String {
+        let init: Vec<char> = vec![];
+        let chars = node_addr_str.chars().fold(init, |mut so_far, elem| {
+            so_far.push(elem);
+            if (elem == ':') || (elem == '/') {
+                so_far.push('T')
+            }
+            so_far
+        });
+        chars.iter().collect::<String>()
     }
 }
 
@@ -605,6 +617,12 @@ pub struct MASQMockNodeGutsBuilder {
     in_progress: MASQMockNodeGuts,
 }
 
+impl Default for MASQMockNodeGutsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MASQMockNodeGutsBuilder {
     pub fn new() -> Self {
         Self {
@@ -613,7 +631,7 @@ impl MASQMockNodeGutsBuilder {
                 node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5678]),
                 earning_wallet: Wallet::new("Earning"),
                 consuming_wallet: None,
-                rate_pack: DEFAULT_RATE_PACK.clone(),
+                rate_pack: DEFAULT_RATE_PACK,
                 cryptde_enum: CryptDEEnum::Fake((
                     CryptDENull::new(Chain::PolyMumbai),
                     CryptDENull::new(Chain::PolyMumbai),

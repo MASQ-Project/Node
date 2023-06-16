@@ -11,7 +11,7 @@ use masq_lib::constants::{
 };
 use masq_lib::logger::Logger;
 #[cfg(test)]
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::{Connection, OpenFlags};
@@ -751,8 +751,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN,
+        ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists
     };
     use masq_lib::utils::NeighborhoodModeLight;
     use regex::Regex;

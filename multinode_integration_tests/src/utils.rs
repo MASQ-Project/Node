@@ -3,7 +3,6 @@
 use crate::command::Command;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
@@ -21,6 +20,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 
 pub trait UrlHolder {
     fn url(&self) -> String;

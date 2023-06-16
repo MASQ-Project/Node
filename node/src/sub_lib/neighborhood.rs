@@ -576,7 +576,7 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
     use masq_lib::constants::DEFAULT_CHAIN;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
 

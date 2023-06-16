@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(any(test, not(feature = "no_test_share")))]
 
 use crate::blockchains::chains::Chain;
 use crate::test_utils::environment_guard::EnvironmentGuard;
-use std::fs;
+use std::{fs, thread};
+use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::PolyMumbai;
-pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
 
@@ -64,12 +64,13 @@ pub fn check_if_source_code_is_attached(current_dir: &Path) -> ShouldWeRunTheTes
     }
 }
 
-pub fn to_millis(dur: &Duration) -> u64 {
-    (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
-}
-
 #[cfg(not(feature = "no_test_share"))]
 pub struct MutexIncrementInset(pub usize);
+
+pub fn handle_connection_error(stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Both);
+    thread::sleep(Duration::from_millis(1000));
+}
 
 #[cfg(test)]
 mod tests {

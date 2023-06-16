@@ -17,11 +17,10 @@ use crate::sub_lib::wallet::Wallet;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
+use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX, TEST_DEFAULT_CHAIN};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::ExpectValue;
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
@@ -601,6 +600,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use NeighborhoodMode::ZeroHop;
 
     #[test]

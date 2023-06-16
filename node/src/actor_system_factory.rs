@@ -646,14 +646,13 @@ mod tests {
     use crossbeam_channel::{bounded, unbounded, Sender};
     use lazy_static::lazy_static;
     use log::LevelFilter;
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::constants::{DEFAULT_CHAIN, TEST_DEFAULT_CHAIN};
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::logger::LOG_RECIPIENT_OPT;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::{
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
-        TEST_DEFAULT_CHAIN,
     };
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;

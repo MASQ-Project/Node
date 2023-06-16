@@ -63,7 +63,7 @@ mod tests {
     use crate::sub_lib::cryptde;
     use crate::sub_lib::cryptde::PublicKey as SubPublicKey;
     use crate::test_utils::make_payer;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use rustc_hex::FromHex;
 
     #[test]

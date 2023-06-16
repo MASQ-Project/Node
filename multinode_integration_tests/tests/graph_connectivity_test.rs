@@ -42,7 +42,7 @@ fn graph_connects_but_does_not_over_connect() {
     // Wait for Gossip to abate
     thread::sleep(Duration::from_millis(2000));
 
-    mock_node.transmit_debut(last_node).unwrap();
+    mock_node.transmit_ipchange_or_debut(last_node).unwrap();
     let (gossip, sender) = mock_node.wait_for_gossip(Duration::from_secs(2)).unwrap();
     match parse_gossip(&gossip, sender) {
         GossipType::IntroductionGossip(_) => (),
@@ -93,7 +93,7 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
     let new_node =
         cluster.start_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));
 
-    new_node.transmit_debut(&root_node).unwrap();
+    new_node.transmit_ipchange_or_debut(&root_node).unwrap();
 
     let (gossip, sender) = new_node
         .wait_for_gossip(Duration::from_millis(1000))

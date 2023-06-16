@@ -4,6 +4,8 @@ use crate::blockchains::chains::Chain;
 use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::PolyMumbai;
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -88,6 +90,8 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DEFAULT_CHAIN, Chain::PolyMainnet);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::PolyMumbai);
+        assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);

@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, SystemTime};
+use itertools::Itertools;
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
@@ -1008,19 +1009,19 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
     ) -> Qualification {
         // must-not-be-debut-pass-or-introduction is assured by StandardGossipHandler's placement in the gossip_handlers list
-        let violators: Vec<&PublicKey> = agrs
+        let violators = agrs
             .iter()
             .filter(|agr| {
                 (agr.inner.neighbors.contains(database.root().public_key()))
                     && agr.inner.accepts_connections
                     && agr.node_addr_opt.is_none()
             })
-            .map(|agr| &agr.inner.public_key)
-            .collect();
+            .map(|agr| format!("{}", &agr.inner.public_key))
+            .collect_vec();
         if !violators.is_empty() {
             return Qualification::Malformed(format!(
-                "Neighboring Node(s) claim to accept connections but present no NodeAddr: {:?}",
-                violators
+                "Neighboring Node(s) claim to accept connections but present no NodeAddr: {}",
+                violators.join(", ")
             ));
         }
         let agrs_with_node_addrs = agrs
@@ -1505,7 +1506,7 @@ mod tests {
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
@@ -4338,7 +4339,13 @@ mod tests {
 
         let result = subject.qualifies(&dest_db, agrs.as_slice(), gossip_source);
 
-        assert_eq!(result, Qualification::Malformed("Neighboring Node(s) claim to accept connections but present no NodeAddr: [0x02030405]".to_string()));
+        assert_eq!(
+            result,
+            Qualification::Malformed(format!(
+                "Neighboring Node(s) claim to accept connections but present no NodeAddr: {}",
+                src_root.public_key()
+            ))
+        );
     }
 
     #[test]

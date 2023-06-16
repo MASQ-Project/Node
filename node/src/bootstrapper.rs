@@ -38,12 +38,11 @@ use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::constants::{DEFAULT_UI_PORT, TEST_DEFAULT_CHAIN};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
@@ -376,7 +375,7 @@ impl BootstrapperConfig {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url_opt: None,
-                chain: TEST_DEFAULT_CHAIN,
+                chain: TEST_DEFAULT_CHAIN, // TODO Shouldn't this be just DEFAULT_CHAIN?
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),
@@ -741,7 +740,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
     use masq_lib::utils::{find_free_port, running_test};
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -757,6 +756,7 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);

@@ -51,7 +51,7 @@ impl LiveHop {
 mod tests {
     use super::*;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn can_construct_hop() {
