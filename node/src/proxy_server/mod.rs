@@ -1113,7 +1113,6 @@ impl IBCDHelper for IBCDHelperReal {
                 ))
                 .then(move |route_result| {
 
-                    // TODO: Handle Error logging within resolve_message
                     // TODO: Inside of resolve_message, when we hit an error. look at sending `send_route_failure` and update retry_routes.
                     // TODO: TTLHashmap look into using this for clean up if all else fails.
                     message_resolver.resolve_message(tth_args, add_route_sub, route_result);

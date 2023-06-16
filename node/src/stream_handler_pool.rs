@@ -381,7 +381,13 @@ impl StreamHandlerPool {
             stream_type: msg.stream_type,
             report_to_counterpart,
         };
-        debug!(self.logger, "Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart", stream_shutdown_msg.peer_addr, stream_shutdown_msg.stream_type, if stream_shutdown_msg.report_to_counterpart {""} else {"don't "});
+        debug!(
+            self.logger,
+            "Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart",
+            stream_shutdown_msg.peer_addr,
+            stream_shutdown_msg.stream_type,
+            if stream_shutdown_msg.report_to_counterpart {""} else {"don't "}
+        );
         msg.sub
             .try_send(stream_shutdown_msg)
             .expect("StreamShutdownMsg target is dead");
