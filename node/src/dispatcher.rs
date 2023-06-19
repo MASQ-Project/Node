@@ -30,8 +30,8 @@ lazy_static! {
 struct DispatcherOutSubs {
     to_proxy_server: Recipient<InboundClientData>,
     to_hopper: Recipient<InboundClientData>,
-    proxy_server_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    neighborhood_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    proxy_server_sub: Recipient<StreamShutdownMsg>,
+    neighborhood_sub: Recipient<StreamShutdownMsg>,
     ui_gateway_sub: Recipient<NodeToUiMessage>,
 }
 
@@ -55,8 +55,8 @@ impl Handler<BindMessage> for Dispatcher {
         let subs = DispatcherOutSubs {
             to_proxy_server: msg.peer_actors.proxy_server.from_dispatcher,
             to_hopper: msg.peer_actors.hopper.from_dispatcher,
-            proxy_server_stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
-            neighborhood_stream_shutdown_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
+            proxy_server_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
+            neighborhood_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
             ui_gateway_sub: msg.peer_actors.ui_gateway.node_to_ui_message_sub,
         };
         self.subs = Some(subs);
@@ -176,11 +176,11 @@ impl Dispatcher {
         let subs = self.subs.as_ref().expect("Dispatcher is unbound");
         match msg.stream_type {
             RemovedStreamType::Clandestine => subs
-                .neighborhood_stream_shutdown_sub
+                .neighborhood_sub
                 .try_send(msg)
                 .expect("Neighborhood is dead"),
             RemovedStreamType::NonClandestine(_) => subs
-                .proxy_server_stream_shutdown_sub
+                .proxy_server_sub
                 .try_send(msg)
                 .expect("ProxyServer is dead"),
         }
