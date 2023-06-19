@@ -283,10 +283,6 @@ impl ProxyServer {
     fn mark_dns_resolution_as_failed(
         &mut self,
         stream_key: &StreamKey,
-        source_addr: SocketAddr,
-        exit_public_key: &PublicKey,
-        proxy_protocol: ProxyProtocol,
-        hostname_opt: Option<String>
     ) {
         debug!( // TODO: should we change this to warning?
              self.logger,
@@ -294,8 +290,15 @@ impl ProxyServer {
         );
         self.purge_stream_key(stream_key);
         self.dns_failure_retries.remove(stream_key);
+    }
 
-        // TODO: We need a test for this.
+    fn send_dns_failure_response_to_the_browser(
+        &self,
+        source_addr: SocketAddr,
+        exit_public_key: &PublicKey,
+        proxy_protocol: ProxyProtocol,
+        hostname_opt: Option<String>) {
+
         self.subs
             .as_ref()
             .expect("Dispatcher unbound in ProxyServer")
@@ -312,7 +315,6 @@ impl ProxyServer {
                     ),
             })
             .expect("Dispatcher is dead");
-
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
@@ -360,6 +362,9 @@ impl ProxyServer {
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
+                // <------ Place here
+
+
                 //TODO we want to put our new logic here (GH-651)
                 let retries_left = match self.dns_failure_retries_left(&response.stream_key) {
                     Ok(retries_left) => retries_left,
@@ -376,12 +381,13 @@ impl ProxyServer {
 
                 if retries_left > 0 {
                     self.retry_dns_resolution(&response.stream_key, socket_addr);
+
                 } else {
-                    self.mark_dns_resolution_as_failed(
-                        &response.stream_key,
+                    self.mark_dns_resolution_as_failed(&response.stream_key);
+                    self.send_dns_failure_response_to_the_browser(
                         socket_addr,
-                        &exit_public_key,
-                        return_route_info.protocol,
+                                   &exit_public_key,
+                       return_route_info.protocol,
                         return_route_info.hostname_opt.clone()
                     );
                 }
