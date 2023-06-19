@@ -129,12 +129,9 @@ pub fn data_directory_from_context(
     let wrong_local_data_dir = dirs_wrapper
         .data_dir()
         .expect("No privileged local data directory; specify --data-directory");
-    println!("wrong_home_dir: {:#?}", &wrong_home_dir);
-    println!("wrong_local_data_dir: {:#?}", &wrong_local_data_dir);
     let adjusted_local_data_dir: &Path = wrong_local_data_dir
         .strip_prefix(wrong_home_dir)
         .expect("std lib failed");
-    println!("adjusted_local_data_dir: {:#?}", &adjusted_local_data_dir);
     let homedir = right_home_dir.join(adjusted_local_data_dir);
     add_chain_specific_directories(chain, &homedir)
 }

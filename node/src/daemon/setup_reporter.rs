@@ -76,7 +76,6 @@ impl SetupReporter for SetupReporterReal {
         mut existing_setup: SetupCluster,
         incoming_setup: Vec<UiSetupRequestValue>,
     ) -> Result<SetupCluster, (SetupCluster, ConfiguratorError)> {
-        eprintln!("existing setup: {:?}", existing_setup);
         let default_setup = Self::get_default_params();
         let mut blanked_out_former_values = HashMap::new();
         incoming_setup

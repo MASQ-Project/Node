@@ -47,15 +47,11 @@ impl ServerInitializer for ServerInitializerReal {
                     .as_mut()
                     .initialize_as_privileged(&params.multi_config),
             );
-        //panic!("ServerInitializerReal {:#?}", &params.data_directory);
         //TODO check if we can remove chown function from code base
         //TODO create test for fn privilege_dropped to test if chown changes rights for file, test could ask for manipulation with file owned by root after chown to real user
         self.privilege_dropper
             .chown(&params.data_directory, &params.real_user);
-        println!(
-            "ServerInitializer go drop_privileges {:#?}",
-            &params.data_directory
-        );
+
         self.privilege_dropper.drop_privileges(&params.real_user);
 
         result
