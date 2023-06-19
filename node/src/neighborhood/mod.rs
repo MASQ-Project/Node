@@ -491,7 +491,7 @@ impl Neighborhood {
     fn handle_start_message(&mut self) {
         debug!(self.logger, "Connecting to persistent database");
         self.connect_database();
-        self.validate_database_min_hops();
+        self.validate_or_replace_min_hops_value();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
 
@@ -547,17 +547,22 @@ impl Neighborhood {
         }
     }
 
-    fn validate_database_min_hops(&self) {
+    fn validate_or_replace_min_hops_value(&mut self) {
         if let Some(persistent_config) = self.persistent_config_opt.as_ref() {
-            let from_db = persistent_config
+            let value_in_db = persistent_config
                 .min_hops()
                 .expect("Min Hops Count value is not initialized inside Database");
-            let demanded = self.min_hops;
-            if demanded != from_db {
-                panic!(
-                    "Database with wrong min hops count value detected; expected: {:?}, was: {:?}",
-                    demanded, from_db
-                )
+            let value_in_neighborhood = self.min_hops;
+            if value_in_neighborhood != value_in_db {
+                debug!(
+                    self.logger,
+                    "Database with different min hops value detected; \
+                    expected: {:?}, found in db: {:?}; replacing to {:?}",
+                    value_in_neighborhood,
+                    value_in_db,
+                    value_in_db
+                );
+                self.min_hops = value_in_db;
             }
         }
     }
@@ -4641,6 +4646,7 @@ mod tests {
         assert_eq!(*min_hops_params, vec![()]);
     }
 
+    // TODO: It's ok to keep it but not necessary over here
     #[test]
     #[should_panic(
         expected = "Min Hops Count value is not initialized inside Database: NotPresent"
@@ -4681,15 +4687,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Database with wrong min hops count value detected; expected: SixHops, was: TwoHops"
-    )]
-    fn node_panics_when_min_hops_value_in_neighborhood_is_different_from_persistent_configuration()
-    {
-        let test_name = "node_panics_when_min_hops_value_in_neighborhood_is_different_from_persistent_configuration";
+    fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
+        init_test_logging();
+        let test_name = "neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood";
         let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let min_hops_in_neighborhood = Hops::SixHops;
-        let min_hops_in_persistent_configuration = Hops::TwoHops;
+        let min_hops_in_db = Hops::TwoHops;
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -4706,23 +4709,34 @@ mod tests {
                 test_name,
             ),
         );
+        subject.logger = Logger::new(test_name);
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
                 .min_hops_params(&min_hops_params_arc)
-                .min_hops_result(Ok(min_hops_in_persistent_configuration)),
+                .min_hops_result(Ok(min_hops_in_db)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<StartMessage>();
 
-        sub.try_send(StartMessage {}).unwrap();
+        addr.try_send(StartMessage {}).unwrap();
 
+        let assertions_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(neighborhood.min_hops, min_hops_in_db)
+            }),
+        };
+        addr.try_send(assertions_msg).unwrap();
         System::current().stop();
         system.run();
         let min_hops_params = min_hops_params_arc.lock().unwrap();
         assert_eq!(*min_hops_params, vec![()]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Database with different min hops value detected; \
+            expected: {:?}, found in db: {:?}; replacing to {:?}",
+            min_hops_in_neighborhood, min_hops_in_db, min_hops_in_db
+        ));
     }
 
     /*
