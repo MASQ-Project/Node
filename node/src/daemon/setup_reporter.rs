@@ -86,11 +86,10 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let restoration_mismatch_prevention =
-            Self::restoration_mismatch_prevention_with_blanks(
-                &blanked_out_former_values,
-                &existing_setup,
-            );
+        let restoration_mismatch_prevention = Self::restoration_mismatch_prevention_with_blanks(
+            &blanked_out_former_values,
+            &existing_setup,
+        );
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
