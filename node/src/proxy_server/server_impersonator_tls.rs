@@ -11,7 +11,6 @@ impl ServerImpersonator for ServerImpersonatorTls {
 
     fn dns_resolution_failure_response(
         &self,
-        _exit_key: &PublicKey,
         _server_name: Option<String>,
     ) -> Vec<u8> {
         Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..])
@@ -81,7 +80,7 @@ mod tests {
         let subject = ServerImpersonatorTls {};
 
         let result =
-            subject.dns_resolution_failure_response(&PublicKey::new(&b"ignored"[..]), None);
+            subject.dns_resolution_failure_response(None);
 
         assert_eq!(Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..]), result);
     }

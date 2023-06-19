@@ -295,7 +295,6 @@ impl ProxyServer {
     fn send_dns_failure_response_to_the_browser(
         &self,
         source_addr: SocketAddr,
-        exit_public_key: &PublicKey,
         proxy_protocol: ProxyProtocol,
         hostname_opt: Option<String>) {
 
@@ -310,7 +309,6 @@ impl ProxyServer {
                 data: from_protocol(proxy_protocol)
                     .server_impersonator()
                     .dns_resolution_failure_response(
-                        exit_public_key,
                         hostname_opt,
                     ),
             })
@@ -340,12 +338,12 @@ impl ProxyServer {
                 .clone()
         };
 
-        let server_name_opt = return_route_info.hostname_opt.clone();
+        let hostname_opt = return_route_info.hostname_opt.clone();
         let response = &msg.payload;
 
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                if let Some(server_name) = server_name_opt {
+                if let Some(server_name) = hostname_opt {
                     self.subs
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
@@ -362,7 +360,6 @@ impl ProxyServer {
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
-                // <------ Place here
 
 
                 //TODO we want to put our new logic here (GH-651)
@@ -377,25 +374,22 @@ impl ProxyServer {
                 // when all retry have failed
                 // If it succeeds
                 // when ever purge_stream_key is called
-                //
 
                 if retries_left > 0 {
                     self.retry_dns_resolution(&response.stream_key, socket_addr);
-
                 } else {
                     self.mark_dns_resolution_as_failed(&response.stream_key);
                     self.send_dns_failure_response_to_the_browser(
                         socket_addr,
-                                   &exit_public_key,
-                       return_route_info.protocol,
-                        return_route_info.hostname_opt.clone()
+                        return_route_info.protocol,
+                        hostname_opt.clone()
                     );
                 }
             }
             None => {
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    server_name_opt.unwrap_or_else(|| "<unspecified_server>".to_string()),
+                    hostname_opt.unwrap_or_else(|| "<unspecified_server>".to_string()),
                     &response.stream_key
                 )
             }
@@ -3982,7 +3976,6 @@ mod tests {
                 last_data: true,
                 sequence_number: Some(0),
                 data: ServerImpersonatorHttp {}.dns_resolution_failure_response(
-                    &exit_public_key,
                     Some("server.com".to_string()),
                 ),
             },
@@ -4552,7 +4545,6 @@ mod tests {
                 last_data: true,
                 sequence_number: Some(0),
                 data: ServerImpersonatorHttp {}.dns_resolution_failure_response(
-                    this_node_public_key,
                     Some("server.com".to_string()),
                 ),
             },
