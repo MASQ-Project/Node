@@ -1064,8 +1064,6 @@ mod tests {
         let mut persistent_config =
             configure_persistent_config(vec![PastNeighbors, GasPrice, MappingProtocol])
                 .check_password_result(Ok(true))
-                .check_password_result(Ok(true))
-                .check_password_result(Ok(true))
                 .change_password_result(Err(NotPresent));
 
         let result = get_db_password(&multi_config, &mut config, &mut persistent_config);

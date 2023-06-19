@@ -481,18 +481,6 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn encrypt_past_neighbors_result(
-        self,
-        cryptde: &dyn CryptDE,
-        past_neighbors: &str,
-    ) -> PersistentConfigurationMock {
-        let past_neighbors_result = past_neighbors
-            .split(",")
-            .map(|s| NodeDescriptor::try_from((cryptde, s)).unwrap())
-            .collect::<Vec<NodeDescriptor>>();
-        self.past_neighbors_result(Ok(Some(past_neighbors_result)))
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn set_past_neighbors_params(
         mut self,
@@ -638,4 +626,14 @@ impl PersistentConfigurationMock {
             borrowed.remove(0)
         }
     }
+}
+
+pub fn encrypted_past_neighbors(
+    cryptde: &dyn CryptDE,
+    past_neighbors: &str,
+) -> Vec<NodeDescriptor> {
+    past_neighbors
+        .split(",")
+        .map(|s| NodeDescriptor::try_from((cryptde, s)).unwrap())
+        .collect::<Vec<NodeDescriptor>>()
 }

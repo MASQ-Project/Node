@@ -16,12 +16,11 @@ use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::logger::Logger;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{localhost, AutomapProtocol, ExpectValue};
+use masq_lib::utils::{localhost, ExpectValue};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -141,42 +140,6 @@ pub fn data_directory_from_context(
 
 pub fn port_is_busy(port: u16) -> bool {
     TcpListener::bind(SocketAddr::new(localhost(), port)).is_err()
-}
-
-pub fn compute_mapping_protocol_opt(
-    multi_config: &MultiConfig,
-    persistent_config: &mut dyn PersistentConfiguration,
-    logger: &Logger,
-) -> Option<AutomapProtocol> {
-    let persistent_mapping_protocol_opt = persistent_config
-        .mapping_protocol()
-        .expect("Error retrieving mapping protocol from CONFIG table");
-    let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
-    let computed_mapping_protocol_opt = match (
-        value_m!(multi_config, "mapping-protocol", AutomapProtocol),
-        persistent_mapping_protocol_opt,
-        mapping_protocol_specified,
-    ) {
-        (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
-        (None, _, true) => None,
-        (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
-    };
-    if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-        if computed_mapping_protocol_opt.is_none() {
-            debug!(logger, "Blanking mapping protocol out of the database")
-        }
-        match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
-            Ok(_) => (),
-            Err(e) => {
-                warning!(
-                    logger,
-                    "Could not save mapping protocol to database: {:?}",
-                    e
-                );
-            }
-        }
-    }
-    computed_mapping_protocol_opt
 }
 
 pub trait DirsWrapper: Send {

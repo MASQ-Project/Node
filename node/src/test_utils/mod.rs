@@ -652,6 +652,15 @@ pub mod unshared_test_utils {
             ]
         }
 
+        pub fn base_and_psmr() -> Vec<PCField> {
+            PCField::base_and (vec![
+                PCField::PaymentThresholds,
+                PCField::ScanIntervals,
+                PCField::MappingProtocol,
+                PCField::RatePack,
+            ])
+        }
+
         pub fn base_and(mut additions: Vec<PCField>) -> Vec<PCField> {
             let mut result = PCField::just_base();
             result.append(&mut additions);

@@ -1171,27 +1171,27 @@ mod tests {
         let system = System::new("MASQNode");
         System::current().stop();
         system.run();
-        check_bind_message(&recordings.dispatcher, false);
-        check_bind_message(&recordings.hopper, false);
-        check_bind_message(&recordings.proxy_client, false);
-        check_bind_message(&recordings.proxy_server, false);
-        check_bind_message(&recordings.neighborhood, false);
-        check_bind_message(&recordings.ui_gateway, false);
-        check_bind_message(&recordings.accountant, false);
-        check_pool_bind_message(&recordings.stream_handler_pool, 0); // what _should_ we be doing here?
-        check_pool_bind_message(&recordings.dispatcher, 1);
-        check_pool_bind_message(&recordings.neighborhood, 1);
-        check_new_ip_message(
+        check_for_initial_bind_message(&recordings.dispatcher, false);
+        check_for_initial_bind_message(&recordings.hopper, false);
+        check_for_initial_bind_message(&recordings.proxy_client, false);
+        check_for_initial_bind_message(&recordings.proxy_server, false);
+        check_for_initial_bind_message(&recordings.neighborhood, false);
+        check_for_initial_bind_message(&recordings.ui_gateway, false);
+        check_for_initial_bind_message(&recordings.accountant, false);
+        check_for_pool_bind_message_at(&recordings.stream_handler_pool, 0); // what _should_ we be doing here?
+        check_for_pool_bind_message_at(&recordings.dispatcher, 1);
+        check_for_pool_bind_message_at(&recordings.neighborhood, 1);
+        check_for_new_ip_message_at(
             &recordings.dispatcher,
             IpAddr::from_str("1.2.3.4").unwrap(),
             2,
         );
-        check_new_ip_message(
+        check_for_new_ip_message_at(
             &recordings.neighborhood,
             IpAddr::from_str("1.2.3.4").unwrap(),
             2,
         );
-        check_start_message(&recordings.neighborhood, 3);
+        check_for_start_message_at(&recordings.neighborhood, 3);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptdes.main);
         assert_eq!(hopper_config.per_routing_service, 300);
@@ -1417,14 +1417,14 @@ mod tests {
         system.run();
         let messages = recordings.proxy_client.lock().unwrap();
         assert!(messages.is_empty());
-        check_bind_message(&recordings.dispatcher, true);
-        check_bind_message(&recordings.hopper, true);
-        check_bind_message(&recordings.proxy_server, true);
-        check_bind_message(&recordings.neighborhood, true);
-        check_bind_message(&recordings.ui_gateway, true);
-        check_bind_message(&recordings.accountant, true);
-        check_pool_bind_message(&recordings.neighborhood, 1);
-        check_start_message(&recordings.neighborhood, 2);
+        check_for_initial_bind_message(&recordings.dispatcher, true);
+        check_for_initial_bind_message(&recordings.hopper, true);
+        check_for_initial_bind_message(&recordings.proxy_server, true);
+        check_for_initial_bind_message(&recordings.neighborhood, true);
+        check_for_initial_bind_message(&recordings.ui_gateway, true);
+        check_for_initial_bind_message(&recordings.accountant, true);
+        check_for_pool_bind_message_at(&recordings.neighborhood, 1);
+        check_for_start_message_at(&recordings.neighborhood, 2);
     }
 
     #[test]
@@ -1763,7 +1763,7 @@ mod tests {
         )
     }
 
-    fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
+    fn check_for_initial_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
         let bind_message = Recording::get::<BindMessage>(recording, 0);
         // There was a BindMessage; its fields are neither optional nor dyn. Therefore they must
         // be populated, and with data of the correct type.
@@ -1774,17 +1774,17 @@ mod tests {
         };
     }
 
-    fn check_pool_bind_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
+    fn check_for_pool_bind_message_at(recording: &Arc<Mutex<Recording>>, idx: usize) {
         let _pool_bind_message = Recording::get::<PoolBindMessage>(recording, idx);
         // There was a PoolBindMessage; fields are neither optional nor dyn. Therefore they must
         // be populated, and with data of the correct type.
     }
 
-    fn check_start_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
+    fn check_for_start_message_at(recording: &Arc<Mutex<Recording>>, idx: usize) {
         let _start_message = Recording::get::<StartMessage>(recording, idx);
     }
 
-    fn check_new_ip_message(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
+    fn check_for_new_ip_message_at(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
         let new_ip_message = Recording::get::<NewPublicIp>(recording, idx);
         assert_eq!(new_ip_message.new_ip, new_ip);
     }
