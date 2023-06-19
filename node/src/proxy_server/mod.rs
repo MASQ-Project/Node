@@ -755,8 +755,12 @@ impl ProxyServer {
             Some(main_cryptde.public_key().clone())
         };
         match destination_key_opt {
-            None => Err(ProxyServer::handle_route_failure(payload, source_addr, dispatcher)),
+            None => {
+                Err(ProxyServer::handle_route_failure(payload, source_addr, dispatcher))
+                // TODO: We didnt find a new route
+            },
             Some(payload_destination_key) => {
+                // TODO: Route found
                 debug!(
                     logger,
                     "transmit to hopper with destination key {:?}", payload_destination_key
@@ -985,9 +989,14 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
                     &args.dispatcher_sub,
                 );
                 error!(args.logger, "{}", error_message);
+                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+
+
             }
             Err(e) => {
                 error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
+                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+
             }
         }
     }
