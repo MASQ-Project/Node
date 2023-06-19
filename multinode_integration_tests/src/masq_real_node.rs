@@ -15,7 +15,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
-use node_lib::neighborhood::DEFAULT_MIN_HOPS_COUNT;
+use node_lib::neighborhood::DEFAULT_MIN_HOPS;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
 };
@@ -146,7 +146,7 @@ impl NodeStartupConfig {
     pub fn new() -> NodeStartupConfig {
         NodeStartupConfig {
             neighborhood_mode: "standard".to_string(),
-            min_hops: DEFAULT_MIN_HOPS_COUNT,
+            min_hops: DEFAULT_MIN_HOPS,
             ip_info: LocalIpInfo::ZeroHop,
             dns_servers_opt: None,
             neighbors: Vec::new(),
@@ -465,7 +465,7 @@ impl NodeStartupConfigBuilder {
     pub fn standard() -> Self {
         Self {
             neighborhood_mode: "standard".to_string(),
-            min_hops: DEFAULT_MIN_HOPS_COUNT,
+            min_hops: DEFAULT_MIN_HOPS,
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers_opt: None,
             neighbors: vec![],

@@ -79,7 +79,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
-pub const DEFAULT_MIN_HOPS_COUNT: Hops = Hops::ThreeHops;
+pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
@@ -1632,7 +1632,7 @@ mod tests {
         cryptdes_from_node_records, db_from_node, linearly_connect_nodes,
         make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor,
         make_node_record, make_node_record_f, make_node_records, neighborhood_from_nodes,
-        MIN_HOPS_COUNT_FOR_TEST,
+        MIN_HOPS_FOR_TEST,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
@@ -1674,7 +1674,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
-        assert_eq!(DEFAULT_MIN_HOPS_COUNT, Hops::ThreeHops);
+        assert_eq!(DEFAULT_MIN_HOPS, Hops::ThreeHops);
     }
 
     #[test]
@@ -1714,7 +1714,7 @@ mod tests {
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1739,7 +1739,7 @@ mod tests {
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1760,7 +1760,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1789,7 +1789,7 @@ mod tests {
                         vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1828,7 +1828,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1836,7 +1836,7 @@ mod tests {
             ),
         );
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_FOR_TEST)),
         ));
         subject.data_directory = data_dir;
         let addr = subject.start();
@@ -1880,7 +1880,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1960,7 +1960,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2429,7 +2429,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2506,7 +2506,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -3378,7 +3378,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3777,7 +3777,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -4500,7 +4500,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_FOR_TEST,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4563,7 +4563,7 @@ mod tests {
                         vec![debut_target.clone()],
                         rate_pack(100),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4571,7 +4571,7 @@ mod tests {
             ),
         );
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_FOR_TEST)),
         ));
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
@@ -4663,7 +4663,7 @@ mod tests {
                         vec![make_node_descriptor(make_ip(1))],
                         rate_pack(100),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,
@@ -4896,7 +4896,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -4958,7 +4958,7 @@ mod tests {
                             vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
-                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5025,7 +5025,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                        min_hops: MIN_HOPS_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5089,7 +5089,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -5601,7 +5601,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,
@@ -5970,7 +5970,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -5994,7 +5994,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
-                    min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,

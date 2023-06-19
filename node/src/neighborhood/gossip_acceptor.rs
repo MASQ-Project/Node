@@ -1336,7 +1336,7 @@ mod tests {
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
         make_meaningless_db, make_node_record, make_node_record_f, make_node_records,
-        public_keys_from_node_records, MIN_HOPS_COUNT_FOR_TEST,
+        public_keys_from_node_records, MIN_HOPS_FOR_TEST,
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
@@ -1366,7 +1366,7 @@ mod tests {
         NeighborhoodMetadata {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         }
     }
 
@@ -2382,7 +2382,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let result = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2434,7 +2434,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2483,7 +2483,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),

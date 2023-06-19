@@ -642,7 +642,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -1084,7 +1084,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1159,7 +1159,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1277,7 +1277,7 @@ mod tests {
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![]),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let subject = ActorSystemFactoryToolsReal::new();
         let state_before = INITIALIZATION_COUNTER.lock().unwrap().0;
@@ -1304,7 +1304,7 @@ mod tests {
                 vec![],
                 rate_pack(100),
             ),
-            min_hops: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1458,7 +1458,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1647,7 +1647,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),

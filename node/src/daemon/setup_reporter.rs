@@ -11,7 +11,7 @@ use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::privileged_parse_args;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoNull,
@@ -1111,7 +1111,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::sub_lib::{accountant, neighborhood};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
@@ -1299,7 +1299,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
-            ("min-hops", &DEFAULT_MIN_HOPS_COUNT.to_string(), Configured),
+            ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Configured),
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
@@ -2924,15 +2924,12 @@ mod tests {
     fn min_hops_is_defaulted_if_data_in_database() {
         let subject = MinHops {};
         let persistent_config =
-            PersistentConfigurationMock::default().min_hops_result(Ok(MIN_HOPS_COUNT_FOR_TEST));
+            PersistentConfigurationMock::default().min_hops_result(Ok(MIN_HOPS_FOR_TEST));
         let bootstrapper_config = BootstrapperConfig::new();
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
-        assert_eq!(
-            result,
-            Some((MIN_HOPS_COUNT_FOR_TEST.to_string(), Configured))
-        )
+        assert_eq!(result, Some((MIN_HOPS_FOR_TEST.to_string(), Configured)))
     }
 
     #[test]

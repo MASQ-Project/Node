@@ -636,7 +636,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
@@ -2650,7 +2650,7 @@ mod tests {
             _ => Ok(None),
         };
         let rate_pack = rate_pack_opt.unwrap_or(DEFAULT_RATE_PACK);
-        let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_COUNT_FOR_TEST);
+        let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
             .earning_wallet_address_result(
