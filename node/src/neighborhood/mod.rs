@@ -4646,46 +4646,6 @@ mod tests {
         assert_eq!(*min_hops_params, vec![()]);
     }
 
-    // TODO: It's ok to keep it but not necessary over here
-    #[test]
-    #[should_panic(
-        expected = "Min Hops Count value is not initialized inside Database: NotPresent"
-    )]
-    fn node_panics_when_it_cannot_find_min_hops_value_inside_persistent_configuration() {
-        let test_name =
-            "node_panics_when_it_cannot_find_min_hops_value_inside_persistent_configuration";
-        let mut subject = Neighborhood::new(
-            main_cryptde(),
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&make_ip(0), &[1234]),
-                        vec![make_node_descriptor(make_ip(1))],
-                        rate_pack(100),
-                    ),
-                    min_hops: MIN_HOPS_FOR_TEST,
-                },
-                make_wallet("earning"),
-                None,
-                test_name,
-            ),
-        );
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .min_hops_result(Err(PersistentConfigError::NotPresent)),
-        ));
-        let system = System::new(test_name);
-        let addr: Addr<Neighborhood> = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<StartMessage>();
-
-        sub.try_send(StartMessage {}).unwrap();
-
-        System::current().stop();
-        system.run();
-    }
-
     #[test]
     fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
         init_test_logging();
