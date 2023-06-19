@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
@@ -24,6 +23,7 @@ use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 
 #[test]
 #[ignore] // Should be removed by SC-811/GH-158

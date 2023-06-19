@@ -532,44 +532,46 @@ mod tests {
     #[test]
     fn node_by_ip_mut_works() {
         let this_node = make_node_record(1234, true);
+        let this_node_ip_addr = this_node.node_addr_opt().unwrap().ip_addr();
         let this_node_original_version = this_node.inner.version;
         let one_node = make_node_record(4567, true);
+        let one_node_ip_addr = one_node.node_addr_opt().unwrap().ip_addr();
         let one_node_original_version = one_node.inner.version;
         let another_node = make_node_record(5678, true);
+        let another_node_ip_addr = another_node.node_addr_opt().unwrap().ip_addr();
         let mut subject = db_from_node(&this_node);
-
         subject.add_node(one_node.clone()).unwrap();
+        fn mutable_node (db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
+            db.node_by_ip_mut(ip_addr).unwrap()
+        }
+        fn node_version (db: &NeighborhoodDatabase, ip_addr: IpAddr) -> u32 {
+            db.node_by_ip(ip_addr).as_ref().unwrap().inner.version
+        }
 
-        let mut this_node_actual = subject
-            .node_by_ip_mut(this_node.node_addr_opt().unwrap().ip_addr())
-            .unwrap();
-        this_node_actual.inner.version += 1;
-        assert_eq!(
-            subject
-                .node_by_ip(this_node.node_addr_opt().unwrap().ip_addr())
-                .as_ref()
-                .unwrap()
-                .inner
-                .version,
-            this_node_original_version + 1
-        );
-        let mut one_node_actual = subject
-            .node_by_ip_mut(one_node.node_addr_opt().unwrap().ip_addr())
-            .unwrap();
-        one_node_actual.inner.version += 1;
-        assert_eq!(
-            subject
-                .node_by_ip(one_node.node_addr_opt().unwrap().ip_addr())
-                .as_ref()
-                .unwrap()
-                .inner
-                .version,
-            one_node_original_version + 1
-        );
-        assert_eq!(
-            subject.node_by_ip_mut(another_node.node_addr_opt().unwrap().ip_addr()),
-            None
-        );
+        {
+            let mut this_node_actual = mutable_node(&mut subject, this_node_ip_addr);
+            this_node_actual.inner.version += 1;
+            assert_eq!(
+                node_version (&subject, this_node_ip_addr),
+                this_node_original_version + 1
+            );
+        }
+
+        {
+            let mut one_node_actual = mutable_node(&mut subject, one_node_ip_addr);
+            one_node_actual.inner.version += 1;
+            assert_eq!(
+                node_version (&subject, one_node_ip_addr),
+                one_node_original_version + 1
+            );
+        }
+
+        {
+            assert_eq!(
+                subject.node_by_ip_mut(another_node_ip_addr),
+                None
+            );
+        }
     }
 
     #[test]

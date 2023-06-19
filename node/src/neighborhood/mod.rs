@@ -689,7 +689,7 @@ impl Neighborhood {
             .collect();
 
         if agrs.len() < record_count {
-            // TODO: Instead of ignoring non-deserializable Gossip, ban the Node that sent it
+            // TODO: Instead of ignoring non-deserializable Gossip, malefactor-ban the Node that sent it
             error!(
                 self.logger,
                 "Received non-deserializable Gossip from {}", gossip_source

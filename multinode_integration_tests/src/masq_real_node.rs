@@ -1224,7 +1224,6 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
 
     #[test]

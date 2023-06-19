@@ -5,4 +5,5 @@ pub mod fake_stream_holder;
 pub mod logging;
 pub mod mock_websockets_server;
 pub mod ui_connection;
+#[cfg(any(test, not(feature = "no_test_share")))]
 pub mod utils;

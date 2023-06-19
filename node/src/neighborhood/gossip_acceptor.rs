@@ -18,7 +18,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, SystemTime};
-use itertools::Itertools;
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
@@ -1008,22 +1007,6 @@ impl GossipHandler for StandardGossipHandler {
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
     ) -> Qualification {
-        // must-not-be-debut-pass-or-introduction is assured by StandardGossipHandler's placement in the gossip_handlers list
-        let violators = agrs
-            .iter()
-            .filter(|agr| {
-                (agr.inner.neighbors.contains(database.root().public_key()))
-                    && agr.inner.accepts_connections
-                    && agr.node_addr_opt.is_none()
-            })
-            .map(|agr| format!("{}", &agr.inner.public_key))
-            .collect_vec();
-        if !violators.is_empty() {
-            return Qualification::Malformed(format!(
-                "Neighboring Node(s) claim to accept connections but present no NodeAddr: {}",
-                violators.join(", ")
-            ));
-        }
         let agrs_with_node_addrs = agrs
             .iter()
             .filter(|agr| agr.node_addr_opt.is_some())
@@ -4319,14 +4302,16 @@ mod tests {
     }
 
     #[test]
-    fn standard_gossip_containing_neighbor_node_that_accepts_connections_but_has_no_node_addr_is_rejected(
+    fn standard_gossip_containing_non_transmitting_neighbor_node_that_accepts_connections_but_has_no_node_addr_is_accepted(
     ) {
         let dest_root = make_node_record(1234, true);
         let dest_db = db_from_node(&dest_root);
         let src_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        src_db.root_mut().inner.accepts_connections = true;
-        src_db.root_mut().metadata.node_addr_opt = None;
+        let mut non_malefactor = make_node_record(3456, false);
+        non_malefactor.inner.accepts_connections = true;
+        src_db.add_node(non_malefactor.clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), non_malefactor.public_key());
         src_db.add_node(dest_root.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
         let gossip = GossipBuilder::new(&src_db)
@@ -4341,10 +4326,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(format!(
-                "Neighboring Node(s) claim to accept connections but present no NodeAddr: {}",
-                src_root.public_key()
-            ))
+            Qualification::Matched
         );
     }
 

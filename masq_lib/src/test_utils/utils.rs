@@ -1,7 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![cfg(any(test, not(feature = "no_test_share")))]
-
-use crate::blockchains::chains::Chain;
 use crate::test_utils::environment_guard::EnvironmentGuard;
 use std::{fs, thread};
 use std::net::{Shutdown, TcpStream};

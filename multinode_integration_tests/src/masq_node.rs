@@ -305,7 +305,7 @@ impl MASQNodeUtils {
 mod tests {
     use super::*;
     use base64::{decode_config, STANDARD_NO_PAD};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 
     #[test]
     fn strip_ports_works_single_port() {
