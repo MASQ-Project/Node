@@ -6,16 +6,16 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use actix::Message;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
-pub struct PayablePaymentSetup {
+pub struct PayablePaymentsSetup {
     //this field should stay private for anybody outside Accountant
     pub(in crate::accountant) qualified_payables: Vec<PayableAccount>,
     pub this_stage_data_opt: Option<StageData>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl From<(PayablePaymentSetup, StageData)> for PayablePaymentSetup {
-    fn from((previous_msg, this_stage_data): (PayablePaymentSetup, StageData)) -> Self {
-        PayablePaymentSetup {
+impl From<(PayablePaymentsSetup, StageData)> for PayablePaymentsSetup {
+    fn from((previous_msg, this_stage_data): (PayablePaymentsSetup, StageData)) -> Self {
+        PayablePaymentsSetup {
             qualified_payables: previous_msg.qualified_payables,
             this_stage_data_opt: Some(this_stage_data),
             response_skeleton_opt: previous_msg.response_skeleton_opt,
@@ -25,9 +25,17 @@ impl From<(PayablePaymentSetup, StageData)> for PayablePaymentSetup {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StageData {
-    FinancialDetails {
-        consuming_wallet_balances: ConsumingWalletBalances,
-        estimated_gas_limit_per_transaction: u64,
-        desired_gas_price_gwei: u64,
-    },
+    PreliminaryContext(PreliminaryContext),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PreliminaryContext {
+    pub consuming_wallet_balances: ConsumingWalletBalances,
+    pub transaction_fee_specification: SingleTransactionFee,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SingleTransactionFee {
+    pub gas_price_gwei: u64,
+    pub estimated_gas_limit: u64,
 }

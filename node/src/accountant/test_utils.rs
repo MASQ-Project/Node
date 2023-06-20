@@ -14,9 +14,9 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+    AwaitedAdjustment, PayableScannerMiddleProcedures, MultistagePayableScanner,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -35,7 +35,7 @@ use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, ScanIntervals};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
-use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
@@ -1391,16 +1391,16 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
+    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentsSetup, Logger)>>>,
     is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
-    adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
+    adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn is_adjustment_required(
+    fn indicate_adjustment_required(
         &self,
-        msg: &PayablePaymentSetup,
+        msg: &PayablePaymentsSetup,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.is_adjustment_required_params
@@ -1415,7 +1415,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         setup: AwaitedAdjustment,
         now: SystemTime,
         logger: &Logger,
-    ) -> OutcomingPaymentsInstructions {
+    ) -> OutboundPaymentsInstructions {
         self.adjust_payments_params
             .lock()
             .unwrap()
@@ -1427,7 +1427,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
+        params: &Arc<Mutex<Vec<(PayablePaymentsSetup, Logger)>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1451,7 +1451,7 @@ impl PaymentAdjusterMock {
         self
     }
 
-    pub fn adjust_payments_result(self, result: OutcomingPaymentsInstructions) -> Self {
+    pub fn adjust_payments_result(self, result: OutboundPaymentsInstructions) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
     }
@@ -1460,8 +1460,8 @@ impl PaymentAdjusterMock {
 pub fn make_initial_payable_payment_setup_message(
     qualified_payables: Vec<PayableAccount>,
     response_skeleton_opt: Option<ResponseSkeleton>,
-) -> PayablePaymentSetup {
-    PayablePaymentSetup {
+) -> PayablePaymentsSetup {
+    PayablePaymentsSetup {
         qualified_payables,
         this_stage_data_opt: None,
         response_skeleton_opt,
@@ -1503,7 +1503,7 @@ where
     implement_as_any!();
 }
 
-impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables> for NullScanner {}
+impl MultistagePayableScanner<PayablePaymentsSetup, SentPayables> for NullScanner {}
 
 impl PayableScannerMiddleProcedures for NullScanner {}
 
@@ -1594,7 +1594,7 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
         self
     }
 
-    pub fn stop_the_system(self) -> Self {
+    pub fn stop_the_system_after_last_msg(self) -> Self {
         self.stop_system_after_last_message.replace(true);
         self
     }
@@ -1616,12 +1616,12 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-impl PayableScannerWithMiddleProcedures<PayablePaymentSetup, SentPayables>
-    for ScannerMock<PayablePaymentSetup, SentPayables>
+impl MultistagePayableScanner<PayablePaymentsSetup, SentPayables>
+    for ScannerMock<PayablePaymentsSetup, SentPayables>
 {
 }
 
-impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentSetup, SentPayables> {}
+impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentsSetup, SentPayables> {}
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(

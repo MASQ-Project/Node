@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -17,7 +17,7 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
-use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -98,6 +98,7 @@ recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(BindMessage);
+recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(CrashNotification);
 recorder_message_handler!(DaemonBindMessage);
 recorder_message_handler!(DispatcherNodeQueryMessage);
@@ -116,31 +117,30 @@ recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
-recorder_message_handler!(UpdateNodeRecordMetadataMessage);
 recorder_message_handler!(NoLookupIncipientCoresPackage);
+recorder_message_handler!(OutboundPaymentsInstructions);
+recorder_message_handler!(PayablePaymentsSetup);
+recorder_message_handler!(PendingPayableFingerprintSeeds);
 recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(ReceivedPayments);
 recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(RemoveStreamMsg);
-recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler!(ReportServicesConsumedMessage);
+recorder_message_handler!(ReportTransactionReceipts);
+recorder_message_handler!(RetrieveTransactions);
+recorder_message_handler!(RequestTransactionReceipts);
 recorder_message_handler!(ScanError);
-recorder_message_handler!(PayablePaymentSetup);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
-recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(PendingPayableFingerprintSeeds);
-recorder_message_handler!(RetrieveTransactions);
-recorder_message_handler!(RequestTransactionReceipts);
-recorder_message_handler!(ReportTransactionReceipts);
-recorder_message_handler!(OutcomingPaymentsInstructions);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
-recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
+recorder_message_handler!(TransmitDataMsg);
+recorder_message_handler!(UpdateNodeRecordMetadataMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where
@@ -405,10 +405,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_consuming_wallet_balances_and_qualified_payables: recipient!(
-            addr,
-            PayablePaymentSetup
-        ),
+        report_payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -429,8 +426,8 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
 pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
-        report_accounts_payable: recipient!(addr, OutcomingPaymentsInstructions),
-        pps_for_blockchain_bridge: recipient!(addr, PayablePaymentSetup),
+        outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
+        payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),

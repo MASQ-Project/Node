@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
+use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -23,8 +23,8 @@ pub struct BlockchainBridgeConfig {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
-    pub report_accounts_payable: Recipient<OutcomingPaymentsInstructions>,
-    pub pps_for_blockchain_bridge: Recipient<PayablePaymentSetup>,
+    pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
+    pub payable_payment_setup: Recipient<PayablePaymentsSetup>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -36,19 +36,19 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-impl SkeletonOptHolder for PayablePaymentSetup {
+impl SkeletonOptHolder for PayablePaymentsSetup {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct OutcomingPaymentsInstructions {
+pub struct OutboundPaymentsInstructions {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl SkeletonOptHolder for OutcomingPaymentsInstructions {
+impl SkeletonOptHolder for OutboundPaymentsInstructions {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
@@ -56,7 +56,7 @@ impl SkeletonOptHolder for OutcomingPaymentsInstructions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
-    pub gas_currency_wei: U256,
+    pub transaction_fee_currency_wei: U256,
     pub masq_tokens_wei: U256,
 }
 

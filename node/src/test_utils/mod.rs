@@ -886,7 +886,7 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn permit_to_send_out(mut self) -> Self {
+            pub fn capture_msg_and_let_it_flight_on(mut self) -> Self {
                 self.send_message_out = true;
                 self
             }

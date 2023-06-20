@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup, StageData};
+use crate::accountant::scanners::payable_scan_setup_msgs::{
+    PayablePaymentsSetup, PreliminaryContext, SingleTransactionFee, StageData,
+};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
@@ -15,7 +17,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, ConsumingWalletBalances, OutcomingPaymentsInstructions,
+    BlockchainBridgeSubs, ConsumingWalletBalances, OutboundPaymentsInstructions,
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -45,7 +47,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt: Option<Recipient<PayablePaymentSetup>>,
+    balances_and_payables_sub_opt: Option<Recipient<PayablePaymentsSetup>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -75,11 +77,8 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
-        self.balances_and_payables_sub_opt = Some(
-            msg.peer_actors
-                .accountant
-                .report_consuming_wallet_balances_and_qualified_payables,
-        );
+        self.balances_and_payables_sub_opt =
+            Some(msg.peer_actors.accountant.report_payable_payment_setup);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
@@ -136,18 +135,18 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<PayablePaymentSetup> for BlockchainBridge {
+impl Handler<PayablePaymentsSetup> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: PayablePaymentSetup, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PayablePaymentsSetup, _ctx: &mut Self::Context) {
         self.handle_scan(Self::handle_payable_payment_setup, ScanType::Payables, msg);
     }
 }
 
-impl Handler<OutcomingPaymentsInstructions> for BlockchainBridge {
+impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: OutcomingPaymentsInstructions, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan(
             Self::handle_report_accounts_payable,
             ScanType::Payables,
@@ -243,15 +242,15 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
-            report_accounts_payable: recipient!(addr, OutcomingPaymentsInstructions),
-            pps_for_blockchain_bridge: recipient!(addr, PayablePaymentSetup),
+            outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
+            payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup) -> Result<(), String> {
+    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentsSetup) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
             None => {
@@ -287,22 +286,23 @@ impl BlockchainBridge {
         };
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                gas_currency_wei: gas_balance,
+                transaction_fee_currency_wei: gas_balance,
                 masq_tokens_wei: token_balance,
             }
         };
-        let desired_gas_price_gwei = self
+        let requested_gas_price_gwei = self
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
-        let estimated_gas_limit_per_transaction =
-            self.blockchain_interface.estimated_gas_limit_per_payable();
-        let this_stage_data = StageData::FinancialDetails {
+        let estimated_gas_limit = self.blockchain_interface.estimated_gas_limit_per_payable();
+        let this_stage_data = StageData::PreliminaryContext(PreliminaryContext {
             consuming_wallet_balances,
-            estimated_gas_limit_per_transaction,
-            desired_gas_price_gwei,
-        };
-        let msg = PayablePaymentSetup::from((msg, this_stage_data));
+            transaction_fee_specification: SingleTransactionFee {
+                gas_price_gwei: requested_gas_price_gwei,
+                estimated_gas_limit,
+            },
+        });
+        let msg = PayablePaymentsSetup::from((msg, this_stage_data));
 
         self.balances_and_payables_sub_opt
             .as_ref()
@@ -315,7 +315,7 @@ impl BlockchainBridge {
 
     fn handle_report_accounts_payable(
         &mut self,
-        msg: OutcomingPaymentsInstructions,
+        msg: OutboundPaymentsInstructions,
     ) -> Result<(), String> {
         let skeleton_opt = msg.response_skeleton_opt;
         let result = self.process_payments(&msg);
@@ -447,7 +447,7 @@ impl BlockchainBridge {
 
     fn process_payments(
         &self,
-        msg: &OutcomingPaymentsInstructions,
+        msg: &OutboundPaymentsInstructions,
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
@@ -621,7 +621,7 @@ mod tests {
             None,
         );
         subject.sent_payable_subs_opt = Some(recipient);
-        let request = OutcomingPaymentsInstructions {
+        let request = OutboundPaymentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
@@ -664,7 +664,7 @@ mod tests {
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let wallet_balances_found = ConsumingWalletBalances {
-            gas_currency_wei: gas_balance,
+            transaction_fee_currency_wei: gas_balance,
             masq_tokens_wei: token_balance,
         };
         let blockchain_interface = BlockchainInterfaceMock::default()
@@ -724,15 +724,17 @@ mod tests {
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &PayablePaymentSetup =
+        let reported_balances_and_qualified_accounts: &PayablePaymentsSetup =
             accountant_received_payment.get_record(0);
-        let expected_msg: PayablePaymentSetup = (
+        let expected_msg: PayablePaymentsSetup = (
             msg,
-            StageData::FinancialDetails {
+            StageData::PreliminaryContext(PreliminaryContext {
                 consuming_wallet_balances: wallet_balances_found,
-                estimated_gas_limit_per_transaction: 51_546,
-                desired_gas_price_gwei: 146,
-            },
+                transaction_fee_specification: SingleTransactionFee {
+                    gas_price_gwei: 146,
+                    estimated_gas_limit: 51_546,
+                },
+            }),
         )
             .into();
         assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
@@ -946,7 +948,7 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
-            .try_send(OutcomingPaymentsInstructions {
+            .try_send(OutboundPaymentsInstructions {
                 accounts: accounts.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1035,7 +1037,7 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
-            .try_send(OutcomingPaymentsInstructions {
+            .try_send(OutboundPaymentsInstructions {
                 accounts,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1092,7 +1094,7 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
-        let request = OutcomingPaymentsInstructions {
+        let request = OutboundPaymentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 123_456,
@@ -1130,7 +1132,7 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let request = OutcomingPaymentsInstructions {
+        let request = OutboundPaymentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 424_454,
@@ -1178,7 +1180,7 @@ mod tests {
         );
         subject.sent_payable_subs_opt = Some(sent_payables_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = OutcomingPaymentsInstructions {
+        let request = OutboundPaymentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
