@@ -72,15 +72,12 @@ pub enum AnalysisError {}
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
+    use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         PayablePaymentsSetup, PreliminaryContext, SingleTransactionFee, StageData,
     };
-    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::sub_lib::blockchain_bridge::{
-        ConsumingWalletBalances,
-    };
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;

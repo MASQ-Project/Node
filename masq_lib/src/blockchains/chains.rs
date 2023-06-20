@@ -16,13 +16,6 @@ pub enum Chain {
     Dev,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum ChainFamily {
-    Eth,
-    Polygon,
-    Dev,
-}
-
 impl Default for Chain {
     fn default() -> Self {
         DEFAULT_CHAIN
@@ -96,6 +89,7 @@ fn return_record_opt_body<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchains::blockchain_records::{ChainFamily, TransactionTechSpecs};
 
     #[test]
     #[should_panic(expected = "Non-unique identifier used to query a BlockchainRecord")]
@@ -141,6 +135,10 @@ mod tests {
             num_chain_id: 0,
             self_id: Chain::PolyMainnet,
             literal_identifier: "",
+            transaction_tech_specifications: TransactionTechSpecs {
+                base_of_required_transaction_fee_units: 0,
+                maximum_of_required_transaction_fee_units: 0,
+            },
             contract: Default::default(),
             contract_creation_block: 0,
             chain_family: ChainFamily::Polygon,

@@ -16,7 +16,7 @@ use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, 
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, PayableScannerMiddleProcedures, MultistagePayableScanner,
+    AwaitedAdjustment, MultistagePayableScanner, PayableScannerMiddleProcedures,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{

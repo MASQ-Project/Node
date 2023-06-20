@@ -22,6 +22,7 @@ use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
+use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -55,10 +56,11 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
+    contract_address_result: Option<Address>,
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    estimated_gas_limit_per_payable_results: RefCell<Option<u64>>,
+    chain_result: Option<Chain>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -78,14 +80,13 @@ pub struct BlockchainInterfaceMock {
     get_token_balance_results: RefCell<Vec<ResultForBalance>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
-    contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
     fn contract_address(&self) -> Address {
-        self.contract_address_results.borrow_mut().remove(0)
+        *self.contract_address_result.as_ref().unwrap()
     }
 
     fn retrieve_transactions(
@@ -100,12 +101,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn estimated_gas_limit_per_payable(&self) -> u64 {
-        *self
-            .estimated_gas_limit_per_payable_results
-            .borrow_mut()
-            .as_ref()
-            .unwrap()
+    fn chain(&self) -> Chain {
+        *self.chain_result.as_ref().unwrap()
     }
 
     fn send_batch_of_payables(
@@ -160,6 +157,12 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 }
 
 impl BlockchainInterfaceMock {
+    //seems like never-used
+    pub fn contract_address_result(mut self, address: Address) -> Self {
+        self.contract_address_result.replace(address);
+        self
+    }
+
     pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
@@ -173,10 +176,8 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn estimated_gas_limit_per_payable_result(self, result: u64) -> Self {
-        self.estimated_gas_limit_per_payable_results
-            .borrow_mut()
-            .replace(result);
+    pub fn chain_result(mut self, result: Chain) -> Self {
+        self.chain_result.replace(result);
         self
     }
 
@@ -225,11 +226,6 @@ impl BlockchainInterfaceMock {
 
     pub fn get_token_balance_result(self, result: ResultForBalance) -> Self {
         self.get_token_balance_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn contract_address_result(self, address: Address) -> Self {
-        self.contract_address_results.borrow_mut().push(address);
         self
     }
 

@@ -34,6 +34,7 @@ pub struct PreliminaryContext {
     pub transaction_fee_specification: SingleTransactionFee,
 }
 
+//TODO will be generalized as part of GH-696
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SingleTransactionFee {
     pub gas_price_gwei: u64,

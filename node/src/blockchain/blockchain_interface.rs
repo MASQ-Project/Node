@@ -4,7 +4,6 @@ use crate::accountant::database_access_objects::payable_dao::{PayableAccount, Pe
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_common::TRANSACTION_DATA_GAS_MARGIN_MAX;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
 };
@@ -139,7 +138,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    fn estimated_gas_limit_per_payable(&self) -> u64;
+    fn chain(&self) -> Chain;
 
     fn send_batch_of_payables(
         &self,
@@ -195,8 +194,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn estimated_gas_limit_per_payable(&self) -> u64 {
-        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
+    fn chain(&self) -> Chain {
+        todo!()
     }
 
     fn send_batch_of_payables(
@@ -351,8 +350,8 @@ where
             .wait()
     }
 
-    fn estimated_gas_limit_per_payable(&self) -> u64 {
-        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
+    fn chain(&self) -> Chain {
+        self.chain
     }
 
     fn send_batch_of_payables(
@@ -692,7 +691,10 @@ where
     }
 
     fn compute_gas_limit(data: &[u8], chain: Chain) -> U256 {
-        let base_gas_limit = blockchain_interface_common::base_gas_limit(chain);
+        let base_gas_limit = chain
+            .rec()
+            .transaction_tech_specifications
+            .base_of_required_transaction_fee_units;
         ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
             acc + if v == &0u8 { 4 } else { 68 }
         }))
@@ -702,26 +704,6 @@ where
     #[cfg(test)]
     fn web3(&self) -> &Web3<T> {
         &self.web3
-    }
-}
-
-mod blockchain_interface_common {
-    use masq_lib::blockchains::chains::{Chain, ChainFamily};
-
-    pub const TRANSACTION_DATA_GAS_MARGIN_MAX: u64 = transaction_data_margin();
-
-    pub fn base_gas_limit(chain: Chain) -> u64 {
-        match chain.rec().chain_family {
-            ChainFamily::Polygon => 70_000,
-            ChainFamily::Eth => 55_000,
-            ChainFamily::Dev => 55_000,
-        }
-    }
-
-    pub const fn transaction_data_margin() -> u64 {
-        // 68 bytes * 68 per non zero byte according to the Ethereum docs,
-        // deliberately maximized
-        68 * 68
     }
 }
 
@@ -750,7 +732,7 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
-    use masq_lib::blockchains::chains::ChainFamily;
+    use masq_lib::blockchains::blockchain_records::ChainFamily;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
@@ -847,6 +829,32 @@ mod tests {
                 .write(b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes")
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_returns_contract() {
+        all_chains().iter().for_each(|chain| {
+            let subject = BlockchainInterfaceNonClandestine::new(
+                TestTransport::default(),
+                make_fake_event_loop_handle(),
+                *chain,
+            );
+
+            assert_eq!(subject.contract_address(), chain.rec().contract)
+        })
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_returns_chain() {
+        all_chains().iter().for_each(|chain| {
+            let subject = BlockchainInterfaceNonClandestine::new(
+                TestTransport::default(),
+                make_fake_event_loop_handle(),
+                *chain,
+            );
+
+            assert_eq!(subject.chain(), *chain)
+        })
     }
 
     #[test]
@@ -1162,7 +1170,6 @@ mod tests {
             port,
             vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
         );
-
         let (event_loop_handle, transport) = Http::new(&format!(
             "http://{}:{}",
             &Ipv4Addr::LOCALHOST.to_string(),
@@ -1291,32 +1298,6 @@ mod tests {
             expected_err_msg_fragment,
             err_msg
         )
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_gives_estimates_for_gas_limits() {
-        let subject = |chain: Chain| {
-            BlockchainInterfaceNonClandestine::new(
-                TestTransport::default(),
-                make_fake_event_loop_handle(),
-                chain,
-            )
-        };
-
-        [
-            Chain::EthMainnet,
-            Chain::PolyMainnet,
-            Chain::PolyMumbai,
-            Chain::Dev,
-        ]
-        .into_iter()
-        .for_each(|chain| {
-            let subject = subject.clone();
-            assert_eq!(
-                subject(chain).estimated_gas_limit_per_payable(),
-                blockchain_interface_common::base_gas_limit(chain) + (68 * 68) //number of bytes and gas required per non-zero bytes = maximal margin
-            )
-        });
     }
 
     #[test]
@@ -1708,63 +1689,31 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_base_gas_limit_is_properly_set() {
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::PolyMainnet),
-            70_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::PolyMumbai),
-            70_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::EthMainnet),
-            55_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::EthRopsten),
-            55_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::Dev),
-            55_000
-        );
-    }
-
-    #[test]
-    fn non_clandestine_gas_limit_for_polygon_mainnet_starts_on_70000_as_the_base() {
+    fn non_clandestine_gas_limit_for_polygon_mainnet_lies_within_limits() {
         let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::PolyMainnet,
-        );
+        let chain = Chain::PolyMainnet;
+        let subject =
+            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let maximal_possible_value = chain
+            .rec()
+            .transaction_tech_specifications
+            .maximum_of_required_transaction_fee_units;
 
-        assert_gas_limit_is_between(subject, 70000, u64::MAX)
-    }
-
-    #[test]
-    fn non_clandestine_gas_limit_for_dev_lies_within_limits() {
-        let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::Dev,
-        );
-
-        assert_gas_limit_is_between(subject, 55000, 65000)
+        assert_gas_limit_is_between(subject, 70000, maximal_possible_value);
     }
 
     #[test]
     fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits() {
         let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::EthMainnet,
-        );
+        let chain = Chain::EthMainnet;
+        let subject =
+            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let maximal_possible_value = chain
+            .rec()
+            .transaction_tech_specifications
+            .maximum_of_required_transaction_fee_units;
 
-        assert_gas_limit_is_between(subject, 55000, 65000)
+        assert_gas_limit_is_between(subject, 55000, maximal_possible_value)
     }
 
     fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static + Default>(
@@ -2598,19 +2547,6 @@ mod tests {
         let expected_log_msg = format!("ERROR: {test_name}: {}", expected_msg);
         TestLogHandler::new()
             .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_estimated_gas_limit_per_payable() {
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject("irrelevant", chain).estimated_gas_limit_per_payable(),
-                blockchain_interface_common::base_gas_limit(chain)
-                    + TRANSACTION_DATA_GAS_MARGIN_MAX
-            )
-        });
     }
 
     #[test]

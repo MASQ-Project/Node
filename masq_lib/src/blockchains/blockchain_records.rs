@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchains::chains::{Chain, ChainFamily};
+use crate::blockchains::chains::Chain;
 use crate::constants::{
     DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
@@ -16,6 +16,10 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
         chain_family: ChainFamily::Polygon,
+        transaction_tech_specifications: TransactionTechSpecs {
+            base_of_required_transaction_fee_units: 70_000,
+            maximum_of_required_transaction_fee_units: 70_000 + WEB3_BYTE_COUNT_GAS_LIMIT,
+        },
         literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
@@ -24,6 +28,10 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         self_id: Chain::EthMainnet,
         num_chain_id: 1,
         chain_family: ChainFamily::Eth,
+        transaction_tech_specifications: TransactionTechSpecs {
+            base_of_required_transaction_fee_units: 55_000,
+            maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT,
+        },
         literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
@@ -32,6 +40,10 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         self_id: Chain::PolyMumbai,
         num_chain_id: 80001,
         chain_family: ChainFamily::Polygon,
+        transaction_tech_specifications: TransactionTechSpecs {
+            base_of_required_transaction_fee_units: 70_000,
+            maximum_of_required_transaction_fee_units: 70_000 + WEB3_BYTE_COUNT_GAS_LIMIT,
+        },
         literal_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
         contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
@@ -40,6 +52,10 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         self_id: Chain::EthRopsten,
         num_chain_id: 3,
         chain_family: ChainFamily::Eth,
+        transaction_tech_specifications: TransactionTechSpecs {
+            base_of_required_transaction_fee_units: 55_000,
+            maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT,
+        },
         literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
         contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
@@ -48,20 +64,41 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         self_id: Chain::Dev,
         num_chain_id: 2,
         chain_family: ChainFamily::Dev,
+        transaction_tech_specifications: TransactionTechSpecs {
+            base_of_required_transaction_fee_units: 55_000,
+            maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT,
+        },
         literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
 ];
 
+const WEB3_BYTE_COUNT_GAS_LIMIT: u64 = 3328; //64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us; each non-zero byte costs 64 units of gas
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct BlockchainRecord {
     pub self_id: Chain,
     pub num_chain_id: u64,
     pub chain_family: ChainFamily,
+    pub transaction_tech_specifications: TransactionTechSpecs,
     pub literal_identifier: &'static str,
     pub contract: Address,
     pub contract_creation_block: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct TransactionTechSpecs {
+    //we picked this value out empirically unless commented differently
+    pub base_of_required_transaction_fee_units: u64,
+    pub maximum_of_required_transaction_fee_units: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub enum ChainFamily {
+    Eth,
+    Polygon,
+    Dev,
 }
 
 // SHRD (Ropsten)
@@ -102,6 +139,11 @@ mod tests {
     };
     use std::collections::HashSet;
     use std::iter::FromIterator;
+
+    #[test]
+    fn constants_are_correct() {
+        assert_eq!(WEB3_BYTE_COUNT_GAS_LIMIT, 64 * (64 - 12))
+    }
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -170,27 +212,18 @@ mod tests {
                 num_chain_id: 1,
                 self_id: examined_chain,
                 literal_identifier: "eth-mainnet",
+                transaction_tech_specifications: TransactionTechSpecs {
+                    base_of_required_transaction_fee_units: 55_000,
+                    maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT
+                },
                 contract: ETH_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
-                chain_family: ChainFamily::Eth
+                chain_family: ChainFamily::Eth,
             }
-        )
-    }
-
-    #[test]
-    fn multinode_testnet_chain_record_is_properly_declared() {
-        let examined_chain = Chain::Dev;
-        let chain_record = return_examined(examined_chain);
-        assert_eq!(
-            chain_record,
-            &BlockchainRecord {
-                num_chain_id: 2,
-                self_id: examined_chain,
-                literal_identifier: "dev",
-                contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: 0,
-                chain_family: ChainFamily::Dev
-            }
+        );
+        double_check_chain_family_vs_transaction_tech_specs(
+            examined_chain,
+            &chain_record.transaction_tech_specifications,
         )
     }
 
@@ -204,10 +237,18 @@ mod tests {
                 num_chain_id: 3,
                 self_id: examined_chain,
                 literal_identifier: "eth-ropsten",
+                transaction_tech_specifications: TransactionTechSpecs {
+                    base_of_required_transaction_fee_units: 55_000,
+                    maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT
+                },
                 contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
                 chain_family: ChainFamily::Eth
             }
+        );
+        double_check_chain_family_vs_transaction_tech_specs(
+            examined_chain,
+            &chain_record.transaction_tech_specifications,
         )
     }
 
@@ -221,10 +262,18 @@ mod tests {
                 num_chain_id: 137,
                 self_id: examined_chain,
                 literal_identifier: "polygon-mainnet",
+                transaction_tech_specifications: TransactionTechSpecs {
+                    base_of_required_transaction_fee_units: 70_000,
+                    maximum_of_required_transaction_fee_units: 70_000 + WEB3_BYTE_COUNT_GAS_LIMIT
+                },
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
                 chain_family: ChainFamily::Polygon
             }
+        );
+        double_check_chain_family_vs_transaction_tech_specs(
+            examined_chain,
+            &chain_record.transaction_tech_specifications,
         )
     }
 
@@ -238,10 +287,43 @@ mod tests {
                 num_chain_id: 80001,
                 self_id: examined_chain,
                 literal_identifier: "polygon-mumbai",
+                transaction_tech_specifications: TransactionTechSpecs {
+                    base_of_required_transaction_fee_units: 70_000,
+                    maximum_of_required_transaction_fee_units: 70_000 + WEB3_BYTE_COUNT_GAS_LIMIT
+                },
                 contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
                 chain_family: ChainFamily::Polygon
             }
+        );
+        double_check_chain_family_vs_transaction_tech_specs(
+            examined_chain,
+            &chain_record.transaction_tech_specifications,
+        )
+    }
+
+    #[test]
+    fn multinode_testnet_chain_record_is_properly_declared() {
+        let examined_chain = Chain::Dev;
+        let chain_record = return_examined(examined_chain);
+        assert_eq!(
+            chain_record,
+            &BlockchainRecord {
+                num_chain_id: 2,
+                self_id: examined_chain,
+                literal_identifier: "dev",
+                transaction_tech_specifications: TransactionTechSpecs {
+                    base_of_required_transaction_fee_units: 55_000,
+                    maximum_of_required_transaction_fee_units: 55_000 + WEB3_BYTE_COUNT_GAS_LIMIT
+                },
+                contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
+                contract_creation_block: 0,
+                chain_family: ChainFamily::Dev,
+            }
+        );
+        double_check_chain_family_vs_transaction_tech_specs(
+            examined_chain,
+            &chain_record.transaction_tech_specifications,
         )
     }
 
@@ -292,6 +374,38 @@ mod tests {
             diff.is_empty(),
             "These chains weren't included in the test: {:?}",
             diff
+        )
+    }
+
+    fn double_check_chain_family_vs_transaction_tech_specs(
+        chain: Chain,
+        specs: &TransactionTechSpecs,
+    ) {
+        let (
+            expected_base_transactions_fee_units_count,
+            expected_maximal_transaction_fee_units_count,
+        ) = match chain.rec().chain_family {
+            ChainFamily::Polygon => {
+                let base = 70_000;
+                (base, base + WEB3_BYTE_COUNT_GAS_LIMIT)
+            }
+            ChainFamily::Eth => {
+                let base = 55_000;
+                (base, base + WEB3_BYTE_COUNT_GAS_LIMIT)
+            }
+            ChainFamily::Dev => {
+                let base = 55_000;
+                (base, base + WEB3_BYTE_COUNT_GAS_LIMIT)
+            }
+        };
+
+        assert_eq!(
+            specs.base_of_required_transaction_fee_units,
+            expected_base_transactions_fee_units_count
+        );
+        assert_eq!(
+            specs.maximum_of_required_transaction_fee_units,
+            expected_maximal_transaction_fee_units_count
         )
     }
 }

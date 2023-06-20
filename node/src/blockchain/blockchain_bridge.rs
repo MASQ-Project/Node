@@ -294,7 +294,12 @@ impl BlockchainBridge {
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
-        let estimated_gas_limit = self.blockchain_interface.estimated_gas_limit_per_payable();
+        let estimated_gas_limit = self
+            .blockchain_interface
+            .chain()
+            .rec()
+            .transaction_tech_specifications
+            .maximum_of_required_transaction_fee_units;
         let this_stage_data = StageData::PreliminaryContext(PreliminaryContext {
             consuming_wallet_balances,
             transaction_fee_specification: SingleTransactionFee {
@@ -672,7 +677,7 @@ mod tests {
             .get_gas_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .estimated_gas_limit_per_payable_result(51_546);
+            .chain_result(Chain::EthMainnet);
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
             PersistentConfigurationMock::default().gas_price_result(Ok(146));
@@ -732,7 +737,7 @@ mod tests {
                 consuming_wallet_balances: wallet_balances_found,
                 transaction_fee_specification: SingleTransactionFee {
                     gas_price_gwei: 146,
-                    estimated_gas_limit: 51_546,
+                    estimated_gas_limit: 58_328, //corresponds to the attributes of Chain::EthMainnet
                 },
             }),
         )

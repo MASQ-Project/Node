@@ -2883,9 +2883,9 @@ mod tests {
     #[test]
     fn scan_schedulers_can_be_properly_initialized() {
         let scan_intervals = ScanIntervals {
-            payable_scan_interval:  Duration::from_secs(240),
+            payable_scan_interval: Duration::from_secs(240),
             pending_payable_scan_interval: Duration::from_secs(300),
-            receivable_scan_interval:  Duration::from_secs(360),
+            receivable_scan_interval: Duration::from_secs(360),
         };
 
         let result = ScanSchedulers::new(scan_intervals);

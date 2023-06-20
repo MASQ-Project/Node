@@ -646,7 +646,11 @@ impl Accountant {
     }
 
     fn handle_payable_payment_setup(&mut self, msg: PayablePaymentsSetup) {
-        let bb_instructions = match self.scanners.payable.try_skipping_payment_adjustment(msg, &self.logger) {
+        let bb_instructions = match self
+            .scanners
+            .payable
+            .try_skipping_payment_adjustment(msg, &self.logger)
+        {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
@@ -1054,6 +1058,7 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use itertools::Itertools;
     use log::Level;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
         VALUE_EXCEEDS_ALLOWED_LIMIT,
@@ -1422,7 +1427,8 @@ mod tests {
 
         system.run();
         let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
-        let (actual_payable_payments_setup_msg, logger_clone) = is_adjustment_required_params.remove(0);
+        let (actual_payable_payments_setup_msg, logger_clone) =
+            is_adjustment_required_params.remove(0);
         assert!(is_adjustment_required_params.is_empty());
         assert_eq!(
             actual_payable_payments_setup_msg,
@@ -1520,7 +1526,8 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_awaited_adjustment, captured_now, logger_clone) = adjust_payments_params.remove(0);
+        let (actual_awaited_adjustment, captured_now, logger_clone) =
+            adjust_payments_params.remove(0);
         assert!(adjust_payments_params.is_empty());
         assert_eq!(
             actual_awaited_adjustment,
@@ -1732,8 +1739,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_sends_initial_payable_payments_msg_when_qualified_payable_found(
-    ) {
+    fn accountant_sends_initial_payable_payments_msg_when_qualified_payable_found() {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
@@ -1741,7 +1747,9 @@ mod tests {
             make_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let system = System::new("accountant_sends_initial_payable_payments_msg_when_qualified_payable_found");
+        let system = System::new(
+            "accountant_sends_initial_payable_payments_msg_when_qualified_payable_found",
+        );
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
@@ -1777,9 +1785,8 @@ mod tests {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("someearningwallet");
-        let system = System::new(
-            "accountant_requests_blockchain_bridge_to_scan_for_received_payments",
-        );
+        let system =
+            System::new("accountant_requests_blockchain_bridge_to_scan_for_received_payments");
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
@@ -1835,8 +1842,7 @@ mod tests {
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
-        let system =
-            System::new("accountant_uses_receivables_dao_to_process_received_payments");
+        let system = System::new("accountant_uses_receivables_dao_to_process_received_payments");
         let subject = accountant.start();
 
         subject
@@ -3102,7 +3108,7 @@ mod tests {
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
-            notify_later_scan_for_pending_payable_params_arc.clone(); //because it moves into a closure
+            notify_later_scan_for_pending_payable_params_arc.clone(); // because it moves into a closure
         let pending_tx_hash_1 = make_tx_hash(0x7b);
         let pending_tx_hash_2 = make_tx_hash(0x237);
         let rowid_for_account_1 = 3;
@@ -3126,19 +3132,19 @@ mod tests {
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
-        transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); //failure
+        transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); // failure
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
+            .chain_result(Chain::EthMainnet)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .estimated_gas_limit_per_payable_result(55_000)
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
-            //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
-            //there is one component missing in this wholesome test - the part where we send a request for
-            //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
+            // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
+            // there is one component missing in this wholesome test - the part where we send a request for
+            // a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
             .send_batch_of_payables_result(Ok(vec![
                 Correct(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
@@ -3178,7 +3184,7 @@ mod tests {
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
-        let pending_payable_scan_interval = 200; //should be slightly less than 1/5 of the time until shutting the system
+        let pending_payable_scan_interval = 200; // should be slightly less than 1/5 of the time until shutting the system
         let payable_dao_for_payable_scanner = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![account_1, account_2])
@@ -3189,8 +3195,8 @@ mod tests {
             .transactions_confirmed_result(Ok(()));
         let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         bootstrapper_config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
-            receivable_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
+            payable_scan_interval: Duration::from_secs(1_000_000), // we don't care about this scan
+            receivable_scan_interval: Duration::from_secs(1_000_000), // we don't care about this scan
             pending_payable_scan_interval: Duration::from_millis(pending_payable_scan_interval),
         });
         let fingerprint_1_first_round = PendingPayableFingerprint {
@@ -3259,10 +3265,10 @@ mod tests {
             .increment_scan_attempts_result(Ok(()))
             .increment_scan_attempts_result(Ok(()))
             .mark_failures_params(&mark_failure_params_arc)
-            //we don't have a better solution yet, so we mark this down
+            // we don't have a better solution yet, so we mark this down
             .mark_failures_result(Ok(()))
             .delete_fingerprints_params(&delete_record_params_arc)
-            //this is used during confirmation of the successful one
+            // this is used during confirmation of the successful one
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
@@ -3319,10 +3325,10 @@ mod tests {
         assert_eq!(second_payable.1, rowid_for_account_2);
         let return_all_errorless_fingerprints_params =
             return_all_errorless_fingerprints_params_arc.lock().unwrap();
-        //it varies with machines and sometimes we manage more cycles than necessary
+        // it varies with machines and sometimes we manage more cycles than necessary
         assert!(return_all_errorless_fingerprints_params.len() >= 5);
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
-        assert_eq!(*non_pending_payables_params, vec![()]); //because we disabled further scanning for payables
+        assert_eq!(*non_pending_payables_params, vec![()]); // because we disabled further scanning for payables
         let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(
             *get_transaction_receipt_params,
@@ -3364,7 +3370,7 @@ mod tests {
             notify_later_scan_for_pending_payable_params_arc
                 .lock()
                 .unwrap();
-        //it varies with machines and sometimes we manage more cycles than necessary
+        // it varies with machines and sometimes we manage more cycles than necessary
         let vector_of_first_five_cycles = notify_later_check_for_confirmation
             .drain(0..=4)
             .collect_vec();
