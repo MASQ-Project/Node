@@ -262,12 +262,23 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     ) -> Result<Either<OutboundPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
             .payment_adjuster
-            .indicate_adjustment_required(&msg, logger)
+            .look_for_obligatory_adjustments(&msg, logger)
         {
-            Ok(None) => Ok(Either::Left(OutboundPaymentsInstructions {
-                accounts: msg.qualified_payables,
-                response_skeleton_opt: msg.response_skeleton_opt,
-            })),
+            Ok(None) => {
+                //TODO will be decoupled with Web3 by GH-696
+                let requested_price_per_transaction_data_unit = msg
+                    .this_stage_data_opt
+                    .as_ref()
+                    .expectv("stage data")
+                    .preliminary_context()
+                    .transaction_fee_specification
+                    .gas_price_gwei;
+                Ok(Either::Left(OutboundPaymentsInstructions {
+                    accounts: msg.qualified_payables,
+                    requested_price_per_transaction_data_unit,
+                    response_skeleton_opt: msg.response_skeleton_opt,
+                }))
+            }
             Ok(Some(adjustment)) => Ok(Either::Right(AwaitedAdjustment::new(msg, adjustment))),
             Err(_e) => todo!("be implemented with GH-711"),
         }

@@ -1398,7 +1398,7 @@ pub struct PaymentAdjusterMock {
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn indicate_adjustment_required(
+    fn look_for_obligatory_adjustments(
         &self,
         msg: &PayablePaymentsSetup,
         logger: &Logger,

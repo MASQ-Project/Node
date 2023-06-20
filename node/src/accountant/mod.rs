@@ -1411,7 +1411,7 @@ mod tests {
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
                 transaction_fee_specification: SingleTransactionFee {
-                    gas_price_gwei: 123,
+                    gas_price_gwei: 132,
                     estimated_gas_limit: 112_000,
                 },
             })),
@@ -1439,6 +1439,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
             &OutboundPaymentsInstructions {
                 accounts: vec![account_1, account_2],
+                requested_price_per_transaction_data_unit: 132,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1489,6 +1490,7 @@ mod tests {
         };
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
+            requested_price_per_transaction_data_unit: 30,
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1542,6 +1544,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
             &OutboundPaymentsInstructions {
                 accounts: vec![adjusted_account_1, adjusted_account_2],
+                requested_price_per_transaction_data_unit: 30,
                 response_skeleton_opt: Some(response_skeleton)
             }
         );

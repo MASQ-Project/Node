@@ -148,7 +148,7 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
 
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan(
-            Self::handle_report_accounts_payable,
+            Self::handle_outbound_payments_instructions,
             ScanType::Payables,
             msg,
         )
@@ -318,7 +318,7 @@ impl BlockchainBridge {
         Ok(())
     }
 
-    fn handle_report_accounts_payable(
+    fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
     ) -> Result<(), String> {
@@ -454,18 +454,13 @@ impl BlockchainBridge {
         &self,
         msg: &OutboundPaymentsInstructions,
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => match self.persistent_config.gas_price() {
-                Ok(gas_price) => (consuming_wallet, gas_price),
-                Err(e) => {
-                    return Err(PayableTransactionError::GasPriceQueryFailed(format!(
-                        "{:?}",
-                        e
-                    )))
-                }
-            },
+        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
+            Some(consuming_wallet) => consuming_wallet,
             None => return Err(PayableTransactionError::MissingConsumingWallet),
         };
+
+        // TODO will be decoupled from Web3 by GH-696
+        let gas_price = msg.requested_price_per_transaction_data_unit;
 
         let pending_nonce = self
             .blockchain_interface
@@ -633,11 +628,12 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            requested_price_per_transaction_data_unit: 123,
             response_skeleton_opt: None,
         };
         let system = System::new("test");
 
-        let result = subject.handle_report_accounts_payable(request);
+        let result = subject.handle_outbound_payments_instructions(request);
 
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -899,9 +895,10 @@ mod tests {
     }
 
     #[test]
-    fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
+    fn handle_outbound_payments_instructions_transacts_and_sends_payments_results_back_to_accountant(
+    ) {
         let system =
-            System::new("handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant");
+            System::new("handle_outbound_payments_instructions_transacts_and_sends_payments_results_back_to_accountant");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_batch_of_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -924,12 +921,10 @@ mod tests {
                 }),
             ]));
         let expected_gas_price = 145u64;
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
-            Box::new(persistent_configuration_mock),
+            Box::new(PersistentConfigurationMock::default()),
             false,
             Some(consuming_wallet.clone()),
         );
@@ -955,6 +950,7 @@ mod tests {
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
                 accounts: accounts.clone(),
+                requested_price_per_transaction_data_unit: expected_gas_price,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1005,9 +1001,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant() {
+    fn handle_outbound_payments_instructions_sends_eleventh_hour_error_back_to_accountant() {
         let system = System::new(
-            "handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant",
+            "handle_outbound_payments_instructions_sends_eleventh_hour_error_back_to_accountant",
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let hash = make_tx_hash(0xde);
@@ -1044,6 +1040,7 @@ mod tests {
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
                 accounts,
+                requested_price_per_transaction_data_unit: 123,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1106,6 +1103,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            requested_price_per_transaction_data_unit: 234,
             response_skeleton_opt: None,
         };
 
@@ -1144,6 +1142,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
+            requested_price_per_transaction_data_unit: 123,
             response_skeleton_opt: None,
         };
         let (accountant, _, _) = make_recorder();
@@ -1160,70 +1159,6 @@ mod tests {
                 msg: "failure from exhaustion".to_string(),
                 hashes: vec![transaction_hash]
             })
-        );
-    }
-
-    #[test]
-    fn handle_report_accounts_payable_manages_gas_price_error() {
-        init_test_logging();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant_addr = accountant
-            .system_stop_conditions(match_every_type_id!(ScanError))
-            .start();
-        let sent_payables_recipient = accountant_addr.clone().recipient();
-        let scan_error_recipient = accountant_addr.recipient();
-        let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(web3::types::U256::from(1)));
-        let persistent_configuration_mock = PersistentConfigurationMock::new()
-            .gas_price_result(Err(PersistentConfigError::TransactionError));
-        let consuming_wallet = make_wallet("somewallet");
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
-            Box::new(persistent_configuration_mock),
-            false,
-            Some(consuming_wallet),
-        );
-        subject.sent_payable_subs_opt = Some(sent_payables_recipient);
-        subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = OutboundPaymentsInstructions {
-            accounts: vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 42,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }],
-            response_skeleton_opt: None,
-        };
-        let subject_addr = subject.start();
-        let system = System::new("test");
-
-        subject_addr.try_send(request).unwrap();
-
-        system.run();
-        let recording = accountant_recording_arc.lock().unwrap();
-        let actual_sent_payable_msg = recording.get_record::<SentPayables>(0);
-        assert_eq!(
-            actual_sent_payable_msg,
-            &SentPayables {
-                payment_procedure_result: Err(PayableTransactionError::GasPriceQueryFailed(
-                    "TransactionError".to_string()
-                )),
-                response_skeleton_opt: None
-            }
-        );
-        let actual_scan_err_msg = recording.get_record::<ScanError>(1);
-        assert_eq!(
-            actual_scan_err_msg,
-            &ScanError {
-                scan_type: ScanType::Payables,
-                response_skeleton_opt: None,
-                msg: "ReportAccountsPayable: Unsuccessful gas price query: \"TransactionError\""
-                    .to_string()
-            }
-        );
-        assert_eq!(recording.len(), 2);
-        TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: ReportAccountsPayable: Unsuccessful gas price query: \"TransactionError\"",
         );
     }
 

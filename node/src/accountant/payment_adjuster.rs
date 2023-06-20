@@ -9,7 +9,7 @@ use std::any::Any;
 use std::time::SystemTime;
 
 pub trait PaymentAdjuster {
-    fn indicate_adjustment_required(
+    fn look_for_obligatory_adjustments(
         &self,
         msg: &PayablePaymentsSetup,
         logger: &Logger,
@@ -28,7 +28,7 @@ pub trait PaymentAdjuster {
 pub struct PaymentAdjusterReal {}
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn indicate_adjustment_required(
+    fn look_for_obligatory_adjustments(
         &self,
         _msg: &PayablePaymentsSetup,
         _logger: &Logger,
@@ -108,7 +108,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
 
-        let non_required_result = subject.indicate_adjustment_required(&non_required, &logger);
+        let non_required_result = subject.look_for_obligatory_adjustments(&non_required, &logger);
 
         let should_require = PayablePaymentsSetup {
             qualified_payables: vec![payable_1, payable_2],
@@ -125,7 +125,8 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let should_require_result = subject.indicate_adjustment_required(&should_require, &logger);
+        let should_require_result =
+            subject.look_for_obligatory_adjustments(&should_require, &logger);
 
         assert_eq!(non_required_result, Ok(None));
         assert_eq!(should_require_result, Ok(None));

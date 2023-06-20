@@ -45,6 +45,8 @@ impl SkeletonOptHolder for PayablePaymentsSetup {
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct OutboundPaymentsInstructions {
     pub accounts: Vec<PayableAccount>,
+    // TODO will be neatened by GH-696
+    pub requested_price_per_transaction_data_unit: u64,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 

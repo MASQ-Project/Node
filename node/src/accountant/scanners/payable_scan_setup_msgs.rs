@@ -28,6 +28,14 @@ pub enum StageData {
     PreliminaryContext(PreliminaryContext),
 }
 
+impl StageData {
+    pub fn preliminary_context(&self) -> &PreliminaryContext {
+        match self {
+            StageData::PreliminaryContext(context) => context,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreliminaryContext {
     pub consuming_wallet_balances: ConsumingWalletBalances,
