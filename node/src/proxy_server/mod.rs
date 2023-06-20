@@ -186,7 +186,8 @@ impl Handler<DnsRetryResultMessage> for ProxyServer {
                 self.stream_key_routes.insert(msg.stream_key, route_query_response);
             }
             Err(e) => {
-                todo!("Error DnsRetryResultMessage ");
+                error!(self.logger, "{}", e);
+                // todo!("Error DnsRetryResultMessage ");
                 // Send a response to the Browser, remove stream_keys etc?
             }
         }
@@ -655,7 +656,7 @@ impl ProxyServer {
     fn try_transmit_to_hopper(
         args: TryTransmitToHopperArgs,
         route_query_response: RouteQueryResponse,
-    ) {
+    ) -> Result<(), String> {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, back, return_route_id) => {
                 let return_route_info = AddReturnRouteMessage {
@@ -684,7 +685,7 @@ impl ProxyServer {
                     &args.accountant_sub,
                     args.retire_stream_key_sub_opt.as_ref(),
                     args.is_decentralized,
-                );
+                )
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
         }
@@ -994,35 +995,45 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     ) {
         match route_result {
             Ok(Some(route_query_response)) => {
-                proxy_server_sub.try_send(DnsRetryResultMessage {
-                    stream_key: args.payload.stream_key,
-                    result: Ok(route_query_response.clone())
-                }).expect("ProxyServer is dead");
-                ProxyServer::try_transmit_to_hopper(args, route_query_response);
+                let stream_key = args.payload.stream_key;
+                match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
+                    Ok(()) => {
+                        proxy_server_sub.try_send(DnsRetryResultMessage {
+                            stream_key,
+                            result: Ok(route_query_response)
+                        }).expect("ProxyServer is dead");
+                    }
+                    Err(e) => {
+                        proxy_server_sub.try_send(DnsRetryResultMessage {
+                            stream_key,
+                            result: Err(e)
+                        }).expect("ProxyServer is dead");
+                    }
+                }
             }
             Ok(None) => {
+                let stream_key = args.payload.stream_key;
                 let error_message = ProxyServer::handle_route_failure(
                     args.payload,
                     args.source_addr,
                     &args.dispatcher_sub,
                 );
-                error!(args.logger, "{}", error_message);
+                proxy_server_sub.try_send(DnsRetryResultMessage {
+                    stream_key,
+                    result: Err(error_message)
+                }).expect("ProxyServer is dead");
+
+
                 //TODO we should be sending an error message to the browser, informing the user that their request has failed.
                 // Send message to browser - Error
                 // Stop retry -- Purge the stream_key
                 // Remove TCP connection
                 // --- Create an actor message to complete the above ---
-
-                // args.payload.stream_key
-                // DnsRetryResultMessage
-                // todo!("resolve_message - route_result None");
-
             }
             Err(e) => {
                 error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
                 //TODO we should be sending an error message to the browser, informing the user that their request has failed.
-                // todo!("resolve_message - route_result Error");
-
+                todo!("resolve_message - route_result Error");
             }
         }
     }
@@ -1176,11 +1187,14 @@ impl IBCDHelperReal {
                 ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
                 Ok(())
             }
-            Ok(None) => Err(ProxyServer::handle_route_failure(
-                tth_args.payload,
-                tth_args.source_addr,
-                &tth_args.dispatcher_sub,
-            )),
+            Ok(None) => {
+                todo!("Hit IBCDHelperReal - resolve_route_query_response");
+                Err(ProxyServer::handle_route_failure(
+                    tth_args.payload,
+                    tth_args.source_addr,
+                    &tth_args.dispatcher_sub,
+                ))
+            },
             Err(e) => {
                 Err(format!("Neighborhood refused to answer route request: {:?}", e ))
             }
@@ -2495,9 +2509,10 @@ mod tests {
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
+        let expected_service = ExpectedService::Exit(main_cryptde().public_key().clone(), make_wallet("walletAddress"), DEFAULT_RATE_PACK);
         let route_query_response = Some(RouteQueryResponse {
             route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            expected_services: ExpectedServices::RoundTrip(vec![expected_service.clone()], vec![expected_service], 123)
         });
         let (neighborhood_mock, _, _) = make_recorder();
         let neighborhood_mock =
@@ -2551,6 +2566,70 @@ mod tests {
         let recording = proxy_server_recording_arc.lock().unwrap();
         let message = recording.get_record::<DnsRetryResultMessage>(0);
         assert_eq!(message, &expected_dns_retry_result_message);
+    }
+
+    #[test]
+    fn proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route() {
+        let cryptde = main_cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
+        let route_query_response = None;
+        let (neighborhood_mock, _, _) = make_recorder();
+        let neighborhood_mock =
+            neighborhood_mock.route_query_response(route_query_response.clone());
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(HTTP_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+
+        thread::spawn(move || {
+            let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+            let system = System::new("proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route");
+            let mut subject = ProxyServer::new(
+                cryptde,
+                alias_cryptde(),
+                true,
+                Some(STANDARD_CONSUMING_WALLET_BALANCE),
+                false,
+            );
+            subject.stream_key_factory = Box::new(stream_key_factory);
+            let subject_addr: Addr<ProxyServer> = subject.start();
+            let mut peer_actors = peer_actors_builder()
+                .proxy_server(proxy_server_mock)
+                .neighborhood(neighborhood_mock)
+                .build();
+            // Get the dns_retry_result recipient so we can partially mock it...
+            let dns_retry_result_recipient = peer_actors.proxy_server.dns_retry_result;
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            peer_actors.proxy_server.dns_retry_result = dns_retry_result_recipient; //Partial mocking
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+            system.run();
+        });
+
+        // let expected_dns_retry_result_message = DnsRetryResultMessage {
+        //     stream_key,
+        //     result: Ok(route_query_response.unwrap()),
+        // };
+
+        proxy_server_awaiter.await_message_count(1);
+        let recording = proxy_server_recording_arc.lock().unwrap();
+        let message = recording.get_record::<DnsRetryResultMessage>(0);
+        // assert_eq!(message, &expected_dns_retry_result_message);
+
+        // 'ERROR: ProxyServer: Failed to find route to nowhere.com':
+        assert_eq!(message.stream_key, stream_key);
+        assert!(message.result.is_err());
     }
 
     #[test]
@@ -2940,6 +3019,7 @@ mod tests {
     #[test]
     fn proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route() {
         init_test_logging();
+        let test_name = "proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route";
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
@@ -2959,14 +3039,15 @@ mod tests {
             is_clandestine: false,
         };
         thread::spawn(move || {
-            let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(
+            let system = System::new(test_name);
+            let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.logger = Logger::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2997,7 +3078,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new()
-            .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
+            .exists_log_containing(&format!("ERROR: {test_name}: Failed to find route to nowhere.com"));
     }
 
     #[test]
@@ -3097,6 +3178,7 @@ mod tests {
     fn proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route_with_no_expected_services(
     ) {
         init_test_logging();
+        let test_name = "proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route_with_no_expected_services";
         let cryptde = main_cryptde();
         let public_key = &cryptde.public_key();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
@@ -3129,14 +3211,15 @@ mod tests {
             is_clandestine: false,
         };
         thread::spawn(move || {
-            let system = System::new("proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(
+            let system = System::new(test_name);
+            let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.logger = Logger::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -3167,7 +3250,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new()
-            .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
+            .exists_log_containing(&format!("ERROR: {test_name}: Failed to find route to nowhere.com"));
     }
 
     #[test]
