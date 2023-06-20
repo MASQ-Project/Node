@@ -262,7 +262,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     ) -> Result<Either<OutboundPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
             .payment_adjuster
-            .look_for_obligatory_adjustments(&msg, logger)
+            .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => {
                 //TODO will be decoupled with Web3 by GH-696
@@ -988,6 +988,9 @@ pub struct PeriodicalScanScheduler<T: Default> {
 
 pub trait ScanScheduler {
     fn schedule(&self, ctx: &mut Context<Accountant>);
+    fn interval(&self) -> Duration {
+        intentionally_blank!()
+    }
 
     declare_as_any!();
 
@@ -1000,6 +1003,9 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
         // the default of the message implies response_skeleton_opt to be None
         // because scheduled scans don't respond
         let _ = self.handle.notify_later(T::default(), self.interval, ctx);
+    }
+    fn interval(&self) -> Duration {
+        self.interval
     }
 
     implement_as_any!();
@@ -1017,12 +1023,12 @@ mod tests {
         Scanner, ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
-        assert_real_scan_schedulers, make_custom_payment_thresholds, make_payable_account,
-        make_payables, make_pending_payable_fingerprint, make_receivable_account,
-        BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
-        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
-        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, ReceivableScannerBuilder,
+        make_custom_payment_thresholds, make_payable_account, make_payables,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
+        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        ReceivableScannerBuilder,
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
@@ -2901,6 +2907,29 @@ mod tests {
 
         let result = ScanSchedulers::new(scan_intervals);
 
-        assert_real_scan_schedulers(&result, scan_intervals)
+        assert_eq!(
+            result
+                .schedulers
+                .get(&ScanType::Payables)
+                .unwrap()
+                .interval(),
+            scan_intervals.payable_scan_interval
+        );
+        assert_eq!(
+            result
+                .schedulers
+                .get(&ScanType::PendingPayables)
+                .unwrap()
+                .interval(),
+            scan_intervals.pending_payable_scan_interval
+        );
+        assert_eq!(
+            result
+                .schedulers
+                .get(&ScanType::Receivables)
+                .unwrap()
+                .interval(),
+            scan_intervals.receivable_scan_interval
+        );
     }
 }

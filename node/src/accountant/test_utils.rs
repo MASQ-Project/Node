@@ -24,8 +24,7 @@ use crate::accountant::scanners::{
     ReceivableScanner, ScanSchedulers, Scanner,
 };
 use crate::accountant::{
-    gwei_to_wei, Accountant, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-    ScanForReceivables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
+    gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -33,10 +32,10 @@ use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, ScanIntervals};
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
+use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
@@ -1398,7 +1397,7 @@ pub struct PaymentAdjusterMock {
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn look_for_obligatory_adjustments(
+    fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentsSetup,
         logger: &Logger,
@@ -1644,55 +1643,4 @@ impl ScanSchedulers {
             scheduler.interval = new_interval
         }
     }
-}
-
-pub fn assert_real_scan_schedulers(subject: &ScanSchedulers, scan_intervals: ScanIntervals) {
-    let payable_scheduler = subject
-        .schedulers
-        .get(&ScanType::Payables)
-        .unwrap()
-        .as_any()
-        .downcast_ref::<PeriodicalScanScheduler<ScanForPayables>>()
-        .unwrap();
-    assert_eq!(
-        payable_scheduler.interval,
-        scan_intervals.payable_scan_interval
-    );
-    payable_scheduler
-        .handle
-        .as_any()
-        .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
-        .unwrap();
-    let pending_payable_scheduler = subject
-        .schedulers
-        .get(&ScanType::PendingPayables)
-        .unwrap()
-        .as_any()
-        .downcast_ref::<PeriodicalScanScheduler<ScanForPendingPayables>>()
-        .unwrap();
-    assert_eq!(
-        pending_payable_scheduler.interval,
-        scan_intervals.pending_payable_scan_interval
-    );
-    pending_payable_scheduler
-        .handle
-        .as_any()
-        .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
-        .unwrap();
-    let receivable_scheduler = subject
-        .schedulers
-        .get(&ScanType::Receivables)
-        .unwrap()
-        .as_any()
-        .downcast_ref::<PeriodicalScanScheduler<ScanForReceivables>>()
-        .unwrap();
-    assert_eq!(
-        receivable_scheduler.interval,
-        scan_intervals.receivable_scan_interval
-    );
-    receivable_scheduler
-        .handle
-        .as_any()
-        .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>()
-        .unwrap();
 }

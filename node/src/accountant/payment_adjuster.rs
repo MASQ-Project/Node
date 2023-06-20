@@ -9,7 +9,7 @@ use std::any::Any;
 use std::time::SystemTime;
 
 pub trait PaymentAdjuster {
-    fn look_for_obligatory_adjustments(
+    fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentsSetup,
         logger: &Logger,
@@ -28,7 +28,7 @@ pub trait PaymentAdjuster {
 pub struct PaymentAdjusterReal {}
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn look_for_obligatory_adjustments(
+    fn search_for_indispensable_adjustment(
         &self,
         _msg: &PayablePaymentsSetup,
         _logger: &Logger,
@@ -83,7 +83,7 @@ mod tests {
     use web3::types::U256;
 
     #[test]
-    fn is_adjustment_required_always_returns_none() {
+    fn search_for_indispensable_adjustment_always_returns_none() {
         init_test_logging();
         let test_name = "is_adjustment_required_always_returns_none";
         let mut payable_1 = make_payable_account(111);
@@ -108,7 +108,8 @@ mod tests {
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
 
-        let non_required_result = subject.look_for_obligatory_adjustments(&non_required, &logger);
+        let non_required_result =
+            subject.search_for_indispensable_adjustment(&non_required, &logger);
 
         let should_require = PayablePaymentsSetup {
             qualified_payables: vec![payable_1, payable_2],
@@ -126,7 +127,7 @@ mod tests {
         };
 
         let should_require_result =
-            subject.look_for_obligatory_adjustments(&should_require, &logger);
+            subject.search_for_indispensable_adjustment(&should_require, &logger);
 
         assert_eq!(non_required_result, Ok(None));
         assert_eq!(should_require_result, Ok(None));

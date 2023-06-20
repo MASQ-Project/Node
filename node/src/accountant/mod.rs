@@ -1021,11 +1021,10 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        assert_real_scan_schedulers, bc_from_earning_wallet, bc_from_wallets, make_payable_account,
-        make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
-        PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, ScannerMock,
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
+        PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1183,7 +1182,30 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        assert_real_scan_schedulers(&result.scan_schedulers, ScanIntervals::default());
+        let assert_scan_scheduler = |scan_type: ScanType, expected_scan_interval: Duration| {
+            assert_eq!(
+                result
+                    .scan_schedulers
+                    .schedulers
+                    .get(&scan_type)
+                    .unwrap()
+                    .interval(),
+                expected_scan_interval
+            )
+        };
+        let default_scan_intervals = ScanIntervals::default();
+        assert_scan_scheduler(
+            ScanType::Payables,
+            default_scan_intervals.payable_scan_interval,
+        );
+        assert_scan_scheduler(
+            ScanType::PendingPayables,
+            default_scan_intervals.pending_payable_scan_interval,
+        );
+        assert_scan_scheduler(
+            ScanType::Receivables,
+            default_scan_intervals.receivable_scan_interval,
+        );
         assert_eq!(result.consuming_wallet_opt, None);
         assert_eq!(*result.earning_wallet, *DEFAULT_EARNING_WALLET);
         assert_eq!(result.suppress_initial_scans, false);
