@@ -179,7 +179,18 @@ impl Handler<DnsRetryResultMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: DnsRetryResultMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!("Handle DnsRetryResult")
+        debug!(self.logger, "Establishing stream key {}", msg.stream_key);
+
+        match msg.result {
+            Ok(route_query_response) => {
+                self.stream_key_routes.insert(msg.stream_key, route_query_response);
+            }
+            Err(e) => {
+                todo!("Error DnsRetryResultMessage ");
+                // Send a response to the Browser, remove stream_keys etc?
+            }
+        }
+
     }
 }
 
@@ -282,11 +293,11 @@ impl ProxyServer {
             source_addr,
             SystemTime::now());
         let route_source = self.out_subs("Neighborhood").route_source.clone();
-        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
+        let proxy_server_sub = self.out_subs("ProxyServer").dns_retry_result.clone();
         let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
 
 
-        inbound_client_data_helper.request_route_and_transmit(args, route_source, add_route_sub);
+        inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
         retry.retries_left -= 1;
         self.dns_failure_retries.insert(stream_key.clone(), retry.clone());
     }
@@ -960,7 +971,7 @@ pub trait IBCDHelper {
         &self,
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>,
-        add_route_sub: Recipient<AddRouteMessage>,
+        proxy_server_sub: Recipient<DnsRetryResultMessage>,
     );
 }
 
@@ -968,7 +979,7 @@ trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
         args: TryTransmitToHopperArgs,
-        add_route_sub: Recipient<AddRouteMessage>,
+        proxy_server_sub: Recipient<DnsRetryResultMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     );
 }
@@ -978,19 +989,15 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
         mut args: TryTransmitToHopperArgs,
-        add_route_sub: Recipient<AddRouteMessage>,
+        proxy_server_sub: Recipient<DnsRetryResultMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         match route_result {
             Ok(Some(route_query_response)) => {
-                add_route_sub
-                    .try_send(AddRouteMessage {
-                        stream_key: args
-                            .payload
-                            .stream_key,
-                        route: route_query_response.clone(),
-                    })
-                    .expect("ProxyServer is dead");
+                proxy_server_sub.try_send(DnsRetryResultMessage {
+                    stream_key: args.payload.stream_key,
+                    result: Ok(route_query_response.clone())
+                }).expect("ProxyServer is dead");
                 ProxyServer::try_transmit_to_hopper(args, route_query_response);
             }
             Ok(None) => {
@@ -1008,12 +1015,13 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
 
                 // args.payload.stream_key
                 // DnsRetryResultMessage
+                // todo!("resolve_message - route_result None");
 
             }
             Err(e) => {
                 error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
                 //TODO we should be sending an error message to the browser, informing the user that their request has failed.
-
+                // todo!("resolve_message - route_result Error");
 
             }
         }
@@ -1106,8 +1114,8 @@ impl IBCDHelper for IBCDHelperReal {
             Ok(())
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
-            let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-            self.request_route_and_transmit(tth_args, route_source, add_route_sub);
+            let proxy_server_sub = proxy.out_subs("ProxyServer").dns_retry_result.clone();
+            self.request_route_and_transmit(tth_args, route_source, proxy_server_sub);
             Ok(())
         }
     }
@@ -1116,7 +1124,7 @@ impl IBCDHelper for IBCDHelperReal {
         &self,
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>, // TODO: Rename route_source to something with neighborhood or / and add sub suffix
-        add_route_sub: Recipient<AddRouteMessage>,
+        proxy_server_sub: Recipient<DnsRetryResultMessage>,
     ) {
         let pld = &tth_args.payload;
         let hostname_opt = pld.target_hostname.clone();
@@ -1142,7 +1150,7 @@ impl IBCDHelper for IBCDHelperReal {
 
                     // TODO: Inside of resolve_message, when we hit an error. look at sending `send_route_failure` and update retry_routes.
                     // TODO: TTLHashmap look into using this for clean up if all else fails.
-                    message_resolver.resolve_message(tth_args, add_route_sub, route_result);
+                    message_resolver.resolve_message(tth_args, proxy_server_sub, route_result);
 
                     Ok(())
                 }),
@@ -1151,8 +1159,7 @@ impl IBCDHelper for IBCDHelperReal {
 }
 
 impl IBCDHelperReal {
-
-
+    // TODO This is a duplicate function
     fn resolve_route_query_response(
         tth_args: TryTransmitToHopperArgs,
         add_route_sub: Recipient<AddRouteMessage>,
@@ -1315,7 +1322,7 @@ mod tests {
         fn resolve_message(
             &self,
             args: TryTransmitToHopperArgs,
-            add_route_sub: Recipient<AddRouteMessage>,
+            proxy_server_sub: Recipient<DnsRetryResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
             self.resolve_message_params
@@ -1454,7 +1461,7 @@ mod tests {
                 .remove(0)
         }
 
-        fn request_route_and_transmit(&self, tth_args: TryTransmitToHopperArgs, route_source: Recipient<RouteQueryMessage>, add_route_sub: Recipient<AddRouteMessage>) {
+        fn request_route_and_transmit(&self, tth_args: TryTransmitToHopperArgs, route_source: Recipient<RouteQueryMessage>, proxy_server_sub: Recipient<DnsRetryResultMessage>) {
             todo!()
         }
     }
@@ -2484,7 +2491,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_server_adds_route_for_stream_key() {
+    fn proxy_server_sends_a_message_when_dns_retry_found_a_route() {
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
@@ -2510,7 +2517,7 @@ mod tests {
 
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-            let system = System::new("proxy_server_adds_route_for_stream_key");
+            let system = System::new("proxy_server_sends_a_message_when_dns_retry_found_a_route");
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -2524,10 +2531,10 @@ mod tests {
                 .proxy_server(proxy_server_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            // Get the add_route recipient so we can partially mock it...
-            let add_route_recipient = peer_actors.proxy_server.add_route;
+            // Get the dns_retry_result recipient so we can partially mock it...
+            let dns_retry_result_recipient = peer_actors.proxy_server.dns_retry_result;
             peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            peer_actors.proxy_server.add_route = add_route_recipient; //Partial mocking
+            peer_actors.proxy_server.dns_retry_result = dns_retry_result_recipient; //Partial mocking
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2535,15 +2542,15 @@ mod tests {
             system.run();
         });
 
-        let expected_add_route_message = AddRouteMessage {
+        let expected_dns_retry_result_message = DnsRetryResultMessage {
             stream_key,
-            route: route_query_response.unwrap(),
+            result: Ok(route_query_response.unwrap()),
         };
 
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
-        let record = recording.get_record::<AddRouteMessage>(0);
-        assert_eq!(record, &expected_add_route_message);
+        let message = recording.get_record::<DnsRetryResultMessage>(0);
+        assert_eq!(message, &expected_dns_retry_result_message);
     }
 
     #[test]

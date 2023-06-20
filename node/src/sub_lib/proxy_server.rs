@@ -73,7 +73,7 @@ pub struct AddRouteMessage {
 #[derive(Message, Debug, PartialEq, Eq)]
 pub struct DnsRetryResultMessage {
     pub stream_key: StreamKey,
-    pub result: Result<Route, String>,
+    pub result: Result<RouteQueryResponse, String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
