@@ -12,7 +12,7 @@ use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::{add_chain_specific_directories, localhost};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::sub_lib::accountant::{
@@ -1153,7 +1153,7 @@ impl MASQRealNode {
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
         let chain_specific_diretory =
-            add_chain_specific_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
+            add_masq_and_chain_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {

@@ -4,23 +4,21 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-    UiSetupResponseValue, UiSetupResponseValueStatus,
+    UiSetupResponseValueStatus,
 };
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
-use masq_lib::utils::{add_chain_specific_directory, index_of_from};
+use masq_lib::utils::index_of_from;
 #[cfg(test)]
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::iter::Iterator;
-use std::path::PathBuf;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 

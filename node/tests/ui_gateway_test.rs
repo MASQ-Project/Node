@@ -4,6 +4,7 @@ pub mod utils;
 
 use crate::utils::MASQNode;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::SerializableLogLevel::Warn;
 use masq_lib::messages::{
     UiChangePasswordRequest, UiCheckPasswordRequest, UiCheckPasswordResponse, UiLogBroadcast,
@@ -12,7 +13,7 @@ use masq_lib::messages::{
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use masq_lib::utils::{add_chain_specific_directories, find_free_port};
+use masq_lib::utils::{add_masq_and_chain_directories, find_free_port};
 use utils::CommandConfig;
 
 #[test]
@@ -103,7 +104,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
     );
     let expected_chain_data_dir =
-        add_chain_specific_directories(Chain::PolyMainnet, &data_directory);
+        add_masq_and_chain_directories(Chain::PolyMainnet, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
@@ -128,7 +129,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: UiStartResponse = daemon_client.transact(UiStartOrder {}).unwrap();
 
     let connected_and_disconnected_assertion =
-        |how_many_occurrences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
+        |how_many_occurrences_we_look_for: usize, make_regex_searching_for_port_in_logs: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
             let log_file_directory = expected_chain_data_dir.clone();
             let all_uis_connected_so_far = MASQNode::capture_pieces_of_log_at_directory(
@@ -141,7 +142,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             let searched_port_of_ui =
                 all_uis_connected_so_far[how_many_occurrences_we_look_for - 1][1].as_str();
             MASQNode::wait_for_match_at_directory(
-                pattern_in_log(searched_port_of_ui).as_str(),
+                make_regex_searching_for_port_in_logs(searched_port_of_ui).as_str(),
                 log_file_directory.as_path(),
                 Some(1500),
             );
@@ -176,7 +177,7 @@ fn cleanup_after_deceased_clients_integration() {
         "cleanup_after_deceased_clients_integration",
         Some(
             CommandConfig::new()
-                .pair("--chain", "polygon-mumbai")
+                .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
                 .pair("--ui-port", &port.to_string()),
         ),
         true,

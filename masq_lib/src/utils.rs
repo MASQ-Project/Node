@@ -130,8 +130,8 @@ fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
     }
     true
 }
-//TODO rename one of following functions to be more diversive as add_masq_and_chain_specific_directory
-pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
+
+pub fn add_masq_and_chain_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
     let masq_dir = PathBuf::from(local_data_dir).join("MASQ");
     add_chain_specific_directory(chain, masq_dir.as_path())
 }

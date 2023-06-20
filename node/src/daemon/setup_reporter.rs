@@ -271,7 +271,7 @@ impl SetupReporterReal {
         chain: BlockChain,
     ) -> (PathBuf, UiSetupResponseValueStatus) {
         match (existing_setup.get("data-directory"), incoming_setup.get("data-directory")){
-            (_, Some(_)) => (add_chain_specific_directory(chain, &Path::new(&semi_clusters_val.value)), semi_clusters_val.status),
+            (_, Some(_)) => (add_chain_specific_directory(chain, Path::new(&semi_clusters_val.value)), semi_clusters_val.status),
             (Some(recent_value),None) =>(Self::reconstitute_data_dir_by_chain(&recent_value.value, chain), recent_value.status),
             _ => panic!("broken code: data-directory value is neither in existing_setup or incoming_setup and yet this value \"{}\" was found in the merged cluster", semi_clusters_val.value)
         }
@@ -295,7 +295,7 @@ impl SetupReporterReal {
             "data-directory".to_string(),
             UiSetupResponseValue::new(
                 "data-directory",
-                &data_directory.to_str().expect("data-directory expected"),
+                data_directory.to_str().expect("data-directory expected"),
                 data_dir_status,
             ),
         );
@@ -3511,15 +3511,6 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
-        println!(
-            "data_directory calculate_setup_with_chain_specific_dir: {:#?}",
-            result
-                .as_ref()
-                .unwrap()
-                .get("data-directory")
-                .unwrap()
-                .value
-        );
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
             "/homne/booga/masqhome/polygon-mainnet"
@@ -3528,19 +3519,14 @@ mod tests {
         let existing_setup2 =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
         let incoming_setup2 = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
-        let dirs_wrapper2 = Box::new(DirsWrapperReal);
+        let dirs_wrapper2 = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(PathBuf::from("/home/booga/.local/share")))
+                .home_dir_result(Some(PathBuf::from("/home/booga"))),
+        );
         let subject2 = SetupReporterReal::new(dirs_wrapper2);
 
         let result2 = subject2.get_modified_setup(existing_setup2, incoming_setup2);
-        println!(
-            "data_directory: {:#?}",
-            result2
-                .as_ref()
-                .unwrap()
-                .get("data-directory")
-                .unwrap()
-                .value
-        );
         assert_eq!(
             result2.unwrap().get("data-directory").unwrap().value,
             "/home/booga/.local/share/MASQ/polygon-mumbai"

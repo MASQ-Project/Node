@@ -3,7 +3,7 @@
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::{add_chain_specific_directories, localhost};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -164,10 +164,10 @@ impl MASQNode {
     }
 
     #[allow(dead_code)]
-    pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
+    pub fn wait_for_log(&mut self, regex_pattern: &str, limit_ms: Option<u64>) {
         Self::wait_for_match_at_directory(
-            pattern,
-            &add_chain_specific_directories(self.chain, self.data_dir.as_path()),
+            regex_pattern,
+            &add_masq_and_chain_directories(self.chain, self.data_dir.as_path()),
             limit_ms,
         );
     }
@@ -327,7 +327,7 @@ impl MASQNode {
     }
 
     pub fn remove_database(data_dir: &PathBuf, chain: Chain) {
-        let data_dir_chain_path = add_chain_specific_directories(chain, data_dir);
+        let data_dir_chain_path = add_masq_and_chain_directories(chain, data_dir);
         let database = Self::path_to_database(&data_dir_chain_path);
         match std::fs::remove_file(&database) {
             Ok(_) => (),
@@ -359,6 +359,7 @@ impl MASQNode {
         }
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
         let mut command = command_getter(&data_dir, config_opt, sterile_database);
+        eprintln!("Launching MASQNode with this command: {:?}", command);
         let command = if piped_streams {
             command.stdout(Stdio::piped()).stderr(Stdio::piped())
         } else {

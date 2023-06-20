@@ -9,7 +9,6 @@ use crate::database::db_initializer::{
 };
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
-use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
     data_directory_from_context, real_user_data_directory_opt_and_chain, DirsWrapper,
 };
@@ -170,6 +169,7 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
@@ -225,7 +225,6 @@ mod tests {
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
         );
-        //let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         create_dir_all(&data_dir)
             .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
         let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
