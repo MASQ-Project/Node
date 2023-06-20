@@ -16,6 +16,7 @@ use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
+use crate::sub_lib::route::Route;
 
 pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
 
@@ -69,6 +70,12 @@ pub struct AddRouteMessage {
     pub route: RouteQueryResponse,
 }
 
+#[derive(Message, Debug, PartialEq, Eq)]
+pub struct DnsRetryResultMessage {
+    pub stream_key: StreamKey,
+    pub result: Result<Route, String>,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
@@ -81,6 +88,7 @@ pub struct ProxyServerSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
+    pub dns_retry_result: Recipient<DnsRetryResultMessage>
 }
 
 impl Debug for ProxyServerSubs {
@@ -113,6 +121,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
+            dns_retry_result: recipient!(recorder, DnsRetryResultMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");

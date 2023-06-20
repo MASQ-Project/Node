@@ -310,7 +310,7 @@ impl StreamHandlerPool {
             .clone();
         match msg.endpoint.clone() {
             Endpoint::Key(key) => {
-                todo!("We have PublicKey");
+                // It is used to query PublicKey inside Neighborhood
                 let request = DispatcherNodeQueryMessage {
                     query: NodeQueryMessage::PublicKey(key.clone()),
                     context: msg,
@@ -327,7 +327,7 @@ impl StreamHandlerPool {
                     .expect("Neighborhood is Dead")
             }
             Endpoint::Socket(socket_addr) => {
-                todo!("We have IP Address");
+                // The socket_addr can either be for the Neighbor or the browser
                 debug!(
                     self.logger,
                     "Translating TransmitDataMsg to node query response about {}", socket_addr

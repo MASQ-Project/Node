@@ -30,7 +30,7 @@ use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, DnsRetryResultMessage, ProxyProtocol};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
@@ -66,6 +66,7 @@ struct ProxyServerOutSubs {
     add_return_route: Recipient<AddReturnRouteMessage>,
     add_route: Recipient<AddRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    dns_retry_result: Recipient<DnsRetryResultMessage>,
 }
 
 pub struct ProxyServer {
@@ -105,6 +106,7 @@ impl Handler<BindMessage> for ProxyServer {
             add_return_route: msg.peer_actors.proxy_server.add_return_route,
             add_route: msg.peer_actors.proxy_server.add_route,
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
+            dns_retry_result: msg.peer_actors.proxy_server.dns_retry_result,
         };
         self.subs = Some(subs);
     }
@@ -170,6 +172,14 @@ impl Handler<AddRouteMessage> for ProxyServer {
     fn handle(&mut self, msg: AddRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(self.logger, "Establishing stream key {}", msg.stream_key);
         self.stream_key_routes.insert(msg.stream_key, msg.route);
+    }
+}
+
+impl Handler<DnsRetryResultMessage> for ProxyServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: DnsRetryResultMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!("Handle DnsRetryResult")
     }
 }
 
@@ -252,6 +262,7 @@ impl ProxyServer {
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
+            dns_retry_result: recipient!(addr, DnsRetryResultMessage),
         }
     }
 
@@ -343,7 +354,7 @@ impl ProxyServer {
 
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                if let Some(server_name) = hostname_opt {
+                if let Some(server_name) = hostname_opt.clone() {
                     self.subs
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
@@ -990,12 +1001,19 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
                 );
                 error!(args.logger, "{}", error_message);
                 //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+                // Send message to browser - Error
+                // Stop retry -- Purge the stream_key
+                // Remove TCP connection
+                // --- Create an actor message to complete the above ---
 
+                // args.payload.stream_key
+                // DnsRetryResultMessage
 
             }
             Err(e) => {
                 error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
                 //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+
 
             }
         }
@@ -1347,6 +1365,7 @@ mod tests {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
+            dns_retry_result: recipient!(addr, DnsRetryResultMessage),
         }
     }
 
