@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::ServerImpersonator;
-use crate::sub_lib::cryptde::PublicKey;
 
 pub struct ServerImpersonatorHttp {}
 

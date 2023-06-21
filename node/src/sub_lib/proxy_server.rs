@@ -16,7 +16,6 @@ use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
-use crate::sub_lib::route::Route;
 
 pub const DEFAULT_MINIMUM_HOP_COUNT: usize = 3;
 

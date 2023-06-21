@@ -229,7 +229,7 @@ impl Recorder {
         self
     }
 
-    pub fn stop_on_message(mut self, type_id: TypeId) -> Recorder {
+    pub fn stop_on_message(self, type_id: TypeId) -> Recorder {
         self.system_stop_conditions(StopConditions::All(vec![StopCondition::StopOnType(type_id)]))
     }
 
