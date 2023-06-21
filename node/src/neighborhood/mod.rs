@@ -554,7 +554,7 @@ impl Neighborhood {
                 .expect("Min Hops Count value is not initialized inside Database");
             let value_in_neighborhood = self.min_hops;
             if value_in_neighborhood != value_in_db {
-                debug!(
+                info!(
                     self.logger,
                     "Database with different min hops value detected; \
                     expected: {:?}, found in db: {:?}; replacing to {:?}",
@@ -4693,7 +4693,7 @@ mod tests {
         let min_hops_params = min_hops_params_arc.lock().unwrap();
         assert_eq!(*min_hops_params, vec![()]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Database with different min hops value detected; \
+            "INFO: {test_name}: Database with different min hops value detected; \
             expected: {:?}, found in db: {:?}; replacing to {:?}",
             min_hops_in_neighborhood, min_hops_in_db, min_hops_in_db
         ));
