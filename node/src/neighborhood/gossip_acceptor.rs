@@ -182,7 +182,8 @@ impl GossipHandler for IpChangeHandler {
                         .expect("StreamHandlerPool is dead");
                 });
             } else {
-                panic!("Node {:?} in the database sent Gossip, accepts connections, but has no NodeAddr!", db_node.public_key());
+                panic!("Node {:?} in the database sent Gossip, accepts connections, but has no NodeAddr; should have been Malformed by qualify()!",
+                       db_node.public_key());
             };
             return GossipAcceptanceResult::Absorbed;
         }
@@ -2502,8 +2503,8 @@ mod tests {
         let expected_last_update = expected_introducer.metadata.last_update;
         expected_introducer.metadata.last_update = actual_introducer.metadata.last_update;
         assert_eq!(&expected_introducer, actual_introducer);
-        assert! (((expected_last_update as i32) - (actual_introducer.metadata.last_update as i32)).abs() < 10,
-                 "Expected last update ({}) and actual last update ({}) should have been less than 10 apart",
+        assert! ((expected_last_update as i32 - actual_introducer.metadata.last_update as i32).abs() < 10,
+                 "Expected last update ({}) and actual last update ({}) should have been less than 10ms apart",
                 expected_last_update, actual_introducer.metadata.last_update);
         assert_eq!(
             true,
@@ -4691,11 +4692,6 @@ mod tests {
             }
         }
     }
-    //
-    // fn node_by_ip_mut(db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
-    //     let key = db.node_by_ip(ip_addr).unwrap().public_key().clone();
-    //     db.node_by_key_mut(&key).unwrap()
-    // }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
         let (neighborhood, _, _) = make_recorder();

@@ -333,7 +333,7 @@ enum Finished {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ContinueWithIteration {
+enum AbortIteration {
     Yes,
     No,
 }
@@ -390,7 +390,7 @@ impl ThreadGuts {
         mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
     ) -> Finished {
-        if self.handle_announcement_if_present(mapping_config_opt) == ContinueWithIteration::No {
+        if self.handle_announcement_if_present(mapping_config_opt) == AbortIteration::Yes {
             return Finished::No;
         }
         if let Some(mapping_config) = mapping_config_opt {
@@ -417,32 +417,32 @@ impl ThreadGuts {
     fn handle_announcement_if_present(
         &self,
         mapping_config_opt: &Option<MappingConfig>,
-    ) -> ContinueWithIteration {
+    ) -> AbortIteration {
         let mut buffer = [0u8; 100];
         debug!(&self.logger, "Waiting for an IP-change announcement");
         // This will block for awhile, conserving CPU cycles
         match self.announcement_socket.recv_from(&mut buffer) {
             Ok((_, announcement_source_address)) => {
                 if announcement_source_address.ip() != self.router_addr.ip() {
-                    return ContinueWithIteration::No;
+                    return AbortIteration::Yes;
                 }
                 match self.parse_buffer(&buffer, announcement_source_address) {
                     Some(public_ip) => {
                         self.handle_announcement(public_ip, mapping_config_opt);
-                        ContinueWithIteration::Yes
+                        AbortIteration::No
                     }
-                    None => ContinueWithIteration::No,
+                    None => AbortIteration::Yes,
                 }
             }
             Err(e) if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => {
-                ContinueWithIteration::Yes
+                AbortIteration::No
             }
             Err(e) => {
                 error!(
                     &self.logger,
                     "Error receiving PCP packet from router: {:?}", e
                 );
-                ContinueWithIteration::Yes
+                AbortIteration::No
             }
         }
     }
@@ -1565,41 +1565,14 @@ mod tests {
             Box::new(|_| ()),
             rx,
         );
+        subject.logger = Logger::new("single_iteration_terminates_if_commander_channel_dies");
 
         let result = subject.single_iteration(&mut None, &mut Instant::now());
 
         assert_eq!(result, Finished::Yes);
         TestLogHandler::default().exists_log_containing(
-            "ERROR: PmpTransactor: Node died; housekeeping thread is terminating",
+            "ERROR: single_iteration_terminates_if_commander_channel_dies: Node died; housekeeping thread is terminating",
         );
-    }
-
-    #[test]
-    fn handle_announcement_if_present_ignores_data_if_not_from_router() {
-        let real_router_addr =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
-        let some_other_addr =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(40, 30, 20, 10)), ANNOUNCEMENT_PORT);
-        let announcement_socket =
-            UdpSocketWrapperMock::new().recv_from_result(Ok((0, some_other_addr)), vec![]);
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-        let subject = ThreadGuts::new(
-            &PmpTransactor::default(),
-            real_router_addr.ip(),
-            Box::new(announcement_socket),
-            Box::new(change_handler),
-            unbounded().1,
-        );
-
-        let result = subject.handle_announcement_if_present(&None);
-
-        assert_eq!(result, ContinueWithIteration::No);
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(*changes, vec![]);
     }
 
     #[test]
@@ -1637,7 +1610,7 @@ mod tests {
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq!(result, ContinueWithIteration::Yes);
+        assert_eq!(result, AbortIteration::No);
         let changes = changes_arc.lock().unwrap();
         assert_eq!(
             *changes,
@@ -1645,68 +1618,57 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_announcement_if_present_handles_unparseable_data_from_router() {
-        let router_addr =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
-        let announcement_socket =
-            UdpSocketWrapperMock::new().recv_from_result(Ok((0, router_addr)), vec![]);
+    fn router_addr() -> SocketAddr {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT)
+    }
+
+    fn handle_announcement_if_present_handles_exceptional_circumstances(
+        announcement_socket: UdpSocketWrapperMock,
+        expected_result: AbortIteration
+    ) {
+        let router_addr = router_addr();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
             changes_arc_inner.lock().unwrap().push(change);
         };
-        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new());
-        let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
-        let factories_arc = Arc::new(Mutex::new(Factories::default()));
-        let subject = ThreadGuts {
-            announcement_socket: Box::new(announcement_socket),
-            housekeeper_flunkie: unbounded().1,
-            mapping_adder_arc,
-            factories_arc,
-            router_addr,
-            change_handler: Box::new(change_handler),
-            announcement_read_timeout_millis: 100,
-            logger: Logger::new("test"),
-        };
+        let subject = ThreadGuts::new(
+            &PmpTransactor::default(),
+            router_addr.ip(),
+            Box::new(announcement_socket),
+            Box::new(change_handler),
+            unbounded().1,
+        );
 
         let result = subject.handle_announcement_if_present(&None);
 
-        assert_eq!(result, ContinueWithIteration::No);
+        assert_eq!(result, expected_result);
         let changes = changes_arc.lock().unwrap();
         assert_eq!(*changes, vec![]);
     }
 
     #[test]
+    fn handle_announcement_if_present_ignores_data_if_not_from_router() {
+        let some_other_addr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(40, 30, 20, 10)), ANNOUNCEMENT_PORT);
+        let announcement_socket =
+            UdpSocketWrapperMock::new().recv_from_result(Ok((0, some_other_addr)), vec![]);
+        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::Yes);
+    }
+
+    #[test]
+    fn handle_announcement_if_present_handles_unparseable_data_from_router() {
+        let unparseable_data = vec![];
+        let announcement_socket =
+            UdpSocketWrapperMock::new().recv_from_result(Ok((0, router_addr())), unparseable_data);
+        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::Yes);
+    }
+
+    #[test]
     fn handle_announcement_if_present_handles_error_reading_from_router() {
-        let router_addr =
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
         let announcement_socket = UdpSocketWrapperMock::new()
             .recv_from_result(Err(Error::from(ErrorKind::BrokenPipe)), vec![]);
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-        let mapping_adder: Box<dyn MappingAdder> = Box::new(MappingAdderMock::new());
-        let mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
-        let factories_arc = Arc::new(Mutex::new(Factories::default()));
-        let subject = ThreadGuts {
-            announcement_socket: Box::new(announcement_socket),
-            housekeeper_flunkie: unbounded().1,
-            mapping_adder_arc,
-            factories_arc,
-            router_addr,
-            change_handler: Box::new(change_handler),
-            announcement_read_timeout_millis: 100,
-            logger: Logger::new("test"),
-        };
-
-        let result = subject.handle_announcement_if_present(&None);
-
-        assert_eq!(result, ContinueWithIteration::Yes);
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(*changes, vec![]);
+        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::No);
     }
 
     #[test]

@@ -4060,10 +4060,11 @@ mod tests {
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
         let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+        subject.logger = Logger::new("neighborhood_can_absorb_gossip_without_sending_responses");
 
         subject.process_acceptance_result(GossipAcceptanceResult::Absorbed, "new-IP Node", 1);
 
-        TestLogHandler::new().exists_log_containing("1-Node Gossip from new-IP Node absorbed");
+        TestLogHandler::new().exists_log_containing("TRACE: neighborhood_can_absorb_gossip_without_sending_responses: 1-Node Gossip from new-IP Node absorbed");
     }
 
     #[test]

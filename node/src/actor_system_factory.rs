@@ -82,7 +82,9 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self { tools }
+        Self {
+            tools
+        }
     }
 }
 
@@ -103,6 +105,7 @@ pub trait ActorSystemFactoryTools {
 }
 
 pub struct ActorSystemFactoryToolsReal {
+    logger: Logger,
     log_recipient_setter: Box<dyn LogRecipientSetter>,
     automap_control_factory: Box<dyn AutomapControlFactory>,
 }
@@ -242,6 +245,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 impl ActorSystemFactoryToolsReal {
     pub fn new() -> Self {
         Self {
+            logger: Logger::new("ActorSystemFactory"),
             log_recipient_setter: Box::new(LogRecipientSetterReal::new()),
             automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
         }
@@ -283,20 +287,14 @@ impl ActorSystemFactoryToolsReal {
             if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                 return;
             }
-            let inner_recipients = new_ip_recipients.clone();
-            let change_handler = move |change: AutomapChange| match change {
-                AutomapChange::NewIp(new_public_ip) => {
-                    Self::notify_of_public_ip_change(inner_recipients.as_slice(), new_public_ip)
-                }
-                AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
-            };
-            let mut automap_control = self
-                .automap_control_factory
-                .make(config.mapping_protocol_opt, Box::new(change_handler));
+            let mut automap_control = self.make_automap_control(
+                config.mapping_protocol_opt,
+                new_ip_recipients.clone()
+            );
             let public_ip = match automap_control.get_public_ip() {
                 Ok(ip) => ip,
                 Err(e) => {
-                    Self::handle_automap_error("Can't get public IP - ", e);
+                    Self::handle_automap_error(&self.logger, "Can't get public IP - ", e);
                     return; // never happens; handle_automap_error doesn't return.
                 }
             };
@@ -309,12 +307,26 @@ impl ActorSystemFactoryToolsReal {
             node_addr.ports().iter().for_each(|port| {
                 if let Err(e) = automap_control.add_mapping(*port) {
                     Self::handle_automap_error(
+                        &self.logger,
                         &format!("Can't map port {} through the router - ", port),
                         e,
                     );
                 }
             });
         }
+    }
+
+    fn make_automap_control(&self, mapping_protocol_opt: Option<AutomapProtocol>, new_ip_recipients: Vec<Recipient<NewPublicIp>>) -> Box<dyn AutomapControl> {
+        let logger = Logger::new("Automap");
+        let change_handler = move |change: AutomapChange| match change {
+            AutomapChange::NewIp(new_public_ip) => {
+                Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), new_public_ip)
+            }
+            AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(&logger, e),
+        };
+        self
+            .automap_control_factory
+            .make(mapping_protocol_opt, Box::new(change_handler))
     }
 
     fn notify_of_public_ip_change(
@@ -329,16 +341,16 @@ impl ActorSystemFactoryToolsReal {
         });
     }
 
-    fn handle_housekeeping_thread_error(error: AutomapError) {
-        Self::handle_automap_error("", error);
+    fn handle_housekeeping_thread_error(logger: &Logger, error: AutomapError) {
+        Self::handle_automap_error(logger, "", error);
     }
 
-    fn handle_automap_error(prefix: &str, error: AutomapError) {
+    fn handle_automap_error(logger: &Logger, prefix: &str, error: AutomapError) {
         let msg = format!("Automap failure: {}{:?}", prefix, error);
         if error.should_crash() {
-            exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
+            exit_process(1, &msg);
         } else {
-            todo!("What do we do if we don't crash? ({})", msg)
+            error!(logger, "{}", msg);
         }
     }
 }
@@ -672,6 +684,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1602,6 +1615,33 @@ mod tests {
         let system = System::new("test");
         System::current().stop();
         system.run();
+    }
+
+    #[should_panic (expected = "1: Automap failure: prefixProtocolError(\"Booga\")")]
+    #[test]
+    fn handle_automap_error_handles_crashing_errors() {
+        running_test();
+        let logger = Logger::new("handle_automap_error_handles_non_crashing_errors");
+
+        ActorSystemFactoryToolsReal::handle_automap_error (&logger, "prefix", AutomapError::ProtocolError("Booga".to_string()));
+    }
+
+    #[test]
+    fn handle_automap_error_handles_non_crashing_errors() {
+        init_test_logging();
+        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        let automap_control_factory = AutomapControlFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(Box::new(AutomapControlMock::new()));
+        let mut subject = ActorSystemFactoryToolsReal::new();
+        subject.automap_control_factory = Box::new(automap_control_factory);
+
+        let _ = subject.make_automap_control (None, vec![]);
+
+        let mut make_params = make_params_arc.lock().unwrap();
+        let change_handler = make_params.remove(0).1;
+        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError("handle_automap_error_handles_non_crashing_errors".to_string())));
+        TestLogHandler::new().exists_log_containing("ERROR: Automap: Automap failure: DeleteMappingError(\"handle_automap_error_handles_non_crashing_errors\")");
     }
 
     #[test]
