@@ -12,7 +12,6 @@ use actix::{Message, Recipient};
 use futures::{future, Future};
 use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
-use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
 use serde_json::Value;
@@ -154,81 +153,6 @@ pub trait BlockchainInterface<T: Transport = Http> {
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
-}
-
-// TODO: This probably should go away
-pub struct BlockchainInterfaceClandestine {
-    logger: Logger,
-    chain: Chain,
-}
-
-impl BlockchainInterfaceClandestine {
-    pub fn new(chain: Chain) -> Self {
-        BlockchainInterfaceClandestine {
-            logger: Logger::new("BlockchainInterface"),
-            chain,
-        }
-    }
-}
-
-impl Default for BlockchainInterfaceClandestine {
-    fn default() -> Self {
-        Self::new(DEFAULT_CHAIN)
-    }
-}
-
-impl BlockchainInterface for BlockchainInterfaceClandestine {
-    fn contract_address(&self) -> Address {
-        self.chain.rec().contract
-    }
-
-    fn retrieve_transactions(
-        &self,
-        _start_block: u64,
-        _recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        let msg = "Can't retrieve transactions clandestinely yet".to_string();
-        error!(self.logger, "{}", &msg);
-        Err(BlockchainError::QueryFailed(msg))
-    }
-
-    fn send_payables_within_batch(
-        &self,
-        _consuming_wallet: &Wallet,
-        _gas_price: u64,
-        _last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        error!(self.logger, "Can't send transactions out clandestinely yet",);
-        Err(PayableTransactionError::Sending {
-            msg: "invalid attempt to send txs clandestinely".to_string(),
-            hashes: vec![],
-        })
-    }
-
-    fn get_gas_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(self.logger, "Can't get eth balance clandestinely yet",);
-        Ok(0.into())
-    }
-
-    fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(self.logger, "Can't get token balance clandestinely yet",);
-        Ok(0.into())
-    }
-
-    fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-        error!(self.logger, "Can't get transaction count clandestinely yet",);
-        Ok(0.into())
-    }
-
-    fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
-        error!(
-            self.logger,
-            "Can't get transaction receipt clandestinely yet",
-        );
-        Ok(None)
-    }
 }
 
 pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {

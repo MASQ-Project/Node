@@ -6,8 +6,8 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceNonClandestine,
+    PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -40,9 +40,13 @@ use web3::Transport;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
+const UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR: &'static str = "\
+Cannot handle requests since blockchain interface is sustaining \
+uninitialized. You skipped setting the blockchain service url.";
+
 pub struct BlockchainBridge<T: Transport = Http> {
     consuming_wallet_opt: Option<Wallet>,
-    blockchain_interface: Box<dyn BlockchainInterface<T>>,
+    blockchain_interface_opt: Option<Box<dyn BlockchainInterface<T>>>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
@@ -190,14 +194,14 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
 
 impl BlockchainBridge {
     pub fn new(
-        blockchain_interface: Box<dyn BlockchainInterface>,
+        blockchain_interface_opt: Option<Box<dyn BlockchainInterface>>,
         persistent_config: Box<dyn PersistentConfiguration>,
         crashable: bool,
         consuming_wallet_opt: Option<Wallet>,
     ) -> BlockchainBridge {
         BlockchainBridge {
             consuming_wallet_opt,
-            blockchain_interface,
+            blockchain_interface_opt,
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
@@ -214,24 +218,21 @@ impl BlockchainBridge {
     }
 
     pub fn make_connections(
-        blockchain_service_url: Option<String>,
+        blockchain_service_url_opt: Option<String>,
         data_directory: PathBuf,
         chain: Chain,
     ) -> (
-        Box<dyn BlockchainInterface>,
+        Option<Box<dyn BlockchainInterface>>,
         Box<dyn PersistentConfiguration>,
     ) {
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => Box::new(
-                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
-                    ),
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
-            }
-        };
+        let blockchain_interface_opt =
+            blockchain_service_url_opt.map(|url| match Http::new(&url) {
+                Ok((event_loop_handle, transport)) => Box::new(
+                    BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
+                )
+                    as Box<dyn BlockchainInterface>,
+                Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+            });
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(
@@ -241,7 +242,7 @@ impl BlockchainBridge {
                 .unwrap_or_else(|err| db_connection_launch_panic(err, &data_directory)),
         ));
         (
-            blockchain_interface,
+            blockchain_interface_opt,
             Box::new(PersistentConfigurationReal::new(config_dao)),
         )
     }
@@ -272,7 +273,12 @@ impl BlockchainBridge {
             }
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
+        let gas_balance = match self
+            .blockchain_interface_opt
+            .as_ref()
+            .expect("BI uninitialized")
+            .get_gas_balance(consuming_wallet)
+        {
             Ok(gas_balance) => gas_balance,
             Err(e) => {
                 return Err(format!(
@@ -282,7 +288,9 @@ impl BlockchainBridge {
             }
         };
         let token_balance = match self
-            .blockchain_interface
+            .blockchain_interface_opt
+            .as_ref()
+            .expect("BI uninitialized")
             .get_token_balance(consuming_wallet)
         {
             Ok(token_balance) => token_balance,
@@ -339,7 +347,9 @@ impl BlockchainBridge {
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
         let retrieved_transactions = self
-            .blockchain_interface
+            .blockchain_interface_opt
+            .as_ref()
+            .expect("BI uninitialized")
             .retrieve_transactions(start_block, &msg.recipient);
 
         match retrieved_transactions {
@@ -383,7 +393,9 @@ impl BlockchainBridge {
             init,
             |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
                 None => match self
-                    .blockchain_interface
+                    .blockchain_interface_opt
+                    .as_ref()
+                    .expect("BI uninitialized")
                     .get_transaction_receipt(current_fingerprint.hash)
                 {
                     Ok(receipt_opt) => {
@@ -423,20 +435,46 @@ impl BlockchainBridge {
         F: FnOnce(&mut BlockchainBridge, M) -> Result<(), String>,
         M: SkeletonOptHolder,
     {
+        fn handle_error(
+            recipient_opt: &Option<Recipient<ScanError>>,
+            logger: &Logger,
+            scan_type: ScanType,
+            err_msg: &str,
+            skeleton_opt: Option<ResponseSkeleton>,
+        ) {
+            warning!(logger, "{}", err_msg);
+            recipient_opt
+                .as_ref()
+                .expect("Accountant not bound")
+                .try_send(ScanError {
+                    scan_type,
+                    response_skeleton_opt: skeleton_opt,
+                    msg: err_msg.to_string(),
+                })
+                .expect("Accountant is dead")
+        }
+
         let skeleton_opt = msg.skeleton_opt();
+        if self.blockchain_interface_opt.is_none() {
+            handle_error(
+                &self.scan_error_subs_opt,
+                &self.logger,
+                scan_type,
+                UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR,
+                skeleton_opt,
+            );
+            return;
+        }
         match handler(self, msg) {
             Ok(_r) => (),
-            Err(e) => {
-                warning!(self.logger, "{}", e);
-                self.scan_error_subs_opt
-                    .as_ref()
-                    .expect("Accountant not bound")
-                    .try_send(ScanError {
-                        scan_type,
-                        response_skeleton_opt: skeleton_opt,
-                        msg: e,
-                    })
-                    .expect("Accountant is dead");
+            Err(err_msg) => {
+                handle_error(
+                    &self.scan_error_subs_opt,
+                    &self.logger,
+                    scan_type,
+                    &err_msg,
+                    skeleton_opt,
+                );
             }
         }
     }
@@ -459,19 +497,24 @@ impl BlockchainBridge {
         };
 
         let pending_nonce = self
-            .blockchain_interface
+            .blockchain_interface_opt
+            .as_ref()
+            .expect("BI uninitialized")
             .get_transaction_count(consuming_wallet)
             .map_err(PayableTransactionError::TransactionCount)?;
 
         let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
-        self.blockchain_interface.send_payables_within_batch(
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            new_fingerprints_recipient,
-            &msg.accounts,
-        )
+        self.blockchain_interface_opt
+            .as_ref()
+            .expect("BI uninitialized")
+            .send_payables_within_batch(
+                consuming_wallet,
+                gas_price,
+                pending_nonce,
+                new_fingerprints_recipient,
+                &msg.accounts,
+            )
     }
 
     fn get_new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
@@ -493,7 +536,7 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::dao_utils::from_time_t;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
@@ -532,6 +575,11 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "BLOCKCHAINBRIDGE");
+        assert_eq!(
+            UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR,
+            "Cannot handle requests since blockchain \
+        interface is sustaining uninitialized. You skipped setting the blockchain service url."
+        )
     }
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
@@ -546,7 +594,7 @@ mod tests {
             .unwrap();
         let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
-            stub_bi(),
+            Some(stub_bi()),
             Box::new(configure_default_persistent_config(ZERO)),
             false,
             Some(consuming_wallet.clone()),
@@ -571,7 +619,7 @@ mod tests {
     fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
         init_test_logging();
         let subject = BlockchainBridge::new(
-            stub_bi(),
+            Some(stub_bi()),
             Box::new(PersistentConfigurationMock::default()),
             false,
             None,
@@ -610,7 +658,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             None,
@@ -677,7 +725,7 @@ mod tests {
             pending_payable_opt: None,
         }];
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
+            Some(Box::new(blockchain_interface)),
             Box::new(persistent_configuration),
             false,
             Some(consuming_wallet.clone()),
@@ -733,7 +781,7 @@ mod tests {
         let persistent_configuration = PersistentConfigurationMock::default();
         let consuming_wallet = make_wallet(test_name);
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
+            Some(Box::new(blockchain_interface)),
             Box::new(persistent_configuration),
             false,
             Some(consuming_wallet),
@@ -810,7 +858,7 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
+            Some(Box::new(blockchain_interface)),
             Box::new(persistent_configuration),
             false,
             None,
@@ -866,7 +914,7 @@ mod tests {
             PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet.clone()),
@@ -964,7 +1012,7 @@ mod tests {
             PersistentConfigurationMock::default().gas_price_result(Ok(123));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet),
@@ -1033,7 +1081,7 @@ mod tests {
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet),
@@ -1071,7 +1119,7 @@ mod tests {
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet.clone()),
@@ -1117,7 +1165,7 @@ mod tests {
             .gas_price_result(Err(PersistentConfigError::TransactionError));
         let consuming_wallet = make_wallet("somewallet");
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet),
@@ -1186,7 +1234,7 @@ mod tests {
             .get_transaction_receipt_result(Ok(Some(TransactionReceipt::default())))
             .get_transaction_receipt_result(Ok(None));
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(PersistentConfigurationMock::default()),
             false,
             None,
@@ -1247,7 +1295,7 @@ mod tests {
         );
         let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
+            Some(Box::new(blockchain_interface)),
             Box::new(persistent_config),
             false,
             None,
@@ -1334,7 +1382,7 @@ mod tests {
             )));
         let system = System::new("test_transaction_receipts");
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(PersistentConfigurationMock::default()),
             false,
             None,
@@ -1396,8 +1444,9 @@ mod tests {
     fn blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector() {
         let (accountant, _, accountant_recording) = make_recorder();
         let recipient = accountant.start().recipient();
+        let blockchain_interface = BlockchainInterfaceMock::default();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceClandestine::new(Chain::Dev)),
+            Some(Box::new(blockchain_interface)),
             Box::new(PersistentConfigurationMock::default()),
             false,
             Some(Wallet::new("mine")),
@@ -1458,7 +1507,7 @@ mod tests {
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Err(BlockchainError::QueryFailed("booga".to_string())));
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(PersistentConfigurationMock::default()),
             false,
             None,
@@ -1538,7 +1587,7 @@ mod tests {
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_config),
             false,
             Some(make_wallet("consuming")),
@@ -1600,7 +1649,7 @@ mod tests {
             "processing_of_received_payments_continues_even_if_no_payments_are_detected",
         );
         let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
+            Some(Box::new(blockchain_interface_mock)),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
@@ -1651,7 +1700,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Err(PersistentConfigError::TransactionError));
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Some(Box::new(BlockchainInterfaceMock::default())),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
@@ -1683,7 +1732,7 @@ mod tests {
             }),
         );
         let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
+            Some(Box::new(blockchain_interface)),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
@@ -1714,7 +1763,7 @@ mod tests {
     fn handle_scan_handles_success() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Some(Box::new(BlockchainInterfaceMock::default())),
             Box::new(PersistentConfigurationMock::new()),
             false,
             None, //not needed in this test
@@ -1746,7 +1795,7 @@ mod tests {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Some(Box::new(BlockchainInterfaceMock::default())),
             Box::new(PersistentConfigurationMock::new()),
             false,
             None, //not needed in this test
@@ -1785,7 +1834,7 @@ mod tests {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Some(Box::new(BlockchainInterfaceMock::default())),
             Box::new(PersistentConfigurationMock::new()),
             false,
             None, //not needed in this test
@@ -1824,13 +1873,177 @@ mod tests {
     }
 
     #[test]
+    fn handle_scan_handles_failure_from_uninitialized_blockchain_interface_with_response_skeleton()
+    {
+        let test_name = "handle_scan_handles_failure_from_uninitialized_blockchain_interface_with_response_skeleton";
+        assert_handle_scan_handles_failure_from_uninitialized_blockchain_interface(
+            test_name,
+            Some(ResponseSkeleton {
+                client_id: 12,
+                context_id: 89,
+            }),
+        )
+    }
+
+    #[test]
+    fn handle_scan_handles_failure_from_uninitialized_blockchain_interface_without_response_skeleton(
+    ) {
+        let test_name = "handle_scan_handles_failure_from_uninitialized_blockchain_interface";
+        assert_handle_scan_handles_failure_from_uninitialized_blockchain_interface(test_name, None)
+    }
+
+    fn assert_handle_scan_handles_failure_from_uninitialized_blockchain_interface(
+        test_name: &str,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
+        init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let mut subject = BlockchainBridge::new(
+            None,
+            Box::new(PersistentConfigurationMock::new()),
+            false,
+            None, //not needed in this test
+        );
+        let system = System::new("test");
+        subject.scan_error_subs_opt = Some(accountant.start().recipient());
+        subject.logger = Logger::new(test_name);
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: make_wallet("somewallet"),
+            response_skeleton_opt,
+        };
+
+        subject.handle_scan(
+            failure_handler,
+            ScanType::Receivables,
+            retrieve_transactions,
+        );
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let message = accountant_recording.get_record::<ScanError>(0);
+        let expected_msg = UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR;
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt,
+                msg: expected_msg.to_string()
+            }
+        );
+        assert_eq!(accountant_recording.len(), 1);
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: {expected_msg}"));
+    }
+
+    #[test]
+    fn request_balances_to_pay_payables_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+    ) {
+        let test_name = "request_balances_to_pay_payables_processing_terminates_early_because_of_uninitialized_blockchain_interface";
+        let scan_msg = RequestBalancesToPayPayables {
+            accounts: vec![make_payable_account(345)],
+            response_skeleton_opt: None,
+        };
+        assert_scan_msg_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+            test_name,
+            ScanType::Payables,
+            scan_msg,
+        );
+    }
+
+    #[test]
+    fn reports_accounts_payable_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+    ) {
+        let test_name = "reports_accounts_payable_processing_terminates_early_because_of_uninitialized_blockchain_interface";
+        let scan_msg = ReportAccountsPayable {
+            accounts: vec![make_payable_account(123)],
+            response_skeleton_opt: None,
+        };
+        assert_scan_msg_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+            test_name,
+            ScanType::Payables,
+            scan_msg,
+        );
+    }
+
+    #[test]
+    fn request_transaction_receipts_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+    ) {
+        let test_name = "request_transaction_receipts_processing_terminates_early_because_of_uninitialized_blockchain_interface";
+        let scan_msg = RequestTransactionReceipts {
+            pending_payable: vec![make_pending_payable_fingerprint()],
+            response_skeleton_opt: None,
+        };
+        assert_scan_msg_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+            test_name,
+            ScanType::PendingPayables,
+            scan_msg,
+        );
+    }
+
+    #[test]
+    fn retrieve_transactions_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+    ) {
+        let test_name = "retrieve_transactions_processing_terminates_early_because_of_uninitialized_blockchain_interface";
+        let scan_msg = RetrieveTransactions {
+            recipient: make_wallet("blah"),
+            response_skeleton_opt: None,
+        };
+        assert_scan_msg_processing_terminates_early_because_of_uninitialized_blockchain_interface(
+            test_name,
+            ScanType::Receivables,
+            scan_msg,
+        );
+    }
+
+    fn assert_scan_msg_processing_terminates_early_because_of_uninitialized_blockchain_interface<
+        M,
+    >(
+        test_name: &str,
+        scan_type: ScanType,
+        scan_msg: M,
+    ) where
+        M: Message + Send + 'static,
+        M::Result: Send,
+        BlockchainBridge: Handler<M>,
+    {
+        let system = System::new(test_name);
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let accountant = accountant.system_stop_conditions(match_every_type_id!(ScanError));
+        let recipient = accountant.start().recipient();
+        let consuming_wallet = make_paying_wallet(b"somewallet");
+        let persistent_configuration = PersistentConfigurationMock::default();
+        let mut subject = BlockchainBridge::new(
+            None,
+            Box::new(persistent_configuration),
+            false,
+            Some(consuming_wallet.clone()),
+        );
+        subject.scan_error_subs_opt = Some(recipient);
+        let addr = subject.start();
+
+        addr.try_send(scan_msg).unwrap();
+
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let scan_error: &ScanError = accountant_recording.get_record(0);
+        assert_eq!(
+            scan_error,
+            &ScanError {
+                scan_type,
+                response_skeleton_opt: None,
+                msg: UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR.to_string(),
+            }
+        );
+    }
+
+    #[test]
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
         let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Some(Box::new(BlockchainInterfaceMock::default())),
             Box::new(PersistentConfigurationMock::default()),
             crashable,
             None,
