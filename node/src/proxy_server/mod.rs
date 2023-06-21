@@ -1157,6 +1157,9 @@ impl IBCDHelperReal {
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) -> Result<(), String> {
+
+        todo!("Break some tests");
+
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
@@ -1261,7 +1264,7 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogger};
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::cell::RefCell;
@@ -5559,34 +5562,41 @@ mod tests {
     }
 
     #[test]
-    fn resolve_route_query_response_handles_error() {
-        init_test_logging();
+    fn resolve_message_handles_mailbox_error_from_neighborhood() {
         let cryptde = main_cryptde();
-        let recorder = Recorder::new();
-        let addr = recorder.start();
-        let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
-        let logger = Logger::new("resolve_route_query_response_handles_error");
+        let payload= make_request_payload(111, cryptde);
+        let stream_key = payload.stream_key;
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let addr = proxy_server.start();
+        let proxy_server_sub = recipient!(&addr, DnsRetryResultMessage);
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
-            payload: make_request_payload(111, cryptde),
+            payload,
             source_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             timestamp: SystemTime::now(),
             is_decentralized: false,
-            logger,
+            logger: Logger::new("test"),
             hopper_sub: recipient!(&addr, IncipientCoresPackage),
             dispatcher_sub: recipient!(&addr, TransmitDataMsg),
             accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
             add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
             retire_stream_key_sub_opt: None,
         };
+        let subject = RouteQueryResponseResolverReal{};
+        let system = System::new("resolve_message_handles_mailbox_error_from_neighborhood");
 
-        let result = IBCDHelperReal::resolve_route_query_response(
+        subject.resolve_message(
             tth_args,
-            add_route_msg_sub,
+            proxy_server_sub,
             Err(MailboxError::Timeout),
         );
 
-        assert_eq!(result, Err("Neighborhood refused to answer route request: MailboxError(Message delivery timed out)".to_string()));
+        System::current().stop();
+        system.run();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        let message = proxy_server_recording.get_record::<DnsRetryResultMessage>(0);
+        let expected_error_message = "Neighborhood refused to answer route request: MailboxError(Message delivery timed out)";
+        assert_eq!(message, &DnsRetryResultMessage{ stream_key, result: Err(expected_error_message.to_string()) });
     }
 
     #[derive(Default)]
