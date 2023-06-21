@@ -6,8 +6,8 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceNonClandestine,
-    PayableTransactionError, ProcessedPayableFallible,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceWeb3, PayableTransactionError,
+    ProcessedPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -227,9 +227,11 @@ impl BlockchainBridge {
     ) {
         let blockchain_interface_opt =
             blockchain_service_url_opt.map(|url| match Http::new(&url) {
-                Ok((event_loop_handle, transport)) => Box::new(
-                    BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
-                )
+                Ok((event_loop_handle, transport)) => Box::new(BlockchainInterfaceWeb3::new(
+                    transport,
+                    event_loop_handle,
+                    chain,
+                ))
                     as Box<dyn BlockchainInterface>,
                 Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
             });
