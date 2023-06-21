@@ -169,18 +169,26 @@ impl Handler<RouteResultMessage> for ProxyServer {
     fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(self.logger, "Establishing stream key {}", msg.stream_key);
 
+        // TODO Segregate the retry request from a fresh request, by checking the retry count with the Hashmap.
         match msg.result {
             Ok(route_query_response) => {
                 self.stream_key_routes.insert(msg.stream_key, route_query_response);
+                // TODO Preserve all the previously know routes and halt the retry process if the new route is already present.
             }
             Err(e) => {
                 error!(self.logger, "{}", e);
-                // todo!("Error DnsRetryResultMessage ");
-                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+
+                // TODO conditionally handle error for fresh & retry failures
+
+                // ** For DNS retry failures
+                // We should be sending an error message to the browser, informing the user that their request has failed.
                 // Send message to browser - Error
-                // Stop retry -- Purge the stream_key
+                // Stop retry -- Purge the stream_key?
                 // Remove TCP connection
-                // --- Create an actor message to complete the above ---
+
+                // ** For fresh request
+                // Send message to browser - No route found.
+
             }
         }
 
