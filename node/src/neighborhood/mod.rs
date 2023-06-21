@@ -4608,7 +4608,6 @@ mod tests {
     #[test]
     fn node_validates_min_hops_value_from_persistent_configuration() {
         let test_name = "node_validates_min_hops_value_from_persistent_configuration";
-        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_persistent_configuration = min_hops_in_neighborhood;
         let mut subject = Neighborhood::new(
@@ -4629,7 +4628,6 @@ mod tests {
         );
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
-                .min_hops_params(&min_hops_params_arc)
                 .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
         let system = System::new(test_name);
@@ -4647,15 +4645,12 @@ mod tests {
         .unwrap();
         System::current().stop();
         system.run();
-        let min_hops_params = min_hops_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_params, vec![()]);
     }
 
     #[test]
     fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
         init_test_logging();
         let test_name = "neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood";
-        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_db = Hops::TwoHops;
         let mut subject = Neighborhood::new(
@@ -4676,9 +4671,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .min_hops_params(&min_hops_params_arc)
-                .min_hops_result(Ok(min_hops_in_db)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(min_hops_in_db)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
@@ -4695,8 +4688,6 @@ mod tests {
         addr.try_send(assertions_msg).unwrap();
         System::current().stop();
         system.run();
-        let min_hops_params = min_hops_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_params, vec![()]);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Database with different min hops value detected; \
             expected: {:?}, found in db: {:?}; replacing to {:?}",
