@@ -36,7 +36,7 @@ use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::{DnsRetryResultMessage, ProxyServerSubs};
+use crate::sub_lib::proxy_server::{RouteResultMessage, ProxyServerSubs};
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, ClientRequestPayload_0v1,
 };
@@ -104,7 +104,6 @@ recorder_message_handler!(DaemonBindMessage);
 recorder_message_handler!(DispatcherNodeQueryMessage);
 recorder_message_handler!(DispatcherNodeQueryResponse);
 recorder_message_handler!(DnsResolveFailure_0v1);
-recorder_message_handler!(DnsRetryResultMessage);
 recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
@@ -127,6 +126,7 @@ recorder_message_handler!(RemoveStreamMsg);
 recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler!(RouteResultMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
@@ -351,7 +351,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
-        dns_retry_result: recipient!(addr, DnsRetryResultMessage),
+        route_result_sub: recipient!(addr, RouteResultMessage),
     }
 }
 

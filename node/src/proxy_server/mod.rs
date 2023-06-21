@@ -29,7 +29,7 @@ use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, DnsRetryResultMessage, ProxyProtocol};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, RouteResultMessage, ProxyProtocol};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::route::Route;
@@ -64,7 +64,7 @@ struct ProxyServerOutSubs {
     update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    dns_retry_result: Recipient<DnsRetryResultMessage>,
+    route_result_sub: Recipient<RouteResultMessage>,
 }
 
 pub struct ProxyServer {
@@ -103,7 +103,7 @@ impl Handler<BindMessage> for ProxyServer {
             update_node_record_metadata: msg.peer_actors.neighborhood.update_node_record_metadata,
             add_return_route: msg.peer_actors.proxy_server.add_return_route,
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
-            dns_retry_result: msg.peer_actors.proxy_server.dns_retry_result,
+            route_result_sub: msg.peer_actors.proxy_server.route_result_sub,
         };
         self.subs = Some(subs);
     }
@@ -163,10 +163,10 @@ impl AddReturnRouteMessage {
     }
 }
 
-impl Handler<DnsRetryResultMessage> for ProxyServer {
+impl Handler<RouteResultMessage> for ProxyServer {
     type Result = ();
 
-    fn handle(&mut self, msg: DnsRetryResultMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(self.logger, "Establishing stream key {}", msg.stream_key);
 
         match msg.result {
@@ -265,7 +265,7 @@ impl ProxyServer {
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
-            dns_retry_result: recipient!(addr, DnsRetryResultMessage),
+            route_result_sub: recipient!(addr, RouteResultMessage),
         }
     }
 
@@ -285,7 +285,7 @@ impl ProxyServer {
             source_addr,
             SystemTime::now());
         let route_source = self.out_subs("Neighborhood").route_source.clone();
-        let proxy_server_sub = self.out_subs("ProxyServer").dns_retry_result.clone();
+        let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
         let inbound_client_data_helper = self.inbound_client_data_helper_opt.as_ref().expect("IBCDHelper uninitialized");
 
 
@@ -963,7 +963,7 @@ pub trait IBCDHelper {
         &self,
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>,
-        proxy_server_sub: Recipient<DnsRetryResultMessage>,
+        proxy_server_sub: Recipient<RouteResultMessage>,
     );
 }
 
@@ -971,7 +971,7 @@ trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
         args: TryTransmitToHopperArgs,
-        proxy_server_sub: Recipient<DnsRetryResultMessage>,
+        proxy_server_sub: Recipient<RouteResultMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     );
 }
@@ -981,7 +981,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
         args: TryTransmitToHopperArgs,
-        proxy_server_sub: Recipient<DnsRetryResultMessage>,
+        proxy_server_sub: Recipient<RouteResultMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         let stream_key = args.payload.stream_key;
@@ -999,7 +999,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
             )),
             Err(e) => Err(format!("Neighborhood refused to answer route request: {:?}", e))
         };
-        proxy_server_sub.try_send(DnsRetryResultMessage {
+        proxy_server_sub.try_send(RouteResultMessage {
             stream_key,
             result,
         }).expect("ProxyServer is dead");
@@ -1092,7 +1092,7 @@ impl IBCDHelper for IBCDHelperReal {
             ProxyServer::try_transmit_to_hopper(tth_args, route_query_response)
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
-            let proxy_server_sub = proxy.out_subs("ProxyServer").dns_retry_result.clone();
+            let proxy_server_sub = proxy.out_subs("ProxyServer").route_result_sub.clone();
             self.request_route_and_transmit(tth_args, route_source, proxy_server_sub);
             Ok(())
         }
@@ -1102,7 +1102,7 @@ impl IBCDHelper for IBCDHelperReal {
         &self,
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>, // TODO: Rename route_source to something with neighborhood or / and add sub suffix
-        proxy_server_sub: Recipient<DnsRetryResultMessage>,
+        proxy_server_sub: Recipient<RouteResultMessage>,
     ) {
         let pld = &tth_args.payload;
         let hostname_opt = pld.target_hostname.clone();
@@ -1270,7 +1270,7 @@ mod tests {
         fn resolve_message(
             &self,
             args: TryTransmitToHopperArgs,
-            _proxy_server_sub: Recipient<DnsRetryResultMessage>,
+            _proxy_server_sub: Recipient<RouteResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
             self.resolve_message_params
@@ -1319,7 +1319,7 @@ mod tests {
             update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            dns_retry_result: recipient!(addr, DnsRetryResultMessage),
+            route_result_sub: recipient!(addr, RouteResultMessage),
         }
     }
 
@@ -1408,7 +1408,7 @@ mod tests {
                 .remove(0)
         }
 
-        fn request_route_and_transmit(&self, _tth_args: TryTransmitToHopperArgs, _route_source: Recipient<RouteQueryMessage>, _proxy_server_sub: Recipient<DnsRetryResultMessage>) {
+        fn request_route_and_transmit(&self, _tth_args: TryTransmitToHopperArgs, _route_source: Recipient<RouteQueryMessage>, _proxy_server_sub: Recipient<RouteResultMessage>) {
             todo!()
         }
     }
@@ -2480,9 +2480,9 @@ mod tests {
                 .neighborhood(neighborhood_mock)
                 .build();
             // Get the dns_retry_result recipient so we can partially mock it...
-            let dns_retry_result_recipient = peer_actors.proxy_server.dns_retry_result;
+            let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
             peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            peer_actors.proxy_server.dns_retry_result = dns_retry_result_recipient; //Partial mocking
+            peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2490,14 +2490,14 @@ mod tests {
             system.run();
         });
 
-        let expected_dns_retry_result_message = DnsRetryResultMessage {
+        let expected_dns_retry_result_message = RouteResultMessage {
             stream_key,
             result: Ok(route_query_response.unwrap()),
         };
 
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
-        let message = recording.get_record::<DnsRetryResultMessage>(0);
+        let message = recording.get_record::<RouteResultMessage>(0);
         assert_eq!(message, &expected_dns_retry_result_message);
     }
 
@@ -2540,9 +2540,9 @@ mod tests {
                 .neighborhood(neighborhood_mock)
                 .build();
             // Get the dns_retry_result recipient so we can partially mock it...
-            let dns_retry_result_recipient = peer_actors.proxy_server.dns_retry_result;
+            let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
             peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            peer_actors.proxy_server.dns_retry_result = dns_retry_result_recipient; //Partial mocking
+            peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2557,7 +2557,7 @@ mod tests {
 
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
-        let message = recording.get_record::<DnsRetryResultMessage>(0);
+        let message = recording.get_record::<RouteResultMessage>(0);
         // assert_eq!(message, &expected_dns_retry_result_message);
 
         // 'ERROR: ProxyServer: Failed to find route to nowhere.com':
@@ -5510,7 +5510,7 @@ mod tests {
         let stream_key = payload.stream_key;
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let addr = proxy_server.start();
-        let proxy_server_sub = recipient!(&addr, DnsRetryResultMessage);
+        let proxy_server_sub = recipient!(&addr, RouteResultMessage);
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
@@ -5536,9 +5536,9 @@ mod tests {
         System::current().stop();
         system.run();
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        let message = proxy_server_recording.get_record::<DnsRetryResultMessage>(0);
+        let message = proxy_server_recording.get_record::<RouteResultMessage>(0);
         let expected_error_message = "Neighborhood refused to answer route request: MailboxError(Message delivery timed out)";
-        assert_eq!(message, &DnsRetryResultMessage{ stream_key, result: Err(expected_error_message.to_string()) });
+        assert_eq!(message, &RouteResultMessage { stream_key, result: Err(expected_error_message.to_string()) });
     }
 
     #[derive(Default)]

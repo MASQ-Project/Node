@@ -64,7 +64,7 @@ pub struct AddReturnRouteMessage {
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
-pub struct DnsRetryResultMessage {
+pub struct RouteResultMessage {
     pub stream_key: StreamKey,
     pub result: Result<RouteQueryResponse, String>,
 }
@@ -80,7 +80,7 @@ pub struct ProxyServerSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
-    pub dns_retry_result: Recipient<DnsRetryResultMessage>
+    pub route_result_sub: Recipient<RouteResultMessage>
 }
 
 impl Debug for ProxyServerSubs {
@@ -112,7 +112,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
-            dns_retry_result: recipient!(recorder, DnsRetryResultMessage),
+            route_result_sub: recipient!(recorder, RouteResultMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");
