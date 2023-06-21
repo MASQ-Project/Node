@@ -831,7 +831,18 @@ impl ValueRetriever for MappingProtocol {
     }
 }
 
-struct MinHops {}
+struct MinHops {
+    logger: Logger,
+}
+
+impl MinHops {
+    pub fn new() -> Self {
+        Self {
+            logger: Logger::new("MinHops"),
+        }
+    }
+}
+
 impl ValueRetriever for MinHops {
     fn value_name(&self) -> &'static str {
         "min-hops"
@@ -845,7 +856,13 @@ impl ValueRetriever for MinHops {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match persistent_config.min_hops() {
             Ok(min_hops) => Some((min_hops.to_string(), Configured)),
-            Err(e) => panic!("Database is corrupt: {:?}", e),
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "No value for min hops found in database; database is corrupt: {:?}", e
+                );
+                None
+            }
         }
     }
 }
@@ -1076,7 +1093,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(Ip {}),
         Box::new(LogLevel {}),
         Box::new(MappingProtocol {}),
-        Box::new(MinHops {}),
+        Box::new(MinHops::new()),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
         Box::new(PaymentThresholds {}),
@@ -2922,7 +2939,7 @@ mod tests {
 
     #[test]
     fn min_hops_is_defaulted_if_data_in_database() {
-        let subject = MinHops {};
+        let subject = MinHops::new();
         let persistent_config =
             PersistentConfigurationMock::default().min_hops_result(Ok(MIN_HOPS_FOR_TEST));
         let bootstrapper_config = BootstrapperConfig::new();
@@ -2933,14 +2950,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database is corrupt: NotPresent")]
-    fn min_hops_will_make_node_panic_if_not_in_db() {
-        let subject = MinHops {};
+    fn min_hops_will_log_an_error_if_no_value_is_find_in_db() {
+        init_test_logging();
+        let subject = MinHops::new();
         let persistent_config = PersistentConfigurationMock::default()
             .min_hops_result(Err(PersistentConfigError::NotPresent));
         let bootstrapper_config = BootstrapperConfig::new();
 
-        let _result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: MinHops: No value for min hops found in database; \
+            database is corrupt: NotPresent",
+        );
     }
 
     #[test]
@@ -3387,7 +3410,7 @@ mod tests {
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
         assert_eq!(MappingProtocol {}.is_required(&params), false);
-        assert_eq!(MinHops {}.is_required(&params), false);
+        assert_eq!(MinHops::new().is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(
@@ -3420,7 +3443,7 @@ mod tests {
         assert_eq!(Ip {}.value_name(), "ip");
         assert_eq!(LogLevel {}.value_name(), "log-level");
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
-        assert_eq!(MinHops {}.value_name(), "min-hops");
+        assert_eq!(MinHops::new().value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
         assert_eq!(
