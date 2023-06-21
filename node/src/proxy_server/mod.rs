@@ -188,7 +188,11 @@ impl Handler<DnsRetryResultMessage> for ProxyServer {
             Err(e) => {
                 error!(self.logger, "{}", e);
                 // todo!("Error DnsRetryResultMessage ");
-                // Send a response to the Browser, remove stream_keys etc?
+                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
+                // Send message to browser - Error
+                // Stop retry -- Purge the stream_key
+                // Remove TCP connection
+                // --- Create an actor message to complete the above ---
             }
         }
 
@@ -993,51 +997,28 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         proxy_server_sub: Recipient<DnsRetryResultMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
-        match route_result {
+        let stream_key = args.payload.stream_key;
+        let result = match route_result {
             Ok(Some(route_query_response)) => {
-                let stream_key = args.payload.stream_key;
                 match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
-                    Ok(()) => {
-                        proxy_server_sub.try_send(DnsRetryResultMessage {
-                            stream_key,
-                            result: Ok(route_query_response)
-                        }).expect("ProxyServer is dead");
-                    }
-                    Err(e) => {
-                        proxy_server_sub.try_send(DnsRetryResultMessage {
-                            stream_key,
-                            result: Err(e)
-                        }).expect("ProxyServer is dead");
-                    }
+                    Ok(()) => Ok(route_query_response),
+                    Err(e) => Err(e)
                 }
             }
-            Ok(None) => {
-                let stream_key = args.payload.stream_key;
-                let error_message = ProxyServer::handle_route_failure(
+            Ok(None) => Err(ProxyServer::handle_route_failure(
                     args.payload,
                     args.source_addr,
                     &args.dispatcher_sub,
-                );
-                proxy_server_sub.try_send(DnsRetryResultMessage {
-                    stream_key,
-                    result: Err(error_message)
-                }).expect("ProxyServer is dead");
-
-
-                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
-                // Send message to browser - Error
-                // Stop retry -- Purge the stream_key
-                // Remove TCP connection
-                // --- Create an actor message to complete the above ---
-            }
-            Err(e) => {
-                error!(args.logger, "Neighborhood refused to answer route request: {:?}", e);
-                //TODO we should be sending an error message to the browser, informing the user that their request has failed.
-                todo!("resolve_message - route_result Error");
-            }
-        }
+            )),
+            Err(e) => Err(format!("Neighborhood refused to answer route request: {:?}", e))
+        };
+        proxy_server_sub.try_send(DnsRetryResultMessage {
+            stream_key,
+            result,
+        }).expect("ProxyServer is dead");
     }
 }
+
 trait RouteQueryResponseResolverFactory {
     fn make(&self) -> Box<dyn RouteQueryResponseResolver>;
 }
