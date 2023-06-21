@@ -21,6 +21,10 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 
+const REFILL_RECOMMENDATION: &str = "\
+In order to continue using services of other Nodes and avoid delinquency \
+bans you will need to put more funds into your consuming wallet.";
+
 pub trait PaymentAdjuster {
     fn is_adjustment_required(
         &self,
@@ -59,18 +63,10 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let limit_by_gas_opt = match Self::determine_transactions_count_limit_by_gas(
             &this_stage_data,
             qualified_payables.len(),
+            logger,
         ) {
             Ok(None) => None,
-            Ok(Some(limiting_count)) => {
-                Self::log_insufficient_gas_balance(
-                    //TODO user needs to supply up the wallet!!
-                    logger,
-                    qualified_payables,
-                    this_stage_data,
-                    limiting_count,
-                );
-                Some(limiting_count)
-            }
+            Ok(Some(limiting_count)) => Some(limiting_count),
             Err(e) => todo!(),
         };
 
@@ -86,8 +82,6 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Ok(required) => required,
             Err(e) => todo!(),
         };
-
-        //TODO add logging similar to the above one... but also instruct the user to supply up their wallet
 
         match (limit_by_gas_opt, required_by_masq_token) {
             (None, false) => Ok(None),
@@ -202,7 +196,8 @@ impl PaymentAdjusterReal {
 
     fn determine_transactions_count_limit_by_gas(
         tech_info: &FinancialAndTechDetails,
-        required_max_count: usize,
+        required_transactions_count: usize,
+        logger: &Logger,
     ) -> Result<Option<u16>, AnalysisError> {
         let gas_required_per_transaction_gwei =
             u128::try_from(tech_info.estimated_gas_limit_per_transaction)
@@ -211,15 +206,21 @@ impl PaymentAdjusterReal {
                     .expectv("small number for gas price");
         let grpt_in_wei: U256 = gwei_to_wei(gas_required_per_transaction_gwei);
         let available_wei = tech_info.consuming_wallet_balances.gas_currency_wei;
-        let possible_payment_count = (available_wei / grpt_in_wei).as_u128();
-        if possible_payment_count == 0 {
+        let limiting_max_possible_count = (available_wei / grpt_in_wei).as_u128();
+        if limiting_max_possible_count == 0 {
             todo!()
-        } else if possible_payment_count >= required_max_count as u128 {
+        } else if limiting_max_possible_count >= required_transactions_count as u128 {
             Ok(None)
         } else {
-            let type_limited_possible_count =
-                u16::try_from(possible_payment_count).expectv("small number for possible tx count");
-            Ok(Some(type_limited_possible_count))
+            let limiting_count = u16::try_from(limiting_max_possible_count)
+                .expectv("small number for possible tx count");
+            Self::log_insufficient_transaction_fee_balance(
+                logger,
+                required_transactions_count,
+                tech_info,
+                limiting_count,
+            );
+            Ok(Some(limiting_count))
         }
     }
 
@@ -505,7 +506,7 @@ impl PaymentAdjusterReal {
 
         let (adjusted, excluded): (Vec<_>, Vec<_>) = original_accounts
             .into_iter()
-            .partition(|(wallet, details)| details.adjusted_balance_opt.is_some());
+            .partition(|(_, details)| details.adjusted_balance_opt.is_some());
 
         let adjusted_accounts_as_strings = adjusted
             .into_iter()
@@ -525,13 +526,17 @@ impl PaymentAdjusterReal {
             .join("\n");
 
         let excluded_accounts_opt = excluded.is_empty().not().then(|| {
-            once("\nExcluded less important accounts:\n".to_string())
-                .chain(
-                    excluded
-                        .into_iter()
-                        .map(|(wallet, balance)| format!("{} {}", wallet, balance.initial_balance)),
-                )
-                .join("\n")
+            once(format!(
+                "\n{:<length$} Original\n",
+                "Ignored minor payables",
+                length = WALLET_ADDRESS_LENGTH
+            ))
+            .chain(
+                excluded
+                    .into_iter()
+                    .map(|(wallet, balance)| format!("{} {}", wallet, balance.initial_balance)),
+            )
+            .join("\n")
         });
 
         vec![Some(adjusted_accounts_as_strings), excluded_accounts_opt]
@@ -578,15 +583,16 @@ impl PaymentAdjusterReal {
             //TODO extend the collection of adjusted up to the initial length using Option
                 Self::wallets_and_balances_with_criteria_opt(Either::Right(&concise_input)).right().expectv("criterion + wallet + balance");
             format!(
-                "\nAdjusted payables:\n\
+                "\n\
                 {:<length$} {}\n\
+                \n\
                 {:<length$} {}\n\
                 {:<length$} {}\n\
                 \n\
                 {}",
                 "Account wallet",
                 "Balance wei",
-                "",
+                "Adjusted payables",
                 "Original",
                 "",
                 "Adjusted",
@@ -606,7 +612,8 @@ impl PaymentAdjusterReal {
             the MASQ token. Adjustment in their count or the amounts is required.",
             payables_sum.separate_with_commas(),
             cw_masq_balance.separate_with_commas()
-        )
+        );
+        info!(logger, "{}", REFILL_RECOMMENDATION)
     }
 
     fn rebuild_accounts(criteria_and_accounts: Vec<(u128, PayableAccount)>) -> Vec<PayableAccount> {
@@ -727,9 +734,9 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn log_insufficient_gas_balance(
+    fn log_insufficient_transaction_fee_balance(
         logger: &Logger,
-        qualified_payables: &[PayableAccount],
+        required_transactions_count: usize,
         this_stage_data: &FinancialAndTechDetails,
         limiting_count: u16,
     ) {
@@ -742,9 +749,10 @@ impl PaymentAdjusterReal {
                 .consuming_wallet_balances
                 .masq_tokens_wei
                 .separate_with_commas(),
-            qualified_payables.len(),
+            required_transactions_count,
             limiting_count
         );
+        info!(logger, "{}", REFILL_RECOMMENDATION)
     }
 
     fn check_need_of_masq_balances_adjustment(
@@ -890,6 +898,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::{
         log_10, Adjustment, DisqualifiedPayableAccount, PaymentAdjuster, PaymentAdjusterReal,
+        REFILL_RECOMMENDATION,
     };
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -906,13 +915,23 @@ mod tests {
     use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime};
     use std::vec;
     use thousands::Separable;
     use web3::types::U256;
 
     fn type_definite_conversion(gwei: u64) -> u128 {
         gwei_to_wei(gwei)
+    }
+
+    #[test]
+    fn constants_are_correct() {
+        assert_eq!(
+            REFILL_RECOMMENDATION,
+            "\
+In order to continue using services of other Nodes and avoid delinquency \
+bans you will need to put more funds into your consuming wallet."
+        )
     }
 
     #[test]
@@ -1043,9 +1062,12 @@ mod tests {
         let result = subject.is_adjustment_required(&msg, &logger);
 
         assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
-        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Total of 101,000,000,000 \
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 101,000,000,000 \
         wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of the MASQ token. \
         Adjustment in their count or the amounts is required."));
+        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue using services \
+        of other Nodes and avoid delinquency bans you will need to put more funds into your consuming wallet."));
     }
 
     #[test]
@@ -1074,11 +1096,14 @@ mod tests {
                 limited_count_from_gas: expected_limiting_count
             }))
         );
-        TestLogHandler::new().exists_log_containing(&format!(
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Gas amount 18,446,744,073,709,551,615,000,000,000 wei \
         cannot cover anticipated fees from sending 3 transactions. Maximum is 2. \
         The payments need to be adjusted in their count."
         ));
+        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue using services \
+        of other Nodes and avoid delinquency bans you will need to put more funds into your consuming wallet."));
     }
 
     #[test]
@@ -1367,9 +1392,9 @@ mod tests {
         );
         let log_msg = format!(
             "DEBUG: {test_name}: \n\
-|Adjusted payables:
 |Account wallet                             Balance wei
-|                                           Original
+|
+|Adjusted payables                          Original
 |                                           Adjusted
 |
 |0x0000000000000000000000000000000000646566 666666666666000000
@@ -1546,9 +1571,9 @@ mod tests {
         );
         let log_msg = format!(
             "DEBUG: {test_name}: \n\
-|Adjusted payables:
 |Account wallet                             Balance wei
-|                                           Original
+|
+|Adjusted payables                          Original
 |                                           Adjusted
 |
 |0x0000000000000000000000000000000000646566 333000000000000
@@ -1556,7 +1581,7 @@ mod tests {
 |0x000000000000000000000000000000000067686b 222000000000000
 |                                           222000000000000
 |
-|Excluded less important accounts:
+|Ignored minor payables                     Original
 |
 |0x0000000000000000000000000000000000616263 111000000000000"
         );
@@ -1849,7 +1874,23 @@ mod tests {
                 && only_account.balance_wei <= 300_000_000_000_000
         );
         assert_eq!(only_account.last_paid_timestamp, last_paid_timestamp_3);
-        assert_eq!(only_account.pending_payable_opt, None)
+        assert_eq!(only_account.pending_payable_opt, None);
+        let log_msg = format!(
+            "DEBUG: {test_name}: \n\
+|Account wallet                             Balance wei
+|
+|Adjusted payables                          Original
+|                                           Adjusted
+|
+|0x000000000000000000000000000000000067686b 333000000000000
+|                                           299944910012241
+|
+|Ignored minor payables                     Original
+|
+|0x0000000000000000000000000000000000616263 44000000000
+|0x0000000000000000000000000000000000646566 55000000000"
+        );
+        TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
 
     fn secs_elapsed(timestamp: SystemTime, now: SystemTime) -> u128 {
