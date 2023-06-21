@@ -40,7 +40,7 @@ use web3::Transport;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
-const UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR: &'static str = "\
+const UNINITIALIZED_BLOCKCHAIN_INTERFACE_ERR: &str = "\
 Cannot handle requests since blockchain interface is sustaining \
 uninitialized. You skipped setting the blockchain service url.";
 
