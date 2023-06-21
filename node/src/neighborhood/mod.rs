@@ -4636,10 +4636,15 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<StartMessage>();
 
-        sub.try_send(StartMessage {}).unwrap();
+        addr.try_send(StartMessage {}).unwrap();
 
+        addr.try_send(AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(neighborhood.min_hops, min_hops_in_persistent_configuration);
+            }),
+        })
+        .unwrap();
         System::current().stop();
         system.run();
         let min_hops_params = min_hops_params_arc.lock().unwrap();
