@@ -2955,7 +2955,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_will_log_an_error_if_no_value_is_find_in_db() {
+    fn min_hops_will_log_an_error_if_no_value_is_found_in_db() {
         init_test_logging();
         let subject = MinHops::new();
         let persistent_config = PersistentConfigurationMock::default()
