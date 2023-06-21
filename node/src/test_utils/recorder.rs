@@ -38,7 +38,7 @@ use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData}
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
 use crate::sub_lib::proxy_server::{DnsRetryResultMessage, ProxyServerSubs};
 use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
+    AddReturnRouteMessage, ClientRequestPayload_0v1,
 };
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -97,7 +97,6 @@ macro_rules! recorder_message_handler {
 }
 
 recorder_message_handler!(AddReturnRouteMessage);
-recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(BindMessage);
 recorder_message_handler!(CrashNotification);
@@ -349,7 +348,6 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
         dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
-        add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),

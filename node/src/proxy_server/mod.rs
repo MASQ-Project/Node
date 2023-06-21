@@ -31,7 +31,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, DnsRetryResultMessage, ProxyProtocol};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
+use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -163,15 +163,6 @@ impl AddReturnRouteMessage {
     }
 }
 
-impl Handler<AddRouteMessage> for ProxyServer {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(self.logger, "Establishing stream key {}", msg.stream_key);
-        self.stream_key_routes.insert(msg.stream_key, msg.route);
-    }
-}
-
 impl Handler<DnsRetryResultMessage> for ProxyServer {
     type Result = ();
 
@@ -271,7 +262,6 @@ impl ProxyServer {
             from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
             dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
-            add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
@@ -2633,16 +2623,11 @@ mod tests {
                 false,
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
+            subject.stream_key_routes.insert(stream_key, route_query_response);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
             peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-            subject_addr
-                .try_send(AddRouteMessage {
-                    stream_key,
-                    route: route_query_response,
-                })
-                .unwrap();
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
             system.run();
