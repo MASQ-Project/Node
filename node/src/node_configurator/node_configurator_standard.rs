@@ -259,7 +259,7 @@ fn configure_database(
         return Err(pce.into_configurator_error("neighborhood-mode"));
     }
     if let Err(pce) = persistent_config.set_min_hops(config.neighborhood_config.min_hops) {
-        return Err(pce.into_configurator_error("min-hops-count"));
+        return Err(pce.into_configurator_error("min-hops"));
     }
     if let Some(url) = config
         .blockchain_bridge_config
@@ -442,7 +442,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops-count"))
+            Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
         )
     }
 

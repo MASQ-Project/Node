@@ -391,7 +391,7 @@ impl FromStr for Hops {
             "4" => Ok(Hops::FourHops),
             "5" => Ok(Hops::FiveHops),
             "6" => Ok(Hops::SixHops),
-            _ => Err("Invalid value for min hops count provided".to_string()),
+            _ => Err("Invalid value for min hops provided".to_string()),
         }
     }
 }
@@ -1269,7 +1269,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Invalid value for min hops count provided".to_string())
+            Err("Invalid value for min hops provided".to_string())
         )
     }
 

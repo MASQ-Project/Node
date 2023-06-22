@@ -551,7 +551,7 @@ impl Neighborhood {
         if let Some(persistent_config) = self.persistent_config_opt.as_ref() {
             let value_in_db = persistent_config
                 .min_hops()
-                .expect("Min Hops Count value is not initialized inside Database");
+                .expect("Min Hops value is not initialized inside Database");
             let value_in_neighborhood = self.min_hops;
             if value_in_neighborhood != value_in_db {
                 info!(
