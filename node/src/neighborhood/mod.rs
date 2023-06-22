@@ -554,10 +554,10 @@ impl Neighborhood {
                 .expect("Min Hops Count value is not initialized inside Database");
             let value_in_neighborhood = self.min_hops;
             if value_in_neighborhood != value_in_db {
-                debug!(
+                info!(
                     self.logger,
                     "Database with different min hops value detected; \
-                    expected: {:?}, found in db: {:?}; replacing to {:?}",
+                    currently set: {:?}, found in db: {:?}; changing to {:?}",
                     value_in_neighborhood,
                     value_in_db,
                     value_in_db
@@ -4608,7 +4608,6 @@ mod tests {
     #[test]
     fn node_validates_min_hops_value_from_persistent_configuration() {
         let test_name = "node_validates_min_hops_value_from_persistent_configuration";
-        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_persistent_configuration = min_hops_in_neighborhood;
         let mut subject = Neighborhood::new(
@@ -4629,28 +4628,29 @@ mod tests {
         );
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new()
-                .min_hops_params(&min_hops_params_arc)
                 .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sub = addr.recipient::<StartMessage>();
 
-        sub.try_send(StartMessage {}).unwrap();
+        addr.try_send(StartMessage {}).unwrap();
 
+        addr.try_send(AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(neighborhood.min_hops, min_hops_in_persistent_configuration);
+            }),
+        })
+        .unwrap();
         System::current().stop();
         system.run();
-        let min_hops_params = min_hops_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_params, vec![()]);
     }
 
     #[test]
     fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
         init_test_logging();
         let test_name = "neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood";
-        let min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_db = Hops::TwoHops;
         let mut subject = Neighborhood::new(
@@ -4671,9 +4671,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
         subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .min_hops_params(&min_hops_params_arc)
-                .min_hops_result(Ok(min_hops_in_db)),
+            PersistentConfigurationMock::new().min_hops_result(Ok(min_hops_in_db)),
         ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
@@ -4690,11 +4688,9 @@ mod tests {
         addr.try_send(assertions_msg).unwrap();
         System::current().stop();
         system.run();
-        let min_hops_params = min_hops_params_arc.lock().unwrap();
-        assert_eq!(*min_hops_params, vec![()]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Database with different min hops value detected; \
-            expected: {:?}, found in db: {:?}; replacing to {:?}",
+            "INFO: {test_name}: Database with different min hops value detected; \
+            currently set: {:?}, found in db: {:?}; changing to {:?}",
             min_hops_in_neighborhood, min_hops_in_db, min_hops_in_db
         ));
     }

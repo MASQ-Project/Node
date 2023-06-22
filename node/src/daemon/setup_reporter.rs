@@ -831,7 +831,18 @@ impl ValueRetriever for MappingProtocol {
     }
 }
 
-struct MinHops {}
+struct MinHops {
+    logger: Logger,
+}
+
+impl MinHops {
+    pub fn new() -> Self {
+        Self {
+            logger: Logger::new("MinHops"),
+        }
+    }
+}
+
 impl ValueRetriever for MinHops {
     fn value_name(&self) -> &'static str {
         "min-hops"
@@ -844,8 +855,18 @@ impl ValueRetriever for MinHops {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match persistent_config.min_hops() {
-            Ok(min_hops) => Some((min_hops.to_string(), Configured)),
-            Err(e) => panic!("Database is corrupt: {:?}", e),
+            Ok(min_hops) => Some(if min_hops == DEFAULT_MIN_HOPS {
+                (DEFAULT_MIN_HOPS.to_string(), Default)
+            } else {
+                (min_hops.to_string(), Configured)
+            }),
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "No value for min hops found in database; database is corrupt: {:?}", e
+                );
+                None
+            }
         }
     }
 }
@@ -1076,7 +1097,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(Ip {}),
         Box::new(LogLevel {}),
         Box::new(MappingProtocol {}),
-        Box::new(MinHops {}),
+        Box::new(MinHops::new()),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
         Box::new(PaymentThresholds {}),
@@ -1107,11 +1128,11 @@ mod tests {
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::neighborhood::Hops;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::sub_lib::{accountant, neighborhood};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
@@ -1299,7 +1320,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
-            ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Configured),
+            ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Default),
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
@@ -2921,26 +2942,33 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_is_defaulted_if_data_in_database() {
-        let subject = MinHops {};
+    fn min_hops_computes_default_from_value_in_database() {
+        let subject = MinHops::new();
+        let value_in_db = Hops::TwoHops;
         let persistent_config =
-            PersistentConfigurationMock::default().min_hops_result(Ok(MIN_HOPS_FOR_TEST));
+            PersistentConfigurationMock::default().min_hops_result(Ok(value_in_db));
         let bootstrapper_config = BootstrapperConfig::new();
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
-        assert_eq!(result, Some((MIN_HOPS_FOR_TEST.to_string(), Configured)))
+        assert_eq!(result, Some((value_in_db.to_string(), Configured)))
     }
 
     #[test]
-    #[should_panic(expected = "Database is corrupt: NotPresent")]
-    fn min_hops_will_make_node_panic_if_not_in_db() {
-        let subject = MinHops {};
+    fn min_hops_will_log_an_error_if_no_value_is_found_in_db() {
+        init_test_logging();
+        let subject = MinHops::new();
         let persistent_config = PersistentConfigurationMock::default()
             .min_hops_result(Err(PersistentConfigError::NotPresent));
         let bootstrapper_config = BootstrapperConfig::new();
 
-        let _result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: MinHops: No value for min hops found in database; \
+            database is corrupt: NotPresent",
+        );
     }
 
     #[test]
@@ -3387,7 +3415,7 @@ mod tests {
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
         assert_eq!(MappingProtocol {}.is_required(&params), false);
-        assert_eq!(MinHops {}.is_required(&params), false);
+        assert_eq!(MinHops::new().is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(
@@ -3420,7 +3448,7 @@ mod tests {
         assert_eq!(Ip {}.value_name(), "ip");
         assert_eq!(LogLevel {}.value_name(), "log-level");
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
-        assert_eq!(MinHops {}.value_name(), "min-hops");
+        assert_eq!(MinHops::new().value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
         assert_eq!(
