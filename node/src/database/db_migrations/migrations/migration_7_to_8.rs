@@ -2,7 +2,7 @@
 
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
-use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_7_to_8;
@@ -13,7 +13,7 @@ impl DatabaseMigration for Migrate_7_to_8 {
         mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         let statement = format!(
-            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops_count', '{DEFAULT_MIN_HOPS_COUNT}', 0)",
+            "INSERT INTO config (name, value, encrypted) VALUES ('min_hops', '{DEFAULT_MIN_HOPS}', 0)",
         );
         mig_declaration_utilities.execute_upon_transaction(&[&statement])
     }
@@ -30,7 +30,7 @@ mod tests {
     };
     use crate::database::db_migrations::db_migrator::DatabaseMigration;
     use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
+    use crate::neighborhood::DEFAULT_MIN_HOPS;
     use crate::test_utils::database_utils::{
         bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
     };
@@ -68,8 +68,8 @@ mod tests {
         );
 
         let connection = result.unwrap();
-        let (mhc_value, mhc_encrypted) = retrieve_config_row(connection.as_ref(), "min_hops_count");
-        assert_eq!(mhc_value, Some(DEFAULT_MIN_HOPS_COUNT.to_string()));
+        let (mhc_value, mhc_encrypted) = retrieve_config_row(connection.as_ref(), "min_hops");
+        assert_eq!(mhc_value, Some(DEFAULT_MIN_HOPS.to_string()));
         assert_eq!(mhc_encrypted, false);
         let (schv_value, schv_encrypted) =
             retrieve_config_row(connection.as_ref(), "schema_version");
