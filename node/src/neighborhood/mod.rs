@@ -1658,7 +1658,7 @@ mod tests {
 
     use masq_lib::constants::{DEFAULT_CHAIN, TEST_DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;

@@ -82,9 +82,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self {
-            tools
-        }
+        Self { tools }
     }
 }
 
@@ -287,10 +285,8 @@ impl ActorSystemFactoryToolsReal {
             if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                 return;
             }
-            let mut automap_control = self.make_automap_control(
-                config.mapping_protocol_opt,
-                new_ip_recipients.clone()
-            );
+            let mut automap_control =
+                self.make_automap_control(config.mapping_protocol_opt, new_ip_recipients.clone());
             let public_ip = match automap_control.get_public_ip() {
                 Ok(ip) => ip,
                 Err(e) => {
@@ -316,7 +312,11 @@ impl ActorSystemFactoryToolsReal {
         }
     }
 
-    fn make_automap_control(&self, mapping_protocol_opt: Option<AutomapProtocol>, new_ip_recipients: Vec<Recipient<NewPublicIp>>) -> Box<dyn AutomapControl> {
+    fn make_automap_control(
+        &self,
+        mapping_protocol_opt: Option<AutomapProtocol>,
+        new_ip_recipients: Vec<Recipient<NewPublicIp>>,
+    ) -> Box<dyn AutomapControl> {
         let logger = Logger::new("Automap");
         let change_handler = move |change: AutomapChange| match change {
             AutomapChange::NewIp(new_public_ip) => {
@@ -324,8 +324,7 @@ impl ActorSystemFactoryToolsReal {
             }
             AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(&logger, e),
         };
-        self
-            .automap_control_factory
+        self.automap_control_factory
             .make(mapping_protocol_opt, Box::new(change_handler))
     }
 
@@ -663,6 +662,7 @@ mod tests {
     use masq_lib::logger::LOG_RECIPIENT_OPT;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
     };
@@ -684,7 +684,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1617,30 +1616,36 @@ mod tests {
         system.run();
     }
 
-    #[should_panic (expected = "1: Automap failure: prefixProtocolError(\"Booga\")")]
+    #[should_panic(expected = "1: Automap failure: prefixProtocolError(\"Booga\")")]
     #[test]
     fn handle_automap_error_handles_crashing_errors() {
         running_test();
         let logger = Logger::new("handle_automap_error_handles_non_crashing_errors");
 
-        ActorSystemFactoryToolsReal::handle_automap_error (&logger, "prefix", AutomapError::ProtocolError("Booga".to_string()));
+        ActorSystemFactoryToolsReal::handle_automap_error(
+            &logger,
+            "prefix",
+            AutomapError::ProtocolError("Booga".to_string()),
+        );
     }
 
     #[test]
     fn handle_automap_error_handles_non_crashing_errors() {
         init_test_logging();
-        let make_params_arc = Arc::new (Mutex::new (vec![]));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let automap_control_factory = AutomapControlFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(Box::new(AutomapControlMock::new()));
         let mut subject = ActorSystemFactoryToolsReal::new();
         subject.automap_control_factory = Box::new(automap_control_factory);
 
-        let _ = subject.make_automap_control (None, vec![]);
+        let _ = subject.make_automap_control(None, vec![]);
 
         let mut make_params = make_params_arc.lock().unwrap();
         let change_handler = make_params.remove(0).1;
-        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError("handle_automap_error_handles_non_crashing_errors".to_string())));
+        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(
+            "handle_automap_error_handles_non_crashing_errors".to_string(),
+        )));
         TestLogHandler::new().exists_log_containing("ERROR: Automap: Automap failure: DeleteMappingError(\"handle_automap_error_handles_non_crashing_errors\")");
     }
 

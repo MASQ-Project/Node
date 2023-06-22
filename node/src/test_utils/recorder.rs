@@ -55,12 +55,12 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::to_millis;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use masq_lib::utils::to_millis;
 
 #[derive(Default)]
 pub struct Recorder {

@@ -1624,7 +1624,7 @@ mod tests {
 
     fn handle_announcement_if_present_handles_exceptional_circumstances(
         announcement_socket: UdpSocketWrapperMock,
-        expected_result: AbortIteration
+        expected_result: AbortIteration,
     ) {
         let router_addr = router_addr();
         let changes_arc = Arc::new(Mutex::new(vec![]));
@@ -1653,7 +1653,10 @@ mod tests {
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(40, 30, 20, 10)), ANNOUNCEMENT_PORT);
         let announcement_socket =
             UdpSocketWrapperMock::new().recv_from_result(Ok((0, some_other_addr)), vec![]);
-        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::Yes);
+        handle_announcement_if_present_handles_exceptional_circumstances(
+            announcement_socket,
+            AbortIteration::Yes,
+        );
     }
 
     #[test]
@@ -1661,14 +1664,20 @@ mod tests {
         let unparseable_data = vec![];
         let announcement_socket =
             UdpSocketWrapperMock::new().recv_from_result(Ok((0, router_addr())), unparseable_data);
-        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::Yes);
+        handle_announcement_if_present_handles_exceptional_circumstances(
+            announcement_socket,
+            AbortIteration::Yes,
+        );
     }
 
     #[test]
     fn handle_announcement_if_present_handles_error_reading_from_router() {
         let announcement_socket = UdpSocketWrapperMock::new()
             .recv_from_result(Err(Error::from(ErrorKind::BrokenPipe)), vec![]);
-        handle_announcement_if_present_handles_exceptional_circumstances(announcement_socket, AbortIteration::No);
+        handle_announcement_if_present_handles_exceptional_circumstances(
+            announcement_socket,
+            AbortIteration::No,
+        );
     }
 
     #[test]

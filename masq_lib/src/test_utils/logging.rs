@@ -2,6 +2,7 @@
 #![cfg(any(test, not(feature = "no_test_share")))]
 use crate::logger::real_format_function;
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
+use crate::utils::to_millis;
 use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
@@ -14,7 +15,6 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use time::OffsetDateTime;
-use crate::utils::to_millis;
 
 lazy_static! {
     static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));

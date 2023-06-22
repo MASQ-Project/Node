@@ -616,7 +616,9 @@ mod tests {
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::persistent_configuration_mock::{encrypted_past_neighbors, PersistentConfigurationMock};
+    use crate::test_utils::persistent_configuration_mock::{
+        encrypted_past_neighbors, PersistentConfigurationMock,
+    };
     use crate::test_utils::unshared_test_utils::PCField::{
         BlockchainServiceUrl, ConsumingWalletPrivateKey, EarningWallet, EarningWalletAddress,
         GasPrice, MappingProtocol, PastNeighbors, PaymentThresholds, RatePack, ScanIntervals,
@@ -626,6 +628,7 @@ mod tests {
         make_simplified_multi_config, PCField,
     };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -635,7 +638,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use NeighborhoodMode::ZeroHop;
 
     #[test]
@@ -1512,8 +1514,8 @@ mod tests {
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
-        let mut persistent_config = configure_persistent_config(PCField::base_and_psmr())
-            .check_password_result(Ok(false));
+        let mut persistent_config =
+            configure_persistent_config(PCField::base_and_psmr()).check_password_result(Ok(false));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1562,7 +1564,7 @@ mod tests {
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let encrypted_past_neighbors = encrypted_past_neighbors(
             main_cryptde(),
-            "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234,masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"
+            "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234,masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345",
         );
         let mut persistent_configuration = configure_persistent_config(vec![
             PaymentThresholds,
@@ -1573,11 +1575,11 @@ mod tests {
             EarningWalletAddress,
             RatePack,
         ])
-            .check_password_result(Ok(false))
-            .mapping_protocol_result(Ok(Some(Pcp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .past_neighbors_params(&past_neighbors_params_arc)
-            .past_neighbors_result(Ok(Some(encrypted_past_neighbors)));
+        .check_password_result(Ok(false))
+        .mapping_protocol_result(Ok(Some(Pcp)))
+        .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
+        .past_neighbors_params(&past_neighbors_params_arc)
+        .past_neighbors_result(Ok(Some(encrypted_past_neighbors)));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject

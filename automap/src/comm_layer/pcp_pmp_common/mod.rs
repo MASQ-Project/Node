@@ -382,9 +382,12 @@ pub mod tests {
 
         match result {
             Err(Either::Right(e)) => panic!("Unexpected error: '{:?}'", e),
-            Err(Either::Left(stderr)) =>
-                assert_eq!(stderr.ends_with("No such file or directory\n"), true,
-                           "Unexpected content in stderr: '{}'", stderr),
+            Err(Either::Left(stderr)) => assert_eq!(
+                stderr.ends_with("No such file or directory\n"),
+                true,
+                "Unexpected content in stderr: '{}'",
+                stderr
+            ),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
     }
@@ -396,11 +399,12 @@ pub mod tests {
 
         let result = subject.execute_command("dir booga");
 
-        assert! (
-            stderr.contains("The system cannot find the file specified") ||
-                stderr.contains("No such file or directory"),
+        assert!(
+            stderr.contains("The system cannot find the file specified")
+                || stderr.contains("No such file or directory"),
             "Unexpected error '{:?}' - stderr: '{:?}'",
-            result, stderr
+            result,
+            stderr
         );
     }
 

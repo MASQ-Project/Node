@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::test_utils::environment_guard::EnvironmentGuard;
-use std::{fs, thread};
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::{fs, thread};
 
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
@@ -72,6 +72,8 @@ pub fn handle_connection_error(stream: TcpStream) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchains::chains::Chain;
+    use crate::constants::{TEST_DEFAULT_CHAIN, TEST_DEFAULT_MULTINODE_CHAIN};
 
     #[test]
     fn constants_have_correct_values() {

@@ -541,10 +541,10 @@ mod tests {
         let another_node_ip_addr = another_node.node_addr_opt().unwrap().ip_addr();
         let mut subject = db_from_node(&this_node);
         subject.add_node(one_node.clone()).unwrap();
-        fn mutable_node (db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
+        fn mutable_node(db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
             db.node_by_ip_mut(ip_addr).unwrap()
         }
-        fn node_version (db: &NeighborhoodDatabase, ip_addr: IpAddr) -> u32 {
+        fn node_version(db: &NeighborhoodDatabase, ip_addr: IpAddr) -> u32 {
             db.node_by_ip(ip_addr).as_ref().unwrap().inner.version
         }
 
@@ -552,7 +552,7 @@ mod tests {
             let mut this_node_actual = mutable_node(&mut subject, this_node_ip_addr);
             this_node_actual.inner.version += 1;
             assert_eq!(
-                node_version (&subject, this_node_ip_addr),
+                node_version(&subject, this_node_ip_addr),
                 this_node_original_version + 1
             );
         }
@@ -561,16 +561,13 @@ mod tests {
             let mut one_node_actual = mutable_node(&mut subject, one_node_ip_addr);
             one_node_actual.inner.version += 1;
             assert_eq!(
-                node_version (&subject, one_node_ip_addr),
+                node_version(&subject, one_node_ip_addr),
                 one_node_original_version + 1
             );
         }
 
         {
-            assert_eq!(
-                subject.node_by_ip_mut(another_node_ip_addr),
-                None
-            );
+            assert_eq!(subject.node_by_ip_mut(another_node_ip_addr), None);
         }
     }
 

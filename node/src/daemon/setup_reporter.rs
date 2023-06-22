@@ -1102,7 +1102,7 @@ mod tests {
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
     use std::convert::TryFrom;

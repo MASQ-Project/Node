@@ -653,6 +653,7 @@ mod tests {
     use core::ptr::addr_of;
     use crossbeam_channel::unbounded;
     use igd::RequestError;
+    use itertools::Itertools;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
@@ -662,7 +663,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use itertools::Itertools;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -1270,12 +1270,11 @@ mod tests {
         );
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(another_ip));
-        let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(*add_mapping_params.iter().map(|x| (x.1, x.2)).collect_vec(), vec![
-            (6666, 600),
-            (6666, 600),
-            (6666, 600),
-        ]);
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq!(
+            *add_mapping_params.iter().map(|x| (x.1, x.2)).collect_vec(),
+            vec![(6666, 600), (6666, 600), (6666, 600),]
+        );
     }
 
     #[test]

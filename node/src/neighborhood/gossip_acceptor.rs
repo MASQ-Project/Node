@@ -185,9 +185,8 @@ impl GossipHandler for IpChangeHandler {
                 panic!("Node {:?} in the database sent Gossip, accepts connections, but has no NodeAddr; should have been Malformed by qualify()!",
                        db_node.public_key());
             };
-            return GossipAcceptanceResult::Absorbed;
         }
-        GossipAcceptanceResult::Ignored
+        GossipAcceptanceResult::Absorbed
     }
 }
 
@@ -1489,8 +1488,8 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
@@ -1606,7 +1605,7 @@ mod tests {
     }
 
     #[test]
-    fn properly_constructed_originate_only_ipchange_is_identified_and_ignored() {
+    fn properly_constructed_originate_only_ipchange_is_identified_and_absorbed() {
         let old_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![2000, 2001]);
         let new_addr = NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::from(new_addr.clone());
@@ -1643,7 +1642,7 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(Qualification::Matched, qualifies_result);
-        assert_eq!(handle_result, GossipAcceptanceResult::Ignored,);
+        assert_eq!(handle_result, GossipAcceptanceResult::Absorbed);
         assert_eq!(
             db.node_by_key(new_node.public_key())
                 .unwrap()
@@ -4325,10 +4324,7 @@ mod tests {
 
         let result = subject.qualifies(&dest_db, agrs.as_slice(), gossip_source);
 
-        assert_eq!(
-            result,
-            Qualification::Matched
-        );
+        assert_eq!(result, Qualification::Matched);
     }
 
     #[test]

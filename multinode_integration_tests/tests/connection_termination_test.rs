@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
@@ -30,7 +31,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -232,7 +232,9 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     // Kill desirable neighbor
     desirable_but_down_node.kill();
     // Debut a new Node
-    debuter_node.transmit_ipchange_or_debut(&masq_real_node).unwrap();
+    debuter_node
+        .transmit_ipchange_or_debut(&masq_real_node)
+        .unwrap();
     // What's the return Gossip?
     let (gossip, ip_addr) = debuter_node
         .wait_for_gossip(Duration::from_secs(2))

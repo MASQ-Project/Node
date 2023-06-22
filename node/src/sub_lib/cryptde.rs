@@ -630,12 +630,12 @@ mod tests {
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::main_cryptde;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
     use serde_cbor;
     use serde_derive::{Deserialize, Serialize};
-    use masq_lib::constants::TEST_DEFAULT_CHAIN;
 
     #[test]
     fn private_key_constructor_works_as_expected() {

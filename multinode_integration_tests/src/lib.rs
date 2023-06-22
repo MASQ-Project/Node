@@ -13,7 +13,7 @@ pub mod masq_node_server;
 pub mod masq_node_ui_client;
 pub mod masq_real_node;
 pub mod mock_blockchain_client_server;
+pub mod mock_router;
 pub mod multinode_gossip;
 pub mod neighborhood_constructor;
 pub mod utils;
-pub mod mock_router;

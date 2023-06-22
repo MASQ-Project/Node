@@ -40,6 +40,7 @@ use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HTTP_PORT, TEST_DEFAULT_CHAIN};
+use masq_lib::utils::to_millis;
 use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -59,7 +60,6 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
-use masq_lib::utils::to_millis;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
@@ -653,7 +653,7 @@ pub mod unshared_test_utils {
         }
 
         pub fn base_and_psmr() -> Vec<PCField> {
-            PCField::base_and (vec![
+            PCField::base_and(vec![
                 PCField::PaymentThresholds,
                 PCField::ScanIntervals,
                 PCField::MappingProtocol,

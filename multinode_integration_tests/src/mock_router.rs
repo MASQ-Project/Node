@@ -19,7 +19,7 @@ impl Default for MockPcpRouter {
 }
 
 impl MockPcpRouter {
-    pub fn new () -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }

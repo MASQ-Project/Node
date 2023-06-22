@@ -107,6 +107,7 @@ mod tests {
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
@@ -114,7 +115,6 @@ mod tests {
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
-    use crate::sub_lib::node_addr::NodeAddr;
 
     #[test]
     fn constants_have_correct_values() {
@@ -341,7 +341,10 @@ mod tests {
         let mut our_node_record: NodeRecord = make_node_record(7771, true);
         our_node_record.inner.accepts_connections = true;
         let expected_node_addr_opt = Some(our_node_record.metadata.node_addr_opt.clone().unwrap());
-        produce_debut_or_ipchange_creates_properly_formed_gossip(our_node_record, expected_node_addr_opt);
+        produce_debut_or_ipchange_creates_properly_formed_gossip(
+            our_node_record,
+            expected_node_addr_opt,
+        );
     }
 
     #[test]
@@ -352,8 +355,10 @@ mod tests {
         produce_debut_or_ipchange_creates_properly_formed_gossip(our_node_record, None);
     }
 
-    fn produce_debut_or_ipchange_creates_properly_formed_gossip(our_node_record: NodeRecord,
-            expected_node_addr_opt: Option<NodeAddr>) {
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip(
+        our_node_record: NodeRecord,
+        expected_node_addr_opt: Option<NodeAddr>,
+    ) {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 

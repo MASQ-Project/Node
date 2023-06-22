@@ -538,7 +538,7 @@ mod tests {
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::fs::File;

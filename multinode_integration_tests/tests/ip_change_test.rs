@@ -1,20 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use multinode_integration_tests_lib::masq_mock_node::{MASQMockNodeGutsBuilder};
+use multinode_integration_tests_lib::masq_mock_node::MASQMockNodeGutsBuilder;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::mock_router::MockPcpRouter;
+use multinode_integration_tests_lib::mock_router::MockRouter;
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::neighborhood::gossip::Gossip_0v1;
+use node_lib::sub_lib::cryptde::decodex;
+use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread;
 use std::time::Duration;
-use multinode_integration_tests_lib::mock_router::MockPcpRouter;
-use node_lib::neighborhood::gossip::Gossip_0v1;
-use node_lib::sub_lib::cryptde::decodex;
-use node_lib::sub_lib::node_addr::NodeAddr;
-use multinode_integration_tests_lib::mock_router::MockRouter;
 
 #[test]
 fn receiving_ipchange_gossip_modifies_connections_appropriately() {
@@ -60,20 +60,24 @@ fn receiving_announce_from_router_produces_ipchange_gossip() {
     let mut db = db_from_node(&root_node);
     let neighbor_key = db.add_node(make_node_record(2345, true)).unwrap();
     db.add_arbitrary_full_neighbor(root_node.public_key(), &neighbor_key);
-    let (_, real_node, mut node_map) =
-        construct_neighborhood(&mut cluster, db, vec![]);
+    let (_, real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
     let new_ip_address = {
         let current_ip_address = match real_node.ip_address() {
             IpAddr::V4(ipv4_addr) => ipv4_addr,
             x => panic!("Expected IPv4 addr; found {:?}", x),
         };
         let octets = &current_ip_address.octets();
-        IpAddr::V4(Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3] + 1))
+        IpAddr::V4(Ipv4Addr::new(
+            octets[0],
+            octets[1],
+            octets[2],
+            octets[3] + 1,
+        ))
     };
     let mock_router = MockPcpRouter::new();
     let mock_node = node_map.remove(&neighbor_key).unwrap();
     thread::sleep(Duration::from_secs(1)); // Wait for the new Node to get situated
-    // Have the mock router announce a change in public IP.
+                                           // Have the mock router announce a change in public IP.
     mock_router.announce_ip_change(real_node.ip_address(), new_ip_address);
     // Verify that IpChange Gossip shows up at the mock Node.
     let (_, _, live_cores_package) = mock_node
@@ -82,7 +86,8 @@ fn receiving_announce_from_router_produces_ipchange_gossip() {
     let mut gossip = decodex::<Gossip_0v1>(
         mock_node.main_cryptde_null().unwrap(),
         &live_cores_package.payload,
-    ).unwrap();
+    )
+    .unwrap();
     let node_record = gossip.node_records.remove(0); // now verify the gossip
     let expected_node_addr = NodeAddr::new(&new_ip_address, &real_node.port_list());
     assert_eq!(node_record.node_addr_opt, Some(expected_node_addr));

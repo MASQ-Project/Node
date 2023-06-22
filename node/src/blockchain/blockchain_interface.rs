@@ -588,8 +588,8 @@ mod tests {
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::find_free_port;
     use serde_derive::Deserialize;
     use serde_json::json;

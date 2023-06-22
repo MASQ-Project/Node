@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use self::sub_lib::utils::indicates_dead_stream;
+use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
@@ -14,15 +15,14 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{IpAddr, Shutdown};
 use std::net::SocketAddr;
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::net::{IpAddr, Shutdown};
 use std::process;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use itertools::Itertools;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
 
@@ -349,7 +349,7 @@ impl DataProbe {
     }
 }
 
-#[derive (Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 struct ProbeTarget {
     ip_address: IpAddr,
     port_specs: Vec<PortSpec>,
@@ -361,7 +361,7 @@ impl FromStr for ProbeTarget {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut main_pieces = s.split(':').collect_vec();
         if main_pieces.len() != 2 {
-            return Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string())
+            return Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string());
         }
         let ip_address_string = main_pieces.remove(0);
         let port_specs_string = main_pieces.remove(0);
@@ -380,8 +380,7 @@ impl FromStr for ProbeTarget {
             .map(|err| err.clone().err().unwrap());
         if first_error_opt.is_some() {
             Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string())
-        }
-        else {
+        } else {
             let port_specs = port_spec_results
                 .into_iter()
                 .map(|result| result.unwrap())
@@ -399,13 +398,13 @@ impl Display for ProbeTarget {
         let port_spec_string = self
             .port_specs
             .iter()
-            .map(|port_spec| format! ("{}{}", port_spec.protocol, port_spec.port))
+            .map(|port_spec| format!("{}{}", port_spec.protocol, port_spec.port))
             .join("/");
         write!(f, "{}:{}", self.ip_address, port_spec_string)
     }
 }
 
-#[derive (Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 struct PortSpec {
     protocol: NetworkProtocol,
     port: u16,
@@ -416,7 +415,7 @@ impl FromStr for PortSpec {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() < 2 {
-            return Err("Syntax: <U|T><port>".to_string())
+            return Err("Syntax: <U|T><port>".to_string());
         }
         let protocol_label = &s[0..1];
         let port_string = &s[1..];
@@ -429,11 +428,11 @@ impl FromStr for PortSpec {
             Ok(p) => p,
             Err(_) => return Err("Syntax: <U|T><port>".to_string()),
         };
-        Ok (PortSpec {protocol, port})
+        Ok(PortSpec { protocol, port })
     }
 }
 
-#[derive (Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 enum NetworkProtocol {
     Tcp,
     Udp,
@@ -442,8 +441,8 @@ enum NetworkProtocol {
 impl Display for NetworkProtocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            NetworkProtocol::Tcp => write! (f, "T"),
-            NetworkProtocol::Udp => write! (f, "U"),
+            NetworkProtocol::Tcp => write!(f, "T"),
+            NetworkProtocol::Udp => write!(f, "U"),
         }
     }
 }
@@ -492,9 +491,7 @@ mod tests {
         let stderr = holder.stderr;
         assert_eq!(
             stderr.get_string(),
-            String::from(
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...\n"
-            )
+            String::from("Syntax: <IP address>:<U|T><port>/<U|T><port>/...\n")
         );
     }
 
@@ -597,23 +594,23 @@ mod tests {
 
     #[test]
     fn can_read_probe_target_from_str() {
-        probe_target_pairs().into_iter()
-            .for_each (|(string, expected)| {
+        probe_target_pairs()
+            .into_iter()
+            .for_each(|(string, expected)| {
+                let result = ProbeTarget::from_str(&string).unwrap();
 
-                let result = ProbeTarget::from_str (&string).unwrap();
-
-                assert_eq! (result, expected);
+                assert_eq!(result, expected);
             })
     }
 
     #[test]
     fn display_implementation_works() {
-        probe_target_pairs().into_iter()
-            .for_each (|(expected, target)| {
-
+        probe_target_pairs()
+            .into_iter()
+            .for_each(|(expected, target)| {
                 let result = target.to_string();
 
-                assert_eq! (result, expected);
+                assert_eq!(result, expected);
             })
     }
 
@@ -623,32 +620,95 @@ mod tests {
             ("", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
             (":", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
             ("X:Y", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:Y", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("X:U4321", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:4321", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:T", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:U4321/", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:U4321/5432", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:U4321/T", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("12.23.34.45:X4321", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
+            (
+                "12.23.34.45:Y",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "X:U4321",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:4321",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:T",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:U4321/",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:U4321/5432",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:U4321/T",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
+            (
+                "12.23.34.45:X4321",
+                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
+            ),
         ]
-            .into_iter()
-            .for_each(|(probe_target_str, err_msg_str)| {
-                let result = ProbeTarget::from_str(probe_target_str).err().unwrap();
+        .into_iter()
+        .for_each(|(probe_target_str, err_msg_str)| {
+            let result = ProbeTarget::from_str(probe_target_str).err().unwrap();
 
-                assert_eq! (&result, err_msg_str)
-            });
+            assert_eq!(&result, err_msg_str)
+        });
     }
 
     fn probe_target_pairs() -> Vec<(String, ProbeTarget)> {
         vec![
-            ("12.23.34.45:T4321/U5432", ProbeTarget {ip_address: IpAddr::from_str("12.23.34.45").unwrap(), port_specs: vec![PortSpec {protocol: NetworkProtocol::Tcp, port: 4321}, PortSpec {protocol: NetworkProtocol::Udp, port: 5432}]}),
-            ("45.34.23.12:U4321/T5432", ProbeTarget {ip_address: IpAddr::from_str("45.34.23.12").unwrap(), port_specs: vec![PortSpec {protocol: NetworkProtocol::Udp, port: 4321}, PortSpec {protocol: NetworkProtocol::Tcp, port: 5432}]}),
-            ("45.34.23.12:U4321", ProbeTarget {ip_address: IpAddr::from_str("45.34.23.12").unwrap(), port_specs: vec![PortSpec {protocol: NetworkProtocol::Udp, port: 4321}]}),
+            (
+                "12.23.34.45:T4321/U5432",
+                ProbeTarget {
+                    ip_address: IpAddr::from_str("12.23.34.45").unwrap(),
+                    port_specs: vec![
+                        PortSpec {
+                            protocol: NetworkProtocol::Tcp,
+                            port: 4321,
+                        },
+                        PortSpec {
+                            protocol: NetworkProtocol::Udp,
+                            port: 5432,
+                        },
+                    ],
+                },
+            ),
+            (
+                "45.34.23.12:U4321/T5432",
+                ProbeTarget {
+                    ip_address: IpAddr::from_str("45.34.23.12").unwrap(),
+                    port_specs: vec![
+                        PortSpec {
+                            protocol: NetworkProtocol::Udp,
+                            port: 4321,
+                        },
+                        PortSpec {
+                            protocol: NetworkProtocol::Tcp,
+                            port: 5432,
+                        },
+                    ],
+                },
+            ),
+            (
+                "45.34.23.12:U4321",
+                ProbeTarget {
+                    ip_address: IpAddr::from_str("45.34.23.12").unwrap(),
+                    port_specs: vec![PortSpec {
+                        protocol: NetworkProtocol::Udp,
+                        port: 4321,
+                    }],
+                },
+            ),
         ]
-            .into_iter()
-            .map(|(string, pt)| {(string.to_string(), pt)})
-            .collect_vec()
+        .into_iter()
+        .map(|(string, pt)| (string.to_string(), pt))
+        .collect_vec()
     }
 
     struct TcpEchoServer {

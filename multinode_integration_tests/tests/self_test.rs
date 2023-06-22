@@ -5,9 +5,12 @@ use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 use multinode_integration_tests_lib::masq_cores_server::MASQCoresServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
+use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
+use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::masquerader::Masquerader;
 use node_lib::sub_lib::cryptde::{CryptDE, PlainData, PublicKey};
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
@@ -22,9 +25,6 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
-use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
-use node_lib::hopper::live_cores_package::LiveCoresPackage;
-use node_lib::masquerader::Masquerader;
 
 #[test]
 fn establishes_masq_node_cluster_from_nothing() {
@@ -87,8 +87,13 @@ fn server_relays_cores_package() {
     )
     .unwrap();
 
-    transmit_package(&mut client, cryptde, incipient, &masquerader,
-                     cryptde.public_key().clone());
+    transmit_package(
+        &mut client,
+        cryptde,
+        incipient,
+        &masquerader,
+        cryptde.public_key().clone(),
+    );
     let package = server.wait_for_package(Duration::from_millis(1000));
     let expired = package
         .to_expired(
@@ -230,8 +235,6 @@ fn transmit_package(
         .unwrap();
     let masqueraded = masquerader
         .mask(encoded_serialized_package.as_slice())
-        .unwrap_or_else(|_| {
-            panic!("Masquerading {}-byte serialized LCP", serialized_lcp.len())
-        });
+        .unwrap_or_else(|_| panic!("Masquerading {}-byte serialized LCP", serialized_lcp.len()));
     node_client.send_chunk(&masqueraded);
 }
