@@ -557,7 +557,7 @@ impl Neighborhood {
                 info!(
                     self.logger,
                     "Database with different min hops value detected; \
-                    expected: {:?}, found in db: {:?}; replacing to {:?}",
+                    currently set: {:?}, found in db: {:?}; changing to {:?}",
                     value_in_neighborhood,
                     value_in_db,
                     value_in_db
@@ -4690,7 +4690,7 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Database with different min hops value detected; \
-            expected: {:?}, found in db: {:?}; replacing to {:?}",
+            currently set: {:?}, found in db: {:?}; changing to {:?}",
             min_hops_in_neighborhood, min_hops_in_db, min_hops_in_db
         ));
     }
