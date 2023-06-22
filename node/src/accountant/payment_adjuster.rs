@@ -26,7 +26,7 @@ In order to continue using services of other Nodes and avoid delinquency \
 bans you will need to put more funds into your consuming wallet.";
 
 pub trait PaymentAdjuster {
-    fn is_adjustment_required(
+    fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
         logger: &Logger,
@@ -45,7 +45,7 @@ pub trait PaymentAdjuster {
 pub struct PaymentAdjusterReal {}
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn is_adjustment_required(
+    fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
         logger: &Logger,
@@ -261,20 +261,18 @@ impl PaymentAdjusterReal {
                 let original_balance = account.balance_wei;
                 let proposed_adjusted_balance =
                     criteria_sum * proportional_fragment_of_cw_balance / multiplication_coeff;
-                if proposed_adjusted_balance < original_balance / 2
-                //TODO write a small test to add '=' too
-                {
+                if ((original_balance * 10) / 2) <= (proposed_adjusted_balance * 10) {
+                    account.balance_wei = proposed_adjusted_balance;
+                    let decided_account = DecidedPayableAccount::new(account, original_balance);
+                    decided.push(decided_account);
+                    (decided, disqualified)
+                } else {
                     let disqualified_account = DisqualifiedPayableAccount::new(
                         account.wallet,
                         original_balance,
                         proposed_adjusted_balance,
                     );
                     disqualified.push(disqualified_account);
-                    (decided, disqualified)
-                } else {
-                    account.balance_wei = proposed_adjusted_balance;
-                    let decided_account = DecidedPayableAccount::new(account, original_balance);
-                    decided.push(decided_account);
                     (decided, disqualified)
                 }
             },
@@ -534,7 +532,15 @@ impl PaymentAdjusterReal {
             .chain(
                 excluded
                     .into_iter()
-                    .map(|(wallet, balance)| format!("{} {}", wallet, balance.initial_balance)),
+                    .sorted_by(|(_, debug_details_a), (_, debug_details_b)| {
+                        Ord::cmp(
+                            &debug_details_b.used_criterion,
+                            &debug_details_a.used_criterion,
+                        )
+                    })
+                    .map(|(wallet, debug_details)| {
+                        format!("{} {}", wallet, debug_details.initial_balance)
+                    }),
             )
             .join("\n")
         });
@@ -580,8 +586,9 @@ impl PaymentAdjusterReal {
                 .zip(adjusted_accounts.iter())
                 .collect::<Vec<_>>();
             let prefabricated_adjusted =
-            //TODO extend the collection of adjusted up to the initial length using Option
-                Self::wallets_and_balances_with_criteria_opt(Either::Right(&concise_input)).right().expectv("criterion + wallet + balance");
+                Self::wallets_and_balances_with_criteria_opt(Either::Right(&concise_input))
+                    .right()
+                    .expectv("criterion + wallet + balance");
             format!(
                 "\n\
                 {:<length$} {}\n\
@@ -803,7 +810,7 @@ struct AdjustmentIterationResult {
     disqualified_accounts: Vec<DisqualifiedPayableAccount>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct DecidedPayableAccount {
     adjusted_account: PayableAccount,
     former_balance: u128,
@@ -843,7 +850,7 @@ impl From<(DecidedPayableAccount, DecidedPayableAccountResolution)> for PayableA
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct DisqualifiedPayableAccount {
     wallet: Wallet,
     proposed_adjusted_balance: u128,
@@ -897,8 +904,8 @@ pub enum AnalysisError {}
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::{
-        log_10, Adjustment, DisqualifiedPayableAccount, PaymentAdjuster, PaymentAdjusterReal,
-        REFILL_RECOMMENDATION,
+        log_10, Adjustment, DecidedPayableAccount, DisqualifiedPayableAccount, PaymentAdjuster,
+        PaymentAdjusterReal, REFILL_RECOMMENDATION,
     };
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -1006,9 +1013,9 @@ bans you will need to put more funds into your consuming wallet."
     }
 
     #[test]
-    fn is_adjustment_required_negative_answer() {
+    fn search_for_indispensable_adjustment_negative_answer() {
         init_test_logging();
-        let test_name = "is_adjustment_required_negative_answer";
+        let test_name = "search_for_indispensable_adjustment_negative_answer";
         let subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
         //masq balance > payments
@@ -1040,7 +1047,7 @@ bans you will need to put more funds into your consuming wallet."
 
         [msg_1, msg_2, msg_3, msg_4].into_iter().for_each(|msg| {
             assert_eq!(
-                subject.is_adjustment_required(&msg, &logger),
+                subject.search_for_indispensable_adjustment(&msg, &logger),
                 Ok(None),
                 "failed for msg {:?}",
                 msg
@@ -1051,15 +1058,15 @@ bans you will need to put more funds into your consuming wallet."
     }
 
     #[test]
-    fn is_adjustment_required_positive_for_masq_token() {
+    fn search_for_indispensable_adjustment_positive_for_masq_token() {
         init_test_logging();
-        let test_name = "is_adjustment_required_positive_for_masq_token";
+        let test_name = "search_for_indispensable_adjustment_positive_for_masq_token";
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
         let msg =
             make_payable_setup_msg_coming_from_blockchain_bridge(Some((vec![85, 16], 100)), None);
 
-        let result = subject.is_adjustment_required(&msg, &logger);
+        let result = subject.search_for_indispensable_adjustment(&msg, &logger);
 
         assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
         let log_handler = TestLogHandler::new();
@@ -1071,9 +1078,9 @@ bans you will need to put more funds into your consuming wallet."
     }
 
     #[test]
-    fn is_adjustment_required_positive_for_gas() {
+    fn search_for_indispensable_adjustment_positive_for_gas() {
         init_test_logging();
-        let test_name = "is_adjustment_required_positive_for_gas";
+        let test_name = "search_for_indispensable_adjustment_positive_for_gas";
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
         let number_of_payments = 3;
@@ -1087,7 +1094,7 @@ bans you will need to put more funds into your consuming wallet."
             }),
         );
 
-        let result = subject.is_adjustment_required(&msg, &logger);
+        let result = subject.search_for_indispensable_adjustment(&msg, &logger);
 
         let expected_limiting_count = number_of_payments as u16 - 1;
         assert_eq!(
@@ -1168,6 +1175,46 @@ bans you will need to put more funds into your consuming wallet."
             result,
             vec![10_000_000, 10_000_000_000_000, 10_000_000_000, 1_000_000]
         )
+    }
+
+    #[test]
+    fn recreate_accounts_with_proportioned_balances_accepts_exact_adjustment_by_half_but_not_by_more(
+    ) {
+        let mut payable_account_1 = make_payable_account(1);
+        payable_account_1.balance_wei = 1_000_000;
+        let mut payable_account_2 = make_payable_account(2);
+        payable_account_2.balance_wei = 1_000_001;
+        let proportional_fragment_of_cw_balance = 200_000;
+        let multiplication_coeff = 10;
+        let expected_adjusted_balance = 500_000;
+        let criterion =
+            expected_adjusted_balance * multiplication_coeff / proportional_fragment_of_cw_balance; // = 25
+        let weights_and_accounts = vec![
+            (criterion, payable_account_1.clone()),
+            (criterion, payable_account_2.clone()),
+        ];
+
+        let (decided_accounts, disqualified_accounts) =
+            PaymentAdjusterReal::recreate_accounts_with_proportioned_balances(
+                weights_and_accounts,
+                proportional_fragment_of_cw_balance,
+                multiplication_coeff,
+            );
+
+        let expected_decided_payable_account = DecidedPayableAccount {
+            adjusted_account: PayableAccount {
+                balance_wei: 500_000,
+                ..payable_account_1
+            },
+            former_balance: 1_000_000,
+        };
+        let expected_disqualified_account = DisqualifiedPayableAccount {
+            wallet: payable_account_2.wallet,
+            proposed_adjusted_balance: 500_000,
+            original_balance: 1_000_001,
+        };
+        assert_eq!(decided_accounts, vec![expected_decided_payable_account]);
+        assert_eq!(disqualified_accounts, vec![expected_disqualified_account])
     }
 
     #[test]
@@ -1811,10 +1858,9 @@ bans you will need to put more funds into your consuming wallet."
     }
 
     #[test]
-    fn adjust_payments_when_both_parameters_and_masq_as_well_as_gas_will_limit_the_count() {
+    fn adjust_payments_when_masq_as_well_as_gas_will_limit_the_count() {
         init_test_logging();
-        let test_name =
-            "adjust_payments_when_both_parameters_and_masq_as_well_as_gas_will_limit_the_count";
+        let test_name = "adjust_payments_when_masq_as_well_as_gas_will_limit_the_count";
         let now = SystemTime::now();
         //thrown away by gas
         let account_1 = PayableAccount {

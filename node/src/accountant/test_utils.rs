@@ -1391,23 +1391,26 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
-    is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
+    search_for_indispensable_adjustment_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
+    search_for_indispensable_adjustment_results:
+        RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn is_adjustment_required(
+    fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
-        self.is_adjustment_required_params
+        self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
             .push((msg.clone(), logger.clone()));
-        self.is_adjustment_required_results.borrow_mut().remove(0)
+        self.search_for_indispensable_adjustment_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn adjust_payments(
@@ -1425,19 +1428,19 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 }
 
 impl PaymentAdjusterMock {
-    pub fn is_adjustment_required_params(
+    pub fn search_for_indispensable_adjustment_params(
         mut self,
         params: &Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
     ) -> Self {
-        self.is_adjustment_required_params = params.clone();
+        self.search_for_indispensable_adjustment_params = params.clone();
         self
     }
 
-    pub fn is_adjustment_required_result(
+    pub fn search_for_indispensable_adjustment_result(
         self,
         result: Result<Option<Adjustment>, AnalysisError>,
     ) -> Self {
-        self.is_adjustment_required_results
+        self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .push(result);
         self

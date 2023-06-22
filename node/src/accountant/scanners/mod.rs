@@ -260,7 +260,10 @@ impl PayableScannerMiddleProcedures for PayableScanner {
         msg: PayablePaymentSetup,
         logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
-        match self.payment_adjuster.is_adjustment_required(&msg, logger) {
+        match self
+            .payment_adjuster
+            .search_for_indispensable_adjustment(&msg, logger)
+        {
             Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
                 accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,

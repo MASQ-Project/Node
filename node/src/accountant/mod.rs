@@ -1378,7 +1378,7 @@ mod tests {
         // all that is mocked in this test
         init_test_logging();
         let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
-        let is_adjustment_required_params_arc = Arc::new(Mutex::new(vec![]));
+        let search_for_indispensable_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(OutcomingPaymentsInstructions))
@@ -1386,8 +1386,10 @@ mod tests {
             .recipient();
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
-            .is_adjustment_required_params(&is_adjustment_required_params_arc)
-            .is_adjustment_required_result(Ok(None));
+            .search_for_indispensable_adjustment_params(
+                &search_for_indispensable_adjustment_params_arc,
+            )
+            .search_for_indispensable_adjustment_result(Ok(None));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1421,9 +1423,13 @@ mod tests {
             .unwrap();
 
         system.run();
-        let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
-        let (payable_payment_setup_msg, logger_clone) = is_adjustment_required_params.remove(0);
-        assert!(is_adjustment_required_params.is_empty());
+        let mut search_for_indispensable_adjustment_params =
+            search_for_indispensable_adjustment_params_arc
+                .lock()
+                .unwrap();
+        let (payable_payment_setup_msg, logger_clone) =
+            search_for_indispensable_adjustment_params.remove(0);
+        assert!(search_for_indispensable_adjustment_params.is_empty());
         assert_eq!(
             payable_payment_setup_msg,
             consuming_balances_and_qualified_payments
@@ -1486,7 +1492,7 @@ mod tests {
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
-            .is_adjustment_required_result(Ok(Some(Adjustment::MasqToken)))
+            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(adjusted_payments_instructions);
         let payable_scanner = PayableScannerBuilder::new()
