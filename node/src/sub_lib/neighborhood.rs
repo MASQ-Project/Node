@@ -398,21 +398,14 @@ impl FromStr for Hops {
 
 impl Display for Hops {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Hops::OneHop => write!(f, "1"),
-            Hops::TwoHops => write!(f, "2"),
-            Hops::ThreeHops => write!(f, "3"),
-            Hops::FourHops => write!(f, "4"),
-            Hops::FiveHops => write!(f, "5"),
-            Hops::SixHops => write!(f, "6"),
-        }
+        write!(f, "{}", *self as usize)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
-    pub min_hops_count: Hops,
+    pub min_hops: Hops,
 }
 
 lazy_static! {
@@ -589,7 +582,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops_count: Hops,
+    pub min_hops: Hops,
 }
 
 pub struct NeighborhoodTools {
