@@ -550,7 +550,7 @@ pub struct UiPaymentThresholds {
 pub enum UiConnectionStage {
     NotConnected,
     ConnectedToNeighbor,
-    ThreeHopsRouteFound,
+    RouteFound,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

@@ -261,3 +261,36 @@ discrepancies they find.
 
 Once your PR is approved both by the reviewer and by the QA lead, the reviewer will merge it into the public repo's
 `master` branch for you, and you can start on another issue!
+
+#### Versioning
+
+After your code is merged into the `master` branch and approved for a version bump, you can utilize the 
+`Node/ci/bump_version.sh` script.
+
+The `bump_version.sh` script is designed to modify the version inside `Cargo.toml` files and update the corresponding 
+`Cargo.lock` files for Rust projects. The following documentation explains how the script works and how to use it.
+
+##### Usage
+
+To use the script, navigate to the `Node/ci` directory and execute the following command:
+
+```bash
+./bump_version.sh <version>
+```
+
+Where `<version>` is the new version number you want to set. The version number should be in the form `x.y.z`, 
+where `x`, `y`, and `z` are positive integers. The script validates that the argument is a valid version number and 
+exits with an error message if the argument is not valid.
+
+Let's say you want to update the version from `6.9.0` to `6.9.1`. Assuming you're inside the `Node/ci` directory.
+You can use the following command to run the script:
+
+```bash
+./bump_version.sh 6.9.1
+```
+
+Note: The script only modifies the version numbers inside the cargo files, and does not connect to the internet or 
+modify the project's dependencies in any way.
+
+The script is easy to use and validates the command-line argument to ensure that it is a valid version number. It also 
+reports any errors that occur during the modification process.

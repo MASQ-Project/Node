@@ -97,11 +97,6 @@ mod tests {
     use actix::Actor;
 
     #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_MINIMUM_HOP_COUNT, 3);
-    }
-
-    #[test]
     fn proxy_server_subs_debug() {
         let recorder = Recorder::new().start();
 

@@ -10,7 +10,9 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
+use crate::accountant::database_access_objects::banned_dao::{
+    BannedCacheLoader, BannedCacheLoaderReal,
+};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -640,6 +642,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -1081,6 +1084,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1154,6 +1158,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1297,6 +1302,7 @@ mod tests {
                 vec![],
                 rate_pack(100),
             ),
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1450,6 +1456,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1638,6 +1645,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),
@@ -1916,22 +1924,21 @@ mod tests {
         }
 
         let current_dir = current_dir().unwrap();
-        let file_path = current_dir
-            .join("src")
-            .join("accountant")
-            .join("receivable_dao.rs");
+        let file_path = current_dir.join(PathBuf::from_iter([
+            "src",
+            "accountant",
+            "database_access_objects",
+            "receivable_dao.rs",
+        ]));
         let file = match File::open(file_path) {
             Ok(file) => file,
-            Err(_) => {
-                if Skip == check_if_source_code_is_attached(&current_dir) {
-                    return Skip;
-                } else {
-                    panic!(
-                        "if panics, the file receivable_dao.rs probably doesn't exist or \
+            Err(_) => match check_if_source_code_is_attached(&current_dir) {
+                Skip => return Skip,
+                _ => panic!(
+                    "if panics, the file receivable_dao.rs probably doesn't exist or \
                 has been moved to an unexpected location"
-                    )
-                }
-            }
+                ),
+            },
         };
         let reader = BufReader::new(file);
         let lines_without_fn_trait_definition =

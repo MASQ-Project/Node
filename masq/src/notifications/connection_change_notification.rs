@@ -21,8 +21,8 @@ impl ConnectionChangeNotification {
             UiConnectionStage::ConnectedToNeighbor => {
                 "\nConnectedToNeighbor: Established neighborship with an external node.\n"
             }
-            UiConnectionStage::ThreeHopsRouteFound => {
-                "\nThreeHopsRouteFound: You can now relay data over the network.\n"
+            UiConnectionStage::RouteFound => {
+                "\nRouteFound: You can now relay data over the network.\n"
             }
         };
         short_writeln!(stdout, "{}", output_string);
@@ -58,12 +58,12 @@ mod tests {
     }
 
     #[test]
-    fn broadcasts_three_hops_route_found() {
+    fn broadcasts_route_found() {
         running_test();
         let mut stdout = ByteArrayWriter::new();
         let stderr = ByteArrayWriter::new();
         let msg = UiConnectionChangeBroadcast {
-            stage: UiConnectionStage::ThreeHopsRouteFound,
+            stage: UiConnectionStage::RouteFound,
         };
         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
@@ -71,7 +71,7 @@ mod tests {
 
         assert_eq!(
             stdout.get_string(),
-            "\nThreeHopsRouteFound: You can now relay data over the network.\n\n"
+            "\nRouteFound: You can now relay data over the network.\n\n"
         );
         assert_eq!(stderr.get_string(), "".to_string());
     }
