@@ -2999,7 +2999,7 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(u128::MAX)))
+            .get_transaction_fee_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))

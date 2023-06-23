@@ -326,7 +326,7 @@ fn assert_balances(
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
-        .get_gas_balance(&wallet)
+        .get_transaction_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),
