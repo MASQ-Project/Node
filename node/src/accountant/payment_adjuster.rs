@@ -59,19 +59,17 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             StageData::FinancialAndTechDetails(details) => details,
         };
 
-        //TODO use question mark later
-        let limit_by_gas_opt = match Self::determine_transactions_count_limit_by_gas(
+        match Self::determine_transactions_count_limit_by_gas(
             &this_stage_data,
             qualified_payables.len(),
             logger,
         ) {
-            Ok(None) => None,
-            Ok(Some(limiting_count)) => Some(limiting_count),
+            Ok(None) => (),
+            Ok(Some(limited_count_from_gas)) => return Ok(Some(Adjustment::GasFirstAndThenMaybeMasq {limited_count_from_gas})),
             Err(e) => todo!(),
         };
 
-        //TODO use question mark later
-        let required_by_masq_token = match Self::check_need_of_masq_balances_adjustment(
+        match Self::check_need_of_masq_balances_adjustment(
             logger,
             Either::Left(qualified_payables),
             this_stage_data
@@ -79,17 +77,11 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .masq_tokens_wei
                 .as_u128(),
         ) {
-            Ok(required) => required,
+            Ok(required) => match required {
+                true => Ok(Some(Adjustment::MasqToken)),
+                false => Ok(None)
+            }
             Err(e) => todo!(),
-        };
-
-        match (limit_by_gas_opt, required_by_masq_token) {
-            (None, false) => Ok(None),
-            (None, true) => Ok(Some(Adjustment::MasqToken)),
-            (Some(limited_count_from_gas), false) => Ok(Some(Adjustment::Gas {
-                limited_count_from_gas,
-            })),
-            (Some(limiting_count), true) => todo!(),
         }
     }
 
@@ -112,26 +104,19 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                     &qualified_payables,
                 ));
 
-        let gas_limitation_context_opt = match setup.adjustment {
-            Adjustment::Gas {
+        let gas_limitation_opt = match setup.adjustment {
+            Adjustment::GasFirstAndThenMaybeMasq {
                 limited_count_from_gas,
-            } => Some(GasLimitationContext {
-                limited_count_from_gas,
-                is_masq_token_insufficient: false,
-            }),
-            Adjustment::Both {
-                limited_count_from_gas,
-            } => Some(GasLimitationContext {
-                limited_count_from_gas,
-                is_masq_token_insufficient: true,
-            }),
+            } => Some(
+                limited_count_from_gas
+            ),
             Adjustment::MasqToken => None,
         };
 
         let (adjusted_accounts, debug_info_opt) = Self::run_recursively(
             vec![],
             current_stage_data,
-            gas_limitation_context_opt,
+            gas_limitation_opt,
             qualified_payables,
             now,
             logger,
@@ -623,6 +608,10 @@ impl PaymentAdjusterReal {
         info!(logger, "{}", REFILL_RECOMMENDATION)
     }
 
+    fn stuff_previously_fully_qualified_accounts_with_sentinels(criteria_of_newly_qualified: Vec<u128>, count_of_previously_fully_qualified: usize)->Vec<u128>{
+        todo!()
+    }
+
     fn rebuild_accounts(criteria_and_accounts: Vec<(u128, PayableAccount)>) -> Vec<PayableAccount> {
         criteria_and_accounts
             .into_iter()
@@ -633,7 +622,7 @@ impl PaymentAdjusterReal {
     fn run_recursively(
         fully_qualified_accounts: Vec<PayableAccount>,
         collected_setup_data: FinancialAndTechDetails,
-        gas_limitation_context_opt: Option<GasLimitationContext>,
+        gas_limitation_opt: Option<u16>,
         qualified_payables: Vec<PayableAccount>,
         now: SystemTime,
         logger: &Logger,
@@ -652,7 +641,7 @@ impl PaymentAdjusterReal {
 
         let adjustment_result: AdjustmentIterationResult =
             match Self::give_the_job_to_adjustment_workers(
-                gas_limitation_context_opt,
+                gas_limitation_opt,
                 accounts_with_individual_criteria,
                 collected_setup_data
                     .consuming_wallet_balances
@@ -687,6 +676,8 @@ impl PaymentAdjusterReal {
             );
         };
 
+        let debug_info_opt = debug_info_opt.map(|vec_of_criteria| Self::stuff_previously_fully_qualified_accounts_with_sentinels(vec_of_criteria, fully_qualified_accounts.len()));
+
         (
             fully_qualified_accounts
                 .into_iter()
@@ -697,19 +688,17 @@ impl PaymentAdjusterReal {
     }
 
     fn give_the_job_to_adjustment_workers(
-        gas_limitation_context_opt: Option<GasLimitationContext>,
+        gas_limitation_opt: Option<u16>,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         cw_masq_balance_wei: u128,
         logger: &Logger,
     ) -> AdjustmentCompletion {
-        match gas_limitation_context_opt {
-            Some(known_limits) => {
+        match gas_limitation_opt {
+            Some(gas_limit) => {
                 let weighted_accounts_cut_by_gas = Self::cut_back_by_gas_count_limit(
                     accounts_with_individual_criteria,
-                    known_limits.limited_count_from_gas,
+                    gas_limit,
                 );
-                match known_limits.is_masq_token_insufficient {
-                    true => {
                         match Self::check_need_of_masq_balances_adjustment(
                             logger,
                             Either::Right(&weighted_accounts_cut_by_gas),
@@ -729,11 +718,6 @@ impl PaymentAdjusterReal {
                             Err(e) => todo!(),
                         }
                     }
-                    false => AdjustmentCompletion::Finished(Self::rebuild_accounts(
-                        weighted_accounts_cut_by_gas,
-                    )),
-                }
-            }
             None => AdjustmentCompletion::Continue(Self::handle_masq_token_adjustment(
                 cw_masq_balance_wei,
                 accounts_with_individual_criteria,
@@ -887,8 +871,7 @@ impl AccountAdjustmentDebugDetails {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Adjustment {
     MasqToken,
-    Gas { limited_count_from_gas: u16 },
-    Both { limited_count_from_gas: u16 },
+    GasFirstAndThenMaybeMasq { limited_count_from_gas: u16 },
 }
 
 #[derive(Clone, Copy)]
@@ -974,7 +957,7 @@ bans you will need to put more funds into your consuming wallet."
                 conditions.desired_gas_price_gwei,
                 conditions.number_of_payments,
                 conditions.estimated_gas_limit_per_transaction,
-                conditions.consuming_wallet_masq_gwei,
+                conditions.consuming_wallet_gas_gwei,
             ),
             None => (120, qualified_payables_gwei.len(), 55_000, u64::MAX),
         };
@@ -1009,7 +992,7 @@ bans you will need to put more funds into your consuming wallet."
         desired_gas_price_gwei: u64,
         number_of_payments: usize,
         estimated_gas_limit_per_transaction: u64,
-        consuming_wallet_masq_gwei: u64,
+        consuming_wallet_gas_gwei: u64,
     }
 
     #[test]
@@ -1031,7 +1014,7 @@ bans you will need to put more funds into your consuming wallet."
                 desired_gas_price_gwei: 111,
                 number_of_payments: 5,
                 estimated_gas_limit_per_transaction: 53_000,
-                consuming_wallet_masq_gwei: (111 * 5 * 53_000) + 1,
+                consuming_wallet_gas_gwei: (111 * 5 * 53_000) + 1,
             }),
         );
         //gas balance = payments
@@ -1041,7 +1024,7 @@ bans you will need to put more funds into your consuming wallet."
                 desired_gas_price_gwei: 100,
                 number_of_payments: 6,
                 estimated_gas_limit_per_transaction: 53_000,
-                consuming_wallet_masq_gwei: 100 * 6 * 53_000,
+                consuming_wallet_gas_gwei: 100 * 6 * 53_000,
             }),
         );
 
@@ -1090,7 +1073,7 @@ bans you will need to put more funds into your consuming wallet."
                 desired_gas_price_gwei: 100,
                 number_of_payments,
                 estimated_gas_limit_per_transaction: 55_000,
-                consuming_wallet_masq_gwei: 100 * 3 * 55_000 - 1,
+                consuming_wallet_gas_gwei: 100 * 3 * 55_000 - 1,
             }),
         );
 
@@ -1099,7 +1082,7 @@ bans you will need to put more funds into your consuming wallet."
         let expected_limiting_count = number_of_payments as u16 - 1;
         assert_eq!(
             result,
-            Ok(Some(Adjustment::Gas {
+            Ok(Some(Adjustment::GasFirstAndThenMaybeMasq {
                 limited_count_from_gas: expected_limiting_count
             }))
         );
@@ -1561,9 +1544,9 @@ bans you will need to put more funds into your consuming wallet."
     }
 
     #[test]
-    fn adjust_payments_when_only_gas_limits_the_final_transaction_count() {
+    fn adjust_payments_when_only_gas_limits_the_final_transaction_count_and_masq_will_do_after_the_gas_cut() {
         init_test_logging();
-        let test_name = "adjust_payments_when_only_gas_limits_the_final_transaction_count";
+        let test_name = "adjust_payments_when_only_gas_limits_the_final_transaction_count_and_masq_will_do_after_the_gas_cut";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -1602,7 +1585,7 @@ bans you will need to put more funds into your consuming wallet."
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::Gas {
+            adjustment: Adjustment::GasFirstAndThenMaybeMasq {
                 limited_count_from_gas: 2,
             },
         };
@@ -1730,132 +1713,132 @@ bans you will need to put more funds into your consuming wallet."
         least half of the debt"));
     }
 
-    #[test]
-    fn adjust_payments_when_both_parameters_must_be_treated_but_masq_doesnt_cut_down_any_account_it_just_adjusts_the_balances(
-    ) {
-        init_test_logging();
-        let test_name = "adjust_payments_when_gas_limits_the_final_transaction_count";
-        let now = SystemTime::now();
-        let account_1 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 111_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 333_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_3 = PayableAccount {
-            wallet: make_wallet("ghk"),
-            balance_wei: 222_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
-        let subject = PaymentAdjusterReal::new();
-        let consuming_wallet_masq_balance = 111_000_000_000_000_u128 + 333_000_000_000_000;
-        let setup_msg = PayablePaymentSetup {
-            qualified_payables,
-            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
-                FinancialAndTechDetails {
-                    consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
-                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
-                    },
-                    estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
-                },
-            )),
-            response_skeleton_opt: None,
-        };
-        let adjustment_setup = AwaitedAdjustment {
-            original_setup_msg: setup_msg,
-            adjustment: Adjustment::Both {
-                limited_count_from_gas: 2,
-            },
-        };
-
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
-
-        let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
-            account_2,
-            account_3,
-            None,
-            consuming_wallet_masq_balance,
-            now,
-        );
-        assert_eq!(
-            result,
-            OutcomingPaymentsInstructions {
-                accounts: expected_accounts,
-                response_skeleton_opt: None
-            }
-        );
-    }
-
-    #[test]
-    fn adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut(
-    ) {
-        init_test_logging();
-        let test_name = "adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut";
-        let now = SystemTime::now();
-        let account_1 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 111_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 333_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_3 = PayableAccount {
-            wallet: make_wallet("ghk"),
-            balance_wei: 222_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
-        let subject = PaymentAdjusterReal::new();
-        let consuming_wallet_masq_balance = 333_000_000_000_000_u128 + 222_000_000_000_000 + 1;
-        let setup_msg = PayablePaymentSetup {
-            qualified_payables,
-            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
-                FinancialAndTechDetails {
-                    consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
-                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
-                    },
-                    estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
-                },
-            )),
-            response_skeleton_opt: None,
-        };
-        let adjustment_setup = AwaitedAdjustment {
-            original_setup_msg: setup_msg,
-            adjustment: Adjustment::Both {
-                limited_count_from_gas: 2,
-            },
-        };
-
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
-
-        assert_eq!(
-            result,
-            OutcomingPaymentsInstructions {
-                accounts: vec![account_2, account_3],
-                response_skeleton_opt: None
-            }
-        );
-    }
+    // #[test]
+    // fn adjust_payments_when_both_parameters_must_be_treated_but_masq_doesnt_cut_down_any_account_it_just_adjusts_the_balances(
+    // ) {
+    //     init_test_logging();
+    //     let test_name = "adjust_payments_when_gas_limits_the_final_transaction_count";
+    //     let now = SystemTime::now();
+    //     let account_1 = PayableAccount {
+    //         wallet: make_wallet("abc"),
+    //         balance_wei: 111_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let account_2 = PayableAccount {
+    //         wallet: make_wallet("def"),
+    //         balance_wei: 333_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let account_3 = PayableAccount {
+    //         wallet: make_wallet("ghk"),
+    //         balance_wei: 222_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+    //     let subject = PaymentAdjusterReal::new();
+    //     let consuming_wallet_masq_balance = 111_000_000_000_000_u128 + 333_000_000_000_000;
+    //     let setup_msg = PayablePaymentSetup {
+    //         qualified_payables,
+    //         this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+    //             FinancialAndTechDetails {
+    //                 consuming_wallet_balances: ConsumingWalletBalances {
+    //                     gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+    //                     //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+    //                     masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+    //                 },
+    //                 estimated_gas_limit_per_transaction: 77_000,
+    //                 desired_gas_price_gwei: 24,
+    //             },
+    //         )),
+    //         response_skeleton_opt: None,
+    //     };
+    //     let adjustment_setup = AwaitedAdjustment {
+    //         original_setup_msg: setup_msg,
+    //         adjustment: Adjustment::Both {
+    //             limited_count_from_gas: 2,
+    //         },
+    //     };
+    //
+    //     let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+    //
+    //     let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
+    //         account_2,
+    //         account_3,
+    //         None,
+    //         consuming_wallet_masq_balance,
+    //         now,
+    //     );
+    //     assert_eq!(
+    //         result,
+    //         OutcomingPaymentsInstructions {
+    //             accounts: expected_accounts,
+    //             response_skeleton_opt: None
+    //         }
+    //     );
+    // }
+    //
+    // #[test]
+    // fn adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut(
+    // ) {
+    //     init_test_logging();
+    //     let test_name = "adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut";
+    //     let now = SystemTime::now();
+    //     let account_1 = PayableAccount {
+    //         wallet: make_wallet("abc"),
+    //         balance_wei: 111_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let account_2 = PayableAccount {
+    //         wallet: make_wallet("def"),
+    //         balance_wei: 333_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let account_3 = PayableAccount {
+    //         wallet: make_wallet("ghk"),
+    //         balance_wei: 222_000_000_000_000,
+    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+    //         pending_payable_opt: None,
+    //     };
+    //     let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+    //     let subject = PaymentAdjusterReal::new();
+    //     let consuming_wallet_masq_balance = 333_000_000_000_000_u128 + 222_000_000_000_000 + 1;
+    //     let setup_msg = PayablePaymentSetup {
+    //         qualified_payables,
+    //         this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+    //             FinancialAndTechDetails {
+    //                 consuming_wallet_balances: ConsumingWalletBalances {
+    //                     gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+    //                     //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+    //                     masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+    //                 },
+    //                 estimated_gas_limit_per_transaction: 77_000,
+    //                 desired_gas_price_gwei: 24,
+    //             },
+    //         )),
+    //         response_skeleton_opt: None,
+    //     };
+    //     let adjustment_setup = AwaitedAdjustment {
+    //         original_setup_msg: setup_msg,
+    //         adjustment: Adjustment::Both {
+    //             limited_count_from_gas: 2,
+    //         },
+    //     };
+    //
+    //     let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+    //
+    //     assert_eq!(
+    //         result,
+    //         OutcomingPaymentsInstructions {
+    //             accounts: vec![account_2, account_3],
+    //             response_skeleton_opt: None
+    //         }
+    //     );
+    // }
 
     #[test]
     fn adjust_payments_when_masq_as_well_as_gas_will_limit_the_count() {
@@ -1904,7 +1887,7 @@ bans you will need to put more funds into your consuming wallet."
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::Both {
+            adjustment: Adjustment::GasFirstAndThenMaybeMasq {
                 limited_count_from_gas: 2,
             },
         };
