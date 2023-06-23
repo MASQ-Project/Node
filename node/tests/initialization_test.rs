@@ -10,7 +10,7 @@ use masq_lib::messages::{
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::{add_masq_and_chain_directories, find_free_port};
+use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
@@ -233,10 +233,9 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         node.wait_for_exit();
     }
     let db_dir = node_home_directory("integration", test_name);
-    let data_dir_chain_path = add_masq_and_chain_directories(DEFAULT_CHAIN, &db_dir);
 
     let conn = Connection::open_with_flags(
-        &data_dir_chain_path.join(DATABASE_FILE),
+        &db_dir.join(DATABASE_FILE),
         OpenFlags::SQLITE_OPEN_READ_WRITE,
     )
     .unwrap();

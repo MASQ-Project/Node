@@ -3,10 +3,9 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use masq_lib::utils::add_masq_and_chain_directories;
+use masq_lib::utils::add_chain_specific_directory;
 use std::fs::create_dir_all;
 #[cfg(not(target_os = "windows"))]
 use std::process;
@@ -37,7 +36,7 @@ fn node_exits_from_future_panic_integration() {
 fn node_logs_panic_integration() {
     let data_directory =
         ensure_node_home_directory_exists("integration", "node_logs_panic_integration");
-    let data_dir_chain_path = add_masq_and_chain_directories(DEFAULT_CHAIN, &data_directory);
+    let data_dir_chain_path = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     create_dir_all(&data_dir_chain_path).expect(
         "Could not create chain directory inside node_logs_panic_integration home/MASQ directory",
     );
@@ -74,8 +73,7 @@ fn node_logfile_does_not_belong_to_root_integration() {
         false,
         true,
     );
-    let log_file_dir = add_masq_and_chain_directories(Chain::PolyMumbai, &node.data_dir);
-    let logfile_path = MASQNode::path_to_logfile(&log_file_dir);
+    let logfile_path = MASQNode::path_to_logfile(&node.data_dir);
 
     thread::sleep(Duration::from_secs(2));
     node.kill().unwrap();

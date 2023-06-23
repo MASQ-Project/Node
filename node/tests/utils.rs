@@ -24,7 +24,6 @@ use std::time::Instant;
 #[derive(Debug)]
 pub struct MASQNode {
     pub data_dir: PathBuf,
-    chain: Chain,
     child: Option<process::Child>,
     output: Option<Output>,
 }
@@ -165,11 +164,7 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, regex_pattern: &str, limit_ms: Option<u64>) {
-        Self::wait_for_match_at_directory(
-            regex_pattern,
-            &add_masq_and_chain_directories(self.chain, self.data_dir.as_path()),
-            limit_ms,
-        );
+        Self::wait_for_match_at_directory(regex_pattern, &self.data_dir.as_path(), limit_ms);
     }
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
@@ -353,7 +348,6 @@ impl MASQNode {
         } else {
             node_home_directory("integration", test_name)
         };
-        let chain = Self::get_chain_from_config(&config_opt);
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
         }
@@ -365,18 +359,17 @@ impl MASQNode {
         } else {
             &mut command
         };
-        let mut result = Self::spawn_process(command, data_dir.to_owned(), chain);
+        let mut result = Self::spawn_process(command, data_dir.to_owned());
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
         result
     }
 
-    fn spawn_process(cmd: &mut Command, data_dir: PathBuf, chain: Chain) -> MASQNode {
+    fn spawn_process(cmd: &mut Command, data_dir: PathBuf) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
             data_dir,
-            chain,
             child: Some(child),
             output: None,
         }
