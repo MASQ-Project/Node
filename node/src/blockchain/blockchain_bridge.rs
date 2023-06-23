@@ -6,8 +6,8 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceNull, BlockchainInterfaceWeb3,
+    PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -221,17 +221,18 @@ impl BlockchainBridge {
         Box<dyn BlockchainInterface>,
         Box<dyn PersistentConfiguration>,
     ) {
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => Box::new(
-                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
-                    ),
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
-            }
-        };
+        let blockchain_interface: Box<dyn BlockchainInterface> =
+            {
+                match blockchain_service_url {
+                    Some(url) => match Http::new(&url) {
+                        Ok((event_loop_handle, transport)) => Box::new(
+                            BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain),
+                        ),
+                        Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+                    },
+                    None => Box::new(BlockchainInterfaceNull::new(chain)),
+                }
+            };
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(
@@ -1397,7 +1398,7 @@ mod tests {
         let (accountant, _, accountant_recording) = make_recorder();
         let recipient = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceClandestine::new(Chain::Dev)),
+            Box::new(BlockchainInterfaceNull::new(Chain::Dev)),
             Box::new(PersistentConfigurationMock::default()),
             false,
             Some(Wallet::new("mine")),

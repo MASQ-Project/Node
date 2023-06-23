@@ -18,7 +18,7 @@ use node_lib::accountant::database_access_objects::receivable_dao::{
 };
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
+    BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
@@ -61,7 +61,7 @@ fn verify_bill_payment() {
         contract_addr
     );
     let blockchain_interface =
-        BlockchainInterfaceNonClandestine::new(http, _event_loop_handle, cluster.chain);
+        BlockchainInterfaceWeb3::new(http, _event_loop_handle, cluster.chain);
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
@@ -321,7 +321,7 @@ fn make_init_config(chain: Chain) -> DbInitializationConfig {
 
 fn assert_balances(
     wallet: &Wallet,
-    blockchain_interface: &BlockchainInterfaceNonClandestine<Http>,
+    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
