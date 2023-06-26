@@ -164,28 +164,6 @@ impl SetupCommand {
             );
         }
     }
-    // fn match_value_value(value: UiSetupResponseValue, chain_name: &str) -> String {
-    //     let value_tmp = match value.name.as_str() {
-    //         "data-directory" => {
-    //             let path = PathBuf::from(value.value.clone());
-    //             let checked_dir_path = match value.status {
-    //                 UiSetupResponseValueStatus::Default => path,
-    //                 UiSetupResponseValueStatus::Set => add_chain_specific_directory(
-    //                     Chain::from(chain_name),
-    //                     path.as_path()
-    //                 ),
-    //                 UiSetupResponseValueStatus::Configured => add_chain_specific_directory(
-    //                     Chain::from(chain_name),
-    //                     path.as_path()
-    //                 ),
-    //                 _ => path
-    //             };
-    //             checked_dir_path.as_path().to_string_lossy().to_string()
-    //         },
-    //         _ => value.value.to_string()
-    //     };
-    //     value_tmp
-    // }
 }
 
 #[cfg(test)]
