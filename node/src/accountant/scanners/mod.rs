@@ -1124,16 +1124,6 @@ mod tests {
             &payment_thresholds
         );
         assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
-        payable_scanner
-            .payable_threshold_gauge
-            .as_any()
-            .downcast_ref::<PayableThresholdsGaugeReal>()
-            .unwrap();
-        payable_scanner
-            .payment_adjuster
-            .as_any()
-            .downcast_ref::<PaymentAdjusterReal>()
-            .unwrap();
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec

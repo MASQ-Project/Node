@@ -140,6 +140,8 @@ pub trait BlockchainInterface {
 
     fn chain(&self) -> Chain;
 
+    fn transaction_fee_calculator(&self) -> fn() -> u128;
+
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
@@ -198,6 +200,10 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         todo!()
     }
 
+    fn transaction_fee_calculator(&self) -> fn() -> u128 {
+        todo!()
+    }
+
     fn send_batch_of_payables(
         &self,
         _consuming_wallet: &Wallet,
@@ -243,6 +249,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
     logger: Logger,
     chain: Chain,
+    gas_limit_const_part: u64,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
@@ -354,6 +361,10 @@ where
         self.chain
     }
 
+    fn transaction_fee_calculator(&self) -> fn() -> u128 {
+        todo!()
+    }
+
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
@@ -458,7 +469,12 @@ impl<T> BlockchainInterfaceNonClandestine<T>
 where
     T: BatchTransport + Debug + 'static,
 {
-    pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
+    pub fn new(
+        transport: T,
+        event_loop_handle: EventLoopHandle,
+        chain: Chain,
+        gas_limit_const_part: u64,
+    ) -> Self {
         let web3 = Web3::new(transport.clone());
         let batch_web3 = Web3::new(Batch::new(transport));
         let batch_payable_tools = Box::new(BatchPayableToolsReal::<T>::default());
@@ -469,6 +485,7 @@ where
         Self {
             logger: Logger::new("BlockchainInterface"),
             chain,
+            gas_limit_const_part,
             _event_loop_handle: event_loop_handle,
             web3,
             batch_web3,
@@ -628,7 +645,7 @@ where
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let data = Self::transaction_data(recipient, amount);
-        let gas_limit = Self::compute_gas_limit(data.as_slice(), self.chain);
+        let gas_limit = self.required_gas_limit(data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
             nonce: Some(nonce),
@@ -690,12 +707,8 @@ where
         data
     }
 
-    fn compute_gas_limit(data: &[u8], chain: Chain) -> U256 {
-        let base_gas_limit = chain
-            .rec()
-            .transaction_tech_specifications
-            .base_of_required_transaction_fee_units;
-        ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+    fn required_gas_limit(&self, data: &[u8]) -> U256 {
+        ethereum_types::U256::try_from(data.iter().fold(self.gas_limit_const_part, |acc, v| {
             acc + if v == &0u8 { 4 } else { 68 }
         }))
         .expect("Internal error")
@@ -716,6 +729,7 @@ mod tests {
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::blockchain_bridge::web3_gas_limit_const_part;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
@@ -730,9 +744,9 @@ mod tests {
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
+    use http::header::TE;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
-    use masq_lib::blockchains::blockchain_records::ChainFamily;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
@@ -838,6 +852,7 @@ mod tests {
                 TestTransport::default(),
                 make_fake_event_loop_handle(),
                 *chain,
+                web3_gas_limit_const_part(*chain),
             );
 
             assert_eq!(subject.contract_address(), chain.rec().contract)
@@ -851,6 +866,7 @@ mod tests {
                 TestTransport::default(),
                 make_fake_event_loop_handle(),
                 *chain,
+                web3_gas_limit_const_part(*chain),
             );
 
             assert_eq!(subject.chain(), *chain)
@@ -871,10 +887,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject
@@ -951,10 +969,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject
@@ -1005,10 +1025,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject
@@ -1032,10 +1054,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject.retrieve_transactions(
@@ -1056,17 +1080,17 @@ mod tests {
         let _test_server = TestServer::start(port, vec![
             br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject.retrieve_transactions(
@@ -1084,17 +1108,17 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject.retrieve_transactions(
@@ -1118,17 +1142,17 @@ mod tests {
             port,
             vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
         );
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject
@@ -1150,10 +1174,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result =
@@ -1176,10 +1202,12 @@ mod tests {
             port
         ))
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject.get_gas_balance(
@@ -1210,16 +1238,17 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject
@@ -1241,10 +1270,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result =
@@ -1277,10 +1308,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = act(
@@ -1324,10 +1357,12 @@ mod tests {
         let actor_addr = accountant.start();
         let fingerprint_recipient = recipient!(actor_addr, PendingPayableFingerprintSeeds);
         let logger = Logger::new("sending_batch_payments");
+        let chain = TEST_DEFAULT_CHAIN;
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         subject.logger = logger;
         let gas_price = 120;
@@ -1520,8 +1555,12 @@ mod tests {
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
         let chain = Chain::EthMainnet;
-        let mut subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let mut subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            chain,
+            web3_gas_limit_const_part(chain),
+        );
         let first_tx_parameters = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
@@ -1688,32 +1727,38 @@ mod tests {
         assert_eq!(accountant_recording.len(), 1)
     }
 
+    const WEB3_MAX_POSSIBLE_GAS_LIMIT_MARGIN: u64 = 3328; //64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us; each non-zero byte costs 64 units of gas
+
     #[test]
-    fn non_clandestine_gas_limit_for_polygon_mainnet_lies_within_limits() {
+    fn non_clandestine_gas_limit_for_polygon_mainnet_lies_within_limits_for_raw_transaction() {
         let transport = TestTransport::default();
         let chain = Chain::PolyMainnet;
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let maximal_possible_value = chain
-            .rec()
-            .transaction_tech_specifications
-            .maximum_of_required_transaction_fee_units;
+        let gas_limit_const_part = 123456;
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            chain,
+            gas_limit_const_part,
+        );
+        let maximal_possible_value = gas_limit_const_part + WEB3_MAX_POSSIBLE_GAS_LIMIT_MARGIN;
 
-        assert_gas_limit_is_between(subject, 70000, maximal_possible_value);
+        assert_gas_limit_is_between(subject, 123456, maximal_possible_value);
     }
 
     #[test]
-    fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits() {
+    fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
         let transport = TestTransport::default();
         let chain = Chain::EthMainnet;
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let maximal_possible_value = chain
-            .rec()
-            .transaction_tech_specifications
-            .maximum_of_required_transaction_fee_units;
+        let gas_limit_const_part = 456789;
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            chain,
+            gas_limit_const_part,
+        );
+        let maximal_possible_value = gas_limit_const_part + WEB3_MAX_POSSIBLE_GAS_LIMIT_MARGIN;
 
-        assert_gas_limit_is_between(subject, 55000, maximal_possible_value)
+        assert_gas_limit_is_between(subject, 456789, maximal_possible_value)
     }
 
     fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static + Default>(
@@ -1756,6 +1801,7 @@ mod tests {
     fn signing_error_ends_iteration_over_accounts_after_detecting_first_error_which_is_then_propagated_all_way_up_and_out(
     ) {
         let transport = TestTransport::default();
+        let chain = Chain::PolyMumbai;
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
@@ -1765,7 +1811,8 @@ mod tests {
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = Recorder::new().start().recipient();
@@ -1791,10 +1838,12 @@ mod tests {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let system = System::new("test");
@@ -1836,10 +1885,12 @@ mod tests {
             .batch_wide_timestamp_result(SystemTime::now())
             .submit_batch_result(Err(Web3Error::Transport("Transaction crashed".to_string())));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
+        let chain = Chain::PolyMumbai;
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let unimportant_recipient = Recorder::new().start().recipient();
@@ -1877,10 +1928,12 @@ mod tests {
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
+        let chain = Chain::PolyMumbai;
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = make_wallet("unlucky man");
@@ -1925,14 +1978,18 @@ mod tests {
         template: &[u8],
     ) {
         let transport = TestTransport::default();
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            chain,
+            web3_gas_limit_const_part(chain),
+        );
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
         let nonce_correct_type = U256::from(nonce);
-        let gas_price = match chain.rec().chain_family {
-            ChainFamily::Eth => TEST_GAS_PRICE_ETH,
-            ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
+        let gas_price = match chain {
+            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => TEST_GAS_PRICE_ETH,
+            Chain::PolyMainnet | Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -2136,8 +2193,12 @@ mod tests {
             ][..],
         ];
         let transport = TestTransport::default();
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            make_fake_event_loop_handle(),
+            chain,
+            web3_gas_limit_const_part(chain),
+        );
         let lengths_of_constant_parts: Vec<usize> =
             constant_parts.iter().map(|part| part.len()).collect();
         for (((tx, signed), length), constant_part) in txs
@@ -2188,10 +2249,12 @@ mod tests {
             .send_result(json!(
                 "0x0000000000000000000000000000000000000000000000000000000000000001"
             ));
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
@@ -2234,10 +2297,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         let tx_hash =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
@@ -2269,10 +2334,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+            chain,
+            web3_gas_limit_const_part(chain),
         );
         let tx_hash = make_tx_hash(4564546);
 

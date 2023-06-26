@@ -886,7 +886,7 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn capture_msg_and_let_it_flight_on(mut self) -> Self {
+            pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
                 self
             }
@@ -903,6 +903,9 @@ pub mod unshared_test_utils {
                 interval: Duration,
                 ctx: &'a mut Context<A>,
             ) -> Box<dyn NLSpawnHandleHolder> {
+                if !cfg!(test) {
+                    panic!("NotifyLaterHandleMock outside test tree")
+                }
                 self.notify_later_params
                     .lock()
                     .unwrap()

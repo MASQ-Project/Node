@@ -105,6 +105,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         *self.chain_result.as_ref().unwrap()
     }
 
+    fn transaction_fee_calculator(&self) -> fn() -> u128 {
+        todo!()
+    }
+
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,

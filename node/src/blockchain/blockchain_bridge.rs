@@ -33,9 +33,10 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use nix::sys::signal::type_of_thread_id;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use web3::transports::Http;
+use web3::transports::{EventLoopHandle, Http};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -78,7 +79,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.balances_and_payables_sub_opt =
-            Some(msg.peer_actors.accountant.report_payable_payment_setup);
+            Some(msg.peer_actors.accountant.report_payable_payments_setup);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
@@ -139,7 +140,7 @@ impl Handler<PayablePaymentsSetup> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: PayablePaymentsSetup, _ctx: &mut Self::Context) {
-        self.handle_scan(Self::handle_payable_payment_setup, ScanType::Payables, msg);
+        self.handle_scan(Self::handle_payable_payments_setup, ScanType::Payables, msg);
     }
 }
 
@@ -217,9 +218,9 @@ impl BlockchainBridge {
         let blockchain_interface: Box<dyn BlockchainInterface> = {
             match blockchain_service_url {
                 Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => Box::new(
-                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
-                    ),
+                    Ok((event_loop_handle, transport)) => {
+                        Self::construct_blockchain_interface(event_loop_handle, transport, chain)
+                    }
                     Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
                 },
                 None => Box::new(BlockchainInterfaceClandestine::new(chain)),
@@ -239,6 +240,22 @@ impl BlockchainBridge {
         )
     }
 
+    // TODO when we have multiple chains of fundamentally different architectures and the ability to switch them,
+    // this might be replaced with a HashMap of different blockchain interfaces for every chain
+    fn construct_blockchain_interface(
+        http_event_loop_handle: EventLoopHandle,
+        transport: Http,
+        chain: Chain,
+    ) -> Box<dyn BlockchainInterface> {
+        let gas_limit_const_part = web3_gas_limit_const_part(chain);
+        Box::new(BlockchainInterfaceNonClandestine::new(
+            transport,
+            http_event_loop_handle,
+            chain,
+            gas_limit_const_part,
+        ))
+    }
+
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
@@ -250,7 +267,7 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentsSetup) -> Result<(), String> {
+    fn handle_payable_payments_setup(&mut self, msg: PayablePaymentsSetup) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
             None => {
@@ -294,12 +311,7 @@ impl BlockchainBridge {
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
-        let estimated_gas_limit = self
-            .blockchain_interface
-            .chain()
-            .rec()
-            .transaction_tech_specifications
-            .maximum_of_required_transaction_fee_units;
+        let estimated_gas_limit = todo!();
         let this_stage_data = StageData::PreliminaryContext(PreliminaryContext {
             consuming_wallet_balances,
             transaction_fee_specification: SingleTransactionFee {
@@ -486,6 +498,13 @@ impl BlockchainBridge {
     }
 }
 
+pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
+    match chain {
+        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct PendingTxInfo {
     hash: H256,
@@ -522,6 +541,7 @@ mod tests {
     use actix::System;
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
+    use itertools::chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -847,7 +867,7 @@ mod tests {
             None,
         );
 
-        let result = subject.handle_payable_payment_setup(request);
+        let result = subject.handle_payable_payments_setup(request);
 
         assert_eq!(
             result,
@@ -886,7 +906,7 @@ mod tests {
             }),
         );
 
-        let result = subject.handle_payable_payment_setup(request);
+        let result = subject.handle_payable_payments_setup(request);
 
         assert_eq!(
             result,
@@ -1851,5 +1871,14 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
+    #[test]
+    fn web3_gas_limit_const_part_gives_reasonable_values() {
+        assert_eq!(web3_gas_limit_const_part(Chain::EthMainnet), 55_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 }

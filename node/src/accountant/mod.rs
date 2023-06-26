@@ -445,7 +445,7 @@ impl Accountant {
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-            report_payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
+            report_payable_payments_setup: recipient!(addr, PayablePaymentsSetup),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -646,7 +646,7 @@ impl Accountant {
     }
 
     fn handle_payable_payment_setup(&mut self, msg: PayablePaymentsSetup) {
-        let bb_instructions = match self
+        let blockchain_bridge_instructions = match self
             .scanners
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
@@ -663,7 +663,7 @@ impl Accountant {
         self.outbound_payments_instructions_sub_opt
             .as_ref()
             .expect("BlockchainBridge is unbound")
-            .try_send(bb_instructions)
+            .try_send(blockchain_bridge_instructions)
             .expect("BlockchainBridge is dead")
         //TODO implement send point for ScanError; be completed by GH-711
     }
@@ -1552,7 +1552,6 @@ mod tests {
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
         let (actual_awaited_adjustment, captured_now, logger_clone) =
             adjust_payments_params.remove(0);
-        assert!(adjust_payments_params.is_empty());
         assert_eq!(
             actual_awaited_adjustment,
             AwaitedAdjustment {
@@ -1561,6 +1560,7 @@ mod tests {
             }
         );
         assert!(before <= captured_now && captured_now <= after);
+        assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
@@ -1986,7 +1986,7 @@ mod tests {
             Some(Box::new(
                 NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_receivable_params_arc)
-                    .capture_msg_and_let_it_flight_on(),
+                    .capture_msg_and_let_it_fly_on(),
             )),
             None,
         );
@@ -2057,7 +2057,7 @@ mod tests {
             Some(Box::new(
                 NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_pending_payable_params_arc)
-                    .capture_msg_and_let_it_flight_on(),
+                    .capture_msg_and_let_it_fly_on(),
             )),
             None,
         );
@@ -2130,7 +2130,7 @@ mod tests {
             Some(Box::new(
                 NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_payables_params_arc)
-                    .capture_msg_and_let_it_flight_on(),
+                    .capture_msg_and_let_it_fly_on(),
             )),
             None,
         );
@@ -3314,7 +3314,7 @@ mod tests {
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
-                    .capture_msg_and_let_it_flight_on();
+                    .capture_msg_and_let_it_fly_on();
                 subject.scan_schedulers.update_scheduler(
                     ScanType::PendingPayables,
                     Some(Box::new(notify_later_half_mock)),

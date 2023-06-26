@@ -405,7 +405,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
+        report_payable_payments_setup: recipient!(addr, PayablePaymentsSetup),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
