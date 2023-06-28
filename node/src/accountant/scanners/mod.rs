@@ -1044,9 +1044,7 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
     use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{

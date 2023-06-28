@@ -33,7 +33,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use nix::sys::signal::type_of_thread_id;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
@@ -48,7 +47,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt: Option<Recipient<PayablePaymentsSetup>>,
+    payable_payments_setup_sub_opt: Option<Recipient<PayablePaymentsSetup>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -78,7 +77,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
-        self.balances_and_payables_sub_opt =
+        self.payable_payments_setup_sub_opt =
             Some(msg.peer_actors.accountant.report_payable_payments_setup);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
@@ -195,7 +194,7 @@ impl BlockchainBridge {
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
-            balances_and_payables_sub_opt: None,
+            payable_payments_setup_sub_opt: None,
             received_payments_subs_opt: None,
             scan_error_subs_opt: None,
             crashable,
@@ -311,17 +310,14 @@ impl BlockchainBridge {
             .persistent_config
             .gas_price()
             .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
-        let estimated_gas_limit = todo!();
+        let transaction_fees_calculator = self.blockchain_interface.transaction_fees_calculator();
         let this_stage_data = StageData::PreliminaryContext(PreliminaryContext {
             consuming_wallet_balances,
-            transaction_fee_specification: SingleTransactionFee {
-                gas_price_gwei: requested_gas_price_gwei,
-                estimated_gas_limit,
-            },
+            transaction_fees_calculator,
         });
         let msg = PayablePaymentsSetup::from((msg, this_stage_data));
 
-        self.balances_and_payables_sub_opt
+        self.payable_payments_setup_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(msg)
@@ -521,9 +517,7 @@ mod tests {
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
-    };
+    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions, Web3TransactionFeesCalculator};
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -693,7 +687,7 @@ mod tests {
             .get_gas_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .chain_result(Chain::EthMainnet);
+            .transaction_fees_calculator_result(Box::new(Web3TransactionFeesCalculator::new(1111)));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
             PersistentConfigurationMock::default().gas_price_result(Ok(146));
@@ -751,7 +745,7 @@ mod tests {
             msg,
             StageData::PreliminaryContext(PreliminaryContext {
                 consuming_wallet_balances: wallet_balances_found,
-                transaction_fee_specification: SingleTransactionFee {
+                transaction_fees_calculator: SingleTransactionFee {
                     gas_price_gwei: 146,
                     estimated_gas_limit: 58_328, //corresponds to the attributes of Chain::EthMainnet
                 },

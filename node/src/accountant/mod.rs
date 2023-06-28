@@ -1057,7 +1057,6 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use itertools::Itertools;
     use log::Level;
-    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
         VALUE_EXCEEDS_ALLOWED_LIMIT,
@@ -1432,7 +1431,7 @@ mod tests {
                     transaction_fee_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(u32::MAX),
                 },
-                transaction_fee_specification: SingleTransactionFee {
+                transaction_fees_calculator: SingleTransactionFee {
                     gas_price_gwei: 132,
                     estimated_gas_limit: 112_000,
                 },
@@ -1534,7 +1533,7 @@ mod tests {
                     transaction_fee_currency_wei: U256::from(u32::MAX),
                     masq_tokens_wei: U256::from(150_000_000_000_u64),
                 },
-                transaction_fee_specification: SingleTransactionFee {
+                transaction_fees_calculator: SingleTransactionFee {
                     gas_price_gwei: 30,
                     estimated_gas_limit: 110_000,
                 },
@@ -3164,7 +3163,6 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
-            .chain_result(Chain::EthMainnet)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,

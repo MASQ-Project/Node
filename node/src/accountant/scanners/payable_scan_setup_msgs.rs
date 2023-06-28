@@ -1,9 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+//TODO change the name of this file if it is going to stay
+
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::ResponseSkeleton;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use actix::Message;
+use crate::blockchain::blockchain_interface::TransactionFeesCalculator;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct PayablePaymentsSetup {
@@ -39,7 +42,7 @@ impl StageData {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PreliminaryContext {
     pub consuming_wallet_balances: ConsumingWalletBalances,
-    pub transaction_fee_specification: SingleTransactionFee,
+    pub transaction_fees_calculator: Box<dyn TransactionFeesCalculator>,
 }
 
 //TODO will be generalized as part of GH-696

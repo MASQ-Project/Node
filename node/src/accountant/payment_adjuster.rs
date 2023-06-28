@@ -97,10 +97,7 @@ mod tests {
                     transaction_fee_currency_wei: U256::from(1_001_000_000_000_u64),
                     masq_tokens_wei: U256::from(301_000_000),
                 },
-                transaction_fee_specification: SingleTransactionFee {
-                    gas_price_gwei: 10,
-                    estimated_gas_limit: 50_000,
-                },
+                transaction_fees_calculator: Box::new(50_000),
                 //gas amount to spend = 2 * 50_000 * 10 [gwei] = 1_000_000_000_000_000 wei
             })),
             response_skeleton_opt: None,
@@ -118,7 +115,7 @@ mod tests {
                     transaction_fee_currency_wei: U256::from(999_000_000_000_u64),
                     masq_tokens_wei: U256::from(299_000_000),
                 },
-                transaction_fee_specification: SingleTransactionFee {
+                transaction_fees_calculator: SingleTransactionFee {
                     gas_price_gwei: 10,
                     estimated_gas_limit: 50_000,
                 },

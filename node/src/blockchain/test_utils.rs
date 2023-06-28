@@ -6,7 +6,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
     ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
+    TransactionFeesCalculator, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -60,7 +60,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    chain_result: Option<Chain>,
+    transaction_fees_calculator_results: RefCell<Vec<Box<dyn TransactionFeesCalculator>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -101,12 +101,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn chain(&self) -> Chain {
-        *self.chain_result.as_ref().unwrap()
-    }
-
-    fn transaction_fee_calculator(&self) -> fn() -> u128 {
-        todo!()
+    fn transaction_fees_calculator(&self) -> Box<dyn TransactionFeesCalculator> {
+        self.transaction_fees_calculator_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn send_batch_of_payables(
@@ -180,8 +178,13 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn chain_result(mut self, result: Chain) -> Self {
-        self.chain_result.replace(result);
+    pub fn transaction_fees_calculator_result(
+        self,
+        result: Box<dyn TransactionFeesCalculator>,
+    ) -> Self {
+        self.transaction_fees_calculator_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
