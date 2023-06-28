@@ -31,7 +31,25 @@ use web3::{BatchTransport, Error, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
+pub const CONTRACT_ABI: &str = concat!(
+    "[{",
+    r#""constant":true,"#,
+    r#""inputs":[{"name":"owner","type":"address"}],"#,
+    r#""name":"balanceOf","#,
+    r#""outputs":[{"name":"","type":"uint256"}],"#,
+    r#""payable":false,"#,
+    r#""stateMutability":"view","#,
+    r#""type":"function""#,
+    "},{",
+    r#""constant":false,"#,
+    r#""inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"#,
+    r#""name":"transfer","#,
+    r#""outputs":[{"name":"","type":"bool"}],"#,
+    r#""payable":false,"#,
+    r#""stateMutability":"nonpayable","#,
+    r#""type":"function""#,
+    "}]"
+);
 
 const TRANSACTION_LITERAL: H256 = H256([
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
@@ -83,7 +101,7 @@ impl Display for BlockchainError {
 }
 
 impl BlockchainInterfaceUninitializedError for BlockchainError {
-    fn uninitialized_interface_err() -> Self {
+    fn error() -> Self {
         Self::UninitializedBlockchainInterface
     }
 }
@@ -133,7 +151,7 @@ impl Display for PayableTransactionError {
 }
 
 impl BlockchainInterfaceUninitializedError for PayableTransactionError {
-    fn uninitialized_interface_err() -> Self {
+    fn error() -> Self {
         Self::UninitializedBlockchainInterface
     }
 }
@@ -175,44 +193,15 @@ pub struct BlockchainInterfaceNull {
     logger: Logger,
 }
 
-impl BlockchainInterfaceNull {
-    pub fn new() -> Self {
-        BlockchainInterfaceNull {
-            logger: Logger::new("BlockchainInterfaceNull"),
-        }
-    }
-
-    fn uninitialized_interface<O, E>(&self, operation: &str) -> Result<O, E>
-    where
-        E: BlockchainInterfaceUninitializedError,
-    {
-        self.log_uninitialized_interface_at(operation);
-        Err(E::uninitialized_interface_err())
-    }
-
-    fn log_uninitialized_interface_at(&self, operation: &str) {
-        error!(
-            self.logger,
-            "Failed to {} with uninitialized blockchain interface. Parameter blockchain-service-url \
-            is missing.",
-            operation
-        )
-    }
-}
-
 impl Default for BlockchainInterfaceNull {
     fn default() -> Self {
         Self::new()
     }
 }
 
-trait BlockchainInterfaceUninitializedError {
-    fn uninitialized_interface_err() -> Self;
-}
-
 impl BlockchainInterface for BlockchainInterfaceNull {
     fn contract_address(&self) -> Address {
-        self.log_uninitialized_interface_at("get contract address");
+        self.log_uninitialized_for_operation("get contract address");
         H160::zero()
     }
 
@@ -221,7 +210,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _start_block: u64,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.uninitialized_interface("retrieve transactions")
+        self.handle_uninitialized_interface("retrieve transactions")
     }
 
     fn send_payables_within_batch(
@@ -232,23 +221,56 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.uninitialized_interface("pay payables")
+        self.handle_uninitialized_interface("pay payables")
     }
 
     fn get_transaction_fee_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.uninitialized_interface("get transaction fee balance")
+        self.handle_uninitialized_interface("get transaction fee balance")
     }
 
     fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.uninitialized_interface("get token balance")
+        self.handle_uninitialized_interface("get token balance")
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-        self.uninitialized_interface("get transaction count")
+        self.handle_uninitialized_interface("get transaction count")
     }
 
     fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
-        self.uninitialized_interface("get transaction receipt")
+        self.handle_uninitialized_interface("get transaction receipt")
+    }
+}
+
+trait BlockchainInterfaceUninitializedError {
+    fn error() -> Self;
+}
+
+impl BlockchainInterfaceNull {
+    pub fn new() -> Self {
+        BlockchainInterfaceNull {
+            logger: Logger::new("BlockchainInterfaceNull"),
+        }
+    }
+
+    fn handle_uninitialized_interface<Irrelevant, E>(
+        &self,
+        operation: &str,
+    ) -> Result<Irrelevant, E>
+    where
+        E: BlockchainInterfaceUninitializedError,
+    {
+        self.log_uninitialized_for_operation(operation);
+        let err = E::error();
+        Err(err)
+    }
+
+    fn log_uninitialized_for_operation(&self, operation: &str) {
+        error!(
+            self.logger,
+            "Failed to {} with uninitialized blockchain \
+            interface. Parameter blockchain-service-url is missing.",
+            operation
+        )
     }
 }
 
@@ -778,6 +800,11 @@ mod tests {
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
         assert_eq!(GWEI, U256([1_000_000_000u64, 0, 0, 0]));
+        assert_eq!(
+            BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+            "To avoid being delinquency-banned, you \
+        should restart the Node with a value for blockchain-service-url"
+        )
     }
 
     struct TestServer {
@@ -2335,10 +2362,7 @@ mod tests {
                 "Blockchain error: Invalid address",
                 "Blockchain error: Invalid response",
                 "Blockchain error: Query failed: Don't query so often, it gives me a headache",
-                &format!(
-                    "Blockchain error: {})",
-                    BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
-                )
+                &format!("Blockchain error: {}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             ])
         );
     }
@@ -2458,7 +2482,7 @@ mod tests {
     #[test]
     fn blockchain_interface_null_error_is_implemented_for_blockchain_error() {
         assert_eq!(
-            BlockchainError::uninitialized_interface_err(),
+            BlockchainError::error(),
             BlockchainError::UninitializedBlockchainInterface
         )
     }
@@ -2466,7 +2490,7 @@ mod tests {
     #[test]
     fn blockchain_interface_null_error_is_implemented_for_payable_transaction_error() {
         assert_eq!(
-            PayableTransactionError::uninitialized_interface_err(),
+            PayableTransactionError::error(),
             PayableTransactionError::UninitializedBlockchainInterface
         )
     }
