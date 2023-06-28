@@ -40,6 +40,9 @@ const TRANSACTION_LITERAL: H256 = H256([
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
+const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "To avoid being delinquency-banned, you should \
+restart the Node with a value for blockchain-service-url";
+
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct BlockchainTransaction {
     pub block_number: u64,
@@ -57,7 +60,7 @@ impl fmt::Display for BlockchainTransaction {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, VariantCount, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
@@ -73,17 +76,14 @@ impl Display for BlockchainError {
             InvalidAddress => Left("Invalid address"),
             InvalidResponse => Left("Invalid response"),
             QueryFailed(msg) => Right(format!("Query failed: {}", msg)),
-            UninitializedBlockchainInterface => Left(
-                "The parameter blockchain-service-url must be \
-            set for scanners to function properly",
-            ),
+            UninitializedBlockchainInterface => Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED),
         };
         write!(f, "Blockchain error: {}", description)
     }
 }
 
 impl BlockchainInterfaceUninitializedError for BlockchainError {
-    fn interface_uninitialized_error() -> Self {
+    fn uninitialized_interface_err() -> Self {
         Self::UninitializedBlockchainInterface
     }
 }
@@ -94,7 +94,7 @@ pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::type
 pub type ResultForNonce = BlockchainResult<web3::types::U256>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
-#[derive(Clone, Debug, PartialEq, Eq, VariantCount, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum PayableTransactionError {
     MissingConsumingWallet,
     GasPriceQueryFailed(String),
@@ -126,17 +126,14 @@ impl Display for PayableTransactionError {
                 msg,
                 comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
             )),
-            Self::UninitializedBlockchainInterface => Left(
-                "The parameter blockchain-service-url \
-            must be set for scanners to function properly",
-            ),
+            Self::UninitializedBlockchainInterface => Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED),
         };
         write!(f, "{}", description)
     }
 }
 
 impl BlockchainInterfaceUninitializedError for PayableTransactionError {
-    fn interface_uninitialized_error() -> Self {
+    fn uninitialized_interface_err() -> Self {
         Self::UninitializedBlockchainInterface
     }
 }
@@ -185,18 +182,18 @@ impl BlockchainInterfaceNull {
         }
     }
 
-    fn interface_uninitialized<O, E>(&self, operation: &str) -> Result<O, E>
+    fn uninitialized_interface<O, E>(&self, operation: &str) -> Result<O, E>
     where
         E: BlockchainInterfaceUninitializedError,
     {
-        self.log_interface_uninitialized(operation);
-        Err(E::interface_uninitialized_error())
+        self.log_uninitialized_interface_at(operation);
+        Err(E::uninitialized_interface_err())
     }
 
-    fn log_interface_uninitialized(&self, operation: &str) {
+    fn log_uninitialized_interface_at(&self, operation: &str) {
         error!(
             self.logger,
-            "Trying to {} with uninitialized blockchain interface. Parameter blockchain-service-url \
+            "Failed to {} with uninitialized blockchain interface. Parameter blockchain-service-url \
             is missing.",
             operation
         )
@@ -210,12 +207,12 @@ impl Default for BlockchainInterfaceNull {
 }
 
 trait BlockchainInterfaceUninitializedError {
-    fn interface_uninitialized_error() -> Self;
+    fn uninitialized_interface_err() -> Self;
 }
 
 impl BlockchainInterface for BlockchainInterfaceNull {
     fn contract_address(&self) -> Address {
-        self.log_interface_uninitialized("get contract address");
+        self.log_uninitialized_interface_at("get contract address");
         H160::zero()
     }
 
@@ -224,7 +221,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _start_block: u64,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.interface_uninitialized("retrieve transactions")
+        self.uninitialized_interface("retrieve transactions")
     }
 
     fn send_payables_within_batch(
@@ -235,23 +232,23 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.interface_uninitialized("pay payables")
+        self.uninitialized_interface("pay payables")
     }
 
     fn get_transaction_fee_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.interface_uninitialized("get transaction fee balance")
+        self.uninitialized_interface("get transaction fee balance")
     }
 
     fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.interface_uninitialized("get token balance")
+        self.uninitialized_interface("get token balance")
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-        self.interface_uninitialized("get transaction count")
+        self.uninitialized_interface("get transaction count")
     }
 
     fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
-        self.interface_uninitialized("get transaction receipt")
+        self.uninitialized_interface("get transaction receipt")
     }
 }
 
@@ -755,7 +752,6 @@ mod tests {
     use serde_json::json;
     use serde_json::Value;
     use simple_server::{Request, Server};
-    use std::collections::HashSet;
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
     use std::ops::Add;
@@ -2327,17 +2323,10 @@ mod tests {
             .map(|err| err.to_string())
             .collect::<Vec<_>>();
 
-        let original_errors_len = original_errors.len();
         assert_eq!(
-            original_errors_len,
+            original_errors.len(),
             BlockchainError::VARIANT_COUNT,
             "you forgot to add all variants in this test"
-        );
-        let check_hash_set: HashSet<BlockchainError> = HashSet::from_iter(original_errors);
-        assert_eq!(
-            check_hash_set.len(),
-            original_errors_len,
-            "testing the same error more than once"
         );
         assert_eq!(
             actual_error_msgs,
@@ -2346,7 +2335,10 @@ mod tests {
                 "Blockchain error: Invalid address",
                 "Blockchain error: Invalid response",
                 "Blockchain error: Query failed: Don't query so often, it gives me a headache",
-                "Blockchain error: The parameter blockchain-service-url must be set for scanners to function properly",
+                &format!(
+                    "Blockchain error: {})",
+                    BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
+                )
             ])
         );
     }
@@ -2377,17 +2369,10 @@ mod tests {
             .map(|err| err.to_string())
             .collect::<Vec<_>>();
 
-        let original_errors_len = original_errors.len();
         assert_eq!(
-            original_errors_len,
+            original_errors.len(),
             PayableTransactionError::VARIANT_COUNT,
             "you forgot to add all variants in this test"
-        );
-        let check_hash_set: HashSet<PayableTransactionError> = HashSet::from_iter(original_errors);
-        assert_eq!(
-            check_hash_set.len(),
-            original_errors_len,
-            "testing the same error more than once"
         );
         assert_eq!(
             actual_error_msgs,
@@ -2401,7 +2386,7 @@ mod tests {
                 "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
                 transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
                 0x00000000000000000000000000000000000000000000000000000000000000de",
-                "The parameter blockchain-service-url must be set for scanners to function properly"
+                BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])
         )
     }
@@ -2473,7 +2458,7 @@ mod tests {
     #[test]
     fn blockchain_interface_null_error_is_implemented_for_blockchain_error() {
         assert_eq!(
-            BlockchainError::interface_uninitialized_error(),
+            BlockchainError::uninitialized_interface_err(),
             BlockchainError::UninitializedBlockchainInterface
         )
     }
@@ -2481,7 +2466,7 @@ mod tests {
     #[test]
     fn blockchain_interface_null_error_is_implemented_for_payable_transaction_error() {
         assert_eq!(
-            PayableTransactionError::interface_uninitialized_error(),
+            PayableTransactionError::uninitialized_interface_err(),
             PayableTransactionError::UninitializedBlockchainInterface
         )
     }

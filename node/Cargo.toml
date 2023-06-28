@@ -72,7 +72,6 @@ system-configuration = "0.4.0"
 core-foundation = "0.7.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-daemonize = "0.4.1"
 nix = "0.23.0"
 openssl = {version = "0.10.38", features = ["vendored"]}
 
