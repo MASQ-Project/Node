@@ -10,6 +10,7 @@ use crate::blockchain::blockchain_interface::BlockchainError::{
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
+use indoc::indoc;
 use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
@@ -31,24 +32,24 @@ use web3::{BatchTransport, Error, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-pub const CONTRACT_ABI: &str = concat!(
-    "[{",
-    r#""constant":true,"#,
-    r#""inputs":[{"name":"owner","type":"address"}],"#,
-    r#""name":"balanceOf","#,
-    r#""outputs":[{"name":"","type":"uint256"}],"#,
-    r#""payable":false,"#,
-    r#""stateMutability":"view","#,
-    r#""type":"function""#,
-    "},{",
-    r#""constant":false,"#,
-    r#""inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"#,
-    r#""name":"transfer","#,
-    r#""outputs":[{"name":"","type":"bool"}],"#,
-    r#""payable":false,"#,
-    r#""stateMutability":"nonpayable","#,
-    r#""type":"function""#,
-    "}]"
+pub const CONTRACT_ABI: &str = indoc!(
+    r#"[{
+    "constant":true,
+    "inputs":[{"name":"owner","type":"address"}],
+    "name":"balanceOf",
+    "outputs":[{"name":"","type":"uint256"}],
+    "payable":false,
+    "stateMutability":"view",
+    "type":"function"
+    },{
+    "constant":false,
+    "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
+    "name":"transfer",
+    "outputs":[{"name":"","type":"bool"}],
+    "payable":false,
+    "stateMutability":"nonpayable",
+    "type":"function"
+    }]"#
 );
 
 const TRANSACTION_LITERAL: H256 = H256([
@@ -787,7 +788,25 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        let contract_abi_expected: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
+        let contract_abi_expected: &str = indoc!(
+            r#"[{
+            "constant":true,
+            "inputs":[{"name":"owner","type":"address"}],
+            "name":"balanceOf",
+            "outputs":[{"name":"","type":"uint256"}],
+            "payable":false,
+            "stateMutability":"view",
+            "type":"function"
+            },{
+            "constant":false,
+            "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
+            "name":"transfer",
+            "outputs":[{"name":"","type":"bool"}],
+            "payable":false,
+            "stateMutability":"nonpayable",
+            "type":"function"
+            }]"#
+        );
         let transaction_literal_expected: H256 = H256 {
             0: [
                 0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37,
