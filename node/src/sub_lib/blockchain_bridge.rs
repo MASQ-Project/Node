@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+    InitialPayablePaymentsSetupMsg,
 };
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -62,20 +62,20 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
-    pub transaction_fee_currency_wei: U256,
-    pub masq_tokens_wei: U256,
+    pub transaction_fee_currency_in_minor_units: U256,
+    pub masq_tokens_in_minor_units: U256,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_payments_agent::{
-        PayablePaymentsAgent, PayablePaymentsAgentWeb3,
-    };
+    use crate::accountant::scanners::payable_payments_agent_abstract_layer::{
+        PayablePaymentsAgent};
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::accountant::ResponseSkeleton;
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
+    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
 
     #[test]
     fn blockchain_bridge_subs_debug() {
@@ -90,7 +90,7 @@ mod tests {
     fn outbound_payments_instructions_implements_partial_eq() {
         let create_instructions = || OutboundPaymentsInstructions {
             checked_accounts: vec![make_payable_account(123)],
-            agent: Box::new((PayablePaymentsAgentWeb3::new(123))),
+            agent: Box::new(PayablePaymentsAgentWeb3::new(123)),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 123,
                 context_id: 456,
@@ -103,7 +103,7 @@ mod tests {
         instructions_2.agent = Box::new(PayablePaymentsAgentMock::default());
         assert_ne!(instructions_2, instructions_1);
         let mut also_different_agent = PayablePaymentsAgentWeb3::new(123);
-        also_different_agent.set_up_price_per_computed_unit(Some(111));
+        also_different_agent.ask_for_price_per_computed_unit(Some(111));
         instructions_2.agent = Box::new(also_different_agent);
         assert_ne!(instructions_2, instructions_1);
         instructions_1

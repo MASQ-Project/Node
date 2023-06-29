@@ -1017,6 +1017,8 @@ mod tests {
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
+    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
+    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
     use crate::accountant::scanners::payable_payments_setup_msg::InitialPayablePaymentsSetupMsg;
     use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
     use crate::accountant::scanners::BeginScanError;
@@ -1428,12 +1430,12 @@ mod tests {
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_wei: U256::from(u32::MAX),
-            masq_tokens_wei: U256::from(u32::MAX),
+            transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
+            masq_tokens_in_minor_units: U256::from(u32::MAX),
         };
         let agent = PayablePaymentsAgentMock::default()
             .estimated_fees_result(112_000)
-            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .requested_unit_price_result(132);
         let expected_payable_payments_setup_msg = PayablePaymentsSetupMsg {
             qualified_payables: vec![account_1.clone(), account_2.clone()],
@@ -1511,9 +1513,12 @@ mod tests {
             client_id: 12,
             context_id: 55,
         };
+        let mut agent = PayablePaymentsAgentWeb3::new(78910);
+        agent.ask_for_price_per_computed_unit(Some(30));
+        let boxed_agent = Box::new(agent);
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
-            agent: todo!("figure this out"), //30,
+            agent: boxed_agent.clone(),
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1529,11 +1534,11 @@ mod tests {
         let subject_addr = subject.start();
         let system = System::new("test");
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_wei: U256::from(u32::MAX),
-            masq_tokens_wei: U256::from(150_000_000_000_u64),
+            transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
+            masq_tokens_in_minor_units: U256::from(150_000_000_000_u64),
         };
         let agent = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_fees_result(110_000)
             .requested_unit_price_result(30);
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
@@ -1566,7 +1571,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
             &OutboundPaymentsInstructions {
                 checked_accounts: vec![adjusted_account_1, adjusted_account_2],
-                agent: todo!("figure this out"), //30,
+                agent: boxed_agent,
                 response_skeleton_opt: Some(response_skeleton)
             }
         );

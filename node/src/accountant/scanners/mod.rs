@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_payments_agent;
+pub mod payable_payments_agent_abstract_layer;
+pub mod payable_payments_agent_web3;
 pub mod payable_payments_setup_msg;
 pub mod scan_mid_procedures;
 pub mod scanners_utils;
@@ -1037,9 +1038,7 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::payable_payments_setup_msg::{
-        InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
-    };
+    use crate::accountant::scanners::payable_payments_setup_msg::InitialPayablePaymentsSetupMsg;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{

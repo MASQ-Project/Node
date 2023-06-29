@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
@@ -30,6 +30,7 @@ use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -66,8 +67,7 @@ pub struct BlockchainInterfaceMock {
         Mutex<
             Vec<(
                 Wallet,
-                u64,
-                U256,
+                ArbitraryIdStamp,
                 Recipient<PendingPayableFingerprintSeeds>,
                 Vec<PayableAccount>,
             )>,
@@ -111,15 +111,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        gas_price: u64,
-        last_nonce: U256,
+        payable_payments_agent: &dyn PayablePaymentsAgent,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         self.send_batch_of_payables_params.lock().unwrap().push((
             consuming_wallet.clone(),
-            gas_price,
-            last_nonce,
+            payable_payments_agent.arbitrary_id_stamp(),
             new_fingerprints_recipient.clone(),
             accounts.to_vec(),
         ));
@@ -195,8 +193,7 @@ impl BlockchainInterfaceMock {
             Mutex<
                 Vec<(
                     Wallet,
-                    u64,
-                    U256,
+                    ArbitraryIdStamp,
                     Recipient<PendingPayableFingerprintSeeds>,
                     Vec<PayableAccount>,
                 )>,

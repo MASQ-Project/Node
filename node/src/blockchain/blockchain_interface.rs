@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -144,8 +144,7 @@ pub trait BlockchainInterface {
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
+        payable_payments_agent: &dyn PayablePaymentsAgent,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
@@ -202,8 +201,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn send_batch_of_payables(
         &self,
         _consuming_wallet: &Wallet,
-        _gas_price: u64,
-        _last_nonce: U256,
+        _payable_payments_agent: &dyn PayablePaymentsAgent,
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
@@ -359,11 +357,17 @@ where
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
+        payable_payments_agent: &dyn PayablePaymentsAgent,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+        let gas_price = payable_payments_agent
+            .price_per_computed_unit()
+            .expect("agent screwed gas price");
+        let pending_nonce = payable_payments_agent
+            .pending_transaction_id()
+            .expect("agent screwed nonce");
+
         debug!(
             self.logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -716,7 +720,7 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::payable_payments_agent::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::payable_payments_agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
@@ -736,7 +740,6 @@ mod tests {
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
-    use http::header::TE;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};

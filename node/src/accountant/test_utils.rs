@@ -14,7 +14,7 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
     InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
 };
@@ -30,11 +30,14 @@ use crate::accountant::{
     gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, BlockchainTransaction,
+};
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
@@ -50,7 +53,6 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use masq_lib::utils::plus;
-use primitive_types::U256;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::any::Any;
@@ -59,6 +61,7 @@ use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use web3::types::U256;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -1653,18 +1656,26 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    acknowledge_price_per_computed_unit_params: Arc<Mutex<Vec<Option<u64>>>>,
-    acknowledge_price_per_computed_unit_result: Cell<Vec<Option<u64>>>,
-    acknowledge_pending_transaction_id_params: Arc<Mutex<Vec<Option<U256>>>>,
+    set_up_price_per_computed_unit_params: Arc<Mutex<Vec<Option<u64>>>>,
+    set_up_price_per_computed_unit_result: RefCell<Vec<Option<u64>>>,
+    set_up_pending_transaction_id_params: Arc<Mutex<Vec<Option<U256>>>>,
+    consuming_wallet_balances_results: RefCell<Vec<Option<ConsumingWalletBalances>>>,
+    estimated_fees_results: Option<u128>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn set_up_price_per_computed_unit(&mut self, price: Option<u64>) {
+    fn ask_for_price_per_computed_unit(
+        &mut self,
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
-    fn set_up_pending_transaction_id(&mut self, id: U256) {
+    fn ask_for_pending_transaction_id(
+        &mut self,
+        blockchain_interface: &dyn BlockchainInterface,
+    ) -> Result<(), BlockchainError> {
         todo!()
     }
 
@@ -1676,11 +1687,11 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         todo!()
     }
 
-    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
+    fn consuming_wallet_balances(&self) -> Option<&ConsumingWalletBalances> {
         todo!()
     }
 
-    fn requested_price_per_computed_unit(&self) -> Option<u64> {
+    fn price_per_computed_unit(&self) -> Option<u64> {
         todo!()
     }
 
@@ -1692,43 +1703,41 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         format!("{:?}", self.arbitrary_id_stamp())
     }
 
+    fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
+        todo!()
+    }
+
     arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl PayablePaymentsAgentMock {
-    pub fn acknowledge_price_per_computed_unit_params(
+    pub fn set_up_price_per_computed_unit_params(
         mut self,
         params: &Arc<Mutex<Vec<Option<u64>>>>,
     ) -> Self {
         todo!()
     }
 
-    pub fn acknowledge_price_per_computed_unit_result(self, result: Option<u64>) -> Self {
+    pub fn set_up_price_per_computed_unit_result(self, result: Option<u64>) -> Self {
         todo!()
     }
 
-    pub fn acknowledge_pending_transaction_id_params(
-        mut self,
-        params: &Arc<Mutex<Vec<U256>>>,
-    ) -> Self {
+    pub fn set_up_pending_transaction_id_params(mut self, params: &Arc<Mutex<Vec<U256>>>) -> Self {
         todo!()
     }
 
-    pub fn acknowledge_pending_transaction_id_result(self, result: U256) -> Self {
+    pub fn set_up_pending_transaction_id_result(self, result: U256) -> Self {
         todo!()
     }
 
-    pub fn acknowledge_consuming_wallet_balances_params(
+    pub fn set_up_consuming_wallet_balances_params(
         mut self,
         params: &Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     ) -> Self {
         todo!()
     }
 
-    pub fn acknowledge_consuming_wallet_balances_result(
-        self,
-        result: ConsumingWalletBalances,
-    ) -> Self {
+    pub fn set_up_consuming_wallet_balances_result(self, result: ConsumingWalletBalances) -> Self {
         todo!()
     }
 
@@ -1736,12 +1745,19 @@ impl PayablePaymentsAgentMock {
         todo!()
     }
 
-    pub fn estimated_fees_result(self, result: u128) -> Self {
-        todo!()
+    pub fn estimated_fees_result(mut self, result: u128) -> Self {
+        self.estimated_fees_results = Some(result);
+        self
     }
 
-    pub fn consuming_wallet_balances_result(self, result: ConsumingWalletBalances) -> Self {
-        todo!()
+    pub fn consuming_wallet_balances_result(
+        mut self,
+        result: Option<ConsumingWalletBalances>,
+    ) -> Self {
+        self.consuming_wallet_balances_results
+            .borrow_mut()
+            .push(result);
+        self
     }
 
     pub fn requested_unit_price_result(self, result: u64) -> Self {

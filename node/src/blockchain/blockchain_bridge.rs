@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
     InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
 };
@@ -310,8 +312,8 @@ impl BlockchainBridge {
         };
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                transaction_fee_currency_wei: gas_balance,
-                masq_tokens_wei: token_balance,
+                transaction_fee_currency_in_minor_units: gas_balance,
+                masq_tokens_in_minor_units: token_balance,
             }
         };
         todo!();
@@ -337,7 +339,9 @@ impl BlockchainBridge {
         msg: OutboundPaymentsInstructions,
     ) -> Result<(), String> {
         let skeleton_opt = msg.response_skeleton_opt;
-        let result = self.process_payments(&msg);
+        let mut agent = msg.agent;
+        let checked_accounts = msg.checked_accounts;
+        let result = self.process_payments(agent.as_mut(), checked_accounts);
 
         let local_processing_result = match &result {
             Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
@@ -466,29 +470,26 @@ impl BlockchainBridge {
 
     fn process_payments(
         &self,
-        msg: &OutboundPaymentsInstructions,
+        agent: &mut dyn PayablePaymentsAgent,
+        checked_accounts: Vec<PayableAccount>,
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => consuming_wallet,
             None => return Err(PayableTransactionError::MissingConsumingWallet),
         };
 
-        // TODO will be decoupled from Web3 by GH-696
-        let gas_price = todo!(); //msg.requested_price_per_transaction_data_unit;
-
-        let pending_nonce = self
-            .blockchain_interface
-            .get_transaction_count(consuming_wallet)
-            .map_err(PayableTransactionError::TransactionCount)?;
+        match agent.ask_for_pending_transaction_id(self.blockchain_interface.as_ref()) {
+            Ok(()) => (),
+            Err(e) => todo!(),
+        };
 
         let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
         self.blockchain_interface.send_batch_of_payables(
             consuming_wallet,
-            gas_price,
-            pending_nonce,
+            agent,
             new_fingerprints_recipient,
-            &msg.checked_accounts,
+            &checked_accounts,
         )
     }
 
@@ -518,7 +519,7 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
     use crate::accountant::test_utils::{
         make_initial_payable_payment_setup_message, make_pending_payable_fingerprint,
         PayablePaymentsAgentMock,
@@ -690,8 +691,8 @@ mod tests {
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let wallet_balances_found = ConsumingWalletBalances {
-            transaction_fee_currency_wei: gas_balance,
-            masq_tokens_wei: token_balance,
+            transaction_fee_currency_in_minor_units: gas_balance,
+            masq_tokens_in_minor_units: token_balance,
         };
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_params(&get_gas_balance_params_arc)
@@ -754,7 +755,7 @@ mod tests {
             accountant_received_payment.get_record(0);
         let expected_agent = Box::new(
             PayablePaymentsAgentMock::default()
-                .consuming_wallet_balances_result(wallet_balances_found)
+                .consuming_wallet_balances_result(Some(wallet_balances_found))
                 .estimated_fees_result(58_238) //corresponds to the attributes of Chain::EthMainnet
                 .requested_unit_price_result(146),
         ) as Box<dyn PayablePaymentsAgent>;

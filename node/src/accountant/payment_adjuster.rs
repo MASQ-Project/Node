@@ -73,9 +73,6 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_payments_agent::{
-        PayablePaymentsAgent, PayablePaymentsAgentWeb3,
-    };
     use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -92,11 +89,11 @@ mod tests {
         let mut payable_2 = make_payable_account(222);
         payable_2.balance_wei = 200_000_000;
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_wei: U256::from(1_001_000_000_000_u64),
-            masq_tokens_wei: U256::from(301_000_000),
+            transaction_fee_currency_in_minor_units: U256::from(1_001_000_000_000_u64),
+            masq_tokens_in_minor_units: U256::from(301_000_000),
         };
         let mut agent_for_enough = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_fees_result(1_000_000_000_000_000);
         let non_required = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1.clone(), payable_2.clone()],
@@ -110,11 +107,11 @@ mod tests {
             subject.search_for_indispensable_adjustment(&non_required, &logger);
 
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_wei: U256::from(999_000_000_000_u64),
-            masq_tokens_wei: U256::from(299_000_000),
+            transaction_fee_currency_in_minor_units: U256::from(999_000_000_000_u64),
+            masq_tokens_in_minor_units: U256::from(299_000_000),
         };
         let mut agent_for_insufficient = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_fees_result(1_000_000_000_000_000);
         let should_require = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1, payable_2],
