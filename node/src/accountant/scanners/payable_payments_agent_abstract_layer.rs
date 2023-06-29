@@ -13,7 +13,6 @@
 //Cardano               No      *wr
 
 use crate::arbitrary_id_stamp_in_trait;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -22,18 +21,15 @@ use web3::types::U256;
 
 pub trait PayablePaymentsAgent: Send {
     //e.g. Cardano does not require user's own choice of price
-    fn ask_for_price_per_computed_unit(
+    fn consult_desired_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError>;
-    fn ask_for_pending_transaction_id(
-        &mut self,
-        blockchain_interface: &dyn BlockchainInterface,
-    ) -> Result<(), BlockchainError>;
+    fn set_up_pending_transaction_id(&mut self, id: U256);
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
-    fn estimated_fees(&self, number_of_transactions: usize) -> u128;
-    fn consuming_wallet_balances(&self) -> Option<&ConsumingWalletBalances>;
-    fn price_per_computed_unit(&self) -> Option<u64>;
+    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128;
+    fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances>;
+    fn desired_fee_per_computed_unit(&self) -> Option<u64>;
     fn pending_transaction_id(&self) -> Option<U256>;
     fn debug(&self) -> String;
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent>;
@@ -54,7 +50,7 @@ impl Debug for Box<dyn PayablePaymentsAgent> {
 
 impl Clone for Box<dyn PayablePaymentsAgent> {
     fn clone(&self) -> Self {
-        todo!()
+        self.duplicate()
     }
 }
 
@@ -62,12 +58,16 @@ impl Clone for Box<dyn PayablePaymentsAgent> {
 mod tests {
     use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
     use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
-    use crate::accountant::test_utils::PayablePaymentsAgentMock;
+    use crate::accountant::test_utils::{
+        assert_on_cloneable_agent_objects, PayablePaymentsAgentMock,
+    };
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use web3::types::U256;
 
     #[test]
-    fn even_abstract_payable_payments_agent_implements_partial_eq() {
+    fn trait_object_like_payable_payments_agent_implements_partial_eq() {
         let mut agent_a =
             Box::new(PayablePaymentsAgentWeb3::new(45678)) as Box<dyn PayablePaymentsAgent>;
         let agent_b =
@@ -92,21 +92,34 @@ mod tests {
         assert_eq!(&agent_d, &agent_e);
         assert_ne!(&agent_d, &agent_f);
 
-        agent_a.ask_for_pending_transaction_id(U256::from(1234));
-        agent_c.ask_for_pending_transaction_id(U256::from(1234));
+        agent_a.set_up_pending_transaction_id(U256::from(1234));
+        agent_c.set_up_pending_transaction_id(U256::from(1234));
         assert_eq!(&agent_a, &agent_c);
-        agent_c.ask_for_pending_transaction_id(U256::from(5678));
+        agent_c.set_up_pending_transaction_id(U256::from(5678));
         assert_ne!(&agent_a, &agent_c);
     }
 
     #[test]
-    fn payable_payments_agent_implements_debug() {
+    fn trait_object_like_payable_payments_agent_implements_debug() {
         let subject = Box::new(PayablePaymentsAgentWeb3::new(456)) as Box<dyn PayablePaymentsAgent>;
 
         let result = format!("{:?}", subject);
 
-        let expected = "Trait object of: PayablePaymentsAgentWeb3 \
-        { gas_limit_const_part: 456, upmost_added_gas_margin: 3328, pending_transaction_id_opt: None }";
+        let expected = "Trait object of: PayablePaymentsAgentWeb3 { \
+         gas_limit_const_part: 456, \
+         upmost_added_gas_margin: 3328, \
+         consuming_wallet_balance_opt: None, \
+         pending_transaction_id_opt: None, \
+         desired_fee_per_computed_unit_gwei_opt: None \
+         }";
         assert_eq!(result, expected)
+    }
+
+    #[test]
+    fn trait_object_like_payable_payments_agent_implements_clone() {
+        assert_on_cloneable_agent_objects(|original_agent: PayablePaymentsAgentWeb3| {
+            let boxed_agent = Box::new(original_agent) as Box<dyn PayablePaymentsAgent>;
+            boxed_agent.clone()
+        })
     }
 }

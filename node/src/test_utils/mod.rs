@@ -1043,7 +1043,16 @@ pub mod unshared_test_utils {
         macro_rules! arbitrary_id_stamp_in_trait_impl {
             () => {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                    *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+                    match self.arbitrary_id_stamp_opt {
+                        Some(id) => id,
+                        // in some cases the id stamp is required by some kind of an identity tracking
+                        // mechanism, even though it does not necessarily end up in an assertion;
+                        // to avoid confusion from setting up an id stamp and then abandoning it for
+                        // the rest of the test, we provide a new id stamp, which is all unique and
+                        // so it cannot match to any other id stamp at the moment, that secures that
+                        // if an assertion is actually needed it is still going to fail
+                        None => ArbitraryIdStamp::new(),
+                    }
                 }
             };
         }

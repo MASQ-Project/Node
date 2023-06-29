@@ -62,7 +62,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    release_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
+    mobilize_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -103,7 +103,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
-        self.release_payable_payments_agent_results
+        self.mobilize_payable_payments_agent_results
             .borrow_mut()
             .remove(0)
     }
@@ -177,11 +177,11 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn release_payable_payments_agent_result(
+    pub fn mobilize_payable_payments_agent_result(
         self,
         result: Box<dyn PayablePaymentsAgent>,
     ) -> Self {
-        self.release_payable_payments_agent_results
+        self.mobilize_payable_payments_agent_results
             .borrow_mut()
             .push(result);
         self
@@ -467,6 +467,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.sign_transaction_params = params.clone();
         self
     }
+
     pub fn sign_transaction_result(self, result: Result<SignedTransaction, Web3Error>) -> Self {
         self.sign_transaction_results.borrow_mut().push(result);
         self
@@ -505,6 +506,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.submit_batch_params = params.clone();
         self
     }
+
     pub fn submit_batch_result(
         self,
         result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,

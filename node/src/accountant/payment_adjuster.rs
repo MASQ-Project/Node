@@ -94,7 +94,7 @@ mod tests {
         };
         let mut agent_for_enough = PayablePaymentsAgentMock::default()
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_fees_result(1_000_000_000_000_000);
+            .estimated_transaction_fee_result(1_000_000_000_000_000);
         let non_required = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1.clone(), payable_2.clone()],
             agent: Box::new(agent_for_enough),
@@ -112,7 +112,7 @@ mod tests {
         };
         let mut agent_for_insufficient = PayablePaymentsAgentMock::default()
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_fees_result(1_000_000_000_000_000);
+            .estimated_transaction_fee_result(1_000_000_000_000_000);
         let should_require = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1, payable_2],
             agent: Box::new(agent_for_insufficient),

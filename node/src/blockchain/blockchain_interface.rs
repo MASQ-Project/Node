@@ -362,7 +362,7 @@ where
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let gas_price = payable_payments_agent
-            .price_per_computed_unit()
+            .desired_fee_per_computed_unit()
             .expect("agent screwed gas price");
         let pending_nonce = payable_payments_agent
             .pending_transaction_id()
@@ -720,9 +720,12 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::payable_payments_agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::payable_payments_agent_web3::{
+        PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+    };
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
+        PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::web3_gas_limit_const_part;
@@ -1365,16 +1368,17 @@ mod tests {
             amount_3,
             None,
         );
-        let pending_nonce = U256::from(6);
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
         let test_timestamp_before = SystemTime::now();
+        let agent = PayablePaymentsAgentMock::default()
+            .desired_fee_per_computed_unit_result(120)
+            .pending_transaction_id_result(U256::from(6));
 
         let result = subject
             .send_batch_of_payables(
                 &consuming_wallet,
-                gas_price,
-                pending_nonce,
+                &agent,
                 &fingerprint_recipient,
                 &accounts_to_process,
             )
@@ -1582,7 +1586,6 @@ mod tests {
             .unwrap();
         let first_hash = first_signed_transaction.transaction_hash;
         let second_hash = second_signed_transaction.transaction_hash;
-        let pending_nonce = U256::from(4);
         //technically, the JSON values in the correct responses don't matter, we only check for errors if any came back
         let rpc_responses = vec![
             Ok(Value::String((&first_hash.to_string()[2..]).to_string())),
@@ -1599,7 +1602,6 @@ mod tests {
             .submit_batch_result(Ok(rpc_responses));
         subject.batch_payable_tools = Box::new(batch_payables_tools);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
-        let gas_price = 123;
         let first_payment_amount = 333_222_111_000;
         let first_creditor_wallet = make_wallet("creditor321");
         let first_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1614,11 +1616,13 @@ mod tests {
             second_payment_amount,
             None,
         );
+        let agent = PayablePaymentsAgentMock::default()
+            .desired_fee_per_computed_unit_result(123)
+            .pending_transaction_id_result(U256::from(4));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
-            gas_price,
-            pending_nonce,
+            &agent,
             &initiate_fingerprints_recipient,
             &vec![first_account, second_account],
         );
@@ -1798,9 +1802,12 @@ mod tests {
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
         let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
+        let agent = PayablePaymentsAgentMock::default()
+            .desired_fee_per_computed_unit_result(123)
+            .pending_transaction_id_result(U256::from(4));
 
         let result =
-            subject.send_batch_of_payables(&consuming_wallet, 111, nonce, &recipient, &accounts);
+            subject.send_batch_of_payables(&consuming_wallet, &agent, &recipient, &accounts);
 
         assert_eq!(
             result,
@@ -1833,13 +1840,13 @@ mod tests {
             9000,
             None,
         );
-        let gas_price = 123;
-        let nonce = U256::from(1);
+        let agent = PayablePaymentsAgentMock::default()
+            .desired_fee_per_computed_unit_result(123)
+            .pending_transaction_id_result(U256::from(1));
 
         let result = subject.send_batch_of_payables(
             &incomplete_consuming_wallet,
-            gas_price,
-            nonce,
+            &agent,
             &recipient,
             &vec![account],
         );
@@ -1879,13 +1886,13 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let gas_price = 123;
-        let nonce = U256::from(1);
+        let agent = PayablePaymentsAgentMock::default()
+            .desired_fee_per_computed_unit_result(123)
+            .pending_transaction_id_result(U256::from(4));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
-            gas_price,
-            nonce,
+            &agent,
             &unimportant_recipient,
             &vec![account],
         );
@@ -2603,17 +2610,13 @@ mod tests {
         let chains = all_chains();
         let (recorder, _, _) = make_recorder();
         let recipient = recorder.start().recipient();
+        let agent = PayablePaymentsAgentMock::default();
         let accounts = vec![make_payable_account(111)];
 
         chains.into_iter().for_each(|chain| {
             assert_eq!(
-                make_clandestine_subject(test_name, chain).send_batch_of_payables(
-                    &wallet,
-                    123,
-                    U256::one(),
-                    &recipient,
-                    &accounts
-                ),
+                make_clandestine_subject(test_name, chain)
+                    .send_batch_of_payables(&wallet, &agent, &recipient, &accounts),
                 Err(PayableTransactionError::Sending {
                     msg: "invalid attempt to send txs clandestinely".to_string(),
                     hashes: vec![],

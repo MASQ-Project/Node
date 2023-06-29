@@ -2,9 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_setup_msg::{
-    InitialPayablePaymentsSetupMsg,
-};
+use crate::accountant::scanners::payable_payments_setup_msg::InitialPayablePaymentsSetupMsg;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -46,6 +44,10 @@ pub struct OutboundPaymentsInstructions {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+// derive version of PartialEq cannot be used because the field with the agent; Rust complains for
+// disability to move out from there, in a similar case, also with PartiEq, but not in this one,
+// I saw a compilation error speaking of this kind of field that did not implement Copy. In both
+// cases, the added references to the agents fixed the issue.
 impl PartialEq for OutboundPaymentsInstructions {
     fn eq(&self, other: &Self) -> bool {
         self.checked_accounts == other.checked_accounts
@@ -60,7 +62,7 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
     pub transaction_fee_currency_in_minor_units: U256,
     pub masq_tokens_in_minor_units: U256,
@@ -68,14 +70,14 @@ pub struct ConsumingWalletBalances {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_payments_agent_abstract_layer::{
-        PayablePaymentsAgent};
+    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
+    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::accountant::ResponseSkeleton;
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
-    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
+    use web3::types::U256;
 
     #[test]
     fn blockchain_bridge_subs_debug() {
@@ -103,12 +105,12 @@ mod tests {
         instructions_2.agent = Box::new(PayablePaymentsAgentMock::default());
         assert_ne!(instructions_2, instructions_1);
         let mut also_different_agent = PayablePaymentsAgentWeb3::new(123);
-        also_different_agent.ask_for_price_per_computed_unit(Some(111));
+        also_different_agent.set_up_pending_transaction_id(U256::from(111));
         instructions_2.agent = Box::new(also_different_agent);
         assert_ne!(instructions_2, instructions_1);
         instructions_1
             .agent
-            .set_up_price_per_computed_unit(Some(111));
+            .set_up_pending_transaction_id(U256::from(111));
         assert_eq!(instructions_2, instructions_1);
 
         instructions_2.checked_accounts = vec![];

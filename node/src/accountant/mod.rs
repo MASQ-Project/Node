@@ -1051,6 +1051,7 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
@@ -1433,13 +1434,12 @@ mod tests {
             transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
             masq_tokens_in_minor_units: U256::from(u32::MAX),
         };
-        let agent = PayablePaymentsAgentMock::default()
-            .estimated_fees_result(112_000)
-            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .requested_unit_price_result(132);
+        let arbitrary_id_stamp = ArbitraryIdStamp::new();
+        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
+        let agent_boxed = Box::new(agent) as Box<dyn PayablePaymentsAgent>;
         let expected_payable_payments_setup_msg = PayablePaymentsSetupMsg {
             qualified_payables: vec![account_1.clone(), account_2.clone()],
-            agent: Box::new(agent),
+            agent: agent_boxed.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1464,7 +1464,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
             &OutboundPaymentsInstructions {
                 checked_accounts: vec![account_1, account_2],
-                agent: todo!("write an assertion on the arbitrary id"),
+                agent: agent_boxed,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1514,7 +1514,8 @@ mod tests {
             context_id: 55,
         };
         let mut agent = PayablePaymentsAgentWeb3::new(78910);
-        agent.ask_for_price_per_computed_unit(Some(30));
+        let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(123));
+        let _ = agent.consult_desired_fee_per_computed_unit(&persistent_config);
         let boxed_agent = Box::new(agent);
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
@@ -1537,13 +1538,11 @@ mod tests {
             transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
             masq_tokens_in_minor_units: U256::from(150_000_000_000_u64),
         };
-        let agent = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_fees_result(110_000)
-            .requested_unit_price_result(30);
+        let arbitrary_id_stamp = ArbitraryIdStamp::new();
+        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
             qualified_payables: vec![unadjusted_account_1.clone(), unadjusted_account_2.clone()],
-            agent: Box::new(agent),
+            agent: boxed_agent.clone(),
             response_skeleton_opt: Some(response_skeleton),
         };
 
@@ -2419,12 +2418,12 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 2);
-        let first_message: &PayablePaymentsSetupMsg = recording.get_record(0);
+        let first_message: &InitialPayablePaymentsSetupMsg = recording.get_record(0);
         assert_eq!(
             first_message.response_skeleton_opt,
             message_before.response_skeleton_opt
         );
-        let second_message: &PayablePaymentsSetupMsg = recording.get_record(1);
+        let second_message: &InitialPayablePaymentsSetupMsg = recording.get_record(1);
         assert_eq!(
             second_message.response_skeleton_opt,
             message_after.response_skeleton_opt

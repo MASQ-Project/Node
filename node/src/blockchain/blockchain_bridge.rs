@@ -273,6 +273,7 @@ impl BlockchainBridge {
         }
     }
 
+    // TODO fix the fn's name
     fn handle_initial_payable_payments_setup(
         &mut self,
         msg: InitialPayablePaymentsSetupMsg,
@@ -316,7 +317,7 @@ impl BlockchainBridge {
                 masq_tokens_in_minor_units: token_balance,
             }
         };
-        todo!();
+
         let requested_gas_price_gwei = self
             .persistent_config
             .gas_price()
@@ -478,10 +479,12 @@ impl BlockchainBridge {
             None => return Err(PayableTransactionError::MissingConsumingWallet),
         };
 
-        match agent.ask_for_pending_transaction_id(self.blockchain_interface.as_ref()) {
-            Ok(()) => (),
-            Err(e) => todo!(),
-        };
+        let pending_tx_id = self
+            .blockchain_interface
+            .get_transaction_count(consuming_wallet)
+            .map_err(PayableTransactionError::TransactionCount)?;
+
+        agent.set_up_pending_transaction_id(pending_tx_id);
 
         let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
@@ -538,6 +541,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
         prove_that_crash_request_handler_is_hooked_up, ZERO,
@@ -694,12 +698,13 @@ mod tests {
             transaction_fee_currency_in_minor_units: gas_balance,
             masq_tokens_in_minor_units: token_balance,
         };
+        let agent = PayablePaymentsAgentMock::default();
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_params(&get_gas_balance_params_arc)
             .get_gas_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
-            .get_token_balance_result(Ok(token_balance));
-        // .transaction_fees_calculator_result(Box::new(Web3TransactionFeesCalculator::new(1111)));
+            .get_token_balance_result(Ok(token_balance))
+            .mobilize_payable_payments_agent_result(Box::new(agent));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
             PersistentConfigurationMock::default().gas_price_result(Ok(146));
@@ -756,8 +761,8 @@ mod tests {
         let expected_agent = Box::new(
             PayablePaymentsAgentMock::default()
                 .consuming_wallet_balances_result(Some(wallet_balances_found))
-                .estimated_fees_result(58_238) //corresponds to the attributes of Chain::EthMainnet
-                .requested_unit_price_result(146),
+                .estimated_transaction_fee_result(58_238) //corresponds to the attributes of Chain::EthMainnet
+                .desired_fee_per_computed_unit_result(146),
         ) as Box<dyn PayablePaymentsAgent>;
         let expected_msg: PayablePaymentsSetupMsg = (msg, expected_agent).into();
         assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
@@ -967,7 +972,8 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let agent = PayablePaymentsAgentMock::default();
+        let arbitrary_id_stamp = ArbitraryIdStamp::new();
+        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -985,17 +991,11 @@ mod tests {
         system.run();
         let mut send_batch_of_payables_params = send_batch_of_payables_params_arc.lock().unwrap();
         //cannot assert on the captured recipient as its actor is gone after the System stops spinning
-        let (
-            consuming_wallet_actual,
-            gas_price_actual,
-            nonce_actual,
-            _recipient_actual,
-            accounts_actual,
-        ) = send_batch_of_payables_params.remove(0);
+        let (consuming_wallet_actual, agent_arbitrary_id_stamp, _recipient_actual, accounts_actual) =
+            send_batch_of_payables_params.remove(0);
         assert!(send_batch_of_payables_params.is_empty());
         assert_eq!(consuming_wallet_actual, consuming_wallet.clone());
-        assert_eq!(gas_price_actual, expected_gas_price);
-        assert_eq!(nonce_actual, U256::from(1u64));
+        assert_eq!(agent_arbitrary_id_stamp, arbitrary_id_stamp);
         assert_eq!(accounts_actual, accounts);
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
@@ -1119,19 +1119,15 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
-        let agent = PayablePaymentsAgentMock::default();
-        let request = OutboundPaymentsInstructions {
-            checked_accounts: vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 123_456,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }],
-            agent: Box::new(agent),
-            response_skeleton_opt: None,
-        };
+        let mut agent = PayablePaymentsAgentMock::default();
+        let checked_accounts = vec![PayableAccount {
+            wallet: make_wallet("blah"),
+            balance_wei: 123_456,
+            last_paid_timestamp: SystemTime::now(),
+            pending_payable_opt: None,
+        }];
 
-        let result = subject.process_payments(&request);
+        let result = subject.process_payments(&mut agent, checked_accounts);
 
         assert_eq!(
             result,
@@ -1159,23 +1155,20 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let request = OutboundPaymentsInstructions {
-            checked_accounts: vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 424_454,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }],
-            agent: Box::new(PayablePaymentsAgentMock::default()),
-            response_skeleton_opt: None,
-        };
+        let checked_accounts = vec![PayableAccount {
+            wallet: make_wallet("blah"),
+            balance_wei: 424_454,
+            last_paid_timestamp: SystemTime::now(),
+            pending_payable_opt: None,
+        }];
+        let mut agent = PayablePaymentsAgentMock::default();
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
         subject
             .pending_payable_confirmation
             .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
-        let result = subject.process_payments(&request);
+        let result = subject.process_payments(&mut agent, checked_accounts);
 
         assert_eq!(
             result,

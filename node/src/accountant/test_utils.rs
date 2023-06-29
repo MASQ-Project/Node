@@ -15,6 +15,7 @@ use crate::accountant::database_access_objects::receivable_dao::{
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::scanners::payable_payments_setup_msg::{
     InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
 };
@@ -44,6 +45,7 @@ use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPayment
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -1414,7 +1416,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
-            .push((todo!(), logger.clone()));
+            .push((msg.clone(), logger.clone()));
         self.is_adjustment_required_results.borrow_mut().remove(0)
     }
 
@@ -1656,42 +1658,42 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    set_up_price_per_computed_unit_params: Arc<Mutex<Vec<Option<u64>>>>,
-    set_up_price_per_computed_unit_result: RefCell<Vec<Option<u64>>>,
-    set_up_pending_transaction_id_params: Arc<Mutex<Vec<Option<U256>>>>,
+    consult_desired_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+    consult_desired_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
+    set_up_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
     consuming_wallet_balances_results: RefCell<Vec<Option<ConsumingWalletBalances>>>,
-    estimated_fees_results: Option<u128>,
+    estimated_transaction_fee_results: Option<u128>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn ask_for_price_per_computed_unit(
+    fn consult_desired_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
         todo!()
     }
 
-    fn ask_for_pending_transaction_id(
-        &mut self,
-        blockchain_interface: &dyn BlockchainInterface,
-    ) -> Result<(), BlockchainError> {
-        todo!()
+    fn set_up_pending_transaction_id(&mut self, id: U256) {
+        self.set_up_pending_transaction_id_params
+            .lock()
+            .unwrap()
+            .push(id);
     }
 
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
         todo!()
     }
 
-    fn estimated_fees(&self, number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128 {
         todo!()
     }
 
-    fn consuming_wallet_balances(&self) -> Option<&ConsumingWalletBalances> {
+    fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances> {
         todo!()
     }
 
-    fn price_per_computed_unit(&self) -> Option<u64> {
+    fn desired_fee_per_computed_unit(&self) -> Option<u64> {
         todo!()
     }
 
@@ -1704,21 +1706,27 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
     }
 
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
-        todo!()
+        let original_arbitrary_id_stamp = self.arbitrary_id_stamp();
+        // trying to make clones of mocks isn't advisable, may this be an exception based on
+        // the speciality that comparison between this kind of mocks is done exclusively by
+        // manipulation with the arbitrary id stamp, no other attributes matter
+        let new_self =
+            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(original_arbitrary_id_stamp);
+        Box::new(new_self)
     }
 
     arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl PayablePaymentsAgentMock {
-    pub fn set_up_price_per_computed_unit_params(
+    pub fn consult_desired_fee_per_computed_unit_params(
         mut self,
         params: &Arc<Mutex<Vec<Option<u64>>>>,
     ) -> Self {
         todo!()
     }
 
-    pub fn set_up_price_per_computed_unit_result(self, result: Option<u64>) -> Self {
+    pub fn consult_desired_fee_per_computed_unit_result(self, result: Option<u64>) -> Self {
         todo!()
     }
 
@@ -1741,12 +1749,12 @@ impl PayablePaymentsAgentMock {
         todo!()
     }
 
-    pub fn estimated_fees_params(mut self, params: &Arc<Mutex<Vec<usize>>>) -> Self {
+    pub fn estimated_transaction_fee_params(mut self, params: &Arc<Mutex<Vec<usize>>>) -> Self {
         todo!()
     }
 
-    pub fn estimated_fees_result(mut self, result: u128) -> Self {
-        self.estimated_fees_results = Some(result);
+    pub fn estimated_transaction_fee_result(mut self, result: u128) -> Self {
+        self.estimated_transaction_fee_results = Some(result);
         self
     }
 
@@ -1760,7 +1768,7 @@ impl PayablePaymentsAgentMock {
         self
     }
 
-    pub fn requested_unit_price_result(self, result: u64) -> Self {
+    pub fn desired_fee_per_computed_unit_result(self, result: u64) -> Self {
         todo!()
     }
 
@@ -1769,4 +1777,39 @@ impl PayablePaymentsAgentMock {
     }
 
     set_arbitrary_id_stamp_in_mock_impl!();
+}
+
+pub fn assert_on_cloneable_agent_objects<F>(act: F)
+where
+    F: Fn(PayablePaymentsAgentWeb3) -> Box<dyn PayablePaymentsAgent>,
+{
+    let mut original_agent = PayablePaymentsAgentWeb3::new(777);
+    let nonce = U256::from(4444);
+    original_agent.set_up_pending_transaction_id(nonce);
+    let consuming_wallet_balances = ConsumingWalletBalances {
+        transaction_fee_currency_in_minor_units: U256::from(123_456),
+        masq_tokens_in_minor_units: U256::from(444_444_444),
+    };
+    original_agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
+    let gas_price = 333;
+    let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(gas_price));
+    original_agent
+        .consult_desired_fee_per_computed_unit(&persistent_config)
+        .unwrap();
+    let original_estimated_fees = original_agent.estimated_transaction_fee(4);
+    let original_debug = original_agent.debug();
+
+    let duplicate = act(original_agent);
+
+    assert_eq!(duplicate.pending_transaction_id(), Some(nonce));
+    assert_eq!(
+        duplicate.consuming_wallet_balances(),
+        Some(consuming_wallet_balances)
+    );
+    assert_eq!(duplicate.desired_fee_per_computed_unit(), Some(gas_price));
+    assert_eq!(
+        duplicate.estimated_transaction_fee(4),
+        original_estimated_fees
+    );
+    assert_eq!(duplicate.debug(), original_debug)
 }

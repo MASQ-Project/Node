@@ -12,42 +12,41 @@ pub struct PayablePaymentsAgentWeb3 {
     upmost_added_gas_margin: u64,
     consuming_wallet_balance_opt: Option<ConsumingWalletBalances>,
     pending_transaction_id_opt: Option<U256>,
-    price_per_computed_unit_gwei_opt: Option<u64>,
+    desired_fee_per_computed_unit_gwei_opt: Option<u64>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
-    fn ask_for_price_per_computed_unit(
+    fn consult_desired_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        todo!() //self.price_per_computed_unit_gwei_opt = price
+        let gas_price_gwei = persistent_config.gas_price()?;
+        self.desired_fee_per_computed_unit_gwei_opt = Some(gas_price_gwei);
+        Ok(())
     }
 
-    fn ask_for_pending_transaction_id(
-        &mut self,
-        blockchain_interface: &dyn BlockchainInterface,
-    ) -> Result<(), BlockchainError> {
-        todo!() //   self.pending_transaction_id_opt.replace(id);
-
-        //TODO the below was original code from BlockchainBridge
-        // .get_transaction_count(consuming_wallet)
-        //     .map_err(PayableTransactionError::TransactionCount)?;
+    fn set_up_pending_transaction_id(&mut self, id: U256) {
+        self.pending_transaction_id_opt.replace(id);
     }
 
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
         self.consuming_wallet_balance_opt.replace(balances);
     }
 
-    fn estimated_fees(&self, number_of_transactions: usize) -> u128 {
-        todo!()
+    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128 {
+        ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64)
+            as u128
+            * self
+                .desired_fee_per_computed_unit_gwei_opt
+                .expect("yet unset gas price") as u128
     }
 
-    fn consuming_wallet_balances(&self) -> Option<&ConsumingWalletBalances> {
-        self.consuming_wallet_balance_opt.as_ref()
+    fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances> {
+        self.consuming_wallet_balance_opt
     }
 
-    fn price_per_computed_unit(&self) -> Option<u64> {
-        self.price_per_computed_unit_gwei_opt
+    fn desired_fee_per_computed_unit(&self) -> Option<u64> {
+        self.desired_fee_per_computed_unit_gwei_opt
     }
 
     fn pending_transaction_id(&self) -> Option<U256> {
@@ -59,11 +58,13 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     }
 
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
-        todo!()
+        Box::new(self.clone())
     }
 }
 
-pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328; //64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us; each non-zero byte costs 64 units of gas
+// 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
+// each non-zero byte costs 64 units of gas
+pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328;
 
 impl PayablePaymentsAgentWeb3 {
     pub fn new(gas_limit_const_part: u64) -> Self {
@@ -72,27 +73,10 @@ impl PayablePaymentsAgentWeb3 {
             upmost_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
             consuming_wallet_balance_opt: None,
             pending_transaction_id_opt: None,
-            price_per_computed_unit_gwei_opt: None,
+            desired_fee_per_computed_unit_gwei_opt: None,
         }
     }
 }
-
-// pub struct Web3TransactionCalculator {
-//     gas_limit_const_part: u64,
-//     upmost_added_gas_margin: u64,
-// }
-//
-// impl TransactionFeesCalculator for Web3TransactionFeesCalculator {
-//     fn calculate_fees(&self, number_of_transactions: usize) -> u128 {
-//         ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64) as u128
-//     }
-// }
-//
-// impl Web3TransactionFeesCalculator {
-//     pub fn new(gas_limit_const_part: u64) -> Self{
-//         Self{ gas_limit_const_part, upmost_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN}
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -100,7 +84,14 @@ mod tests {
     use crate::accountant::scanners::payable_payments_agent_web3::{
         PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
+    use crate::accountant::test_utils::{
+        assert_on_cloneable_agent_objects, PayablePaymentsAgentMock,
+    };
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use web3::types::U256;
 
     #[test]
@@ -118,23 +109,37 @@ mod tests {
             WEB3_MAXIMAL_GAS_LIMIT_MARGIN
         );
         assert_eq!(subject.pending_transaction_id_opt, None);
-        assert_eq!(subject.price_per_computed_unit_gwei_opt, None)
+        assert_eq!(subject.desired_fee_per_computed_unit_gwei_opt, None);
+        assert_eq!(subject.consuming_wallet_balance_opt, None)
     }
 
     #[test]
-    fn set_and_get_for_price_per_computed_unit_works() {
+    fn set_and_get_for_price_per_computed_unit_happy_path() {
+        let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        subject.ask_for_price_per_computed_unit(Some(8765));
+        let result = subject.consult_desired_fee_per_computed_unit(&persistent_config);
 
-        assert_eq!(subject.price_per_computed_unit(), Some(8765))
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.desired_fee_per_computed_unit(), Some(130))
+    }
+
+    #[test]
+    fn set_and_get_for_price_per_computed_unit_sad_path() {
+        let persistent_config = PersistentConfigurationMock::default()
+            .gas_price_result(Err(PersistentConfigError::TransactionError));
+        let mut subject = PayablePaymentsAgentWeb3::new(12345);
+
+        let result = subject.consult_desired_fee_per_computed_unit(&persistent_config);
+
+        assert_eq!(result, Err(PersistentConfigError::TransactionError));
     }
 
     #[test]
     fn set_and_get_for_pending_transaction_id_works() {
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        subject.ask_for_pending_transaction_id(U256::from(654));
+        subject.set_up_pending_transaction_id(U256::from(654));
 
         assert_eq!(subject.pending_transaction_id(), Some(U256::from(654)))
     }
@@ -151,7 +156,31 @@ mod tests {
 
         assert_eq!(
             subject.consuming_wallet_balances(),
-            Some(&consuming_wallet_balances)
+            Some(consuming_wallet_balances)
+        )
+    }
+
+    #[test]
+    fn estimated_transaction_fee_works() {
+        let mut one_agent = PayablePaymentsAgentWeb3::new(11_111);
+        let persistent_config = PersistentConfigurationMock::default()
+            .gas_price_result(Ok(122))
+            .gas_price_result(Ok(550));
+        one_agent
+            .consult_desired_fee_per_computed_unit(&persistent_config)
+            .unwrap();
+        let mut second_agent = PayablePaymentsAgentWeb3::new(444);
+        second_agent
+            .consult_desired_fee_per_computed_unit(&persistent_config)
+            .unwrap();
+
+        assert_eq!(
+            one_agent.estimated_transaction_fee(7),
+            (7 * (11_111 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 122
+        );
+        assert_eq!(
+            second_agent.estimated_transaction_fee(3),
+            (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 550
         )
     }
 
@@ -163,6 +192,13 @@ mod tests {
         let debug_from_trait = subject.debug();
 
         assert_eq!(debug_from_trait, std_debug)
+    }
+
+    #[test]
+    fn duplicate_works() {
+        assert_on_cloneable_agent_objects(|original_object: PayablePaymentsAgentWeb3| {
+            original_object.duplicate()
+        })
     }
 
     // #[test]
