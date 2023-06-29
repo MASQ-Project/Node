@@ -1,13 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_scan_setup_msgs;
+pub mod payable_payments_agent;
+pub mod payable_payments_setup_msg;
 pub mod scan_mid_procedures;
 pub mod scanners_utils;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentsSetup};
+use crate::accountant::scanners::payable_payments_setup_msg::{InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, PayableScannerMiddleProcedures, MultistagePayableScanner,
@@ -62,7 +63,7 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 
 pub struct Scanners {
-    pub payable: Box<dyn MultistagePayableScanner<PayablePaymentsSetup, SentPayables>>,
+    pub payable: Box<dyn MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -183,13 +184,13 @@ pub struct PayableScanner {
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
-impl Scanner<PayablePaymentsSetup, SentPayables> for PayableScanner {
+impl Scanner<InitialPayablePaymentsSetupMsg, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<PayablePaymentsSetup, BeginScanError> {
+    ) -> Result<InitialPayablePaymentsSetupMsg, BeginScanError> {
         if let Some(timestamp) = self.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
@@ -217,9 +218,8 @@ impl Scanner<PayablePaymentsSetup, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                Ok(PayablePaymentsSetup {
+                Ok(InitialPayablePaymentsSetupMsg {
                     qualified_payables,
-                    this_stage_data_opt: None,
                     response_skeleton_opt,
                 })
             }
@@ -257,7 +257,7 @@ impl Scanner<PayablePaymentsSetup, SentPayables> for PayableScanner {
 impl PayableScannerMiddleProcedures for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: PayablePaymentsSetup,
+        msg: PayablePaymentsSetupMsg,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
@@ -266,16 +266,9 @@ impl PayableScannerMiddleProcedures for PayableScanner {
         {
             Ok(None) => {
                 //TODO will be decoupled with Web3 by GH-696
-                let requested_price_per_transaction_data_unit = msg
-                    .this_stage_data_opt
-                    .as_ref()
-                    .expectv("stage data")
-                    .preliminary_context()
-                    .transaction_fee_specification
-                    .gas_price_gwei;
                 Ok(Either::Left(OutboundPaymentsInstructions {
-                    accounts: msg.qualified_payables,
-                    requested_price_per_transaction_data_unit,
+                    checked_accounts: msg.qualified_payables,
+                    agent: msg.agent,
                     response_skeleton_opt: msg.response_skeleton_opt,
                 }))
             }
@@ -294,7 +287,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     }
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetup, SentPayables> for PayableScanner {}
+impl MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables> for PayableScanner {}
 
 impl PayableScanner {
     pub fn new(
@@ -1044,7 +1037,9 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+    use crate::accountant::scanners::payable_payments_setup_msg::{
+        InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+    };
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
@@ -1176,9 +1171,8 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(PayablePaymentsSetup {
+            Ok(InitialPayablePaymentsSetupMsg {
                 qualified_payables: qualified_payable_accounts.clone(),
-                this_stage_data_opt: None,
                 response_skeleton_opt: None,
             })
         );
@@ -2862,7 +2856,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let log_handler = TestLogHandler::new();
 
-        assert_elapsed_time_in_mark_as_ended::<PayablePaymentsSetup, SentPayables>(
+        assert_elapsed_time_in_mark_as_ended::<InitialPayablePaymentsSetupMsg, SentPayables>(
             &mut PayableScannerBuilder::new().build(),
             "Payables",
             test_name,

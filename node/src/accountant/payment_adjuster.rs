@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
 use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
@@ -11,7 +11,7 @@ use std::time::SystemTime;
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &PayablePaymentsSetup,
+        msg: &PayablePaymentsSetupMsg,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError>;
 
@@ -30,7 +30,7 @@ pub struct PaymentAdjusterReal {}
 impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
-        _msg: &PayablePaymentsSetup,
+        _msg: &PayablePaymentsSetupMsg,
         _logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         Ok(None)
@@ -73,10 +73,11 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_scan_setup_msgs::{
-        PayablePaymentsSetup, PreliminaryContext, SingleTransactionFee, StageData,
+    use crate::accountant::scanners::payable_payments_agent::{
+        PayablePaymentsAgent, PayablePaymentsAgentWeb3,
     };
-    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
+    use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -90,16 +91,16 @@ mod tests {
         payable_1.balance_wei = 100_000_000;
         let mut payable_2 = make_payable_account(222);
         payable_2.balance_wei = 200_000_000;
-        let non_required = PayablePaymentsSetup {
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_currency_wei: U256::from(1_001_000_000_000_u64),
+            masq_tokens_wei: U256::from(301_000_000),
+        };
+        let mut agent_for_enough = PayablePaymentsAgentMock::default()
+            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .estimated_fees_result(1_000_000_000_000_000);
+        let non_required = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1.clone(), payable_2.clone()],
-            this_stage_data_opt: Some(StageData::PreliminaryContext(PreliminaryContext {
-                consuming_wallet_balances: ConsumingWalletBalances {
-                    transaction_fee_currency_wei: U256::from(1_001_000_000_000_u64),
-                    masq_tokens_wei: U256::from(301_000_000),
-                },
-                transaction_fees_calculator: Box::new(50_000),
-                //gas amount to spend = 2 * 50_000 * 10 [gwei] = 1_000_000_000_000_000 wei
-            })),
+            agent: Box::new(agent_for_enough),
             response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);
@@ -108,18 +109,16 @@ mod tests {
         let non_required_result =
             subject.search_for_indispensable_adjustment(&non_required, &logger);
 
-        let should_require = PayablePaymentsSetup {
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_currency_wei: U256::from(999_000_000_000_u64),
+            masq_tokens_wei: U256::from(299_000_000),
+        };
+        let mut agent_for_insufficient = PayablePaymentsAgentMock::default()
+            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .estimated_fees_result(1_000_000_000_000_000);
+        let should_require = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1, payable_2],
-            this_stage_data_opt: Some(StageData::PreliminaryContext(PreliminaryContext {
-                consuming_wallet_balances: ConsumingWalletBalances {
-                    transaction_fee_currency_wei: U256::from(999_000_000_000_u64),
-                    masq_tokens_wei: U256::from(299_000_000),
-                },
-                transaction_fees_calculator: SingleTransactionFee {
-                    gas_price_gwei: 10,
-                    estimated_gas_limit: 50_000,
-                },
-            })),
+            agent: Box::new(agent_for_insufficient),
             response_skeleton_opt: None,
         };
 

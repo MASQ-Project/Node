@@ -6,7 +6,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
     ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    TransactionFeesCalculator, REQUESTS_IN_PARALLEL,
+    REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
@@ -60,7 +61,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    transaction_fees_calculator_results: RefCell<Vec<Box<dyn TransactionFeesCalculator>>>,
+    release_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -101,8 +102,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn transaction_fees_calculator(&self) -> Box<dyn TransactionFeesCalculator> {
-        self.transaction_fees_calculator_results
+    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
+        self.release_payable_payments_agent_results
             .borrow_mut()
             .remove(0)
     }
@@ -178,11 +179,11 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn transaction_fees_calculator_result(
+    pub fn release_payable_payments_agent_result(
         self,
-        result: Box<dyn TransactionFeesCalculator>,
+        result: Box<dyn PayablePaymentsAgent>,
     ) -> Self {
-        self.transaction_fees_calculator_results
+        self.release_payable_payments_agent_results
             .borrow_mut()
             .push(result);
         self

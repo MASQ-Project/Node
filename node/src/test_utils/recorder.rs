@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+use crate::accountant::scanners::payable_payments_setup_msg::{
+    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+};
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -112,6 +114,7 @@ recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
+recorder_message_handler!(InitialPayablePaymentsSetupMsg);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NewPublicIp);
@@ -119,7 +122,7 @@ recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
 recorder_message_handler!(NoLookupIncipientCoresPackage);
 recorder_message_handler!(OutboundPaymentsInstructions);
-recorder_message_handler!(PayablePaymentsSetup);
+recorder_message_handler!(PayablePaymentsSetupMsg);
 recorder_message_handler!(PendingPayableFingerprintSeeds);
 recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(ReceivedPayments);
@@ -405,7 +408,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_payable_payments_setup: recipient!(addr, PayablePaymentsSetup),
+        report_payable_payments_setup: recipient!(addr, PayablePaymentsSetupMsg),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -427,7 +430,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        payable_payment_setup: recipient!(addr, PayablePaymentsSetup),
+        initial_payable_payment_setup_msg: recipient!(addr, InitialPayablePaymentsSetupMsg),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),

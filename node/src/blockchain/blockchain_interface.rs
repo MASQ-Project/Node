@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -138,10 +139,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    //payable_payments_agent_context(&self)
-    //wake payable_payments_agent
-    //instruct...
-    fn transaction_fees_calculator(&self) -> Box<dyn TransactionFeesCalculator>;
+    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent>;
 
     fn send_batch_of_payables(
         &self,
@@ -197,7 +195,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn transaction_fees_calculator(&self) -> Box<dyn TransactionFeesCalculator> {
+    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
         todo!()
     }
 
@@ -354,8 +352,8 @@ where
             .wait()
     }
 
-    fn transaction_fees_calculator(&self) -> Box<dyn TransactionFeesCalculator> {
-        Box::new(Web3TransactionFeesCalculator::new(self.gas_limit_const_part))
+    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
+        todo!()
     }
 
     fn send_batch_of_payables(
@@ -457,14 +455,11 @@ pub struct RpcPayableFailure {
 }
 
 type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
-const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328; //64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us; each non-zero byte costs 64 units of gas
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
     T: BatchTransport + Debug + 'static,
 {
-
-
     pub fn new(
         transport: T,
         event_loop_handle: EventLoopHandle,
@@ -716,67 +711,12 @@ where
     }
 }
 
-pub trait TransactionFeesCalculator: Send {
-    fn calculate_fees(&self, number_of_transactions: usize) -> u128;
-}
-
-pub struct Web3TransactionFeesCalculator {
-    gas_limit_const_part: u64,
-    upmost_added_gas_margin: u64,
-}
-
-impl TransactionFeesCalculator for Web3TransactionFeesCalculator {
-    fn calculate_fees(&self, number_of_transactions: usize) -> u128 {
-        ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64) as u128
-    }
-}
-
-impl Web3TransactionFeesCalculator {
-    pub fn new(gas_limit_const_part: u64) -> Self{
-        Self{ gas_limit_const_part, upmost_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN}
-    }
-}
-//
-// //chains according to utilizing the fee market
-// //(the requirement of proposed gas price) and
-// //custom unit limit ("gas" limit)
-//
-// //Ethereum, Polygon yes yes
-// //Bitcoin           yes no
-// //Qtum              yes
-// //NEO               yes
-// //Cardano           No
-//
-//
-// //trait PayablePaymentsAgent
-// pub trait TransactionInterpreter: Send {
-//     fn estimated_fees(&self, number_of_transactions: usize) -> u128;
-//     fn requested_price_per_computed_unit(&self) -> Option<u64>;
-//     fn pending_transaction_id(&self) -> Option<U256>;
-// }
-//
-// pub struct Web3TransactionCalculator {
-//     gas_limit_const_part: u64,
-//     upmost_added_gas_margin: u64,
-// }
-//
-// impl TransactionFeesCalculator for Web3TransactionFeesCalculator {
-//     fn calculate_fees(&self, number_of_transactions: usize) -> u128 {
-//         ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64) as u128
-//     }
-// }
-//
-// impl Web3TransactionFeesCalculator {
-//     pub fn new(gas_limit_const_part: u64) -> Self{
-//         Self{ gas_limit_const_part, upmost_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN}
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
+    use crate::accountant::scanners::payable_payments_agent::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
@@ -908,36 +848,6 @@ mod tests {
             );
 
             assert_eq!(subject.contract_address(), chain.rec().contract)
-        })
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_returns_fees_calculator_for_eth_chains() {
-        let eth_chains = vec![Chain::EthMainnet, Chain::EthRopsten, Chain::Dev];
-        assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(&eth_chains)
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_returns_fees_calculator_for_polygon_chains() {
-        let polygon_chains = vec![Chain::PolyMainnet, Chain::PolyMumbai];
-        assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(&polygon_chains)
-    }
-
-    fn assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(chains: &[Chain]) {
-        chains.iter().enumerate().for_each(|(idx, chain)| {
-            let subject = BlockchainInterfaceNonClandestine::new(
-                TestTransport::default(),
-                make_fake_event_loop_handle(),
-                *chain,
-                web3_gas_limit_const_part(*chain),
-            );
-            let fees_calculator = subject.transaction_fees_calculator();
-
-            assert_eq!(
-                fees_calculator.calculate_fees(idx),
-                (
-                  idx as u64  * (web3_gas_limit_const_part(*chain) + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128
-            )
         })
     }
 
@@ -2633,32 +2543,6 @@ mod tests {
                     hash: make_tx_hash(333)
                 })
             ]
-        )
-    }
-
-    #[test]
-    fn web3_transaction_fees_calculator_can_be_properly_constructed() {
-        let result = Web3TransactionFeesCalculator::new(1369);
-
-        assert_eq!(
-            result.upmost_added_gas_margin,
-            WEB3_MAXIMAL_GAS_LIMIT_MARGIN
-        );
-        assert_eq!(result.gas_limit_const_part, 1369);
-    }
-
-    #[test]
-    fn web3_transaction_fees_calculator_calculates_fees() {
-        let one_calculator = Web3TransactionFeesCalculator::new(11111);
-        let second_calculator = Web3TransactionFeesCalculator::new(444);
-
-        assert_eq!(
-            one_calculator.calculate_fees(7),
-            (7 * (11111 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128
-        );
-        assert_eq!(
-            second_calculator.calculate_fees(3),
-            (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128
         )
     }
 

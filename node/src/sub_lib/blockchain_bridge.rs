@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_setup_msg::{
+    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+};
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -24,7 +27,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
-    pub payable_payment_setup: Recipient<PayablePaymentsSetup>,
+    pub initial_payable_payment_setup_msg: Recipient<InitialPayablePaymentsSetupMsg>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -36,18 +39,19 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-impl SkeletonOptHolder for PayablePaymentsSetup {
-    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
-        self.response_skeleton_opt
-    }
+#[derive(Debug, Clone, Message)]
+pub struct OutboundPaymentsInstructions {
+    pub checked_accounts: Vec<PayableAccount>,
+    pub agent: Box<dyn PayablePaymentsAgent>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct OutboundPaymentsInstructions {
-    pub accounts: Vec<PayableAccount>,
-    // TODO will be neatened by GH-696
-    pub requested_price_per_transaction_data_unit: u64,
-    pub response_skeleton_opt: Option<ResponseSkeleton>,
+impl PartialEq for OutboundPaymentsInstructions {
+    fn eq(&self, other: &Self) -> bool {
+        self.checked_accounts == other.checked_accounts
+            && &self.agent == &other.agent
+            && self.response_skeleton_opt == self.response_skeleton_opt
+    }
 }
 
 impl SkeletonOptHolder for OutboundPaymentsInstructions {
@@ -64,6 +68,12 @@ pub struct ConsumingWalletBalances {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::scanners::payable_payments_agent::{
+        PayablePaymentsAgent, PayablePaymentsAgentWeb3,
+    };
+    use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
+    use crate::accountant::ResponseSkeleton;
+    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
 
@@ -74,5 +84,40 @@ mod tests {
         let subject = make_blockchain_bridge_subs_from(&recorder);
 
         assert_eq!(format!("{:?}", subject), "BlockchainBridgeSubs");
+    }
+
+    #[test]
+    fn outbound_payments_instructions_implements_partial_eq() {
+        let create_instructions = || OutboundPaymentsInstructions {
+            checked_accounts: vec![make_payable_account(123)],
+            agent: Box::new((PayablePaymentsAgentWeb3::new(123))),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 123,
+                context_id: 456,
+            }),
+        };
+        let mut instructions_1 = create_instructions();
+        let mut instructions_2 = create_instructions();
+
+        assert_eq!(instructions_1, instructions_2);
+        instructions_2.agent = Box::new(PayablePaymentsAgentMock::default());
+        assert_ne!(instructions_2, instructions_1);
+        let mut also_different_agent = PayablePaymentsAgentWeb3::new(123);
+        also_different_agent.set_up_price_per_computed_unit(Some(111));
+        instructions_2.agent = Box::new(also_different_agent);
+        assert_ne!(instructions_2, instructions_1);
+        instructions_1
+            .agent
+            .set_up_price_per_computed_unit(Some(111));
+        assert_eq!(instructions_2, instructions_1);
+
+        instructions_2.checked_accounts = vec![];
+        assert_ne!(instructions_2, instructions_1);
+        instructions_1.checked_accounts = vec![];
+        assert_eq!(instructions_2, instructions_1);
+        instructions_2.response_skeleton_opt = None;
+        assert_ne!(instructions_2, instructions_1);
+        instructions_1.response_skeleton_opt = None;
+        assert_eq!(instructions_2, instructions_1)
     }
 }

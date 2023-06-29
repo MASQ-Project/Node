@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
@@ -19,7 +19,7 @@ where
 pub trait PayableScannerMiddleProcedures {
     fn try_skipping_payment_adjustment(
         &self,
-        _msg: PayablePaymentsSetup,
+        _msg: PayablePaymentsSetupMsg,
         _logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, AwaitedAdjustment>, String> {
         intentionally_blank!()
@@ -34,14 +34,14 @@ pub trait PayableScannerMiddleProcedures {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct AwaitedAdjustment {
-    pub original_setup_msg: PayablePaymentsSetup,
+    pub original_setup_msg: PayablePaymentsSetupMsg,
     pub adjustment: Adjustment,
 }
 
 impl AwaitedAdjustment {
-    pub fn new(original_setup_msg: PayablePaymentsSetup, adjustment: Adjustment) -> Self {
+    pub fn new(original_setup_msg: PayablePaymentsSetupMsg, adjustment: Adjustment) -> Self {
         Self {
             original_setup_msg,
             adjustment,

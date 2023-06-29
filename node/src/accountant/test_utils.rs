@@ -14,7 +14,10 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentsSetup;
+use crate::accountant::scanners::payable_payments_agent::PayablePaymentsAgent;
+use crate::accountant::scanners::payable_payments_setup_msg::{
+    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+};
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, MultistagePayableScanner, PayableScannerMiddleProcedures,
 };
@@ -34,21 +37,24 @@ use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
-use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use actix::{Message, System};
 use ethereum_types::H256;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use masq_lib::utils::plus;
+use primitive_types::U256;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -1390,7 +1396,7 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentsSetup, Logger)>>>,
+    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentsSetupMsg, Logger)>>>,
     is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
     adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
@@ -1399,13 +1405,13 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &PayablePaymentsSetup,
+        msg: &PayablePaymentsSetupMsg,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.is_adjustment_required_params
             .lock()
             .unwrap()
-            .push((msg.clone(), logger.clone()));
+            .push((todo!(), logger.clone()));
         self.is_adjustment_required_results.borrow_mut().remove(0)
     }
 
@@ -1426,7 +1432,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PayablePaymentsSetup, Logger)>>>,
+        params: &Arc<Mutex<Vec<(PayablePaymentsSetupMsg, Logger)>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1456,13 +1462,13 @@ impl PaymentAdjusterMock {
     }
 }
 
+//in order to bypass restricted visibility
 pub fn make_initial_payable_payment_setup_message(
     qualified_payables: Vec<PayableAccount>,
     response_skeleton_opt: Option<ResponseSkeleton>,
-) -> PayablePaymentsSetup {
-    PayablePaymentsSetup {
+) -> InitialPayablePaymentsSetupMsg {
+    InitialPayablePaymentsSetupMsg {
         qualified_payables,
-        this_stage_data_opt: None,
         response_skeleton_opt,
     }
 }
@@ -1502,7 +1508,7 @@ where
     implement_as_any!();
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetup, SentPayables> for NullScanner {}
+impl MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables> for NullScanner {}
 
 impl PayableScannerMiddleProcedures for NullScanner {}
 
@@ -1615,12 +1621,12 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetup, SentPayables>
-    for ScannerMock<PayablePaymentsSetup, SentPayables>
+impl MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables>
+    for ScannerMock<InitialPayablePaymentsSetupMsg, SentPayables>
 {
 }
 
-impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentsSetup, SentPayables> {}
+impl PayableScannerMiddleProcedures for ScannerMock<InitialPayablePaymentsSetupMsg, SentPayables> {}
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(
@@ -1643,4 +1649,108 @@ impl ScanSchedulers {
             scheduler.interval = new_interval
         }
     }
+}
+
+#[derive(Default)]
+pub struct PayablePaymentsAgentMock {
+    acknowledge_price_per_computed_unit_params: Arc<Mutex<Vec<Option<u64>>>>,
+    acknowledge_price_per_computed_unit_result: Cell<Vec<Option<u64>>>,
+    acknowledge_pending_transaction_id_params: Arc<Mutex<Vec<Option<U256>>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+impl PayablePaymentsAgent for PayablePaymentsAgentMock {
+    fn set_up_price_per_computed_unit(&mut self, price: Option<u64>) {
+        todo!()
+    }
+
+    fn set_up_pending_transaction_id(&mut self, id: U256) {
+        todo!()
+    }
+
+    fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
+        todo!()
+    }
+
+    fn estimated_fees(&self, number_of_transactions: usize) -> u128 {
+        todo!()
+    }
+
+    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
+        todo!()
+    }
+
+    fn requested_price_per_computed_unit(&self) -> Option<u64> {
+        todo!()
+    }
+
+    fn pending_transaction_id(&self) -> Option<U256> {
+        todo!()
+    }
+
+    fn debug(&self) -> String {
+        format!("{:?}", self.arbitrary_id_stamp())
+    }
+
+    arbitrary_id_stamp_in_trait_impl!();
+}
+
+impl PayablePaymentsAgentMock {
+    pub fn acknowledge_price_per_computed_unit_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<u64>>>>,
+    ) -> Self {
+        todo!()
+    }
+
+    pub fn acknowledge_price_per_computed_unit_result(self, result: Option<u64>) -> Self {
+        todo!()
+    }
+
+    pub fn acknowledge_pending_transaction_id_params(
+        mut self,
+        params: &Arc<Mutex<Vec<U256>>>,
+    ) -> Self {
+        todo!()
+    }
+
+    pub fn acknowledge_pending_transaction_id_result(self, result: U256) -> Self {
+        todo!()
+    }
+
+    pub fn acknowledge_consuming_wallet_balances_params(
+        mut self,
+        params: &Arc<Mutex<Vec<ConsumingWalletBalances>>>,
+    ) -> Self {
+        todo!()
+    }
+
+    pub fn acknowledge_consuming_wallet_balances_result(
+        self,
+        result: ConsumingWalletBalances,
+    ) -> Self {
+        todo!()
+    }
+
+    pub fn estimated_fees_params(mut self, params: &Arc<Mutex<Vec<usize>>>) -> Self {
+        todo!()
+    }
+
+    pub fn estimated_fees_result(self, result: u128) -> Self {
+        todo!()
+    }
+
+    pub fn consuming_wallet_balances_result(self, result: ConsumingWalletBalances) -> Self {
+        todo!()
+    }
+
+    pub fn requested_unit_price_result(self, result: u64) -> Self {
+        todo!()
+    }
+
+    pub fn pending_transaction_id_result(self, result: U256) -> Self {
+        todo!()
+    }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
