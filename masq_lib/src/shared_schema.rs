@@ -633,7 +633,7 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
+    use itertools::Itertools;
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::validate_non_zero_u16;
@@ -1079,11 +1079,16 @@ mod tests {
 
     #[test]
     fn official_chain_names_are_reliable() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
+        let chains_from_names = official_chain_names()
+            .iter()
+            .map(|name| Chain::from(*name))
+            .collect_vec();
+
+        assert_eq!(chains_from_names, vec![
+            Chain::PolyMainnet,
+            Chain::EthMainnet,
+            Chain::PolyMumbai,
+            Chain::Dev,
+        ]);
     }
 }
