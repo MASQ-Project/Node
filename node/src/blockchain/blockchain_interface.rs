@@ -149,7 +149,7 @@ pub trait BlockchainInterface {
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
 
-    fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance;
+    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance;
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
 
@@ -212,7 +212,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         })
     }
 
-    fn get_gas_balance(&self, _address: &Wallet) -> ResultForBalance {
+    fn get_transaction_fee_balance(&self, _address: &Wallet) -> ResultForBalance {
         error!(self.logger, "Can't get gas balance clandestinely yet",);
         Ok(0.into())
     }
@@ -362,7 +362,7 @@ where
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let gas_price = payable_payments_agent
-            .desired_fee_per_computed_unit()
+            .required_fee_per_computed_unit()
             .expect("agent screwed gas price");
         let pending_nonce = payable_payments_agent
             .pending_transaction_id()
@@ -407,7 +407,7 @@ where
         }
     }
 
-    fn get_gas_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.web3
             .eth()
             .balance(wallet.address(), None)
@@ -720,9 +720,7 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::payable_payments_agent_web3::{
-        PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
-    };
+    use crate::accountant::scanners::payable_payments_agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
         PayablePaymentsAgentMock,
@@ -1140,7 +1138,7 @@ mod tests {
         );
 
         let result = subject
-            .get_gas_balance(
+            .get_transaction_fee_balance(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -1166,8 +1164,9 @@ mod tests {
             web3_gas_limit_const_part(chain),
         );
 
-        let result =
-            subject.get_gas_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
+        let result = subject.get_transaction_fee_balance(&Wallet::new(
+            "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ",
+        ));
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
@@ -1194,7 +1193,7 @@ mod tests {
             web3_gas_limit_const_part(chain),
         );
 
-        let result = subject.get_gas_balance(
+        let result = subject.get_transaction_fee_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1210,7 +1209,7 @@ mod tests {
     fn blockchain_interface_non_clandestine_returns_error_for_unintelligible_response_to_gas_balance(
     ) {
         let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
-            subject.get_gas_balance(wallet)
+            subject.get_transaction_fee_balance(wallet)
         };
 
         assert_error_during_requesting_balance(act, "invalid hex character");
@@ -1349,7 +1348,6 @@ mod tests {
             web3_gas_limit_const_part(chain),
         );
         subject.logger = logger;
-        let gas_price = 120;
         let amount_1 = gwei_to_wei(900_000_000_u64);
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w123"),
@@ -1372,8 +1370,8 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
         let test_timestamp_before = SystemTime::now();
         let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(120)
-            .pending_transaction_id_result(U256::from(6));
+            .desired_fee_per_computed_unit_result(Some(120))
+            .pending_transaction_id_result(Some(U256::from(6)));
 
         let result = subject
             .send_batch_of_payables(
@@ -1617,8 +1615,8 @@ mod tests {
             None,
         );
         let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(123)
-            .pending_transaction_id_result(U256::from(4));
+            .desired_fee_per_computed_unit_result(Some(123))
+            .pending_transaction_id_result(Some(U256::from(4)));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
@@ -1800,11 +1798,10 @@ mod tests {
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = Recorder::new().start().recipient();
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
-        let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
         let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(123)
-            .pending_transaction_id_result(U256::from(4));
+            .desired_fee_per_computed_unit_result(Some(123))
+            .pending_transaction_id_result(Some(U256::from(4)));
 
         let result =
             subject.send_batch_of_payables(&consuming_wallet, &agent, &recipient, &accounts);
@@ -1841,8 +1838,8 @@ mod tests {
             None,
         );
         let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(123)
-            .pending_transaction_id_result(U256::from(1));
+            .desired_fee_per_computed_unit_result(Some(123))
+            .pending_transaction_id_result(Some(U256::from(1)));
 
         let result = subject.send_batch_of_payables(
             &incomplete_consuming_wallet,
@@ -1887,8 +1884,8 @@ mod tests {
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
         let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(123)
-            .pending_transaction_id_result(U256::from(4));
+            .desired_fee_per_computed_unit_result(Some(123))
+            .pending_transaction_id_result(Some(U256::from(4)));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
@@ -1976,7 +1973,6 @@ mod tests {
         let gas_price = match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => TEST_GAS_PRICE_ETH,
             Chain::PolyMainnet | Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
-            _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
@@ -2639,7 +2635,7 @@ mod tests {
 
         chains.into_iter().for_each(|chain| {
             assert_eq!(
-                make_clandestine_subject(test_name, chain).get_gas_balance(&wallet),
+                make_clandestine_subject(test_name, chain).get_transaction_fee_balance(&wallet),
                 Ok(U256::zero())
             )
         });

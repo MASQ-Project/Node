@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use web3::types::U256;
@@ -16,7 +15,7 @@ pub struct PayablePaymentsAgentWeb3 {
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
-    fn consult_desired_fee_per_computed_unit(
+    fn consult_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
@@ -33,7 +32,7 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
         self.consuming_wallet_balance_opt.replace(balances);
     }
 
-    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
         ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64)
             as u128
             * self
@@ -45,7 +44,7 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
         self.consuming_wallet_balance_opt
     }
 
-    fn desired_fee_per_computed_unit(&self) -> Option<u64> {
+    fn required_fee_per_computed_unit(&self) -> Option<u64> {
         self.desired_fee_per_computed_unit_gwei_opt
     }
 
@@ -84,12 +83,8 @@ mod tests {
     use crate::accountant::scanners::payable_payments_agent_web3::{
         PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
-    use crate::accountant::test_utils::{
-        assert_on_cloneable_agent_objects, PayablePaymentsAgentMock,
-    };
-    use crate::db_config::persistent_configuration::{
-        PersistentConfigError, PersistentConfigurationReal,
-    };
+    use crate::accountant::test_utils::assert_on_cloneable_agent_objects;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use web3::types::U256;
@@ -118,10 +113,10 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.consult_desired_fee_per_computed_unit(&persistent_config);
+        let result = subject.consult_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Ok(()));
-        assert_eq!(subject.desired_fee_per_computed_unit(), Some(130))
+        assert_eq!(subject.required_fee_per_computed_unit(), Some(130))
     }
 
     #[test]
@@ -130,7 +125,7 @@ mod tests {
             .gas_price_result(Err(PersistentConfigError::TransactionError));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.consult_desired_fee_per_computed_unit(&persistent_config);
+        let result = subject.consult_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Err(PersistentConfigError::TransactionError));
     }
@@ -148,8 +143,8 @@ mod tests {
     fn set_and_get_for_consuming_wallet_balances_works() {
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: U256::from(45_000),
-            masq_tokens_in_minor_units: U256::from(30_000),
+            transaction_fee_balance_in_minor_units: U256::from(45_000),
+            masq_token_balance_in_minor_units: U256::from(30_000),
         };
 
         subject.set_up_consuming_wallet_balances(consuming_wallet_balances.clone());
@@ -167,19 +162,19 @@ mod tests {
             .gas_price_result(Ok(122))
             .gas_price_result(Ok(550));
         one_agent
-            .consult_desired_fee_per_computed_unit(&persistent_config)
+            .consult_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
         let mut second_agent = PayablePaymentsAgentWeb3::new(444);
         second_agent
-            .consult_desired_fee_per_computed_unit(&persistent_config)
+            .consult_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
 
         assert_eq!(
-            one_agent.estimated_transaction_fee(7),
+            one_agent.estimated_transaction_fee_total(7),
             (7 * (11_111 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 122
         );
         assert_eq!(
-            second_agent.estimated_transaction_fee(3),
+            second_agent.estimated_transaction_fee_total(3),
             (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 550
         )
     }

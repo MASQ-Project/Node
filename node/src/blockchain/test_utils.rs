@@ -23,7 +23,6 @@ use std::time::SystemTime;
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -75,8 +74,8 @@ pub struct BlockchainInterfaceMock {
     >,
     send_batch_of_payables_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
-    get_gas_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_gas_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_token_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_token_balance_results: RefCell<Vec<ResultForBalance>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
@@ -124,12 +123,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.send_batch_of_payables_results.borrow_mut().remove(0)
     }
 
-    fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_gas_balance_params
+    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
+        self.get_transaction_fee_balance_params
             .lock()
             .unwrap()
             .push(address.clone());
-        self.get_gas_balance_results.borrow_mut().remove(0)
+        self.get_transaction_fee_balance_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
@@ -214,13 +215,15 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_gas_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_gas_balance_params = params.clone();
+    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_transaction_fee_balance_params = params.clone();
         self
     }
 
-    pub fn get_gas_balance_result(self, result: ResultForBalance) -> Self {
-        self.get_gas_balance_results.borrow_mut().push(result);
+    pub fn get_transaction_fee_balance_result(self, result: ResultForBalance) -> Self {
+        self.get_transaction_fee_balance_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

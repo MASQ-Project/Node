@@ -31,9 +31,7 @@ use crate::accountant::{
     gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainTransaction,
-};
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -58,7 +56,7 @@ use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::any::Any;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -1661,13 +1659,16 @@ pub struct PayablePaymentsAgentMock {
     consult_desired_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
     consult_desired_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
     set_up_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
+    set_up_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     consuming_wallet_balances_results: RefCell<Vec<Option<ConsumingWalletBalances>>>,
-    estimated_transaction_fee_results: Option<u128>,
+    required_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
+    pending_transaction_id_results: RefCell<Vec<Option<U256>>>,
+    estimated_transaction_fee_toatal_results: Option<u128>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn consult_desired_fee_per_computed_unit(
+    fn consult_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
@@ -1682,10 +1683,13 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
     }
 
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
-        todo!()
+        self.set_up_consuming_wallet_balances_params
+            .lock()
+            .unwrap()
+            .push(balances)
     }
 
-    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
         todo!()
     }
 
@@ -1693,12 +1697,14 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         todo!()
     }
 
-    fn desired_fee_per_computed_unit(&self) -> Option<u64> {
-        todo!()
+    fn required_fee_per_computed_unit(&self) -> Option<u64> {
+        self.required_fee_per_computed_unit_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn pending_transaction_id(&self) -> Option<U256> {
-        todo!()
+        self.pending_transaction_id_results.borrow_mut().remove(0)
     }
 
     fn debug(&self) -> String {
@@ -1734,46 +1740,42 @@ impl PayablePaymentsAgentMock {
         todo!()
     }
 
-    pub fn set_up_pending_transaction_id_result(self, result: U256) -> Self {
-        todo!()
-    }
-
     pub fn set_up_consuming_wallet_balances_params(
         mut self,
         params: &Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     ) -> Self {
-        todo!()
-    }
-
-    pub fn set_up_consuming_wallet_balances_result(self, result: ConsumingWalletBalances) -> Self {
-        todo!()
+        self.set_up_consuming_wallet_balances_params = params.clone();
+        self
     }
 
     pub fn estimated_transaction_fee_params(mut self, params: &Arc<Mutex<Vec<usize>>>) -> Self {
         todo!()
     }
 
-    pub fn estimated_transaction_fee_result(mut self, result: u128) -> Self {
-        self.estimated_transaction_fee_results = Some(result);
+    pub fn estimated_transaction_fee_total_result(mut self, result: u128) -> Self {
+        self.estimated_transaction_fee_toatal_results = Some(result);
         self
     }
 
-    pub fn consuming_wallet_balances_result(
-        mut self,
-        result: Option<ConsumingWalletBalances>,
-    ) -> Self {
+    pub fn consuming_wallet_balances_result(self, result: Option<ConsumingWalletBalances>) -> Self {
         self.consuming_wallet_balances_results
             .borrow_mut()
             .push(result);
         self
     }
 
-    pub fn desired_fee_per_computed_unit_result(self, result: u64) -> Self {
-        todo!()
+    pub fn desired_fee_per_computed_unit_result(self, result: Option<u64>) -> Self {
+        self.required_fee_per_computed_unit_results
+            .borrow_mut()
+            .push(result);
+        self
     }
 
-    pub fn pending_transaction_id_result(self, result: U256) -> Self {
-        todo!()
+    pub fn pending_transaction_id_result(self, result: Option<U256>) -> Self {
+        self.pending_transaction_id_results
+            .borrow_mut()
+            .push(result);
+        self
     }
 
     set_arbitrary_id_stamp_in_mock_impl!();
@@ -1787,16 +1789,16 @@ where
     let nonce = U256::from(4444);
     original_agent.set_up_pending_transaction_id(nonce);
     let consuming_wallet_balances = ConsumingWalletBalances {
-        transaction_fee_currency_in_minor_units: U256::from(123_456),
-        masq_tokens_in_minor_units: U256::from(444_444_444),
+        transaction_fee_balance_in_minor_units: U256::from(123_456),
+        masq_token_balance_in_minor_units: U256::from(444_444_444),
     };
     original_agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
     let gas_price = 333;
     let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(gas_price));
     original_agent
-        .consult_desired_fee_per_computed_unit(&persistent_config)
+        .consult_required_fee_per_computed_unit(&persistent_config)
         .unwrap();
-    let original_estimated_fees = original_agent.estimated_transaction_fee(4);
+    let original_estimated_fees = original_agent.estimated_transaction_fee_total(4);
     let original_debug = original_agent.debug();
 
     let duplicate = act(original_agent);
@@ -1806,9 +1808,9 @@ where
         duplicate.consuming_wallet_balances(),
         Some(consuming_wallet_balances)
     );
-    assert_eq!(duplicate.desired_fee_per_computed_unit(), Some(gas_price));
+    assert_eq!(duplicate.required_fee_per_computed_unit(), Some(gas_price));
     assert_eq!(
-        duplicate.estimated_transaction_fee(4),
+        duplicate.estimated_transaction_fee_total(4),
         original_estimated_fees
     );
     assert_eq!(duplicate.debug(), original_debug)

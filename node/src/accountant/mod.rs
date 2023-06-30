@@ -1430,10 +1430,6 @@ mod tests {
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
-            masq_tokens_in_minor_units: U256::from(u32::MAX),
-        };
         let arbitrary_id_stamp = ArbitraryIdStamp::new();
         let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
         let agent_boxed = Box::new(agent) as Box<dyn PayablePaymentsAgent>;
@@ -1515,7 +1511,7 @@ mod tests {
         };
         let mut agent = PayablePaymentsAgentWeb3::new(78910);
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(123));
-        let _ = agent.consult_desired_fee_per_computed_unit(&persistent_config);
+        let _ = agent.consult_required_fee_per_computed_unit(&persistent_config);
         let boxed_agent = Box::new(agent);
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
@@ -1534,10 +1530,6 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let system = System::new("test");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: U256::from(u32::MAX),
-            masq_tokens_in_minor_units: U256::from(150_000_000_000_u64),
-        };
         let arbitrary_id_stamp = ArbitraryIdStamp::new();
         let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
@@ -2317,8 +2309,8 @@ mod tests {
         let payable_dao =
             PayableDaoMock::default().non_pending_payables_result(qualified_payables.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        let blockchain_bridge =
-            blockchain_bridge.system_stop_conditions(match_every_type_id!(PayablePaymentsSetupMsg));
+        let blockchain_bridge = blockchain_bridge
+            .system_stop_conditions(match_every_type_id!(InitialPayablePaymentsSetupMsg));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2356,8 +2348,8 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(
-                PayablePaymentsSetupMsg,
-                PayablePaymentsSetupMsg
+                InitialPayablePaymentsSetupMsg,
+                InitialPayablePaymentsSetupMsg
             ))
             .start();
         let pps_for_blockchain_bridge_sub = blockchain_bridge_addr.clone().recipient();
@@ -3124,6 +3116,7 @@ mod tests {
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
+        let set_up_consuming_balances_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3162,9 +3155,14 @@ mod tests {
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
+        let agent = PayablePaymentsAgentMock::default()
+            .set_up_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc);
+        let transaction_fee_balance = U256::from(444_555_666_777_u64);
+        let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(u128::MAX)))
-            .get_token_balance_result(Ok(U256::from(u128::MAX)))
+            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
+            .get_token_balance_result(Ok(token_balance))
+            .mobilize_payable_payments_agent_result(Box::new(agent))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
@@ -3366,6 +3364,16 @@ mod tests {
                 pending_tx_hash_2,
                 pending_tx_hash_2,
             ]
+        );
+        let set_up_consuming_wallet_balances_params =
+            set_up_consuming_balances_params_arc.lock().unwrap();
+        let expected_consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: transaction_fee_balance,
+            masq_token_balance_in_minor_units: token_balance,
+        };
+        assert_eq!(
+            *set_up_consuming_wallet_balances_params,
+            vec![expected_consuming_wallet_balances]
         );
         let update_fingerprints_params = update_fingerprint_params_arc.lock().unwrap();
         assert_eq!(

@@ -89,12 +89,12 @@ mod tests {
         let mut payable_2 = make_payable_account(222);
         payable_2.balance_wei = 200_000_000;
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: U256::from(1_001_000_000_000_u64),
-            masq_tokens_in_minor_units: U256::from(301_000_000),
+            transaction_fee_balance_in_minor_units: U256::from(1_001_000_000_000_u64),
+            masq_token_balance_in_minor_units: U256::from(301_000_000),
         };
-        let mut agent_for_enough = PayablePaymentsAgentMock::default()
+        let agent_for_enough = PayablePaymentsAgentMock::default()
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_transaction_fee_result(1_000_000_000_000_000);
+            .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let non_required = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1.clone(), payable_2.clone()],
             agent: Box::new(agent_for_enough),
@@ -107,12 +107,12 @@ mod tests {
             subject.search_for_indispensable_adjustment(&non_required, &logger);
 
         let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: U256::from(999_000_000_000_u64),
-            masq_tokens_in_minor_units: U256::from(299_000_000),
+            transaction_fee_balance_in_minor_units: U256::from(999_000_000_000_u64),
+            masq_token_balance_in_minor_units: U256::from(299_000_000),
         };
-        let mut agent_for_insufficient = PayablePaymentsAgentMock::default()
+        let agent_for_insufficient = PayablePaymentsAgentMock::default()
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_transaction_fee_result(1_000_000_000_000_000);
+            .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let should_require = PayablePaymentsSetupMsg {
             qualified_payables: vec![payable_1, payable_2],
             agent: Box::new(agent_for_insufficient),

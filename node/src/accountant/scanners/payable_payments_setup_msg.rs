@@ -3,7 +3,6 @@
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use actix::Message;
 use std::fmt::Debug;
 
@@ -22,7 +21,7 @@ impl SkeletonOptHolder for InitialPayablePaymentsSetupMsg {
 
 #[derive(Debug, Clone, Message)]
 pub struct PayablePaymentsSetupMsg {
-    //this field should stay private for anybody outside Accountant
+    // this field should stay private for anybody outside Accountant
     pub(in crate::accountant) qualified_payables: Vec<PayableAccount>,
     pub agent: Box<dyn PayablePaymentsAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -40,6 +39,8 @@ impl PartialEq for PayablePaymentsSetupMsg {
     }
 }
 
+// this allows you to construct the PayablePaymentsSetupMsg even outside Accountant
+// (while some parts stay privet)
 impl
     From<(
         InitialPayablePaymentsSetupMsg,
@@ -52,25 +53,11 @@ impl
             Box<dyn PayablePaymentsAgent>,
         ),
     ) -> Self {
-        todo!()
-        // PayablePaymentsSetup {
-        //     qualified_payables: previous_msg.qualified_payables,
-        //     this_stage_data_opt: Some(this_stage_data),
-        //     response_skeleton_opt: previous_msg.response_skeleton_opt,
-        // }
-    }
-}
-
-impl From<(PayablePaymentsSetupMsg, Box<dyn PayablePaymentsAgent>)> for PayablePaymentsSetupMsg {
-    fn from(
-        (previous_msg, agent): (PayablePaymentsSetupMsg, Box<dyn PayablePaymentsAgent>),
-    ) -> Self {
-        todo!()
-        // PayablePaymentsSetup {
-        //     qualified_payables: previous_msg.qualified_payables,
-        //     this_stage_data_opt: Some(this_stage_data),
-        //     response_skeleton_opt: previous_msg.response_skeleton_opt,
-        // }
+        PayablePaymentsSetupMsg {
+            qualified_payables: initial_msg.qualified_payables,
+            agent,
+            response_skeleton_opt: initial_msg.response_skeleton_opt,
+        }
     }
 }
 

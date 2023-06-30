@@ -52,7 +52,7 @@ impl PartialEq for OutboundPaymentsInstructions {
     fn eq(&self, other: &Self) -> bool {
         self.checked_accounts == other.checked_accounts
             && &self.agent == &other.agent
-            && self.response_skeleton_opt == self.response_skeleton_opt
+            && self.response_skeleton_opt == other.response_skeleton_opt
     }
 }
 
@@ -64,8 +64,8 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
-    pub transaction_fee_currency_in_minor_units: U256,
-    pub masq_tokens_in_minor_units: U256,
+    pub transaction_fee_balance_in_minor_units: U256,
+    pub masq_token_balance_in_minor_units: U256,
 }
 
 #[cfg(test)]

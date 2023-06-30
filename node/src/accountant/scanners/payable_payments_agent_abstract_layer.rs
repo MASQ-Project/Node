@@ -21,15 +21,15 @@ use web3::types::U256;
 
 pub trait PayablePaymentsAgent: Send {
     //e.g. Cardano does not require user's own choice of price
-    fn consult_desired_fee_per_computed_unit(
+    fn consult_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError>;
     fn set_up_pending_transaction_id(&mut self, id: U256);
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
-    fn estimated_transaction_fee(&self, number_of_transactions: usize) -> u128;
+    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128;
     fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances>;
-    fn desired_fee_per_computed_unit(&self) -> Option<u64>;
+    fn required_fee_per_computed_unit(&self) -> Option<u64>;
     fn pending_transaction_id(&self) -> Option<U256>;
     fn debug(&self) -> String;
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent>;
@@ -61,8 +61,6 @@ mod tests {
     use crate::accountant::test_utils::{
         assert_on_cloneable_agent_objects, PayablePaymentsAgentMock,
     };
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use web3::types::U256;
 

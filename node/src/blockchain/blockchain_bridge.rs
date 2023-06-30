@@ -5,7 +5,6 @@ use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayableP
 use crate::accountant::scanners::payable_payments_setup_msg::{
     InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
 };
-use crate::accountant::test_utils::PayablePaymentsAgentMock;
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
@@ -290,7 +289,10 @@ impl BlockchainBridge {
         };
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         // New card GH-707 will address this
-        let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
+        let gas_balance = match self
+            .blockchain_interface
+            .get_transaction_fee_balance(consuming_wallet)
+        {
             Ok(gas_balance) => gas_balance,
             Err(e) => {
                 return Err(format!(
@@ -313,8 +315,8 @@ impl BlockchainBridge {
         };
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                transaction_fee_currency_in_minor_units: gas_balance,
-                masq_tokens_in_minor_units: token_balance,
+                transaction_fee_balance_in_minor_units: gas_balance,
+                masq_token_balance_in_minor_units: token_balance,
             }
         };
 
@@ -550,7 +552,6 @@ mod tests {
     use actix::System;
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
-    use itertools::chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -695,16 +696,18 @@ mod tests {
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let wallet_balances_found = ConsumingWalletBalances {
-            transaction_fee_currency_in_minor_units: gas_balance,
-            masq_tokens_in_minor_units: token_balance,
+            transaction_fee_balance_in_minor_units: gas_balance,
+            masq_token_balance_in_minor_units: token_balance,
         };
-        let agent = PayablePaymentsAgentMock::default();
+        let arbitrary_id_stamp = ArbitraryIdStamp::new();
+        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
+        let boxed_agent: Box<dyn PayablePaymentsAgent> = Box::new(agent);
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_params(&get_gas_balance_params_arc)
-            .get_gas_balance_result(Ok(gas_balance))
+            .get_transaction_fee_balance_params(&get_gas_balance_params_arc)
+            .get_transaction_fee_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .mobilize_payable_payments_agent_result(Box::new(agent));
+            .mobilize_payable_payments_agent_result(boxed_agent.clone());
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
             PersistentConfigurationMock::default().gas_price_result(Ok(146));
@@ -758,13 +761,7 @@ mod tests {
         assert_eq!(accountant_received_payment.len(), 1);
         let reported_balances_and_qualified_accounts: &PayablePaymentsSetupMsg =
             accountant_received_payment.get_record(0);
-        let expected_agent = Box::new(
-            PayablePaymentsAgentMock::default()
-                .consuming_wallet_balances_result(Some(wallet_balances_found))
-                .estimated_transaction_fee_result(58_238) //corresponds to the attributes of Chain::EthMainnet
-                .desired_fee_per_computed_unit_result(146),
-        ) as Box<dyn PayablePaymentsAgent>;
-        let expected_msg: PayablePaymentsSetupMsg = (msg, expected_agent).into();
+        let expected_msg: PayablePaymentsSetupMsg = (msg, boxed_agent).into();
         assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
     }
 
@@ -830,9 +827,10 @@ mod tests {
     fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance() {
         let test_name =
             "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance";
-        let blockchain_interface = BlockchainInterfaceMock::default().get_gas_balance_result(Err(
-            BlockchainError::QueryFailed("Lazy and yet you're asking for balances?".to_string()),
-        ));
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_transaction_fee_balance_result(Err(BlockchainError::QueryFailed(
+                "Lazy and yet you're asking for balances?".to_string(),
+            )));
         let error_msg = "Did not find out gas balance of the consuming wallet: \
          QueryFailed(\"Lazy and yet you're asking for balances?\")";
 
@@ -844,7 +842,7 @@ mod tests {
         let test_name =
             "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(45678)))
+            .get_transaction_fee_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
                 "Go get you a job. This balance must be deserved".to_string(),
             )));
@@ -888,7 +886,7 @@ mod tests {
     #[test]
     fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_gas_price_query() {
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(456789)))
+            .get_transaction_fee_balance_result(Ok(U256::from(456789)))
             .get_token_balance_result(Ok(U256::from(7890123456_u64)));
         let persistent_configuration = PersistentConfigurationMock::default().gas_price_result(
             Err(PersistentConfigError::DatabaseError("siesta".to_string())),
@@ -947,7 +945,6 @@ mod tests {
                     hash: H256::from("someothertransactionhash".keccak256()),
                 }),
             ]));
-        let expected_gas_price = 145u64;
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
