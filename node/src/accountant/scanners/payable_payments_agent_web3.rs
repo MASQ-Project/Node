@@ -17,9 +17,9 @@ pub struct PayablePaymentsAgentWeb3 {
 impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     fn consult_required_fee_per_computed_unit(
         &mut self,
-        persistent_config: &dyn PersistentConfiguration,
+        consulter: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        let gas_price_gwei = persistent_config.gas_price()?;
+        let gas_price_gwei = consulter.gas_price()?;
         self.desired_fee_per_computed_unit_gwei_opt = Some(gas_price_gwei);
         Ok(())
     }

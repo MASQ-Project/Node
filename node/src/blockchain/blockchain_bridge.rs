@@ -142,7 +142,7 @@ impl Handler<InitialPayablePaymentsSetupMsg> for BlockchainBridge {
 
     fn handle(&mut self, msg: InitialPayablePaymentsSetupMsg, _ctx: &mut Self::Context) {
         self.handle_scan(
-            Self::handle_initial_payable_payments_setup,
+            Self::handle_initial_payable_payments_setup_msg,
             ScanType::Payables,
             msg,
         );
@@ -272,8 +272,7 @@ impl BlockchainBridge {
         }
     }
 
-    // TODO fix the fn's name
-    fn handle_initial_payable_payments_setup(
+    fn handle_initial_payable_payments_setup_msg(
         &mut self,
         msg: InitialPayablePaymentsSetupMsg,
     ) -> Result<(), String> {
@@ -320,12 +319,17 @@ impl BlockchainBridge {
             }
         };
 
-        let requested_gas_price_gwei = self
-            .persistent_config
-            .gas_price()
-            .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
+        //TODO fix me!!! Never called, and either tested
+        // let requested_gas_price_gwei = self
+        //     .persistent_config
+        //     .gas_price()
+        //     .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
         let mut agent = self.blockchain_interface.mobilize_payable_payments_agent();
         agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
+        match agent.consult_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
+            Ok(_) => todo!(),
+            Err(e) => todo!(),
+        }
         let msg: PayablePaymentsSetupMsg = PayablePaymentsSetupMsg::from((msg, agent));
 
         self.payable_payments_setup_sub_opt
@@ -853,7 +857,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_fails_at_missing_consuming_wallet() {
+    fn handle_initial_payable_payments_setup_msg_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
@@ -872,7 +876,7 @@ mod tests {
             None,
         );
 
-        let result = subject.handle_initial_payable_payments_setup(request);
+        let result = subject.handle_initial_payable_payments_setup_msg(request);
 
         assert_eq!(
             result,
@@ -884,7 +888,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_gas_price_query() {
+    fn handle_initial_payable_payments_setup_msg_fails_on_gas_price_query() {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(456789)))
             .get_token_balance_result(Ok(U256::from(7890123456_u64)));
@@ -911,7 +915,7 @@ mod tests {
             }),
         );
 
-        let result = subject.handle_initial_payable_payments_setup(request);
+        let result = subject.handle_initial_payable_payments_setup_msg(request);
 
         assert_eq!(
             result,

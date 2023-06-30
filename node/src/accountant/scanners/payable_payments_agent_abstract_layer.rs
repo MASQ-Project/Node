@@ -1,8 +1,18 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-//chains according to
-//a) their utilization of the fee market (implying the requirement of a gas price proposal)
+use crate::arbitrary_id_stamp_in_trait;
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+use std::fmt::{Debug, Formatter};
+use web3::types::U256;
+
+//A table of chains according to
+//a) their interconnection with the fee market
+//   (implying the requirement of a proposal of the gas price)
+//
 //b) custom limit of computation ("gas" limit)
+//
 //*wr = without any research yet
 
 //CHAIN                 a)      b)
@@ -12,18 +22,13 @@
 //NEO                   yes     *wr
 //Cardano               No      *wr
 
-use crate::arbitrary_id_stamp_in_trait;
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use std::fmt::{Debug, Formatter};
-use web3::types::U256;
-
 pub trait PayablePaymentsAgent: Send {
-    //e.g. Cardano does not require user's own choice of price
+    // the nature of this kind of method lies in the chance to
+    // refuse the consulter's services and leave the parameter out for uselessness
+    // e.g. Cardano does not require user's own choice of the fee
     fn consult_required_fee_per_computed_unit(
         &mut self,
-        persistent_config: &dyn PersistentConfiguration,
+        consulter: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError>;
     fn set_up_pending_transaction_id(&mut self, id: U256);
     fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
