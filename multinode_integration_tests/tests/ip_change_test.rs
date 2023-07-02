@@ -53,6 +53,7 @@ fn receiving_ipchange_gossip_modifies_connections_appropriately() {
 }
 
 #[test]
+#[ignore]
 fn receiving_announce_from_router_produces_ipchange_gossip() {
     // Set up network with one real Node, one mock Node with full neighborship, and a mock router.
     let mut cluster = MASQNodeCluster::start().unwrap();

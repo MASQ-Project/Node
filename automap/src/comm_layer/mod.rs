@@ -74,7 +74,9 @@ impl AutomapError {
             }
             AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::SocketBindingError(msg, addr) => AutomapErrorCause::Unknown(format!("{} - {}", addr, msg)),
+            AutomapError::SocketBindingError(msg, addr) => {
+                AutomapErrorCause::Unknown(format!("{} - {}", addr, msg))
+            }
             AutomapError::SocketReceiveError(aec) => aec.clone(),
             AutomapError::SocketSendError(aec) => aec.clone(),
             AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,

@@ -370,12 +370,11 @@ impl FromStr for ProbeTarget {
             Ok(ip_addr) => ip_addr,
             Err(_) => return Err(SYNTAX_MSG),
         };
-        let port_spec_results = port_specs_string.split('/')
+        let port_spec_results = port_specs_string
+            .split('/')
             .map(PortSpec::from_str)
             .collect::<Vec<Result<PortSpec, &'static str>>>();
-        if port_spec_results
-            .iter()
-            .any(|result| result.is_err()) {
+        if port_spec_results.iter().any(|result| result.is_err()) {
             Err(SYNTAX_MSG)
         } else {
             let port_specs = port_spec_results

@@ -549,20 +549,6 @@ impl DbInitializationConfig {
             special_conn_configuration: vec![],
         }
     }
-
-    #[cfg(test)]
-    pub fn test_default() -> Self {
-        Self {
-            mode: InitializationMode::CreationAndMigration {
-                external_data: ExternalData {
-                    chain: TEST_DEFAULT_CHAIN,
-                    neighborhood_mode: NeighborhoodModeLight::Standard,
-                    db_password_opt: None,
-                },
-            },
-            special_conn_configuration: vec![],
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -622,15 +608,34 @@ impl Debug for DbInitializationConfig {
 #[cfg(test)]
 pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::DbInitializationConfig;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, ExternalData, InitializationMode,
+    };
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
+    use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
+
+    impl DbInitializationConfig {
+        pub fn test_default() -> Self {
+            Self {
+                mode: InitializationMode::CreationAndMigration {
+                    external_data: ExternalData {
+                        chain: TEST_DEFAULT_CHAIN,
+                        neighborhood_mode: NeighborhoodModeLight::Standard,
+                        db_password_opt: None,
+                    },
+                },
+                special_conn_configuration: vec![],
+            }
+        }
+    }
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
@@ -747,6 +752,7 @@ mod tests {
     use itertools::Either::{Left, Right};
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
