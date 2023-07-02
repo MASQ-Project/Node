@@ -737,6 +737,8 @@ mod tests {
 
     lazy_static! {
         static ref ROUTER_ADDR: SocketAddr = SocketAddr::from_str("1.2.3.4:5351").unwrap();
+        static ref ANNOUNCEMENT_ADDR: SocketAddr =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT);
         static ref PUBLIC_IP: IpAddr = IpAddr::from_str("2.3.4.5").unwrap();
     }
 
@@ -1554,6 +1556,7 @@ mod tests {
     #[test]
     fn single_iteration_terminates_if_commander_channel_dies() {
         init_test_logging();
+        let test_name = "single_iteration_terminates_if_commander_channel_dies";
         let router_ip = IpAddr::from_str("22.33.44.55").unwrap();
         let announcement_socket = UdpSocketWrapperMock::new()
             .recv_from_result(Err(Error::from(ErrorKind::WouldBlock)), vec![]);
@@ -1565,14 +1568,15 @@ mod tests {
             Box::new(|_| ()),
             rx,
         );
-        subject.logger = Logger::new("single_iteration_terminates_if_commander_channel_dies");
+        subject.logger = Logger::new(test_name);
 
         let result = subject.single_iteration(&mut None, &mut Instant::now());
 
         assert_eq!(result, Finished::Yes);
-        TestLogHandler::default().exists_log_containing(
-            "ERROR: single_iteration_terminates_if_commander_channel_dies: Node died; housekeeping thread is terminating",
-        );
+        TestLogHandler::default().exists_log_containing(&format!(
+            "ERROR: {}: Node died; housekeeping thread is terminating",
+            test_name
+        ));
     }
 
     #[test]
@@ -1618,15 +1622,10 @@ mod tests {
         );
     }
 
-    fn router_addr() -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40)), ANNOUNCEMENT_PORT)
-    }
-
     fn handle_announcement_if_present_handles_exceptional_circumstances(
         announcement_socket: UdpSocketWrapperMock,
         expected_result: AbortIteration,
     ) {
-        let router_addr = router_addr();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1634,7 +1633,7 @@ mod tests {
         };
         let subject = ThreadGuts::new(
             &PmpTransactor::default(),
-            router_addr.ip(),
+            ROUTER_ADDR.ip(),
             Box::new(announcement_socket),
             Box::new(change_handler),
             unbounded().1,
@@ -1663,7 +1662,7 @@ mod tests {
     fn handle_announcement_if_present_handles_unparseable_data_from_router() {
         let unparseable_data = vec![];
         let announcement_socket =
-            UdpSocketWrapperMock::new().recv_from_result(Ok((0, router_addr())), unparseable_data);
+            UdpSocketWrapperMock::new().recv_from_result(Ok((0, *ROUTER_ADDR)), unparseable_data);
         handle_announcement_if_present_handles_exceptional_circumstances(
             announcement_socket,
             AbortIteration::Yes,
@@ -1778,7 +1777,7 @@ mod tests {
         let mut subject = PmpTransactor::default();
         let (tx, rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
-        std::mem::drop(rx);
+        drop(rx);
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
@@ -1816,6 +1815,7 @@ mod tests {
     #[test]
     fn thread_guts_does_not_remap_if_interval_does_not_run_out() {
         init_test_logging();
+        let test_name = "thread_guts_does_not_remap_if_interval_does_not_run_out";
         let announcement_socket: Box<dyn UdpSocketWrapper> = Box::new(
             UdpSocketWrapperMock::new()
                 .set_read_timeout_result(Ok(()))
@@ -1837,7 +1837,7 @@ mod tests {
             rx,
         );
         subject.mapping_adder_arc = Arc::new(Mutex::new(mapping_adder));
-        subject.logger = Logger::new("no_remap_test");
+        subject.logger = Logger::new(test_name);
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
@@ -1848,12 +1848,14 @@ mod tests {
 
         let _ = subject.main_loop();
 
-        TestLogHandler::new().exists_no_log_containing("INFO: no_remap_test: Remapping port");
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("INFO: {}: Remapping port", test_name));
     }
 
     #[test]
     fn thread_guts_remaps_when_interval_runs_out() {
         init_test_logging();
+        let test_name = "thread_guts_remaps_when_interval_runs_out";
         let (tx, rx) = unbounded();
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>> = Arc::new(Mutex::new(Box::new(
@@ -1884,7 +1886,7 @@ mod tests {
         );
         subject.mapping_adder_arc = mapping_adder_arc;
         subject.factories_arc = Arc::new(Mutex::new(factories));
-        subject.logger = Logger::new("timed_remap_test");
+        subject.logger = Logger::new(test_name);
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
@@ -1916,12 +1918,14 @@ mod tests {
                 remap_interval: Duration::from_secs(300)
             }
         );
-        TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+        TestLogHandler::new()
+            .exists_log_containing(&format!("INFO: {}: Remapping port 6689", test_name));
     }
 
     #[test]
     fn maybe_remap_handles_remapping_error() {
         init_test_logging();
+        let test_name = "maybe_remap_handles_remapping_error";
         let mapping_adder: Box<dyn MappingAdder> = Box::new(
             MappingAdderMock::new()
                 .add_mapping_result(Err(AutomapError::ProtocolError("Booga".to_string()))),
@@ -1940,7 +1944,7 @@ mod tests {
             remap_interval: Duration::from_secs(0),
         };
         let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
-        let logger = Logger::new("maybe_remap_handles_remapping_error");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -1961,21 +1965,23 @@ mod tests {
                 "Booga".to_string()
             ))]
         );
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: maybe_remap_handles_remapping_error: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")"
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {}: Automatic PMP remapping failed for port 6689: ProtocolError(\"Booga\")",
+            test_name
+        ));
     }
 
     #[test]
     fn parse_buffer_rejects_request_packet() {
         init_test_logging();
+        let test_name = "parse_buffer_rejects_request_packet";
         let router_ip = IpAddr::from_str("4.3.2.1").unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
         packet.direction = Direction::Request;
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
-        let logger = Logger::new("parse_buffer_rejects_request_packet");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -1990,15 +1996,13 @@ mod tests {
 
         let err_msg = "Unexpected PMP Get request (request!) from router at 4.3.2.1:5351: ignoring";
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_request_packet: {}",
-            err_msg
-        ));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, err_msg));
     }
 
     #[test]
     fn parse_buffer_rejects_packet_other_than_get() {
         init_test_logging();
+        let test_name = "parse_buffer_rejects_packet_other_than_get";
         let router_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::MapUdp;
@@ -2006,7 +2010,7 @@ mod tests {
         packet.opcode_data = Box::new(MapOpcodeData::default());
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
-        let logger = Logger::new("parse_buffer_rejects_packet_other_than_get");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -2022,18 +2026,16 @@ mod tests {
         let err_msg =
             "Unexpected PMP MapUdp response (instead of Get) from router at 1.2.3.4:5351: ignoring";
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_packet_other_than_get: {}",
-            err_msg
-        ));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, err_msg));
     }
 
     #[test]
     fn parse_buffer_rejects_unparseable_packet() {
         init_test_logging();
+        let test_name = "parse_buffer_rejects_unparseable_packet";
         let router_ip = IpAddr::from_str("2.2.2.2").unwrap();
         let buffer = [0xFFu8; 100];
-        let logger = Logger::new("parse_buffer_rejects_unparseable_packet");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -2052,15 +2054,13 @@ mod tests {
         let err_msg =
             "Unparseable packet (WrongVersion(255)) from router at 2.2.2.2:5351: ignoring";
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: parse_buffer_rejects_unparseable_packet: {}",
-            err_msg
-        ));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, err_msg));
     }
 
     #[test]
     fn handle_announcement_processes_transaction_failure() {
         init_test_logging();
+        let test_name = "handle_announcement_processes_transaction_failure";
         let socket = UdpSocketWrapperMock::new()
             .set_read_timeout_result(Ok(()))
             .send_to_result(Ok(100))
@@ -2073,7 +2073,7 @@ mod tests {
         let change_handler_log_inner = change_handler_log_arc.clone();
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,
@@ -2103,12 +2103,16 @@ mod tests {
                 AutomapErrorCause::SocketFailure
             ))]
         );
-        TestLogHandler::new().exists_log_containing("ERROR: test: Remapping after IP change failed; Node is useless: SocketReceiveError(Unknown(\"Kind(ConnectionReset)\"))");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {}: Remapping after IP change failed; Node is useless: SocketReceiveError(Unknown(\"Kind(ConnectionReset)\"))",
+            test_name
+        ));
     }
 
     #[test]
     fn handle_announcement_rejects_unexpected_request() {
         init_test_logging();
+        let test_name = "handle_announcement_rejects_unexpected_request";
         let router_address = SocketAddr::from_str("7.7.7.7:1234").unwrap();
         let mut packet = PmpPacket::default();
         packet.direction = Direction::Request;
@@ -2128,7 +2132,7 @@ mod tests {
         let change_handler_log_inner = change_handler_log_arc.clone();
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new();
         let mut subject = ThreadGuts::new(
             &transactor,

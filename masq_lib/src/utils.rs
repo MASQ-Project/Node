@@ -8,7 +8,6 @@ use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -190,10 +189,10 @@ where
         Some(index)
     }
 }
-
-pub fn to_millis(dur: &Duration) -> u64 {
-    (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
-}
+//
+// pub fn to_millis(dur: &Duration) -> u64 {
+//     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
+// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum NeighborhoodModeLight {

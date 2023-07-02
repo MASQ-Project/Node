@@ -1190,7 +1190,7 @@ mod tests {
         check_for_initial_bind_message(&recordings.neighborhood, false);
         check_for_initial_bind_message(&recordings.ui_gateway, false);
         check_for_initial_bind_message(&recordings.accountant, false);
-        check_for_pool_bind_message_at(&recordings.stream_handler_pool, 0); // what _should_ we be doing here?
+        check_for_pool_bind_message_at(&recordings.stream_handler_pool, 0);
         check_for_pool_bind_message_at(&recordings.dispatcher, 1);
         check_for_pool_bind_message_at(&recordings.neighborhood, 1);
         check_for_new_ip_message_at(
@@ -1642,7 +1642,7 @@ mod tests {
         let _ = subject.make_automap_control(None, vec![]);
 
         let mut make_params = make_params_arc.lock().unwrap();
-        let change_handler = make_params.remove(0).1;
+        let (_automap_protocol_opt, change_handler) = make_params.remove(0);
         change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(
             "handle_automap_error_handles_non_crashing_errors".to_string(),
         )));

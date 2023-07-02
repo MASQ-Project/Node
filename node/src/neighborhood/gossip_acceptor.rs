@@ -4304,6 +4304,12 @@ mod tests {
     #[test]
     fn standard_gossip_containing_non_transmitting_neighbor_node_that_accepts_connections_but_has_no_node_addr_is_accepted(
     ) {
+        // src_root, which accepts connections, is about to tell dest_root about non_malefactor,
+        // which also accepts connections. The NodeRecord for non_malefactor will not contain its
+        // NodeAddr. It's a violation for src_root to claim to accept connections but not to
+        // provide its own NodeAddr, but this test ensures that it's okay for src_root not to
+        // provide the NodeAddr of non_malefactor, since non_malefactor is not the transmitter of
+        // this Gossip.
         let dest_root = make_node_record(1234, true);
         let dest_db = db_from_node(&dest_root);
         let src_root = make_node_record(2345, true);

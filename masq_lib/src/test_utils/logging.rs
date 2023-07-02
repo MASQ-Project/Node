@@ -2,7 +2,6 @@
 #![cfg(any(test, not(feature = "no_test_share")))]
 use crate::logger::real_format_function;
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
-use crate::utils::to_millis;
 use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
@@ -72,7 +71,7 @@ impl TestLogHandler {
 
     pub fn await_log_matching(&self, pattern: &str, millis: u64) -> usize {
         let began_at = Instant::now();
-        while to_millis(&began_at.elapsed()) < millis {
+        while began_at.elapsed().as_millis() < (millis as u128) {
             match self.find_first_log_matching(pattern) {
                 Some(index) => return index,
                 None => thread::sleep(Duration::from_millis(50)),
@@ -121,7 +120,7 @@ impl TestLogHandler {
 
     pub fn await_log_containing(&self, fragment: &str, millis: u64) -> usize {
         let began_at = Instant::now();
-        while to_millis(&began_at.elapsed()) < millis {
+        while began_at.elapsed().as_millis() < (millis as u128) {
             match self.find_first_log_containing(fragment) {
                 Some(index) => return index,
                 None => thread::sleep(Duration::from_millis(50)),

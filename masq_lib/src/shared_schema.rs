@@ -633,11 +633,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
+    use itertools::Itertools;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1084,11 +1084,14 @@ mod tests {
             .map(|name| Chain::from(*name))
             .collect_vec();
 
-        assert_eq!(chains_from_names, vec![
-            Chain::PolyMainnet,
-            Chain::EthMainnet,
-            Chain::PolyMumbai,
-            Chain::Dev,
-        ]);
+        assert_eq!(
+            chains_from_names,
+            vec![
+                Chain::PolyMainnet,
+                Chain::EthMainnet,
+                Chain::PolyMumbai,
+                Chain::Dev,
+            ]
+        );
     }
 }

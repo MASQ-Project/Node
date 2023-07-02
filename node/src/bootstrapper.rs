@@ -375,7 +375,7 @@ impl BootstrapperConfig {
             },
             blockchain_bridge_config: BlockchainBridgeConfig {
                 blockchain_service_url_opt: None,
-                chain: TEST_DEFAULT_CHAIN, // TODO Shouldn't this be just DEFAULT_CHAIN?
+                chain: TEST_DEFAULT_CHAIN,
                 gas_price: 1,
             },
             port_configurations: HashMap::new(),

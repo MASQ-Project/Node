@@ -55,7 +55,6 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::to_millis;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -327,7 +326,7 @@ impl RecordAwaiter {
             if cur_len != prev_len {
                 println!("Recorder has received {} messages", cur_len)
             }
-            let latency_so_far = to_millis(&Instant::now().duration_since(begin));
+            let latency_so_far = Instant::now().duration_since(begin).as_millis() as u64;
             if latency_so_far > limit {
                 panic!(
                     "After {}ms, recorder has received only {} messages, not {}",

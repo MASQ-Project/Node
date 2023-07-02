@@ -135,7 +135,6 @@ impl DataProbe {
             .expect("Write streams poisoned")
     }
 
-    #[allow(clippy::map_entry)]
     fn initialize(&mut self, stderr: &mut dyn Write) -> u8 {
         let tcp_ports = self
             .probe_target()
@@ -349,6 +348,8 @@ impl DataProbe {
     }
 }
 
+const SYNTAX_MSG: &str = "Syntax: <IP address>:<U|T><port>/<U|T><port>/...";
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 struct ProbeTarget {
     ip_address: IpAddr,
@@ -356,35 +357,31 @@ struct ProbeTarget {
 }
 
 impl FromStr for ProbeTarget {
-    type Err = String;
+    type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut main_pieces = s.split(':').collect_vec();
         if main_pieces.len() != 2 {
-            return Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string());
+            return Err(SYNTAX_MSG);
         }
         let ip_address_string = main_pieces.remove(0);
         let port_specs_string = main_pieces.remove(0);
         let ip_address = match IpAddr::from_str(ip_address_string) {
             Ok(ip_addr) => ip_addr,
-            Err(_) => return Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string()),
+            Err(_) => return Err(SYNTAX_MSG),
         };
-        let port_spec_strings = port_specs_string.split('/').collect_vec();
-        let port_spec_results = port_spec_strings
-            .into_iter()
+        let port_spec_results = port_specs_string.split('/')
             .map(PortSpec::from_str)
-            .collect_vec();
-        let first_error_opt = port_spec_results
+            .collect::<Vec<Result<PortSpec, &'static str>>>();
+        if port_spec_results
             .iter()
-            .find(|result| result.is_err())
-            .map(|err| err.clone().err().unwrap());
-        if first_error_opt.is_some() {
-            Err("Syntax: <IP address>:<U|T><port>/<U|T><port>/...".to_string())
+            .any(|result| result.is_err()) {
+            Err(SYNTAX_MSG)
         } else {
             let port_specs = port_spec_results
                 .into_iter()
                 .map(|result| result.unwrap())
-                .collect_vec();
+                .collect::<Vec<PortSpec>>();
             Ok(ProbeTarget {
                 ip_address,
                 port_specs,
@@ -411,22 +408,22 @@ struct PortSpec {
 }
 
 impl FromStr for PortSpec {
-    type Err = String;
+    type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() < 2 {
-            return Err("Syntax: <U|T><port>".to_string());
+            return Err("Syntax: <U|T><port>");
         }
         let protocol_label = &s[0..1];
         let port_string = &s[1..];
         let protocol = match protocol_label {
             "T" => NetworkProtocol::Tcp,
             "U" => NetworkProtocol::Udp,
-            _ => return Err("Syntax: <U|T><port>".to_string()),
+            _ => return Err("Syntax: <U|T><port>"),
         };
         let port = match u16::from_str(port_string) {
             Ok(p) => p,
-            Err(_) => return Err("Syntax: <U|T><port>".to_string()),
+            Err(_) => return Err("Syntax: <U|T><port>"),
         };
         Ok(PortSpec { protocol, port })
     }
@@ -596,10 +593,10 @@ mod tests {
     fn can_read_probe_target_from_str() {
         probe_target_pairs()
             .into_iter()
-            .for_each(|(string, expected)| {
-                let result = ProbeTarget::from_str(&string).unwrap();
+            .for_each(|(display_string, expected_probe_target)| {
+                let result = ProbeTarget::from_str(&display_string).unwrap();
 
-                assert_eq!(result, expected);
+                assert_eq!(result, expected_probe_target);
             })
     }
 
@@ -607,57 +604,33 @@ mod tests {
     fn display_implementation_works() {
         probe_target_pairs()
             .into_iter()
-            .for_each(|(expected, target)| {
-                let result = target.to_string();
+            .for_each(|(expected_display_string, probe_target)| {
+                let result = probe_target.to_string();
 
-                assert_eq!(result, expected);
+                assert_eq!(result, expected_display_string);
             })
     }
 
     #[test]
     fn handles_problems_reading_target_from_str() {
         vec![
-            ("", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            (":", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            ("X:Y", "Syntax: <IP address>:<U|T><port>/<U|T><port>/..."),
-            (
-                "12.23.34.45:Y",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "X:U4321",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:4321",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:T",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:U4321/",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:U4321/5432",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:U4321/T",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
-            (
-                "12.23.34.45:X4321",
-                "Syntax: <IP address>:<U|T><port>/<U|T><port>/...",
-            ),
+            "",
+            ":",
+            "X:Y",
+            "12.23.34.45:Y",
+            "X:U4321",
+            "12.23.34.45:4321",
+            "12.23.34.45:T",
+            "12.23.34.45:U4321/",
+            "12.23.34.45:U4321/5432",
+            "12.23.34.45:U4321/T",
+            "12.23.34.45:X4321",
         ]
         .into_iter()
-        .for_each(|(probe_target_str, err_msg_str)| {
+        .for_each(|probe_target_str| {
             let result = ProbeTarget::from_str(probe_target_str).err().unwrap();
 
-            assert_eq!(&result, err_msg_str)
+            assert_eq!(&result, SYNTAX_MSG)
         });
     }
 

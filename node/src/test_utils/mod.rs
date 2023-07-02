@@ -40,7 +40,6 @@ use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HTTP_PORT, TEST_DEFAULT_CHAIN};
-use masq_lib::utils::to_millis;
 use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -357,7 +356,7 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
         if cur_len != prev_len {
             println!("message collector has received {} messages", cur_len)
         }
-        let latency_so_far = to_millis(&Instant::now().duration_since(begin));
+        let latency_so_far = Instant::now().duration_since(begin).as_millis() as u64;
         if latency_so_far > limit {
             panic!(
                 "After {}ms, message collector has received only {} messages, not {}",
