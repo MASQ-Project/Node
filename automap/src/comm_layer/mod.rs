@@ -30,7 +30,6 @@ pub enum AutomapErrorCause {
     RouterFailure,
     SocketFailure,
     Unknown(String),
-    UserError,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -75,7 +74,7 @@ impl AutomapError {
             }
             AutomapError::IPv6Unsupported(_) => AutomapErrorCause::NetworkConfiguration,
             AutomapError::NoLocalIpAddress => AutomapErrorCause::NetworkConfiguration,
-            AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
+            AutomapError::SocketBindingError(msg, addr) => AutomapErrorCause::Unknown(format!("{} - {}", addr, msg)),
             AutomapError::SocketReceiveError(aec) => aec.clone(),
             AutomapError::SocketSendError(aec) => aec.clone(),
             AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,
@@ -255,10 +254,10 @@ mod tests {
             ),
             (
                 AutomapError::SocketBindingError(
-                    String::new(),
+                    "Booga!".to_string(),
                     SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 ),
-                AutomapErrorCause::UserError,
+                AutomapErrorCause::Unknown("1.2.3.4:1234 - Booga!".to_string()),
             ),
             (
                 AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("Booga".to_string())),

@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn produce_debut_or_ipchange_creates_properly_formed_gossip_with_node_addr_opt_if_we_accept_connections_through_the_firewall(
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip_with_node_addr_present_if_we_accept_connections_through_the_firewall(
     ) {
         let mut our_node_record: NodeRecord = make_node_record(7771, true);
         our_node_record.inner.accepts_connections = true;
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn produce_debut_or_ipchange_creates_properly_formed_gossip_without_node_addr_opt_if_we_dont_accept_connections_through_the_firewall(
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip_with_node_addr_absent_if_we_dont_accept_connections_through_the_firewall(
     ) {
         let mut our_node_record: NodeRecord = make_node_record(7772, true);
         our_node_record.inner.accepts_connections = false;

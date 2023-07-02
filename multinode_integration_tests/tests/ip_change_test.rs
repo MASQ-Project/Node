@@ -76,8 +76,9 @@ fn receiving_announce_from_router_produces_ipchange_gossip() {
     };
     let mock_router = MockPcpRouter::new();
     let mock_node = node_map.remove(&neighbor_key).unwrap();
-    thread::sleep(Duration::from_secs(1)); // Wait for the new Node to get situated
-                                           // Have the mock router announce a change in public IP.
+    // Wait for the new Node to get situated
+    thread::sleep(Duration::from_secs(1));
+    // Have the mock router announce a change in public IP.
     mock_router.announce_ip_change(real_node.ip_address(), new_ip_address);
     // Verify that IpChange Gossip shows up at the mock Node.
     let (_, _, live_cores_package) = mock_node
@@ -88,7 +89,8 @@ fn receiving_announce_from_router_produces_ipchange_gossip() {
         &live_cores_package.payload,
     )
     .unwrap();
-    let node_record = gossip.node_records.remove(0); // now verify the gossip
+    // Now verify the Gossip
+    let node_record = gossip.node_records.remove(0);
     let expected_node_addr = NodeAddr::new(&new_ip_address, &real_node.port_list());
     assert_eq!(node_record.node_addr_opt, Some(expected_node_addr));
     assert_eq!(gossip.node_records.is_empty(), true);

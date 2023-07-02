@@ -16,39 +16,6 @@ pub struct NodeAddr {
     ports: Vec<u16>,
 }
 
-impl NodeAddr {
-    pub const PORTS_SEPARATOR: &'static str = "/";
-
-    pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
-        let mut ports = ports.to_owned();
-        ports.sort_unstable();
-        ports.dedup();
-
-        NodeAddr {
-            ip_addr: *ip_addr,
-            ports,
-        }
-    }
-
-    pub fn ip_addr(&self) -> IpAddr {
-        self.ip_addr
-    }
-
-    pub fn ports(&self) -> Vec<u16> {
-        self.ports.clone()
-    }
-
-    pub fn contains(&self, socket_addr: SocketAddr) -> bool {
-        if socket_addr.ip() != self.ip_addr() {
-            return false;
-        }
-        if !self.ports().contains(&socket_addr.port()) {
-            return false;
-        }
-        true
-    }
-}
-
 impl Default for NodeAddr {
     fn default() -> Self {
         NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[])
@@ -162,6 +129,39 @@ impl FromStr for NodeAddr {
             Err(msg) => return Err(msg),
         };
         Ok(NodeAddr::new(&ip_addr, &ports))
+    }
+}
+
+impl NodeAddr {
+    pub const PORTS_SEPARATOR: &'static str = "/";
+
+    pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
+        let mut ports = ports.to_owned();
+        ports.sort_unstable();
+        ports.dedup();
+
+        NodeAddr {
+            ip_addr: *ip_addr,
+            ports,
+        }
+    }
+
+    pub fn ip_addr(&self) -> IpAddr {
+        self.ip_addr
+    }
+
+    pub fn ports(&self) -> Vec<u16> {
+        self.ports.clone()
+    }
+
+    pub fn contains(&self, socket_addr: SocketAddr) -> bool {
+        if socket_addr.ip() != self.ip_addr() {
+            return false;
+        }
+        if !self.ports().contains(&socket_addr.port()) {
+            return false;
+        }
+        true
     }
 }
 
