@@ -988,6 +988,7 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
+        let end_block_nbr = 1024u64;
         let result = subject
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
@@ -1073,6 +1074,7 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
+        let end_block_nbr = 1024u64;
         let result = subject
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
@@ -1210,6 +1212,7 @@ mod tests {
         )
         .unwrap();
 
+        let end_block_nbr = 1024u64;
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
@@ -1246,11 +1249,8 @@ mod tests {
         )
         .unwrap();
 
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
         let start_block = BlockNumber::Number(42u64.into());
         let result = subject.retrieve_transactions(
@@ -2666,7 +2666,7 @@ mod tests {
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
             .send_result(json!("0x1e37066"));
-        let subject = BlockchainInterfaceNonClandestine::new(
+        let subject = BlockchainInterfaceWeb3::new(
             transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
@@ -2690,7 +2690,7 @@ mod tests {
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
             .send_result(Value::Null);
-        let subject = BlockchainInterfaceNonClandestine::new(
+        let subject = BlockchainInterfaceWeb3::new(
             transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
@@ -2718,7 +2718,7 @@ mod tests {
             .prepare_params(&prepare_params_arc)
             .send_result(Value::String("this is an invalid block number".to_string()));
 
-        let subject = BlockchainInterfaceNonClandestine::new(
+        let subject = BlockchainInterfaceWeb3::new(
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
