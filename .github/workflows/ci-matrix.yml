@@ -27,7 +27,7 @@ jobs:
         shell: bash
 
   multinode_test:
-    needs: format
+    needs: unit_tests
     name: Multinode Integration Tests
     runs-on: ubuntu-22.04
     env:
@@ -94,7 +94,7 @@ jobs:
         run: cargo clippy -- -D warnings
 
   unit_tests:
-    needs: format
+    needs: lint
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +144,7 @@ jobs:
         shell: bash
 
   integration_tests:
-    needs: format
+    needs: unit_tests
     strategy:
       fail-fast: false
       matrix:
