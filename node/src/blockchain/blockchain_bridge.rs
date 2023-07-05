@@ -6,8 +6,8 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceNull, BlockchainInterfaceWeb3,
+    PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -221,17 +221,18 @@ impl BlockchainBridge {
         Box<dyn BlockchainInterface>,
         Box<dyn PersistentConfiguration>,
     ) {
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => Box::new(
-                        BlockchainInterfaceNonClandestine::new(transport, event_loop_handle, chain),
-                    ),
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
-            }
-        };
+        let blockchain_interface: Box<dyn BlockchainInterface> =
+            {
+                match blockchain_service_url {
+                    Some(url) => match Http::new(&url) {
+                        Ok((event_loop_handle, transport)) => Box::new(
+                            BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain),
+                        ),
+                        Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+                    },
+                    None => Box::new(BlockchainInterfaceNull::default()),
+                }
+            };
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(
@@ -272,7 +273,10 @@ impl BlockchainBridge {
             }
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
+        let gas_balance = match self
+            .blockchain_interface
+            .get_transaction_fee_balance(consuming_wallet)
+        {
             Ok(gas_balance) => gas_balance,
             Err(e) => {
                 return Err(format!(
@@ -652,7 +656,7 @@ mod tests {
         let system = System::new(
             "handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant",
         );
-        let get_gas_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let gas_balance = U256::from(4455);
@@ -662,8 +666,8 @@ mod tests {
             masq_tokens: token_balance,
         };
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_params(&get_gas_balance_params_arc)
-            .get_gas_balance_result(Ok(gas_balance))
+            .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
+            .get_transaction_fee_balance_result(Ok(gas_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance));
         let consuming_wallet = make_paying_wallet(b"somewallet");
@@ -698,8 +702,12 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let get_gas_balance_params = get_gas_balance_params_arc.lock().unwrap();
-        assert_eq!(*get_gas_balance_params, vec![consuming_wallet.clone()]);
+        let get_transaction_fee_balance_params =
+            get_transaction_fee_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_transaction_fee_balance_params,
+            vec![consuming_wallet.clone()]
+        );
         let get_token_balance_params = get_token_balance_params_arc.lock().unwrap();
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
@@ -781,9 +789,10 @@ mod tests {
     fn handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance() {
         let test_name =
             "handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance";
-        let blockchain_interface = BlockchainInterfaceMock::default().get_gas_balance_result(Err(
-            BlockchainError::QueryFailed("Lazy and yet you're asking for balances?".to_string()),
-        ));
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_transaction_fee_balance_result(Err(BlockchainError::QueryFailed(
+                "Lazy and yet you're asking for balances?".to_string(),
+            )));
         let error_msg = "Did not find out gas balance of the consuming wallet: \
          QueryFailed(\"Lazy and yet you're asking for balances?\")";
 
@@ -795,7 +804,7 @@ mod tests {
         let test_name =
             "handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(45678)))
+            .get_transaction_fee_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
                 "Go get you a job. This balance must be deserved".to_string(),
             )));
@@ -1397,7 +1406,7 @@ mod tests {
         let (accountant, _, accountant_recording) = make_recorder();
         let recipient = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceClandestine::new(Chain::Dev)),
+            Box::new(BlockchainInterfaceNull::default()),
             Box::new(PersistentConfigurationMock::default()),
             false,
             Some(Wallet::new("mine")),
