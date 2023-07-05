@@ -1246,8 +1246,6 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
-        let min_hops_value = config.min_hops();
-        eprintln!("Min Hops Count: {:?}", min_hops_value);
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
         config

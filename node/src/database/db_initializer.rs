@@ -238,7 +238,7 @@ impl DbInitializerReal {
             "min_hops",
             Some(&DEFAULT_MIN_HOPS.to_string()),
             false,
-            "min hops count",
+            "min hops",
         );
         Self::set_config_value(
             conn,
