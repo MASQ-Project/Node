@@ -8,10 +8,9 @@ use std::time::Duration;
 mod utils;
 
 #[test]
-fn ensure_data_directory_has_specific_chain_direcotry_within() {
+fn ensure_data_directory_has_specific_chain_directory_within_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port.clone());
-    thread::sleep(Duration::from_millis(3000));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",

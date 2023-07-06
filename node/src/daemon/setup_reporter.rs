@@ -120,25 +120,7 @@ impl SetupReporter for SetupReporterReal {
             crate::bootstrapper::RealUser::new(None, None, None)
                 .populate(self.dirs_wrapper.as_ref())
         });
-        let (data_directory, data_dir_status) = match all_but_configured.get("data-directory") {
-            Some(uisrv) if uisrv.status == Set => {
-                Self::determine_setup_value_of_set_data_directory(
-                    uisrv,
-                    &existing_setup,
-                    &incoming_setup,
-                    chain,
-                )
-            }
-            _ => match data_directory_opt {
-                //this can mean only that environment variables had it
-                Some(data_dir) => (data_dir, UiSetupResponseValueStatus::Configured),
-                None => {
-                    let data_dir =
-                        data_directory_from_context(self.dirs_wrapper.as_ref(), &real_user, chain);
-                    (data_dir, Default)
-                }
-            },
-        };
+        let (data_directory, data_dir_status) = Self::get_data_directory_and_status(&all_but_configured, &chain);
         let data_directory_setup =
             Self::construct_cluster_with_only_data_directory(&data_directory, data_dir_status);
         let (configured_setup, error_opt) =
@@ -262,6 +244,29 @@ impl SetupReporterReal {
                 acc
             },
         )
+    }
+
+    fn get_data_directory_and_status(all_but_configured: &SetupCluster, chain: Chain) {
+        let (data_directory, data_dir_status) = match all_but_configured.get("data-directory") {
+            Some(uisrv) if uisrv.status == Set => {
+                Self::determine_setup_value_of_set_data_directory(
+                    uisrv,
+                    &existing_setup,
+                    &incoming_setup,
+                    chain,
+                )
+            }
+            _ => match data_directory_opt {
+                //this can mean only that environment variables had it
+                Some(data_dir) => (data_dir, UiSetupResponseValueStatus::Configured),
+                None => {
+                    let data_dir =
+                        data_directory_from_context(self.dirs_wrapper.as_ref(), &real_user, chain);
+                    (data_dir, Default)
+                }
+            },
+        };
+        (data_directory, data_dir_status)
     }
 
     fn determine_setup_value_of_set_data_directory(

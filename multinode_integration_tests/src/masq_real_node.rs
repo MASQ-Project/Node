@@ -1152,7 +1152,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
-        let chain_specific_diretory =
+        let chain_specific_directory =
             add_masq_and_chain_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
         let mut retries_left = 25;
         loop {
@@ -1168,7 +1168,7 @@ impl MASQRealNode {
                     "cat",
                     &format!(
                         "{}/{}",
-                        &chain_specific_diretory.to_string_lossy(),
+                        &chain_specific_directory.to_string_lossy(),
                         CURRENT_LOGFILE_NAME
                     ),
                 ],
@@ -1190,7 +1190,7 @@ impl MASQRealNode {
                     println!(
                         "Failed to cat logfile for {} at {}/{}: {}",
                         name,
-                        &chain_specific_diretory.to_string_lossy(),
+                        &chain_specific_directory.to_string_lossy(),
                         CURRENT_LOGFILE_NAME,
                         e
                     );

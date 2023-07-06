@@ -360,7 +360,7 @@ ip                            No sir, I don't like it.\n\
                 None,
                 Some("polygon-mainnet"),
                 Some("/home/cooga/.local/MASQ/polygon-mainnet"),
-                Some(None),
+                None,
                 UiSetupResponseValueStatus::Default,
                 UiSetupResponseValueStatus::Default
             ),
@@ -369,8 +369,8 @@ ip                            No sir, I don't like it.\n\
                 None,
                 Some("polygon-mumbai"),
                 Some("/home/cooga/.local/MASQ/polygon-mumbai"),
-                Some(None),
-                UiSetupResponseValueStatus::Default,
+                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
+                UiSetupResponseValueStatus::Set,
                 UiSetupResponseValueStatus::Default
             ),
             (
@@ -378,34 +378,7 @@ ip                            No sir, I don't like it.\n\
                 Some("booga"),
                 Some("polygon-mainnet"),
                 Some("booga/polygon-mainnet"),
-                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
-                UiSetupResponseValueStatus::Default,
-                UiSetupResponseValueStatus::Set
-            ),
-            (
-                Some("polygon-mumbai"),
-                Some("booga"),
-                Some("polygon-mumbai"),
-                Some("booga/polygon-mumbai"),
-                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
-                UiSetupResponseValueStatus::Set,
-                UiSetupResponseValueStatus::Set
-            ),
-            (
-                None,
-                Some("booga/polygon-mumbai"),
-                Some("polygon-mainnet"),
-                Some("booga/polygon-mumbai/polygon-mainnet"),
-                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
-                UiSetupResponseValueStatus::Default,
-                UiSetupResponseValueStatus::Set
-            ),
-            (
-                None,
-                Some("booga/polygon-mumbai/polygon-mainnet"),
-                Some("polygon-mainnet"),
-                Some("booga/polygon-mumbai/polygon-mainnet/polygon-mainnet"),
-                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
                 UiSetupResponseValueStatus::Default,
                 UiSetupResponseValueStatus::Set
             ),
@@ -414,7 +387,7 @@ ip                            No sir, I don't like it.\n\
                 Some("booga/polygon-mumbai"),
                 Some("polygon-mumbai"),
                 Some("booga/polygon-mumbai/polygon-mumbai"),
-                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
                 UiSetupResponseValueStatus::Set,
                 UiSetupResponseValueStatus::Set
             ),
@@ -426,8 +399,8 @@ ip                            No sir, I don't like it.\n\
              note_expected,
              status_chain,
              status_data_dir)| {
-            let note_expected_real = match &*note_expected {
-                Some(..) => { match note_expected.unwrap() { Some(..) => note_expected.unwrap().unwrap(), None => "" } },
+            let note_expected_real = match note_expected {
+                Some(..) => note_expected.unwrap(),
                 _ => ""
             };
             let status_data_dir_str = match *status_data_dir {
@@ -446,7 +419,14 @@ ip                            No sir, I don't like it.\n\
             };
             let expected = format!("\
 NAME                          VALUE                                                            STATUS\n\
-{:29} {:64} {}\n{:29} {:64} {}\n{}\n", "chain", &*chain_name_expected.unwrap(), status_chain_str, "data-directory", &*data_directory_expected.unwrap(), status_data_dir_str, note_expected_real );
+{:29} {:64} {}\n{:29} {:64} {}\n{}\n",
+                                   "chain",
+                                   &*chain_name_expected.unwrap(),
+                                   status_chain_str,
+                                   "data-directory",
+                                   &*data_directory_expected.unwrap(),
+                                   status_data_dir_str, note_expected_real
+            );
             let chain_real = match &*chain_opt { Some(..) => &*chain_opt.unwrap(), _ => "polygon-mainnet" };
             let data_directory_real = match &*data_directory_opt {
                 Some(..) => format!("{}/{}", &data_directory_opt.unwrap(), chain_real),

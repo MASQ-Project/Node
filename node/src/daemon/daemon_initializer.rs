@@ -177,7 +177,6 @@ impl DaemonInitializerReal {
             .sorted_by_key(|(key, _)| key.to_string())
             .flat_map(|(key, value)| vec![format!("--{}", key), value])
             .collect_vec();
-        println!("DaemonInitializerReal split {:#?}", &param_vec);
         self.rerunner.rerun(param_vec);
     }
 }
