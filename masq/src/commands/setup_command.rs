@@ -6,16 +6,12 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::messages::{
-    UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-    UiSetupResponseValueStatus,
-};
+use masq_lib::messages::{UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
 #[cfg(test)]
 use std::any::Any;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::iter::Iterator;
@@ -75,7 +71,7 @@ impl SetupCommand {
                 }
             })
             .collect::<Vec<UiSetupRequestValue>>();
-        println!("command values: {:#?}", &values);
+
         values.sort_by(|a, b| {
             a.name
                 .partial_cmp(&b.name)
@@ -111,28 +107,11 @@ impl SetupCommand {
                 .expect("String comparison failed")
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
+        let chain_and_data_dir = |p: &UiSetupResponseValue| { (p.name.to_owned(), (p.value.clone(), p.status)) };
+        let chain = inner.values.iter().find(|&p| p.name.as_str() == "chain").map(chain_and_data_dir).expect("Chain name is missing in setup cluster!");
+        let data_directory = inner.values.iter().find(|&p| p.name.as_str() == "data-directory").map(chain_and_data_dir).expect("data-directory is missing in setup cluster!");
 
-        let mut chain_and_data_dir = inner
-            .values
-            .iter()
-            .flat_map(|p| match p.name.as_str() {
-                "chain" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
-                "data-directory" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
-                _ => None,
-            })
-            .collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
-        let (_, chain_param_status) = chain_and_data_dir
-            .remove("chain")
-            .expect("Chain name is missing in setup cluster");
-        let (_, data_directory_param_status) = chain_and_data_dir
-            .remove("data-directory")
-            .expect("data-directory is missing in setup cluster");
-        println!(
-            "data_directory_param_status {:#?}",
-            &data_directory_param_status
-        );
         inner.values.into_iter().for_each(|value| {
-            //let value_value = Self::match_value_value(value.clone(), &chain_name);
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
@@ -155,12 +134,12 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
-        if chain_param_status != UiSetupResponseValueStatus::Default
-            || data_directory_param_status != UiSetupResponseValueStatus::Default
+        if chain.1.1 != UiSetupResponseValueStatus::Default
+            || data_directory.1.1 != UiSetupResponseValueStatus::Default
         {
             short_writeln!(
                 stdout,
-                "NOTE: your data directory was modified to match chain parameter.\n"
+                "NOTE: your data directory was modified to match the chain parameter.\n"
             );
         }
     }
@@ -374,14 +353,71 @@ ip                            No sir, I don't like it.\n\
 
     #[test]
     fn setup_command_with_data_directory_shows_right_path() {
+        #[rustfmt::skip]
         vec![
-            (None, None, Some("polygon-mainnet"), Some("/home/cooga/.local/MASQ/polygon-mainnet"), Some(None), UiSetupResponseValueStatus::Default, UiSetupResponseValueStatus::Default),
-            (Some("polygon-mumbai"), None, Some("polygon-mumbai"), Some("/home/cooga/.local/MASQ/polygon-mumbai"), Some(None), UiSetupResponseValueStatus::Default, UiSetupResponseValueStatus::Default),
-            (None, Some("booga"), Some("polygon-mainnet"), Some("booga/polygon-mainnet"), Some(Some("\nNOTE: your data directory was modified to match chain parameter.\n")), UiSetupResponseValueStatus::Default, UiSetupResponseValueStatus::Set),
-            (Some("polygon-mumbai"), Some("booga"), Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some(Some("\nNOTE: your data directory was modified to match chain parameter.\n")), UiSetupResponseValueStatus::Set, UiSetupResponseValueStatus::Set),
-            (None, Some("booga/polygon-mumbai"), Some("polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet"), Some(Some("\nNOTE: your data directory was modified to match chain parameter.\n")), UiSetupResponseValueStatus::Default, UiSetupResponseValueStatus::Set),
-            (None, Some("booga/polygon-mumbai/polygon-mainnet"), Some("polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet/polygon-mainnet"), Some(Some("\nNOTE: your data directory was modified to match chain parameter.\n")), UiSetupResponseValueStatus::Default, UiSetupResponseValueStatus::Set),
-            (Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some("polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mumbai"), Some(Some("\nNOTE: your data directory was modified to match chain parameter.\n")), UiSetupResponseValueStatus::Set, UiSetupResponseValueStatus::Set),
+            (
+                None,
+                None,
+                Some("polygon-mainnet"),
+                Some("/home/cooga/.local/MASQ/polygon-mainnet"),
+                Some(None),
+                UiSetupResponseValueStatus::Default,
+                UiSetupResponseValueStatus::Default
+            ),
+            (
+                Some("polygon-mumbai"),
+                None,
+                Some("polygon-mumbai"),
+                Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+                Some(None),
+                UiSetupResponseValueStatus::Default,
+                UiSetupResponseValueStatus::Default
+            ),
+            (
+                None,
+                Some("booga"),
+                Some("polygon-mainnet"),
+                Some("booga/polygon-mainnet"),
+                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                UiSetupResponseValueStatus::Default,
+                UiSetupResponseValueStatus::Set
+            ),
+            (
+                Some("polygon-mumbai"),
+                Some("booga"),
+                Some("polygon-mumbai"),
+                Some("booga/polygon-mumbai"),
+                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                UiSetupResponseValueStatus::Set,
+                UiSetupResponseValueStatus::Set
+            ),
+            (
+                None,
+                Some("booga/polygon-mumbai"),
+                Some("polygon-mainnet"),
+                Some("booga/polygon-mumbai/polygon-mainnet"),
+                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                UiSetupResponseValueStatus::Default,
+                UiSetupResponseValueStatus::Set
+            ),
+            (
+                None,
+                Some("booga/polygon-mumbai/polygon-mainnet"),
+                Some("polygon-mainnet"),
+                Some("booga/polygon-mumbai/polygon-mainnet/polygon-mainnet"),
+                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                UiSetupResponseValueStatus::Default,
+                UiSetupResponseValueStatus::Set
+            ),
+            (
+                Some("polygon-mumbai"),
+                Some("booga/polygon-mumbai"),
+                Some("polygon-mumbai"),
+                Some("booga/polygon-mumbai/polygon-mumbai"),
+                Some(Some("\nNOTE: your data directory was modified to match the chain parameter.\n")),
+                UiSetupResponseValueStatus::Set,
+                UiSetupResponseValueStatus::Set
+            ),
         ].iter().for_each(|
             (chain_opt,
              data_directory_opt,
@@ -394,16 +430,32 @@ ip                            No sir, I don't like it.\n\
                 Some(..) => { match note_expected.unwrap() { Some(..) => note_expected.unwrap().unwrap(), None => "" } },
                 _ => ""
             };
-            let status_data_dir_str = match *status_data_dir { Default => "Default", Set => "Set", Configured => "Configured", UiSetupResponseValueStatus::Blank => "Blank", UiSetupResponseValueStatus::Required => "Required" };
-            let status_chain_str = match *status_chain { Default => "Default", Set => "Set", Configured => "Configured", UiSetupResponseValueStatus::Blank => "Blank", UiSetupResponseValueStatus::Required => "Required" };
+            let status_data_dir_str = match *status_data_dir {
+                Default => "Default",
+                Set => "Set",
+                Configured => "Configured",
+                UiSetupResponseValueStatus::Blank => "Blank",
+                UiSetupResponseValueStatus::Required => "Required"
+            };
+            let status_chain_str = match *status_chain {
+                Default => "Default",
+                Set => "Set",
+                Configured => "Configured",
+                UiSetupResponseValueStatus::Blank => "Blank",
+                UiSetupResponseValueStatus::Required => "Required"
+            };
             let expected = format!("\
 NAME                          VALUE                                                            STATUS\n\
 {:29} {:64} {}\n{:29} {:64} {}\n{}\n", "chain", &*chain_name_expected.unwrap(), status_chain_str, "data-directory", &*data_directory_expected.unwrap(), status_data_dir_str, note_expected_real );
-            let chain_opt_real = match &*chain_opt { Some(..) => &*chain_opt.unwrap(), _ => "polygon-mainnet" };
-            let data_directory_opt_real = match &*data_directory_opt { Some(..) => &*data_directory_opt.unwrap(), _ => "/home/cooga/.local" };
-            process_setup_command_for_given_attributes(chain_opt_real, data_directory_opt_real, &expected, *status_chain, *status_data_dir);
+            let chain_real = match &*chain_opt { Some(..) => &*chain_opt.unwrap(), _ => "polygon-mainnet" };
+            let data_directory_real = match &*data_directory_opt {
+                Some(..) => format!("{}/{}", &data_directory_opt.unwrap(), chain_real),
+                _ => format!("/home/cooga/.local/MASQ/{}", chain_real)
+            };
+            process_setup_command_for_given_attributes(chain_real, &data_directory_real, &expected, *status_chain, *status_data_dir);
         });
     }
+
     fn process_setup_command_for_given_attributes(
         chain: &str,
         data_directory: &str,
