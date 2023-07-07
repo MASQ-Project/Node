@@ -1,6 +1,6 @@
 [package]
 name = "masq"
-version = "0.7.3"
+version = "0.8.0"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Reference implementation of user interface for MASQ Node"

@@ -3,8 +3,8 @@ use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
-use masq_lib::shared_schema::common_validators;
-use masq_lib::shared_schema::GAS_PRICE_HELP;
+use masq_lib::shared_schema::gas_price_arg;
+use masq_lib::shared_schema::min_hops_arg;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
@@ -66,15 +66,8 @@ const START_BLOCK_HELP: &str =
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("set-configuration")
         .about(SET_CONFIGURATION_ABOUT)
-        .arg(
-            Arg::with_name("gas-price")
-                .help(&GAS_PRICE_HELP)
-                .long("gas-price")
-                .value_name("GAS-PRICE")
-                .takes_value(true)
-                .required(false)
-                .validator(common_validators::validate_gas_price),
-        )
+        .arg(gas_price_arg())
+        .arg(min_hops_arg())
         .arg(
             Arg::with_name("start-block")
                 .help(START_BLOCK_HELP)
@@ -86,7 +79,7 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
         )
         .group(
             ArgGroup::with_name("parameter")
-                .args(&["gas-price", "start-block"])
+                .args(&["gas-price", "min-hops", "start-block"])
                 .required(true),
         )
 }
@@ -135,16 +128,24 @@ mod tests {
 
     #[test]
     fn command_execution_works_all_fine() {
+        test_command_execution("start-block", "123456");
+        test_command_execution("gas-price", "123456");
+        test_command_execution("min-hops", "6");
+    }
+
+    fn test_command_execution(name: &str, value: &str) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
-        let subject = SetConfigurationCommand {
-            name: "start-block".to_string(),
-            value: "123456".to_string(),
-        };
+        let subject = SetConfigurationCommand::new(&[
+            "set-configuration".to_string(),
+            format!("--{name}"),
+            value.to_string(),
+        ])
+        .unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -154,8 +155,8 @@ mod tests {
             *transact_params,
             vec![(
                 UiSetConfigurationRequest {
-                    name: "start-block".to_string(),
-                    value: "123456".to_string()
+                    name: name.to_string(),
+                    value: value.to_string(),
                 }
                 .tmb(0),
                 1000

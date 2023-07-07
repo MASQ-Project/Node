@@ -218,6 +218,16 @@ lazy_static! {
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
+pub fn chain_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("chain")
+        .long("chain")
+        .value_name("CHAIN")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(official_chain_names())
+        .help(CHAIN_HELP)
+}
+
 pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("config-file")
         .long("config-file")
@@ -240,16 +250,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .help(DATA_DIRECTORY_HELP)
 }
 
-pub fn chain_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("chain")
-        .long("chain")
-        .value_name("CHAIN")
-        .min_values(0)
-        .max_values(1)
-        .possible_values(official_chain_names())
-        .help(CHAIN_HELP)
-}
-
+// TODO: Not an arg fn, move somewhere else
 pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
@@ -283,6 +284,27 @@ where
         .max_values(1)
         .validator(validator)
         .help(help)
+}
+
+pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("gas-price")
+        .long("gas-price")
+        .value_name("GAS-PRICE")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_gas_price)
+        .help(&GAS_PRICE_HELP)
+}
+
+pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("min-hops")
+        .long("min-hops")
+        .value_name("MIN_HOPS")
+        .required(false)
+        .min_values(0)
+        .max_values(1)
+        .possible_values(&["1", "2", "3", "4", "5", "6"])
+        .help(MIN_HOPS_HELP)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -389,15 +411,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .hidden(true),
     )
-    .arg(
-        Arg::with_name("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
-    )
+    .arg(gas_price_arg())
     .arg(
         Arg::with_name("ip")
             .long("ip")
@@ -427,16 +441,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
-    .arg(
-        Arg::with_name("min-hops")
-            .long("min-hops")
-            .value_name("MIN_HOPS")
-            .required(false)
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["1", "2", "3", "4", "5", "6"])
-            .help(MIN_HOPS_HELP),
-    )
+    .arg(min_hops_arg())
     .arg(
         Arg::with_name("neighborhood-mode")
             .long("neighborhood-mode")
