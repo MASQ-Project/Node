@@ -42,6 +42,7 @@ Temporary Items
 # User-specific stuff:
 .idea/**/workspace.xml
 .idea/**/tasks.xml
+.idea/dbnavigator.xml
 .idea/dictionaries
 .idea/misc.xml
 
