@@ -7,96 +7,277 @@ on:
       - master
 
 jobs:
-  build:
+  format:
+    name: Format Code
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-cache
+          shared-key: format
+
+      - name: Run format
+        working-directory: ${{ github.workspace }}/ci
+        run: ./format.sh
+        shell: bash
+
+  multinode_test:
+    needs: unit_tests
+    name: Multinode Integration Tests
+    runs-on: ubuntu-22.04
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-cache
+          shared-key: multinode-test
+
+      - name: Run multinode integration test
+        working-directory: ${{ github.workspace }}/ci
+        run: ./multinode_integration_test.sh
+        shell: bash
+
+  lint:
+    needs: format
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
           - { name: macos, os: macos-12 }
           - { name: windows, os: windows-2022 }
-
-    name: Build node on ${{ matrix.target.os }}
+    name: Lint on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: 1
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Stable with rustfmt and clippy
-        uses: actions-rs/toolchain@v1
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          profile: minimal
-          toolchain: 1.63.0
-          components: rustfmt, clippy
-          override: true
-      - uses: actions/cache@v3
+          prefix-key: rust-cache
+          shared-key: lint
+
+      - name: Lint masq_lib
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: cargo clippy -- -D warnings
+
+      - name: Lint node
+        working-directory: ${{ github.workspace }}/node
+        run: cargo clippy -- -D warnings
+
+      - name: Lint dns_utility
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: cargo clippy -- -D warnings
+
+      - name: Lint masq
+        working-directory: ${{ github.workspace }}/masq
+        run: cargo clippy -- -D warnings
+
+      - name: Lint automap
+        working-directory: ${{ github.workspace }}/automap
+        run: cargo clippy -- -D warnings
+
+  unit_tests:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Unit tests on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: 1
+
+    steps:
+      - uses: actions/checkout@v3
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/cache/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo
-      - name: Build ${{ matrix.target.os }}
-        run: |
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
-          ./ci/collect_results.sh
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-cache
+          shared-key: unit-tests
+
+      - name: Node unit tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/node
+        run: ./ci/unit_tests.sh
         shell: bash
+
+      - name: masq unit tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq
+        run: ./ci/unit_tests.sh
+        shell: bash
+
+      - name: masq_lib unit tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: ./ci/unit_tests.sh
+        shell: bash
+
+      - name: automap unit tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/automap
+        run: ./ci/unit_tests.sh
+        shell: bash
+
+      - name: dns_utility unit tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: ./ci/unit_tests.sh
+        shell: bash
+
+  integration_tests:
+    needs: unit_tests
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Integration tests on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: 1
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-cache
+          shared-key: integration-tests
+
+      - name: Node integration tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/node
+        run: |
+          cargo build --release --verbose
+          ./ci/integration_tests.sh
+        shell: bash
+
+      - name: masq integration tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq
+        run: |
+          cargo build --release --verbose
+          ./ci/integration_tests.sh
+        shell: bash
+
+      - name: dns_utility integration tests ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: |
+          cargo build --release --verbose
+          ./ci/integration_tests.sh
+        shell: bash
+
+  build:
+    needs:
+      - lint
+      - unit_tests
+      - integration_tests
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Build node on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: 1
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: rust-cache
+          shared-key: build
+
+      - name: Node build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/node
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: masq build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: masq_lib build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: automap build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/automap
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: dns_utility build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: ./ci/build.sh
+        shell: bash
+
+      - name: Collect results
+        working-directory: ${{ github.workspace }}
+        run: ./ci/collect_results.sh
+        shell: bash
+
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
         with:
           name: Node-${{ matrix.target.name }}
           path: results
+
   deploy_to_s3:
     needs: build
     strategy:
       matrix:
-          os: [linux, macos, windows]
+        os: [linux, macos, windows]
     runs-on: ubuntu-22.04
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+
     steps:
-        - uses: actions/checkout@v3
-          with:
-            ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
-        - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: Node-${{ matrix.os }}
 
-        - name: Display structure of downloaded files
-          run: ls -R
+      - name: Display structure of downloaded files
+        run: ls -R
 
-        - if: startsWith(github.head_ref, 'GH')
-          name: Versioned S3 Sync
-          uses: jakejarvis/s3-sync-action@v0.5.1
-          with:
-           args: --acl private --follow-symlinks --delete
-          env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}'
-            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
-
-        - if: startsWith(github.head_ref, 'v')
-          name: Latest S3 Sync
-          uses: jakejarvis/s3-sync-action@v0.5.1
-          with:
-           args: --acl private --follow-symlinks --delete
-          env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/latest/Node-${{ matrix.os }}'
-            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
-
-        - name: Invalidate Binaries CloudFront
-          uses: chetan/invalidate-cloudfront-action@v2.4
-          env:
-            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
-            PATHS: "/Node*"
-            AWS_REGION: "us-west-2"
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Deploy to S3 and invalidate CloudFront
+        run: |
+          aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH-') && github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.DISTRIBUTION }} --paths '/Node/*'
