@@ -219,7 +219,8 @@ impl Scanner<PayablePaymentsSetupMsgPayload, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let future_payload = PayablePaymentsSetupMsgPayload::new();
+                let future_payload =
+                    PayablePaymentsSetupMsgPayload::new(qualified_payables, response_skeleton_opt);
                 Ok(future_payload)
             }
         }
