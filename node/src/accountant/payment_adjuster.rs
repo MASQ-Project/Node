@@ -73,7 +73,9 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
+    use crate::accountant::scanners::payable_payments_setup_msg::{
+        PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
+    };
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use masq_lib::logger::Logger;
@@ -96,9 +98,11 @@ mod tests {
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let non_required = PayablePaymentsSetupMsg {
-            qualified_payables: vec![payable_1.clone(), payable_2.clone()],
+            payload: PayablePaymentsSetupMsgPayload {
+                qualified_payables: vec![payable_1.clone(), payable_2.clone()],
+                response_skeleton_opt: None,
+            },
             agent: Box::new(agent_for_enough),
-            response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
@@ -114,9 +118,11 @@ mod tests {
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let should_require = PayablePaymentsSetupMsg {
-            qualified_payables: vec![payable_1, payable_2],
+            payload: PayablePaymentsSetupMsgPayload {
+                qualified_payables: vec![payable_1, payable_2],
+                response_skeleton_opt: None,
+            },
             agent: Box::new(agent_for_insufficient),
-            response_skeleton_opt: None,
         };
 
         let should_require_result =

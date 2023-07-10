@@ -17,7 +17,7 @@ use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdju
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
 };
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, MultistagePayableScanner, PayableScannerMiddleProcedures,
@@ -1472,8 +1472,8 @@ impl PaymentAdjusterMock {
 pub fn make_initial_payable_payment_setup_message(
     qualified_payables: Vec<PayableAccount>,
     response_skeleton_opt: Option<ResponseSkeleton>,
-) -> InitialPayablePaymentsSetupMsg {
-    InitialPayablePaymentsSetupMsg {
+) -> PayablePaymentsSetupMsgPayload {
+    PayablePaymentsSetupMsgPayload {
         qualified_payables,
         response_skeleton_opt,
     }
@@ -1514,7 +1514,7 @@ where
     implement_as_any!();
 }
 
-impl MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables> for NullScanner {}
+impl MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables> for NullScanner {}
 
 impl PayableScannerMiddleProcedures for NullScanner {}
 
@@ -1627,12 +1627,12 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-impl MultistagePayableScanner<InitialPayablePaymentsSetupMsg, SentPayables>
-    for ScannerMock<InitialPayablePaymentsSetupMsg, SentPayables>
+impl MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables>
+    for ScannerMock<PayablePaymentsSetupMsgPayload, SentPayables>
 {
 }
 
-impl PayableScannerMiddleProcedures for ScannerMock<InitialPayablePaymentsSetupMsg, SentPayables> {}
+impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentsSetupMsgPayload, SentPayables> {}
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(

@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_setup_msg::InitialPayablePaymentsSetupMsg;
+use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsgPayload;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -25,7 +25,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
-    pub initial_payable_payment_setup_msg: Recipient<InitialPayablePaymentsSetupMsg>,
+    pub initial_payable_payment_setup_msg: Recipient<PayablePaymentsSetupMsgPayload>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -44,9 +44,9 @@ pub struct OutboundPaymentsInstructions {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-// derive version of PartialEq get stuck because of the field with the agent; Rust complains about
-// disability to move out from behind a reference (???); only the added references helped me
-// move forward
+// Derive version of PartialEq blows up because of the agent in it. Complaint about
+// disability to use Copy in order to move out from behind a reference (???). Only the added
+// references helped me move forward
 #[allow(clippy::op_ref)]
 impl PartialEq for OutboundPaymentsInstructions {
     fn eq(&self, other: &Self) -> bool {

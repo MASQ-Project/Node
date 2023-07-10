@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
 };
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
@@ -114,7 +114,7 @@ recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
-recorder_message_handler!(InitialPayablePaymentsSetupMsg);
+recorder_message_handler!(PayablePaymentsSetupMsgPayload);
 recorder_message_handler!(IncipientCoresPackage);
 recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NewPublicIp);
@@ -430,7 +430,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        initial_payable_payment_setup_msg: recipient!(addr, InitialPayablePaymentsSetupMsg),
+        initial_payable_payment_setup_msg: recipient!(addr, PayablePaymentsSetupMsgPayload),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),

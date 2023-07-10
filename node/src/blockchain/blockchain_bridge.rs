@@ -3,7 +3,7 @@
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    InitialPayablePaymentsSetupMsg, PayablePaymentsSetupMsg,
+    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
 };
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
@@ -50,7 +50,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    payable_payments_setup_sub_opt: Option<Recipient<PayablePaymentsSetupMsg>>,
+    payable_payments_setup_subs_opt: Option<Recipient<PayablePaymentsSetupMsg>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -80,7 +80,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
-        self.payable_payments_setup_sub_opt =
+        self.payable_payments_setup_subs_opt =
             Some(msg.peer_actors.accountant.report_payable_payments_setup);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
@@ -138,12 +138,12 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<InitialPayablePaymentsSetupMsg> for BlockchainBridge {
+impl Handler<PayablePaymentsSetupMsgPayload> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: InitialPayablePaymentsSetupMsg, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PayablePaymentsSetupMsgPayload, _ctx: &mut Self::Context) {
         self.handle_scan(
-            Self::handle_initial_payable_payments_setup_msg,
+            Self::handle_payable_payments_setup_msg_payload,
             ScanType::Payables,
             msg,
         );
@@ -201,7 +201,7 @@ impl BlockchainBridge {
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
-            payable_payments_setup_sub_opt: None,
+            payable_payments_setup_subs_opt: None,
             received_payments_subs_opt: None,
             scan_error_subs_opt: None,
             crashable,
@@ -266,16 +266,16 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-            initial_payable_payment_setup_msg: recipient!(addr, InitialPayablePaymentsSetupMsg),
+            initial_payable_payment_setup_msg: recipient!(addr, PayablePaymentsSetupMsgPayload),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
     }
 
-    fn handle_initial_payable_payments_setup_msg(
+    fn handle_payable_payments_setup_msg_payload(
         &mut self,
-        msg: InitialPayablePaymentsSetupMsg,
+        msg: PayablePaymentsSetupMsgPayload,
     ) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
@@ -336,7 +336,7 @@ impl BlockchainBridge {
 
         let msg = PayablePaymentsSetupMsg::from((msg, agent));
 
-        self.payable_payments_setup_sub_opt
+        self.payable_payments_setup_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(msg)
@@ -835,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_initial_payable_payments_setup_msg_fails_at_missing_consuming_wallet() {
+    fn handle_payable_payments_setup_msg_payload_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
@@ -854,7 +854,7 @@ mod tests {
             None,
         );
 
-        let result = subject.handle_initial_payable_payments_setup_msg(request);
+        let result = subject.handle_payable_payments_setup_msg_payload(request);
 
         assert_eq!(
             result,
@@ -866,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_initial_payable_payments_setup_msg_fails_on_gas_price_query_on_behalf_of_the_agent() {
+    fn handle_payable_payments_setup_msg_payload_fails_on_gas_price_query_on_behalf_of_the_agent() {
         let agent = PayablePaymentsAgentMock::default()
             .conclude_required_fee_per_computed_unit_result(Err(
                 PersistentConfigError::DatabaseError("siesta".to_string()),
@@ -896,7 +896,7 @@ mod tests {
             }),
         );
 
-        let result = subject.handle_initial_payable_payments_setup_msg(request);
+        let result = subject.handle_payable_payments_setup_msg_payload(request);
 
         assert_eq!(
             result,
