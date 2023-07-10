@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
-use masq_lib::utils::{derivation_path, web3_gas_limit_const_part, NeighborhoodModeLight};
+use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -24,6 +24,7 @@ use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
 use node_lib::sub_lib::accountant::PaymentThresholds;
+use node_lib::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};

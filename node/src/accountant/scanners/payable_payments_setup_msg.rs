@@ -28,8 +28,8 @@ pub struct PayablePaymentsSetupMsg {
 }
 
 // derive version of PartialEq get stuck because of the field with the agent; Rust complains about
-// disability to move out from a place behind a reference (???); only the added references helped me
-// solve the problem
+// disability to move out from behind a reference (???); only the added references helped me
+// move forward
 #[allow(clippy::op_ref)]
 impl PartialEq for PayablePaymentsSetupMsg {
     fn eq(&self, other: &Self) -> bool {
@@ -40,7 +40,6 @@ impl PartialEq for PayablePaymentsSetupMsg {
 }
 
 // this allows you to construct the PayablePaymentsSetupMsg even outside Accountant
-// (while some parts stay privet)
 impl
     From<(
         InitialPayablePaymentsSetupMsg,

@@ -731,6 +731,7 @@ mod tests {
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
         BatchPayableToolsMock, TestTransport,
     };
+    use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
@@ -744,9 +745,7 @@ mod tests {
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::{
-        find_free_port, slice_of_strs_to_vec_of_strings, web3_gas_limit_const_part,
-    };
+    use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
     use serde_derive::Deserialize;
     use serde_json::json;
     use serde_json::Value;

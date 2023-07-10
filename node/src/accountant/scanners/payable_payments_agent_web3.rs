@@ -11,16 +11,16 @@ pub struct PayablePaymentsAgentWeb3 {
     upmost_added_gas_margin: u64,
     consuming_wallet_balance_opt: Option<ConsumingWalletBalances>,
     pending_transaction_id_opt: Option<U256>,
-    desired_fee_per_computed_unit_gwei_opt: Option<u64>,
+    gwei_per_computed_unit_opt: Option<u64>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
-    fn deliberate_required_fee_per_computed_unit(
+    fn conclude_required_fee_per_computed_unit(
         &mut self,
         consultant: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
         let gas_price_gwei = consultant.gas_price()?;
-        self.desired_fee_per_computed_unit_gwei_opt = Some(gas_price_gwei);
+        self.gwei_per_computed_unit_opt = Some(gas_price_gwei);
         Ok(())
     }
 
@@ -33,11 +33,12 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     }
 
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
-        ((self.upmost_added_gas_margin + self.gas_limit_const_part) * number_of_transactions as u64)
-            as u128
-            * self
-                .desired_fee_per_computed_unit_gwei_opt
-                .expect("yet unset gas price") as u128
+        let gas_price = self
+            .gwei_per_computed_unit_opt
+            .expect("gas price was not set") as u128;
+        number_of_transactions as u128
+            * gas_price
+            * (self.upmost_added_gas_margin + self.gas_limit_const_part) as u128
     }
 
     fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances> {
@@ -45,7 +46,7 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     }
 
     fn required_fee_per_computed_unit(&self) -> Option<u64> {
-        self.desired_fee_per_computed_unit_gwei_opt
+        self.gwei_per_computed_unit_opt
     }
 
     fn pending_transaction_id(&self) -> Option<U256> {
@@ -72,7 +73,7 @@ impl PayablePaymentsAgentWeb3 {
             upmost_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
             consuming_wallet_balance_opt: None,
             pending_transaction_id_opt: None,
-            desired_fee_per_computed_unit_gwei_opt: None,
+            gwei_per_computed_unit_opt: None,
         }
     }
 }
@@ -95,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn payable_payments_agent_is_properly_constructed() {
+    fn payable_payments_agent_is_constructed_with_right_values() {
         let subject = PayablePaymentsAgentWeb3::new(455);
 
         assert_eq!(subject.gas_limit_const_part, 455);
@@ -104,34 +105,34 @@ mod tests {
             WEB3_MAXIMAL_GAS_LIMIT_MARGIN
         );
         assert_eq!(subject.pending_transaction_id_opt, None);
-        assert_eq!(subject.desired_fee_per_computed_unit_gwei_opt, None);
+        assert_eq!(subject.gwei_per_computed_unit_opt, None);
         assert_eq!(subject.consuming_wallet_balance_opt, None)
     }
 
     #[test]
-    fn set_and_get_for_price_per_computed_unit_happy_path() {
+    fn set_and_get_methods_for_required_fee_per_computed_unit_happy_path() {
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.deliberate_required_fee_per_computed_unit(&persistent_config);
+        let result = subject.conclude_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.required_fee_per_computed_unit(), Some(130))
     }
 
     #[test]
-    fn set_and_get_for_price_per_computed_unit_sad_path() {
+    fn set_and_get_methods_for_required_fee_per_computed_unit_sad_path() {
         let persistent_config = PersistentConfigurationMock::default()
             .gas_price_result(Err(PersistentConfigError::TransactionError));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.deliberate_required_fee_per_computed_unit(&persistent_config);
+        let result = subject.conclude_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Err(PersistentConfigError::TransactionError));
     }
 
     #[test]
-    fn set_and_get_for_pending_transaction_id_works() {
+    fn set_and_get_methods_for_pending_transaction_id_work() {
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
         subject.set_up_pending_transaction_id(U256::from(654));
@@ -140,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn set_and_get_for_consuming_wallet_balances_works() {
+    fn set_and_get_methods_for_consuming_wallet_balances_work() {
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
         let consuming_wallet_balances = ConsumingWalletBalances {
             transaction_fee_balance_in_minor_units: U256::from(45_000),
@@ -162,11 +163,11 @@ mod tests {
             .gas_price_result(Ok(122))
             .gas_price_result(Ok(550));
         one_agent
-            .deliberate_required_fee_per_computed_unit(&persistent_config)
+            .conclude_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
         let mut second_agent = PayablePaymentsAgentWeb3::new(444);
         second_agent
-            .deliberate_required_fee_per_computed_unit(&persistent_config)
+            .conclude_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
 
         assert_eq!(

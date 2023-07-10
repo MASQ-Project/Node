@@ -19,7 +19,8 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, ConsumingWalletBalances, OutboundPaymentsInstructions,
+    web3_gas_limit_const_part, BlockchainBridgeSubs, ConsumingWalletBalances,
+    OutboundPaymentsInstructions,
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -35,7 +36,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::web3_gas_limit_const_part;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
@@ -324,7 +324,7 @@ impl BlockchainBridge {
         let mut agent = self.blockchain_interface.mobilize_payable_payments_agent();
         agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
 
-        match agent.deliberate_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
+        match agent.conclude_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
             Ok(()) => (),
             Err(e) => {
                 return Err(format!(
@@ -648,7 +648,7 @@ mod tests {
         let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let set_up_consuming_wallet_balances_params_arc = Arc::new(Mutex::new(vec![]));
-        let deliberate_required_fee_per_computed_unit_params_arc = Arc::new(Mutex::new(vec![]));
+        let conclude_required_fee_per_computed_unit_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let transaction_fee_balance = U256::from(4455);
         let token_balance = U256::from(112233);
@@ -656,10 +656,10 @@ mod tests {
         let agent = PayablePaymentsAgentMock::default()
             .set_arbitrary_id_stamp(arbitrary_id_stamp)
             .set_up_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
-            .deliberate_required_fee_per_computed_unit_params(
-                &deliberate_required_fee_per_computed_unit_params_arc,
+            .conclude_required_fee_per_computed_unit_params(
+                &conclude_required_fee_per_computed_unit_params_arc,
             )
-            .deliberate_required_fee_per_computed_unit_result(Ok(()));
+            .conclude_required_fee_per_computed_unit_result(Ok(()));
         let agent_dull_copy: Box<dyn PayablePaymentsAgent> = Box::new(
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp),
         );
@@ -733,12 +733,12 @@ mod tests {
                 masq_token_balance_in_minor_units: token_balance
             }]
         );
-        let deliberate_required_fee_per_computed_unit_params =
-            deliberate_required_fee_per_computed_unit_params_arc
+        let conclude_required_fee_per_computed_unit_params =
+            conclude_required_fee_per_computed_unit_params_arc
                 .lock()
                 .unwrap();
         assert_eq!(
-            *deliberate_required_fee_per_computed_unit_params,
+            *conclude_required_fee_per_computed_unit_params,
             vec![persistent_config_id_stamp]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
@@ -868,7 +868,7 @@ mod tests {
     #[test]
     fn handle_initial_payable_payments_setup_msg_fails_on_gas_price_query_on_behalf_of_the_agent() {
         let agent = PayablePaymentsAgentMock::default()
-            .deliberate_required_fee_per_computed_unit_result(Err(
+            .conclude_required_fee_per_computed_unit_result(Err(
                 PersistentConfigError::DatabaseError("siesta".to_string()),
             ));
         let blockchain_interface = BlockchainInterfaceMock::default()

@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchains::chains::Chain;
 use lazy_static::lazy_static;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -185,13 +184,6 @@ where
         None
     } else {
         Some(index)
-    }
-}
-
-pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
-    match chain {
-        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
     }
 }
 

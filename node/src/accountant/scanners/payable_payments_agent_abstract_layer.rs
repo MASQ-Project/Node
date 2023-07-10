@@ -26,10 +26,10 @@ use web3::types::U256;
 //* defaulted limit
 
 pub trait PayablePaymentsAgent: Send {
-    // the nature of a method of this kind lies in the possibility of the need to
+    // The nature of a method of this kind lies in the possibility of the need to
     // refuse the consultant's  and leave the parameter out for uselessness
     // e.g. Cardano does not require user's own choice of fee size
-    fn deliberate_required_fee_per_computed_unit(
+    fn conclude_required_fee_per_computed_unit(
         &mut self,
         consultant: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError>;
@@ -39,7 +39,7 @@ pub trait PayablePaymentsAgent: Send {
     fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances>;
     fn required_fee_per_computed_unit(&self) -> Option<u64>;
     fn pending_transaction_id(&self) -> Option<U256>;
-    // this method has the taste of a hack but the concept can be powerful: if the implementor itself
+    // This method has the taste of a hack but the concept can be powerful: if the implementor itself
     // takes Debug we can easily make a string representation and return it; because of the nature
     // of the received human readable decoded chars put together we can operate with kind of generics
     // at the return; that means that, with quite low struggle, we've bypassed the pitfalls from the
@@ -47,6 +47,10 @@ pub trait PayablePaymentsAgent: Send {
     // This attempt to break it has a huge benefit: we can go ahead and compare the Debug output to
     // verify differences or equality between the instances, including having a way to see
     // the differences if they don't match
+    //
+    // Unfortunately, despite we should insist on forbidding these outside of the test tree, we cannot
+    // mark them with cfg attributes because they are required by derive implementations on the data
+    // structures that can hold this object, maybe exclusively just actor messages.
     fn debug(&self) -> String;
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent>;
 
@@ -83,7 +87,7 @@ mod tests {
     use web3::types::U256;
 
     #[test]
-    fn trait_object_like_payable_payments_agent_implements_partial_eq() {
+    fn payable_payments_agent_as_trait_object_implements_partial_eq() {
         let mut agent_a =
             Box::new(PayablePaymentsAgentWeb3::new(45678)) as Box<dyn PayablePaymentsAgent>;
         let agent_b =
@@ -91,13 +95,13 @@ mod tests {
         let mut agent_c =
             Box::new(PayablePaymentsAgentWeb3::new(45678)) as Box<dyn PayablePaymentsAgent>;
         let id_stamp_1 = ArbitraryIdStamp::new();
-        let id_stamp_2 = ArbitraryIdStamp::new();
         let agent_d =
             Box::new(PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(id_stamp_1))
                 as Box<dyn PayablePaymentsAgent>;
         let agent_e =
             Box::new(PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(id_stamp_1))
                 as Box<dyn PayablePaymentsAgent>;
+        let id_stamp_2 = ArbitraryIdStamp::new();
         let agent_f =
             Box::new(PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(id_stamp_2))
                 as Box<dyn PayablePaymentsAgent>;
@@ -107,7 +111,6 @@ mod tests {
         assert_ne!(&agent_b, &agent_d);
         assert_eq!(&agent_d, &agent_e);
         assert_ne!(&agent_d, &agent_f);
-
         agent_a.set_up_pending_transaction_id(U256::from(1234));
         agent_c.set_up_pending_transaction_id(U256::from(1234));
         assert_eq!(&agent_a, &agent_c);
@@ -116,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn trait_object_like_payable_payments_agent_implements_debug() {
+    fn payable_payments_agent_as_trait_object_implements_debug() {
         let subject = Box::new(PayablePaymentsAgentWeb3::new(456)) as Box<dyn PayablePaymentsAgent>;
 
         let result = format!("{:?}", subject);
@@ -127,13 +130,13 @@ mod tests {
             upmost_added_gas_margin: 3328, \
             consuming_wallet_balance_opt: None, \
             pending_transaction_id_opt: None, \
-            desired_fee_per_computed_unit_gwei_opt: None \
+            gwei_per_computed_unit_opt: None \
          }";
         assert_eq!(result, expected)
     }
 
     #[test]
-    fn trait_object_like_payable_payments_agent_implements_clone() {
+    fn payable_payments_agent_as_trait_object_implements_clone() {
         assert_on_cloneable_agent_objects(|original_agent: PayablePaymentsAgentWeb3| {
             let boxed_agent = Box::new(original_agent) as Box<dyn PayablePaymentsAgent>;
             boxed_agent.clone()

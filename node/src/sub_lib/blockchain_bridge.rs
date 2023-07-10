@@ -45,8 +45,8 @@ pub struct OutboundPaymentsInstructions {
 }
 
 // derive version of PartialEq get stuck because of the field with the agent; Rust complains about
-// disability to move out from a place behind a reference (???); only the added references helped me
-// solve the problem
+// disability to move out from behind a reference (???); only the added references helped me
+// move forward
 #[allow(clippy::op_ref)]
 impl PartialEq for OutboundPaymentsInstructions {
     fn eq(&self, other: &Self) -> bool {
@@ -68,15 +68,25 @@ pub struct ConsumingWalletBalances {
     pub masq_token_balance_in_minor_units: U256,
 }
 
+pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
+    match chain {
+        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
     use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::accountant::ResponseSkeleton;
-    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+    use crate::sub_lib::blockchain_bridge::{
+        web3_gas_limit_const_part, OutboundPaymentsInstructions,
+    };
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
+    use masq_lib::blockchains::chains::Chain;
     use web3::types::U256;
 
     #[test]
@@ -121,5 +131,15 @@ mod tests {
         assert_ne!(instructions_2, instructions_1);
         instructions_1.response_skeleton_opt = None;
         assert_eq!(instructions_2, instructions_1)
+    }
+
+    #[test]
+    fn web3_gas_limit_const_part_gives_right_values() {
+        assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::EthMainnet), 55_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000)
     }
 }

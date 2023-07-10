@@ -1000,18 +1000,20 @@ pub mod unshared_test_utils {
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct ArbitraryIdStamp {
-            id: usize,
+            id_opt: Option<usize>,
         }
 
         impl ArbitraryIdStamp {
             pub fn new() -> Self {
+                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                access.0 += 1;
                 ArbitraryIdStamp {
-                    id: {
-                        let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                        access.0 += 1;
-                        access.0
-                    },
+                    id_opt: Some(access.0),
                 }
+            }
+
+            pub fn null() -> Self {
+                ArbitraryIdStamp { id_opt: None }
             }
         }
 
@@ -1045,13 +1047,15 @@ pub mod unshared_test_utils {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
                     match self.arbitrary_id_stamp_opt {
                         Some(id) => id,
-                        // in some cases the id stamp is required by some kind of an identity tracking
-                        // mechanism, even though it does not necessarily end up in an assertion;
-                        // to avoid confusion from setting up an id stamp and then abandoning it for
-                        // the rest of the test, we provide a new id stamp, which is all unique and
-                        // so it cannot match to any other id stamp at the moment, that secures that
-                        // if an assertion is actually needed it is still going to fail
-                        None => ArbitraryIdStamp::new(),
+                        // In some cases the id stamp can play a role in some identity tracking
+                        // mechanism, even though it does not necessarily end up seen directly
+                        // in an assertion;
+                        // To avoid confusion from setting up a useless id stamp abandoned for
+                        // the rest of the test, we provide a null id stamp, which allows for both
+                        // calling this method without a direct punishment if the id isn't set and
+                        // also setting an assertion on fire if it cannot match an expected id
+                        // stamp when we do care
+                        None => ArbitraryIdStamp::null(),
                     }
                 }
             };

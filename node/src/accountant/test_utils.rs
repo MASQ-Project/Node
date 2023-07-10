@@ -1659,8 +1659,8 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    deliberate_required_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
-    deliberate_required_fee_per_computed_unit_results:
+    conclude_required_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+    conclude_required_fee_per_computed_unit_results:
         RefCell<Vec<Result<(), PersistentConfigError>>>,
     set_up_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
     set_up_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
@@ -1672,15 +1672,15 @@ pub struct PayablePaymentsAgentMock {
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn deliberate_required_fee_per_computed_unit(
+    fn conclude_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        self.deliberate_required_fee_per_computed_unit_params
+        self.conclude_required_fee_per_computed_unit_params
             .lock()
             .unwrap()
             .push(persistent_config.arbitrary_id_stamp());
-        self.deliberate_required_fee_per_computed_unit_results
+        self.conclude_required_fee_per_computed_unit_results
             .borrow_mut()
             .remove(0)
     }
@@ -1721,14 +1721,19 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         format!("{:?}", self.arbitrary_id_stamp())
     }
 
-    // be careful about the implications in your tests!
-    // this clone will be dull and might be left in place even though you might've wanted to
-    // have the original in there
+    // Be careful about the implications in your tests!
+    // The resulting "clone" will be dull (empty except the id) even though you might've wanted to
+    // have the original in that place.
+    //
+    // THE FACT IT WOULD FAIL IF THE CLONE WOULD BE INVOKED IN THE PRODUCTION CODE AND IF THE CLONE
+    // AWAITED A METHOD CALL, IS HOPEFULLY SECURE ENOUGH TO FIND OUT BECAUSE WE DON'T WANT TO DO THIS
+    // CLONING ANYWHERE ELSE BUT IN TESTS
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
         let original_arbitrary_id_stamp = self.arbitrary_id_stamp();
-        // trying to make clones of mocks isn't advisable, may this be an exception based on
-        // the speciality that comparison between this kind of mocks is done exclusively by
-        // manipulation with the arbitrary id stamp, no other attributes matter
+        // trying to make clones of mockable objects isn't advisable, may this be an exception based on
+        // the speciality that we push for more convenient in-test comparison between structures that
+        // contain these, exclusively by manipulation of the assigned arbitrary id stamp, no other
+        // attribute matters
         let new_self =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(original_arbitrary_id_stamp);
         Box::new(new_self)
@@ -1738,19 +1743,19 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
 }
 
 impl PayablePaymentsAgentMock {
-    pub fn deliberate_required_fee_per_computed_unit_params(
+    pub fn conclude_required_fee_per_computed_unit_params(
         mut self,
         params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
     ) -> Self {
-        self.deliberate_required_fee_per_computed_unit_params = params.clone();
+        self.conclude_required_fee_per_computed_unit_params = params.clone();
         self
     }
 
-    pub fn deliberate_required_fee_per_computed_unit_result(
+    pub fn conclude_required_fee_per_computed_unit_result(
         self,
         result: Result<(), PersistentConfigError>,
     ) -> Self {
-        self.deliberate_required_fee_per_computed_unit_results
+        self.conclude_required_fee_per_computed_unit_results
             .borrow_mut()
             .push(result);
         self
@@ -1808,16 +1813,16 @@ where
 {
     let mut original_agent = PayablePaymentsAgentWeb3::new(777);
     let nonce = U256::from(4444);
-    original_agent.set_up_pending_transaction_id(nonce);
     let consuming_wallet_balances = ConsumingWalletBalances {
         transaction_fee_balance_in_minor_units: U256::from(123_456),
         masq_token_balance_in_minor_units: U256::from(444_444_444),
     };
-    original_agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
     let gas_price = 333;
     let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(gas_price));
+    original_agent.set_up_pending_transaction_id(nonce);
+    original_agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
     original_agent
-        .deliberate_required_fee_per_computed_unit(&persistent_config)
+        .conclude_required_fee_per_computed_unit(&persistent_config)
         .unwrap();
     let original_estimated_fees = original_agent.estimated_transaction_fee_total(4);
     let original_debug = original_agent.debug();

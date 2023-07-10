@@ -1511,7 +1511,7 @@ mod tests {
         };
         let mut agent = PayablePaymentsAgentWeb3::new(78910);
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(123));
-        let _ = agent.deliberate_required_fee_per_computed_unit(&persistent_config);
+        let _ = agent.conclude_required_fee_per_computed_unit(&persistent_config);
         let boxed_agent_assertable = Box::new(agent);
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
@@ -3155,7 +3155,7 @@ mod tests {
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let agent = PayablePaymentsAgentMock::default()
             .set_up_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc)
-            .deliberate_required_fee_per_computed_unit_result(Ok(()));
+            .conclude_required_fee_per_computed_unit_result(Ok(()));
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()
