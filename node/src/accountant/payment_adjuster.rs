@@ -42,7 +42,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         _now: SystemTime,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
-        todo!("this function is dead until the card GH-711 is being played")
+        todo!("this function is dead until the card GH-711 is played")
     }
 
     implement_as_any!();

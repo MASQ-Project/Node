@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
-use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+use masq_lib::utils::{derivation_path, web3_gas_limit_const_part, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -60,8 +60,13 @@ fn verify_bill_payment() {
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
-    let blockchain_interface =
-        BlockchainInterfaceNonClandestine::new(http, _event_loop_handle, cluster.chain);
+    let web3_gas_const_part = web3_gas_limit_const_part(cluster.chain);
+    let blockchain_interface = BlockchainInterfaceNonClandestine::new(
+        http,
+        _event_loop_handle,
+        cluster.chain,
+        web3_gas_const_part,
+    );
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
@@ -326,7 +331,7 @@ fn assert_balances(
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
-        .get_gas_balance(&wallet)
+        .get_transaction_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),

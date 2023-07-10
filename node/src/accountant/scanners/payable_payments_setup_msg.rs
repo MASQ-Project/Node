@@ -27,10 +27,10 @@ pub struct PayablePaymentsSetupMsg {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-// derive version of PartialEq cannot be used because the field with the agent; Rust complains for
-// disability to move out from there, in a similar case, also with PartiEq, but not in this one,
-// I saw a compilation error speaking of this kind of field that did not implement Copy. In both
-// cases, the added references to the agents fixed the issue.
+// derive version of PartialEq get stuck because of the field with the agent; Rust complains about
+// disability to move out from a place behind a reference (???); only the added references helped me
+// solve the problem
+#[allow(clippy::op_ref)]
 impl PartialEq for PayablePaymentsSetupMsg {
     fn eq(&self, other: &Self) -> bool {
         self.qualified_payables == other.qualified_payables

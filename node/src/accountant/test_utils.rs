@@ -52,7 +52,6 @@ use ethereum_types::H256;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
-use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::any::Any;
@@ -164,7 +163,7 @@ impl<T> DaoWithDestination<T> {
 
 fn guts_for_dao_factory_queue_initialization<T: Default>(
     customized_supplied_daos: &mut Vec<DaoWithDestination<T>>,
-    acc: Vec<Box<T>>,
+    mut acc: Vec<Box<T>>,
     used_input: usize,
     position: DestinationMarker,
 ) -> (Vec<Box<T>>, usize) {
@@ -175,9 +174,13 @@ fn guts_for_dao_factory_queue_initialization<T: Default>(
         Some(idx) => {
             let customized_dao = customized_supplied_daos.remove(idx).into_inner();
             let used_input_updated = used_input + 1;
-            (plus(acc, Box::new(customized_dao)), used_input_updated)
+            acc.push(Box::new(customized_dao));
+            (acc, used_input_updated)
         }
-        None => (plus(acc, Box::new(Default::default())), used_input),
+        None => {
+            acc.push(Box::new(Default::default()));
+            (acc, used_input)
+        }
     }
 }
 
@@ -1656,23 +1659,30 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    consult_desired_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
-    consult_desired_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
+    deliberate_required_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+    deliberate_required_fee_per_computed_unit_results:
+        RefCell<Vec<Result<(), PersistentConfigError>>>,
     set_up_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
     set_up_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     consuming_wallet_balances_results: RefCell<Vec<Option<ConsumingWalletBalances>>>,
     required_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
     pending_transaction_id_results: RefCell<Vec<Option<U256>>>,
-    estimated_transaction_fee_toatal_results: Option<u128>,
+    estimated_transaction_fee_total_results: Option<u128>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn consult_required_fee_per_computed_unit(
+    fn deliberate_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        todo!()
+        self.deliberate_required_fee_per_computed_unit_params
+            .lock()
+            .unwrap()
+            .push(persistent_config.arbitrary_id_stamp());
+        self.deliberate_required_fee_per_computed_unit_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn set_up_pending_transaction_id(&mut self, id: U256) {
@@ -1689,12 +1699,12 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
             .push(balances)
     }
 
-    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
-        todo!()
+    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
+        todo!("to be implemented by GH-711")
     }
 
     fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances> {
-        todo!()
+        todo!("to be implemented by GH-711")
     }
 
     fn required_fee_per_computed_unit(&self) -> Option<u64> {
@@ -1711,6 +1721,9 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         format!("{:?}", self.arbitrary_id_stamp())
     }
 
+    // be careful about the implications in your tests!
+    // this clone will be dull and might be left in place even though you might've wanted to
+    // have the original in there
     fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
         let original_arbitrary_id_stamp = self.arbitrary_id_stamp();
         // trying to make clones of mocks isn't advisable, may this be an exception based on
@@ -1725,19 +1738,27 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
 }
 
 impl PayablePaymentsAgentMock {
-    pub fn consult_desired_fee_per_computed_unit_params(
+    pub fn deliberate_required_fee_per_computed_unit_params(
         mut self,
-        params: &Arc<Mutex<Vec<Option<u64>>>>,
+        params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
     ) -> Self {
-        todo!()
+        self.deliberate_required_fee_per_computed_unit_params = params.clone();
+        self
     }
 
-    pub fn consult_desired_fee_per_computed_unit_result(self, result: Option<u64>) -> Self {
-        todo!()
+    pub fn deliberate_required_fee_per_computed_unit_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> Self {
+        self.deliberate_required_fee_per_computed_unit_results
+            .borrow_mut()
+            .push(result);
+        self
     }
 
     pub fn set_up_pending_transaction_id_params(mut self, params: &Arc<Mutex<Vec<U256>>>) -> Self {
-        todo!()
+        self.set_up_pending_transaction_id_params = params.clone();
+        self
     }
 
     pub fn set_up_consuming_wallet_balances_params(
@@ -1748,12 +1769,12 @@ impl PayablePaymentsAgentMock {
         self
     }
 
-    pub fn estimated_transaction_fee_params(mut self, params: &Arc<Mutex<Vec<usize>>>) -> Self {
-        todo!()
+    pub fn estimated_transaction_fee_params(self, _params: &Arc<Mutex<Vec<usize>>>) -> Self {
+        todo!("to be implemented by GH-711")
     }
 
     pub fn estimated_transaction_fee_total_result(mut self, result: u128) -> Self {
-        self.estimated_transaction_fee_toatal_results = Some(result);
+        self.estimated_transaction_fee_total_results = Some(result);
         self
     }
 
@@ -1796,7 +1817,7 @@ where
     let gas_price = 333;
     let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(gas_price));
     original_agent
-        .consult_required_fee_per_computed_unit(&persistent_config)
+        .deliberate_required_fee_per_computed_unit(&persistent_config)
         .unwrap();
     let original_estimated_fees = original_agent.estimated_transaction_fee_total(4);
     let original_debug = original_agent.debug();

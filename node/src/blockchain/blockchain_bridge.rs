@@ -35,6 +35,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::web3_gas_limit_const_part;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
@@ -246,7 +247,7 @@ impl BlockchainBridge {
     }
 
     // TODO when we have multiple chains of fundamentally different architectures and the ability to switch them,
-    // this might be replaced with a HashMap of different blockchain interfaces for every chain
+    // this might be replaced with a HashMap of the respective blockchain interfaces, different for every chain
     fn construct_blockchain_interface(
         http_event_loop_handle: EventLoopHandle,
         transport: Http,
@@ -286,8 +287,8 @@ impl BlockchainBridge {
                 )
             }
         };
-        // TODO rewrite this into a batch call as soon as GH-629 gets into master
-        // New card GH-707 will address this
+
+        // TODO GH-707 should see about rewriting these individual calls into a batch query
         let gas_balance = match self
             .blockchain_interface
             .get_transaction_fee_balance(consuming_wallet)
@@ -312,6 +313,7 @@ impl BlockchainBridge {
                 ))
             }
         };
+
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
                 transaction_fee_balance_in_minor_units: gas_balance,
@@ -319,18 +321,20 @@ impl BlockchainBridge {
             }
         };
 
-        //TODO fix me!!! Never called, and either tested
-        // let requested_gas_price_gwei = self
-        //     .persistent_config
-        //     .gas_price()
-        //     .map_err(|e| format!("Couldn't query the gas price: {:?}", e))?;
         let mut agent = self.blockchain_interface.mobilize_payable_payments_agent();
         agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
-        match agent.consult_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
-            Ok(_) => todo!(),
-            Err(e) => todo!(),
+
+        match agent.deliberate_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
+            Ok(()) => (),
+            Err(e) => {
+                return Err(format!(
+                    "Resolving of the transaction fee per computed unit failed: {:?}",
+                    e
+                ))
+            }
         }
-        let msg: PayablePaymentsSetupMsg = PayablePaymentsSetupMsg::from((msg, agent));
+
+        let msg = PayablePaymentsSetupMsg::from((msg, agent));
 
         self.payable_payments_setup_sub_opt
             .as_ref()
@@ -350,7 +354,7 @@ impl BlockchainBridge {
         let checked_accounts = msg.checked_accounts;
         let result = self.process_payments(agent.as_mut(), checked_accounts);
 
-        let local_processing_result = match &result {
+        let locally_produced_result = match &result {
             Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
             Ok(_) => Ok(()),
         };
@@ -364,7 +368,7 @@ impl BlockchainBridge {
             })
             .expect("Accountant is dead");
 
-        local_processing_result
+        locally_produced_result
     }
 
     fn handle_retrieve_transactions(&mut self, msg: RetrieveTransactions) -> Result<(), String> {
@@ -480,10 +484,10 @@ impl BlockchainBridge {
         agent: &mut dyn PayablePaymentsAgent,
         checked_accounts: Vec<PayableAccount>,
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => consuming_wallet,
-            None => return Err(PayableTransactionError::MissingConsumingWallet),
-        };
+        let consuming_wallet = self
+            .consuming_wallet_opt
+            .as_ref()
+            .ok_or(PayableTransactionError::MissingConsumingWallet)?;
 
         let pending_tx_id = self
             .blockchain_interface
@@ -492,7 +496,7 @@ impl BlockchainBridge {
 
         agent.set_up_pending_transaction_id(pending_tx_id);
 
-        let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
+        let new_fingerprints_recipient = self.new_fingerprints_recipient();
 
         self.blockchain_interface.send_batch_of_payables(
             consuming_wallet,
@@ -502,18 +506,11 @@ impl BlockchainBridge {
         )
     }
 
-    fn get_new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
+    fn new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
         self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt
             .as_ref()
             .expect("Accountant unbound")
-    }
-}
-
-pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
-    match chain {
-        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
     }
 }
 
@@ -643,78 +640,40 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_returns_error_when_there_is_no_consuming_wallet_configured(
-    ) {
-        let blockchain_interface_mock = BlockchainInterfaceMock::default();
-        let persistent_configuration_mock = PersistentConfigurationMock::default();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let recipient = accountant.start().recipient();
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_mock),
-            Box::new(persistent_configuration_mock),
-            false,
-            None,
-        );
-        subject.sent_payable_subs_opt = Some(recipient);
-        let request = OutboundPaymentsInstructions {
-            checked_accounts: vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 42,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }],
-            agent: Box::new(PayablePaymentsAgentMock::default()),
-            response_skeleton_opt: None,
-        };
-        let system = System::new("test");
-
-        let result = subject.handle_outbound_payments_instructions(request);
-
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        assert_eq!(
-            result,
-            Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
-        );
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        assert_eq!(
-            sent_payables_msg,
-            &SentPayables {
-                payment_procedure_result: Err(PayableTransactionError::MissingConsumingWallet),
-                response_skeleton_opt: None
-            }
-        );
-        assert_eq!(accountant_recording.len(), 1)
-    }
-
-    #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant(
+    fn initial_payable_payments_setup_msg_is_handled_and_new_setup_msg_containing_agent_goes_back_to_accountant(
     ) {
         let system = System::new(
-            "handle_payable_payment_setup_for_blockchain_bridge_reports_balances_and_payables_back_to_accountant",
+            "initial_payable_payments_setup_msg_is_handled_and_new_setup_msg_containing_agent_goes_back_to_accountant",
         );
-        let get_gas_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_up_consuming_wallet_balances_params_arc = Arc::new(Mutex::new(vec![]));
+        let deliberate_required_fee_per_computed_unit_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let gas_balance = U256::from(4455);
+        let transaction_fee_balance = U256::from(4455);
         let token_balance = U256::from(112233);
-        let wallet_balances_found = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: gas_balance,
-            masq_token_balance_in_minor_units: token_balance,
-        };
         let arbitrary_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
-        let boxed_agent: Box<dyn PayablePaymentsAgent> = Box::new(agent);
+        let agent = PayablePaymentsAgentMock::default()
+            .set_arbitrary_id_stamp(arbitrary_id_stamp)
+            .set_up_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
+            .deliberate_required_fee_per_computed_unit_params(
+                &deliberate_required_fee_per_computed_unit_params_arc,
+            )
+            .deliberate_required_fee_per_computed_unit_result(Ok(()));
+        let agent_dull_copy: Box<dyn PayablePaymentsAgent> = Box::new(
+            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp),
+        );
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_fee_balance_params(&get_gas_balance_params_arc)
-            .get_transaction_fee_balance_result(Ok(gas_balance))
+            .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
+            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .mobilize_payable_payments_agent_result(boxed_agent.clone());
+            .mobilize_payable_payments_agent_result(Box::new(agent));
         let consuming_wallet = make_paying_wallet(b"somewallet");
-        let persistent_configuration =
-            PersistentConfigurationMock::default().gas_price_result(Ok(146));
+        let persistent_config_id_stamp = ArbitraryIdStamp::new();
+        let persistent_configuration = PersistentConfigurationMock::default()
+            .gas_price_result(Ok(146))
+            .set_arbitrary_id_stamp(persistent_config_id_stamp);
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
         let qualified_payables = vec![
@@ -757,19 +716,40 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let get_gas_balance_params = get_gas_balance_params_arc.lock().unwrap();
-        assert_eq!(*get_gas_balance_params, vec![consuming_wallet.clone()]);
+        let get_transaction_fee_balance_params =
+            get_transaction_fee_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_transaction_fee_balance_params,
+            vec![consuming_wallet.clone()]
+        );
         let get_token_balance_params = get_token_balance_params_arc.lock().unwrap();
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
+        let set_up_consuming_wallet_balances_params =
+            set_up_consuming_wallet_balances_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_up_consuming_wallet_balances_params,
+            vec![ConsumingWalletBalances {
+                transaction_fee_balance_in_minor_units: transaction_fee_balance,
+                masq_token_balance_in_minor_units: token_balance
+            }]
+        );
+        let deliberate_required_fee_per_computed_unit_params =
+            deliberate_required_fee_per_computed_unit_params_arc
+                .lock()
+                .unwrap();
+        assert_eq!(
+            *deliberate_required_fee_per_computed_unit_params,
+            vec![persistent_config_id_stamp]
+        );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let reported_balances_and_qualified_accounts: &PayablePaymentsSetupMsg =
             accountant_received_payment.get_record(0);
-        let expected_msg: PayablePaymentsSetupMsg = (msg, boxed_agent).into();
+        let expected_msg: PayablePaymentsSetupMsg = (msg, agent_dull_copy).into();
         assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
     }
 
-    fn assert_failure_during_balance_inspection(
+    fn test_failure_during_balance_inspection(
         test_name: &str,
         blockchain_interface: BlockchainInterfaceMock,
         error_msg: &str,
@@ -828,23 +808,21 @@ mod tests {
     }
 
     #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance() {
-        let test_name =
-            "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_gas_balance";
+    fn initial_payable_payment_setup_msg_fails_on_inspection_of_gas_balance() {
+        let test_name = "initial_payable_payment_setup_msg_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::QueryFailed(
-                "Lazy and yet you're asking for balances?".to_string(),
+                "So lazy and yet you're asking for your account balances?".to_string(),
             )));
         let error_msg = "Did not find out gas balance of the consuming wallet: \
-         QueryFailed(\"Lazy and yet you're asking for balances?\")";
+         QueryFailed(\"So lazy and yet you're asking for your account balances?\")";
 
-        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
+        test_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
     }
 
     #[test]
-    fn handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_token_balance() {
-        let test_name =
-            "handle_payable_payment_setup_for_blockchain_bridge_fails_on_inspection_of_token_balance";
+    fn initial_payable_payment_setup_msg_fails_on_inspection_of_token_balance() {
+        let test_name = "initial_payable_payment_setup_msg_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
@@ -853,7 +831,7 @@ mod tests {
         let error_msg = "Did not find out token balance of the consuming wallet: QueryFailed(\
                \"Go get you a job. This balance must be deserved\")";
 
-        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
+        test_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
     }
 
     #[test]
@@ -888,13 +866,16 @@ mod tests {
     }
 
     #[test]
-    fn handle_initial_payable_payments_setup_msg_fails_on_gas_price_query() {
+    fn handle_initial_payable_payments_setup_msg_fails_on_gas_price_query_on_behalf_of_the_agent() {
+        let agent = PayablePaymentsAgentMock::default()
+            .deliberate_required_fee_per_computed_unit_result(Err(
+                PersistentConfigError::DatabaseError("siesta".to_string()),
+            ));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(456789)))
-            .get_token_balance_result(Ok(U256::from(7890123456_u64)));
-        let persistent_configuration = PersistentConfigurationMock::default().gas_price_result(
-            Err(PersistentConfigError::DatabaseError("siesta".to_string())),
-        );
+            .get_token_balance_result(Ok(U256::from(7890123456_u64)))
+            .mobilize_payable_payments_agent_result(Box::new(agent));
+        let persistent_configuration = PersistentConfigurationMock::default();
         let consuming_wallet = make_wallet("our wallet");
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -919,16 +900,17 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Couldn't query the gas price: DatabaseError(\"siesta\")".to_string())
+            Err("Resolving of the transaction fee per computed unit failed: DatabaseError(\"siesta\")".to_string())
         )
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_transacts_and_sends_payments_results_back_to_accountant(
+    fn handle_outbound_payments_instructions_make_payments_happen_and_sends_payment_results_back_to_accountant(
     ) {
         let system =
-            System::new("handle_outbound_payments_instructions_transacts_and_sends_payments_results_back_to_accountant");
+            System::new("handle_outbound_payments_instructions_make_payments_happen_and_sends_payment_results_back_to_accountant");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_up_pending_transaction_id_params_arc = Arc::new(Mutex::new(vec![]));
         let send_batch_of_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant =
@@ -937,7 +919,7 @@ mod tests {
         let wallet_account_2 = make_wallet("foo");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
-            .get_transaction_count_result(Ok(U256::from(1u64)))
+            .get_transaction_count_result(Ok(U256::from(14)))
             .send_batch_of_payables_params(&send_batch_of_payables_params_arc)
             .send_batch_of_payables_result(Ok(vec![
                 Correct(PendingPayable {
@@ -974,7 +956,9 @@ mod tests {
             },
         ];
         let arbitrary_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
+        let agent = PayablePaymentsAgentMock::default()
+            .set_arbitrary_id_stamp(arbitrary_id_stamp)
+            .set_up_pending_transaction_id_params(&set_up_pending_transaction_id_params_arc);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -990,16 +974,22 @@ mod tests {
 
         System::current().stop();
         system.run();
+        let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_transaction_count_params,
+            vec![consuming_wallet.clone()]
+        );
+        let set_up_pending_transaction_id_params =
+            set_up_pending_transaction_id_params_arc.lock().unwrap();
+        assert_eq!(*set_up_pending_transaction_id_params, vec![U256::from(14)]);
         let mut send_batch_of_payables_params = send_batch_of_payables_params_arc.lock().unwrap();
         //cannot assert on the captured recipient as its actor is gone after the System stops spinning
         let (consuming_wallet_actual, agent_arbitrary_id_stamp, _recipient_actual, accounts_actual) =
             send_batch_of_payables_params.remove(0);
         assert!(send_batch_of_payables_params.is_empty());
-        assert_eq!(consuming_wallet_actual, consuming_wallet.clone());
+        assert_eq!(consuming_wallet_actual, consuming_wallet);
         assert_eq!(agent_arbitrary_id_stamp, arbitrary_id_stamp);
         assert_eq!(accounts_actual, accounts);
-        let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
-        assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
@@ -1022,6 +1012,52 @@ mod tests {
             }
         );
         assert_eq!(accountant_recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_outbound_payments_instructions_returns_error_when_there_is_no_consuming_wallet_configured(
+    ) {
+        let blockchain_interface_mock = BlockchainInterfaceMock::default();
+        let persistent_configuration_mock = PersistentConfigurationMock::default();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let recipient = accountant.start().recipient();
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+            false,
+            None,
+        );
+        subject.sent_payable_subs_opt = Some(recipient);
+        let request = OutboundPaymentsInstructions {
+            checked_accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance_wei: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            }],
+            agent: Box::new(PayablePaymentsAgentMock::default()),
+            response_skeleton_opt: None,
+        };
+        let system = System::new("test");
+
+        let result = subject.handle_outbound_payments_instructions(request);
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(
+            result,
+            Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
+        assert_eq!(
+            sent_payables_msg,
+            &SentPayables {
+                payment_procedure_result: Err(PayableTransactionError::MissingConsumingWallet),
+                response_skeleton_opt: None
+            }
+        );
+        assert_eq!(accountant_recording.len(), 1)
     }
 
     #[test]

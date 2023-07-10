@@ -1511,11 +1511,11 @@ mod tests {
         };
         let mut agent = PayablePaymentsAgentWeb3::new(78910);
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(123));
-        let _ = agent.consult_required_fee_per_computed_unit(&persistent_config);
-        let boxed_agent = Box::new(agent);
+        let _ = agent.deliberate_required_fee_per_computed_unit(&persistent_config);
+        let boxed_agent_assertable = Box::new(agent);
         let adjusted_payments_instructions = OutboundPaymentsInstructions {
             checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
-            agent: boxed_agent.clone(),
+            agent: boxed_agent_assertable.clone(),
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1530,11 +1530,9 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let system = System::new("test");
-        let arbitrary_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp);
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
             qualified_payables: vec![unadjusted_account_1.clone(), unadjusted_account_2.clone()],
-            agent: boxed_agent.clone(),
+            agent: boxed_agent_assertable.clone(),
             response_skeleton_opt: Some(response_skeleton),
         };
 
@@ -1562,7 +1560,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0),
             &OutboundPaymentsInstructions {
                 checked_accounts: vec![adjusted_account_1, adjusted_account_2],
-                agent: boxed_agent,
+                agent: boxed_agent_assertable,
                 response_skeleton_opt: Some(response_skeleton)
             }
         );
@@ -3156,7 +3154,8 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let agent = PayablePaymentsAgentMock::default()
-            .set_up_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc);
+            .set_up_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc)
+            .deliberate_required_fee_per_computed_unit_result(Ok(()));
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()

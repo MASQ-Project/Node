@@ -726,7 +726,6 @@ mod tests {
         PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::web3_gas_limit_const_part;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
@@ -745,7 +744,9 @@ mod tests {
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
+    use masq_lib::utils::{
+        find_free_port, slice_of_strs_to_vec_of_strings, web3_gas_limit_const_part,
+    };
     use serde_derive::Deserialize;
     use serde_json::json;
     use serde_json::Value;
@@ -1001,7 +1002,7 @@ mod tests {
     #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
     ) {
-        let port = 8545;
+        let port = find_free_port();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,

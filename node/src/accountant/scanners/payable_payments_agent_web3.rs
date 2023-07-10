@@ -15,11 +15,11 @@ pub struct PayablePaymentsAgentWeb3 {
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
-    fn consult_required_fee_per_computed_unit(
+    fn deliberate_required_fee_per_computed_unit(
         &mut self,
-        consulter: &dyn PersistentConfiguration,
+        consultant: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        let gas_price_gwei = consulter.gas_price()?;
+        let gas_price_gwei = consultant.gas_price()?;
         self.desired_fee_per_computed_unit_gwei_opt = Some(gas_price_gwei);
         Ok(())
     }
@@ -113,7 +113,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.consult_required_fee_per_computed_unit(&persistent_config);
+        let result = subject.deliberate_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.required_fee_per_computed_unit(), Some(130))
@@ -125,7 +125,7 @@ mod tests {
             .gas_price_result(Err(PersistentConfigError::TransactionError));
         let mut subject = PayablePaymentsAgentWeb3::new(12345);
 
-        let result = subject.consult_required_fee_per_computed_unit(&persistent_config);
+        let result = subject.deliberate_required_fee_per_computed_unit(&persistent_config);
 
         assert_eq!(result, Err(PersistentConfigError::TransactionError));
     }
@@ -162,11 +162,11 @@ mod tests {
             .gas_price_result(Ok(122))
             .gas_price_result(Ok(550));
         one_agent
-            .consult_required_fee_per_computed_unit(&persistent_config)
+            .deliberate_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
         let mut second_agent = PayablePaymentsAgentWeb3::new(444);
         second_agent
-            .consult_required_fee_per_computed_unit(&persistent_config)
+            .deliberate_required_fee_per_computed_unit(&persistent_config)
             .unwrap();
 
         assert_eq!(
@@ -195,60 +195,4 @@ mod tests {
             original_object.duplicate()
         })
     }
-
-    // #[test]
-    // fn web3_transaction_fees_calculator_can_be_properly_constructed() {
-    //     let result = Web3TransactionFeesCalculator::new(1369);
-    //
-    //     assert_eq!(
-    //         result.upmost_added_gas_margin,
-    //         WEB3_MAXIMAL_GAS_LIMIT_MARGIN
-    //     );
-    //     assert_eq!(result.gas_limit_const_part, 1369);
-    // }
-    //
-    // #[test]
-    // fn web3_transaction_fees_calculator_calculates_fees() {
-    //     let one_calculator = Web3TransactionFeesCalculator::new(11111);
-    //     let second_calculator = Web3TransactionFeesCalculator::new(444);
-    //
-    //     assert_eq!(
-    //         one_calculator.calculate_fees(7),
-    //         (7 * (11111 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128
-    //     );
-    //     assert_eq!(
-    //         second_calculator.calculate_fees(3),
-    //         (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128
-    //     )
-    // }
-
-    // #[test]
-    // fn blockchain_interface_non_clandestine_returns_fees_calculator_for_eth_chains() {
-    //     let eth_chains = vec![Chain::EthMainnet, Chain::EthRopsten, Chain::Dev];
-    //     assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(&eth_chains)
-    // }
-    //
-    // #[test]
-    // fn blockchain_interface_non_clandestine_returns_fees_calculator_for_polygon_chains() {
-    //     let polygon_chains = vec![Chain::PolyMainnet, Chain::PolyMumbai];
-    //     assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(&polygon_chains)
-    // }
-    //
-    // fn assert_appropriate_fees_calculator_given_by_web3_blockchain_interface(chains: &[Chain]) {
-    //     chains.iter().enumerate().for_each(|(idx, chain)| {
-    //         let subject = BlockchainInterfaceNonClandestine::new(
-    //             TestTransport::default(),
-    //             make_fake_event_loop_handle(),
-    //             *chain,
-    //             web3_gas_limit_const_part(*chain),
-    //         );
-    //         let fees_calculator = subject.transaction_fees_calculator();
-    //
-    //         assert_eq!(
-    //             fees_calculator.calculate_fees(idx),
-    //             (idx as u64 * (web3_gas_limit_const_part(*chain) + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
-    //                 as u128
-    //         )
-    //     })
-    // }
 }
