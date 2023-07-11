@@ -51,6 +51,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
+use regex::{Captures, Match, Regex};
 use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
@@ -73,6 +74,7 @@ pub struct ProxyServer {
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
+    // dns_failure_retries: HashMap<StreamKey, HashMap<String, DNSFailureRetry>>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
     dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>, // TODO: Does each stream key has it's unique route?
     is_decentralized: bool,
@@ -493,6 +495,7 @@ impl ProxyServer {
         match http_data {
             Some(ref host) if host.port == Some(443) => {
                 let stream_key = self.make_stream_key(msg);
+                panic!("Stop at tls_connect");
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -1180,6 +1183,25 @@ impl StreamKeyFactory for StreamKeyFactoryReal {
 struct DNSFailureRetry {
     unsuccessful_request: ClientRequestPayload_0v1,
     retries_left: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Hostname {
+    hostname: String,
+}
+
+impl Hostname {
+    fn new(raw_url: &str) -> Self {
+        let regex= Regex::new(r"^((http[s]?|ftp):/)?/?([^:/\s]+)((/\w+)*/)([\w\-.]+[^#?\s]+)(.*)?(#[\w\-]+)?$").expect("Bad Regex");
+        let hostname = match regex.captures(raw_url) {
+            None => { raw_url.to_string() }
+            Some(capture) => { match capture.get(3) {
+                None => { raw_url.to_string() }
+                Some(m) => { m.as_str().to_string() }
+            } }
+        };
+        Self{hostname}
+    }
 }
 
 
@@ -5605,6 +5627,25 @@ mod tests {
             result,
             Err("Couldn't create ClientRequestPayload".to_string())
         );
+    }
+
+    #[test]
+    fn hostname_works () {
+        assert_on_hostname("https://example.com/folder/file.html", "example.com");
+        assert_on_hostname("example.com/index.php?arg=test", "example.com");
+        assert_on_hostname("sub.example.com/index.php?arg=test", "sub.example.com");
+        assert_on_hostname("1.1.1.1", "1.1.1.1");
+        assert_on_hostname("", "");
+        assert_on_hostname("example", "example");
+        assert_on_hostname("htttttps://example.com/folder/file.html", "htttttps://example.com/folder/file.html");
+    }
+
+
+
+    fn assert_on_hostname(raw_url: &str, expected_hostname: &str) {
+        let clean_hostname = Hostname::new(raw_url);
+        let expected_result = Hostname{ hostname: expected_hostname.to_string() };
+        assert_eq!(expected_result, clean_hostname);
     }
 
     #[test]
