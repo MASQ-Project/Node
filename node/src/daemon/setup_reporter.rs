@@ -31,7 +31,7 @@ use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
-use masq_lib::messages::{UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
+use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
@@ -122,7 +122,7 @@ impl SetupReporter for SetupReporterReal {
         });
 
         let (data_directory, data_dir_status) = self.get_data_directory_and_status(
-            &existing_setup.get("data-directory").unwrap(), &incoming_setup.get("data-directory").unwrap(), &all_but_configured, chain, real_user, data_directory_opt);
+            existing_setup.get("data-directory").unwrap(), incoming_setup.get("data-directory").unwrap(), &all_but_configured, chain, real_user, data_directory_opt);
         let data_directory_setup =
             Self::construct_cluster_with_only_data_directory(&data_directory, data_dir_status);
         let (configured_setup, error_opt) =
@@ -261,8 +261,8 @@ impl SetupReporterReal {
             Some(uisrv) if uisrv.status == Set => {
                 Self::determine_setup_value_of_set_data_directory(
                     uisrv,
-                    existing_setup_dir,
-                    incoming_setup_dir,
+                    Some(existing_setup_dir),
+                    Some(incoming_setup_dir),
                     chain,
                 )
             }
@@ -281,14 +281,14 @@ impl SetupReporterReal {
 
     fn determine_setup_value_of_set_data_directory(
         semi_clusters_val: &UiSetupResponseValue,
-        existing_setup_dir: &UiSetupResponseValue,
-        incoming_setup_dir: &UiSetupResponseValue,
+        existing_setup_dir: Option<&UiSetupResponseValue>,
+        incoming_setup_dir: Option<&UiSetupResponseValue>,
         chain: BlockChain,
     ) -> (PathBuf, UiSetupResponseValueStatus) {
         match (existing_setup_dir, incoming_setup_dir) {
-            (_, dir) => (add_chain_specific_directory(chain, Path::new(&semi_clusters_val.value)), semi_clusters_val.status),
-            (recent_value,..) =>(Self::reconstitute_data_dir_by_chain(&recent_value.value, chain), recent_value.status),
-            _ => panic!("broken code: data-directory value is neither in existing_setup or incoming_setup and yet this value \"{}\" was found in the merged cluster", semi_clusters_val.value)
+            (_, Some(_)) => (add_chain_specific_directory(chain, Path::new(&semi_clusters_val.value)), semi_clusters_val.status),
+            (Some(recent_value),None) =>(Self::reconstitute_data_dir_by_chain(&recent_value.value, chain), recent_value.status),
+            (None, None) => panic!("broken code: data-directory value is neither in existing_setup or incoming_setup and yet this value \"{}\" was found in the merged cluster", semi_clusters_val.value)
         }
     }
 
@@ -1166,6 +1166,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use core::option::Option;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2039,13 +2040,11 @@ mod tests {
     )]
     fn unreachable_variant_for_determine_tuple_for_data_directory_when_set() {
         let data_dir_value = UiSetupResponseValue::new("data-directory", "blah/booga", Set);
-        let empty_existing_setup: std::collections::HashMap<String, masq_lib::messages::UiSetupResponseValue> = HashMap::new();
-        let empty_incoming_setup: std::collections::HashMap<String, masq_lib::messages::UiSetupResponseValue> = HashMap::new();
 
         let _ = SetupReporterReal::determine_setup_value_of_set_data_directory(
             &data_dir_value,
-            &empty_existing_setup.get("data-directory").unwrap(),
-            &empty_incoming_setup.get("data-directory").unwrap(),
+            None,
+            None,
             DEFAULT_CHAIN,
         );
     }
