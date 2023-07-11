@@ -555,6 +555,7 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
@@ -681,6 +682,7 @@ pub mod unshared_test_utils {
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
             .blockchain_service_url_result(Ok(None))
+            .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
     }
 
     pub fn default_persistent_config_just_accountant_config(

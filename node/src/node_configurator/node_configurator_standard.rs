@@ -247,6 +247,8 @@ fn configure_database(
     config: &BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    // We don't want to panic in case clandestine_port or blockchain_service_url is not configured
+    // inside the bootstrap config
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
             return Err(pce.into_configurator_error("clandestine-port"));
@@ -255,6 +257,9 @@ fn configure_database(
     let neighborhood_mode_light: NeighborhoodModeLight = (&config.neighborhood_config.mode).into();
     if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
+    }
+    if let Err(pce) = persistent_config.set_min_hops(config.neighborhood_config.min_hops) {
+        return Err(pce.into_configurator_error("min-hops"));
     }
     if let Some(url) = config
         .blockchain_bridge_config
@@ -379,6 +384,7 @@ mod tests {
         config.clandestine_port_opt = None;
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_gas_price_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -396,6 +402,7 @@ mod tests {
             Some("https://infura.io/ID".to_string());
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -420,6 +427,22 @@ mod tests {
             result,
             Err(PersistentConfigError::TransactionError
                 .into_configurator_error("neighborhood-mode"))
+        )
+    }
+
+    #[test]
+    fn configure_database_handles_error_during_setting_min_hops() {
+        let mut config = BootstrapperConfig::new();
+        config.neighborhood_config.min_hops = Hops::FourHops;
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Err(PersistentConfigError::TransactionError));
+
+        let result = configure_database(&config, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
         )
     }
 
@@ -577,7 +600,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
-                min_hops_count: Hops::ThreeHops,
+                min_hops: Hops::ThreeHops,
             }
         );
         assert_eq!(
@@ -881,12 +904,14 @@ mod tests {
                 .as_str(),
             ))
             .unwrap()]);
+        config.neighborhood_config.min_hops = Hops::FourHops;
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
         let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()))
@@ -895,7 +920,9 @@ mod tests {
             .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
             .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_params(&set_gas_price_params_arc)
-            .set_gas_price_result(Ok(()));
+            .set_gas_price_result(Ok(()))
+            .set_min_hops_params(&set_min_hops_params_arc)
+            .set_min_hops_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);
 
@@ -914,6 +941,8 @@ mod tests {
         assert_eq!(*set_gas_price_params, vec![gas_price]);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
+        let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
+        assert_eq!(*set_min_hops_params, vec![Hops::FourHops])
     }
 
     #[test]
@@ -928,6 +957,7 @@ mod tests {
             .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
             .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_gas_price_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);

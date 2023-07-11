@@ -937,11 +937,8 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let patch = self.compute_patch(
-            &agrs,
-            database.root(),
-            neighborhood_metadata.min_hops_count as u8,
-        );
+        let patch =
+            self.compute_patch(&agrs, database.root(), neighborhood_metadata.min_hops as u8);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
@@ -989,7 +986,7 @@ impl StandardGossipHandler {
         &self,
         agrs: &[AccessibleGossipRecord],
         root_node: &NodeRecord,
-        min_hops_count: u8,
+        min_hops: u8,
     ) -> HashSet<PublicKey> {
         let agrs_by_key = agrs
             .iter()
@@ -1001,7 +998,7 @@ impl StandardGossipHandler {
             &mut patch,
             root_node.public_key(),
             &agrs_by_key,
-            min_hops_count,
+            min_hops,
             root_node,
         );
 
@@ -1339,7 +1336,7 @@ mod tests {
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
         make_meaningless_db, make_node_record, make_node_record_f, make_node_records,
-        public_keys_from_node_records, MIN_HOPS_COUNT_FOR_TEST,
+        public_keys_from_node_records, MIN_HOPS_FOR_TEST,
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
@@ -1369,7 +1366,7 @@ mod tests {
         NeighborhoodMetadata {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         }
     }
 
@@ -2385,7 +2382,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let result = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2437,7 +2434,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2486,7 +2483,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2568,17 +2565,17 @@ mod tests {
         assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
-    fn assert_compute_patch(min_hops_count: Hops) {
+    fn assert_compute_patch(min_hops: Hops) {
         let subject = StandardGossipHandler::new(Logger::new("assert_compute_patch"));
         // one node to finish hops and another node that's outside the patch
-        let nodes_count = min_hops_count as usize + 2;
+        let nodes_count = min_hops as usize + 2;
         let nodes = make_node_records(nodes_count as u16);
         let db = linearly_connect_nodes(&nodes);
         // gossip is intended for the first node (also root), thereby it's excluded
         let gossip = gossip_about_nodes_from_database(&db, &nodes[1..]);
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, db.root(), min_hops_count as u8);
+        let result = subject.compute_patch(&agrs, db.root(), min_hops as u8);
 
         // last node is excluded because it is outside the patch
         let expected_nodes = &nodes[0..nodes_count - 1];
