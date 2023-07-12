@@ -122,7 +122,13 @@ impl SetupReporter for SetupReporterReal {
         });
 
         let (data_directory, data_dir_status) = self.get_data_directory_and_status(
-            existing_setup.get("data-directory").unwrap(), incoming_setup.get("data-directory").unwrap(), &all_but_configured, chain, real_user, data_directory_opt);
+            existing_setup.get("data-directory").unwrap(),
+            incoming_setup.get("data-directory").unwrap(),
+            &all_but_configured,
+            chain,
+            real_user,
+            data_directory_opt
+        );
         let data_directory_setup =
             Self::construct_cluster_with_only_data_directory(&data_directory, data_dir_status);
         let (configured_setup, error_opt) =
