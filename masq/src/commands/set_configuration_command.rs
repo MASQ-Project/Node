@@ -133,6 +133,12 @@ mod tests {
         test_command_execution("min-hops", "6");
     }
 
+    #[test]
+    #[should_panic(expected = "error: Found argument '--invalid-arg' which wasn't expected, or isn't valid in this context")]
+    fn command_execution_fails_for_invalid_arg() {
+        test_command_execution("invalid-arg", "123");
+    }
+
     fn test_command_execution(name: &str, value: &str) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
