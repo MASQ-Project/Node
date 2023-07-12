@@ -122,8 +122,8 @@ impl SetupReporter for SetupReporterReal {
         });
 
         let (data_directory, data_dir_status) = self.get_data_directory_and_status(
-            existing_setup.get("data-directory").unwrap(),
-            incoming_setup.get("data-directory").unwrap(),
+            existing_setup.get("data-directory"),
+            incoming_setup.get("data-directory"),
             &all_but_configured,
             chain,
             real_user,
@@ -256,8 +256,8 @@ impl SetupReporterReal {
 
     fn get_data_directory_and_status(
         &self,
-        existing_setup_dir: &UiSetupResponseValue,
-        incoming_setup_dir: &UiSetupResponseValue,
+        existing_setup_dir: Option<&UiSetupResponseValue>,
+        incoming_setup_dir: Option<&UiSetupResponseValue>,
         all_but_configured: &SetupCluster,
         chain: masq_lib::blockchains::chains::Chain,
         real_user: crate::bootstrapper::RealUser,
@@ -267,8 +267,8 @@ impl SetupReporterReal {
             Some(uisrv) if uisrv.status == Set => {
                 Self::determine_setup_value_of_set_data_directory(
                     uisrv,
-                    Some(existing_setup_dir),
-                    Some(incoming_setup_dir),
+                    match existing_setup_dir { Some(..) => existing_setup_dir, None => None },
+                    match incoming_setup_dir { Some(..) => incoming_setup_dir, None => None },
                     chain,
                 )
             }
@@ -694,7 +694,6 @@ impl ValueRetriever for DataDirectory {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let real_user = &bootstrapper_config.real_user;
         let chain = bootstrapper_config.blockchain_bridge_config.chain;
-        //let data_directory_opt = None;
         Some((
             data_directory_from_context(self.dirs_wrapper.as_ref(), real_user, chain)
                 .to_string_lossy()
@@ -1915,7 +1914,6 @@ mod tests {
         assert_eq!(presentable_result, expected_result);
     }
 
-    //TODO the three next tests could utilize a shared test body; there is too much repeated code
     #[test]
     fn get_modified_setup_default_data_directory_depends_on_new_chain_on_success() {
         let _guard = EnvironmentGuard::new();
@@ -1979,10 +1977,9 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let expected_data_directory = data_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
-                .data_dir_result(Some(data_dir))
+                .data_dir_result(Some(data_dir.clone()))
                 .home_dir_result(Some(base_dir)),
         );
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -1990,17 +1987,18 @@ mod tests {
         let result = subject
             .get_modified_setup(existing_setup, incoming_setup)
             .unwrap();
-
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
+        let expected_data_directory = data_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+
         assert_eq!(actual_data_directory, expected_data_directory);
     }
 
     #[test]
-    fn get_modified_data_directory_set_previously_and_now_too() {
+    fn get_modified_setup_data_directory_set_previously_and_now_too() {
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "get_modified_data_directory_set_previously_and_now_too",
+            "get_modified_setup_data_directory_set_previously_and_now_too",
         );
         let default_data_dir = base_dir.join("data_dir");
         let previously_processed_data_dir = default_data_dir
