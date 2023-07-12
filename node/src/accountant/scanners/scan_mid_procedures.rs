@@ -34,7 +34,6 @@ pub trait PayableScannerMiddleProcedures {
     }
 }
 
-#[derive(Debug, PartialEq)]
 pub struct AwaitedAdjustment {
     pub original_setup_msg: PayablePaymentsSetupMsg,
     pub adjustment: Adjustment,

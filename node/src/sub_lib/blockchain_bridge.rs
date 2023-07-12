@@ -37,23 +37,11 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Debug, Clone, Message)]
+#[derive(Message)]
 pub struct OutboundPaymentsInstructions {
     pub checked_accounts: Vec<PayableAccount>,
     pub agent: Box<dyn PayablePaymentsAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
-}
-
-// Derive version of PartialEq blows up because of the agent in it. Complaint about
-// disability to use Copy in order to move out from behind a reference (???). Only the added
-// references helped me move forward
-#[allow(clippy::op_ref)]
-impl PartialEq for OutboundPaymentsInstructions {
-    fn eq(&self, other: &Self) -> bool {
-        self.checked_accounts == other.checked_accounts
-            && &self.agent == &other.agent
-            && self.response_skeleton_opt == other.response_skeleton_opt
-    }
 }
 
 impl SkeletonOptHolder for OutboundPaymentsInstructions {
@@ -96,41 +84,6 @@ mod tests {
         let subject = make_blockchain_bridge_subs_from(&recorder);
 
         assert_eq!(format!("{:?}", subject), "BlockchainBridgeSubs");
-    }
-
-    #[test]
-    fn outbound_payments_instructions_implements_partial_eq() {
-        let create_instructions = || OutboundPaymentsInstructions {
-            checked_accounts: vec![make_payable_account(123)],
-            agent: Box::new(PayablePaymentsAgentWeb3::new(123)),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 123,
-                context_id: 456,
-            }),
-        };
-        let mut instructions_1 = create_instructions();
-        let mut instructions_2 = create_instructions();
-
-        assert_eq!(instructions_1, instructions_2);
-        instructions_2.agent = Box::new(PayablePaymentsAgentMock::default());
-        assert_ne!(instructions_2, instructions_1);
-        let mut also_different_agent = PayablePaymentsAgentWeb3::new(123);
-        also_different_agent.set_up_pending_transaction_id(U256::from(111));
-        instructions_2.agent = Box::new(also_different_agent);
-        assert_ne!(instructions_2, instructions_1);
-        instructions_1
-            .agent
-            .set_up_pending_transaction_id(U256::from(111));
-        assert_eq!(instructions_2, instructions_1);
-
-        instructions_2.checked_accounts = vec![];
-        assert_ne!(instructions_2, instructions_1);
-        instructions_1.checked_accounts = vec![];
-        assert_eq!(instructions_2, instructions_1);
-        instructions_2.response_skeleton_opt = None;
-        assert_ne!(instructions_2, instructions_1);
-        instructions_1.response_skeleton_opt = None;
-        assert_eq!(instructions_2, instructions_1)
     }
 
     #[test]

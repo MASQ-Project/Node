@@ -60,7 +60,7 @@ impl Default for PaymentAdjusterReal {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Adjustment {
     MasqToken,
     TransactionFeeCurrency { limiting_count: u16 },

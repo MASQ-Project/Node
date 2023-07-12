@@ -562,7 +562,7 @@ mod tests {
     use std::any::TypeId;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
 
     #[test]
@@ -642,111 +642,112 @@ mod tests {
     #[test]
     fn initial_payable_payments_setup_msg_is_handled_and_new_setup_msg_containing_agent_goes_back_to_accountant(
     ) {
-        let system = System::new(
-            "initial_payable_payments_setup_msg_is_handled_and_new_setup_msg_containing_agent_goes_back_to_accountant",
-        );
-        let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
-        let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_up_consuming_wallet_balances_params_arc = Arc::new(Mutex::new(vec![]));
-        let conclude_required_fee_per_computed_unit_params_arc = Arc::new(Mutex::new(vec![]));
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let transaction_fee_balance = U256::from(4455);
-        let token_balance = U256::from(112233);
-        let arbitrary_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default()
-            .set_arbitrary_id_stamp(arbitrary_id_stamp)
-            .set_up_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
-            .conclude_required_fee_per_computed_unit_params(
-                &conclude_required_fee_per_computed_unit_params_arc,
-            )
-            .conclude_required_fee_per_computed_unit_result(Ok(()));
-        let agent_dull_copy: Box<dyn PayablePaymentsAgent> = Box::new(
-            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp),
-        );
-        let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
-            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
-            .get_token_balance_params(&get_token_balance_params_arc)
-            .get_token_balance_result(Ok(token_balance))
-            .mobilize_payable_payments_agent_result(Box::new(agent));
-        let consuming_wallet = make_paying_wallet(b"somewallet");
-        let persistent_config_id_stamp = ArbitraryIdStamp::new();
-        let persistent_configuration = PersistentConfigurationMock::default()
-            .gas_price_result(Ok(146))
-            .set_arbitrary_id_stamp(persistent_config_id_stamp);
-        let wallet_1 = make_wallet("booga");
-        let wallet_2 = make_wallet("gulp");
-        let qualified_payables = vec![
-            PayableAccount {
-                wallet: wallet_1.clone(),
-                balance_wei: 78_654_321_124,
-                last_paid_timestamp: SystemTime::now()
-                    .checked_sub(Duration::from_secs(1000))
-                    .unwrap(),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: wallet_2.clone(),
-                balance_wei: 60_457_111_003,
-                last_paid_timestamp: SystemTime::now()
-                    .checked_sub(Duration::from_secs(500))
-                    .unwrap(),
-                pending_payable_opt: None,
-            },
-        ];
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(persistent_configuration),
-            false,
-            Some(consuming_wallet.clone()),
-        );
-        let addr = subject.start();
-        let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().accountant(accountant).build();
-        let msg = make_initial_payable_payment_setup_message(
-            qualified_payables.clone(),
-            Some(ResponseSkeleton {
-                client_id: 11122,
-                context_id: 444,
-            }),
-        );
-        send_bind_message!(subject_subs, peer_actors);
-
-        addr.try_send(msg.clone()).unwrap();
-
-        System::current().stop();
-        system.run();
-        let get_transaction_fee_balance_params =
-            get_transaction_fee_balance_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_transaction_fee_balance_params,
-            vec![consuming_wallet.clone()]
-        );
-        let get_token_balance_params = get_token_balance_params_arc.lock().unwrap();
-        assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
-        let set_up_consuming_wallet_balances_params =
-            set_up_consuming_wallet_balances_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_up_consuming_wallet_balances_params,
-            vec![ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: transaction_fee_balance,
-                masq_token_balance_in_minor_units: token_balance
-            }]
-        );
-        let conclude_required_fee_per_computed_unit_params =
-            conclude_required_fee_per_computed_unit_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *conclude_required_fee_per_computed_unit_params,
-            vec![persistent_config_id_stamp]
-        );
-        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &PayablePaymentsSetupMsg =
-            accountant_received_payment.get_record(0);
-        let expected_msg: PayablePaymentsSetupMsg = (msg, agent_dull_copy).into();
-        assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
+        todo!("fix me");
+        // let system = System::new(
+        //     "initial_payable_payments_setup_msg_is_handled_and_new_setup_msg_containing_agent_goes_back_to_accountant",
+        // );
+        // let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        // let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        // let set_up_consuming_wallet_balances_params_arc = Arc::new(Mutex::new(vec![]));
+        // let conclude_required_fee_per_computed_unit_params_arc = Arc::new(Mutex::new(vec![]));
+        // let (accountant, _, accountant_recording_arc) = make_recorder();
+        // let transaction_fee_balance = U256::from(4455);
+        // let token_balance = U256::from(112233);
+        // let arbitrary_id_stamp = ArbitraryIdStamp::new();
+        // let agent = PayablePaymentsAgentMock::default()
+        //     .set_arbitrary_id_stamp(arbitrary_id_stamp)
+        //     .set_up_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
+        //     .conclude_required_fee_per_computed_unit_params(
+        //         &conclude_required_fee_per_computed_unit_params_arc,
+        //     )
+        //     .conclude_required_fee_per_computed_unit_result(Ok(()));
+        // let agent_dull_copy: Box<dyn PayablePaymentsAgent> = Box::new(
+        //     PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(arbitrary_id_stamp),
+        // );
+        // let blockchain_interface = BlockchainInterfaceMock::default()
+        //     .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
+        //     .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
+        //     .get_token_balance_params(&get_token_balance_params_arc)
+        //     .get_token_balance_result(Ok(token_balance))
+        //     .mobilize_payable_payments_agent_result(Box::new(agent));
+        // let consuming_wallet = make_paying_wallet(b"somewallet");
+        // let persistent_config_id_stamp = ArbitraryIdStamp::new();
+        // let persistent_configuration = PersistentConfigurationMock::default()
+        //     .gas_price_result(Ok(146))
+        //     .set_arbitrary_id_stamp(persistent_config_id_stamp);
+        // let wallet_1 = make_wallet("booga");
+        // let wallet_2 = make_wallet("gulp");
+        // let qualified_payables = vec![
+        //     PayableAccount {
+        //         wallet: wallet_1.clone(),
+        //         balance_wei: 78_654_321_124,
+        //         last_paid_timestamp: SystemTime::now()
+        //             .checked_sub(Duration::from_secs(1000))
+        //             .unwrap(),
+        //         pending_payable_opt: None,
+        //     },
+        //     PayableAccount {
+        //         wallet: wallet_2.clone(),
+        //         balance_wei: 60_457_111_003,
+        //         last_paid_timestamp: SystemTime::now()
+        //             .checked_sub(Duration::from_secs(500))
+        //             .unwrap(),
+        //         pending_payable_opt: None,
+        //     },
+        // ];
+        // let subject = BlockchainBridge::new(
+        //     Box::new(blockchain_interface),
+        //     Box::new(persistent_configuration),
+        //     false,
+        //     Some(consuming_wallet.clone()),
+        // );
+        // let addr = subject.start();
+        // let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        // let peer_actors = peer_actors_builder().accountant(accountant).build();
+        // let msg = make_initial_payable_payment_setup_message(
+        //     qualified_payables.clone(),
+        //     Some(ResponseSkeleton {
+        //         client_id: 11122,
+        //         context_id: 444,
+        //     }),
+        // );
+        // send_bind_message!(subject_subs, peer_actors);
+        //
+        // addr.try_send(msg.clone()).unwrap();
+        //
+        // System::current().stop();
+        // system.run();
+        // let get_transaction_fee_balance_params =
+        //     get_transaction_fee_balance_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *get_transaction_fee_balance_params,
+        //     vec![consuming_wallet.clone()]
+        // );
+        // let get_token_balance_params = get_token_balance_params_arc.lock().unwrap();
+        // assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
+        // let set_up_consuming_wallet_balances_params =
+        //     set_up_consuming_wallet_balances_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *set_up_consuming_wallet_balances_params,
+        //     vec![ConsumingWalletBalances {
+        //         transaction_fee_balance_in_minor_units: transaction_fee_balance,
+        //         masq_token_balance_in_minor_units: token_balance
+        //     }]
+        // );
+        // let conclude_required_fee_per_computed_unit_params =
+        //     conclude_required_fee_per_computed_unit_params_arc
+        //         .lock()
+        //         .unwrap();
+        // assert_eq!(
+        //     *conclude_required_fee_per_computed_unit_params,
+        //     vec![persistent_config_id_stamp]
+        // );
+        // let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        // assert_eq!(accountant_received_payment.len(), 1);
+        // let reported_balances_and_qualified_accounts: &PayablePaymentsSetupMsg =
+        //     accountant_received_payment.get_record(0);
+        // let expected_msg: PayablePaymentsSetupMsg = (msg, agent_dull_copy).into();
+        // assert_eq!(reported_balances_and_qualified_accounts, &expected_msg);
     }
 
     fn test_failure_during_balance_inspection(

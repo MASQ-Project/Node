@@ -1402,9 +1402,20 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    is_adjustment_required_params: Arc<Mutex<Vec<(PayablePaymentsSetupMsg, Logger)>>>,
+    //the tuple represents guts of unclonable PayablePaymentsSetupMsg
+    is_adjustment_required_params:
+        Arc<Mutex<Vec<((PayablePaymentsSetupMsgPayload, ArbitraryIdStamp), Logger)>>>,
     is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
+    //the tuple represents guts of unclonable AwaitedAdjustment
+    adjust_payments_params: Arc<
+        Mutex<
+            Vec<(
+                (Adjustment, PayablePaymentsSetupMsgPayload, ArbitraryIdStamp),
+                SystemTime,
+                Logger,
+            )>,
+        >,
+    >,
     adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
 }
 
@@ -1414,10 +1425,10 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         msg: &PayablePaymentsSetupMsg,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
-        self.is_adjustment_required_params
-            .lock()
-            .unwrap()
-            .push((msg.clone(), logger.clone()));
+        self.is_adjustment_required_params.lock().unwrap().push((
+            (msg.payload.clone(), msg.agent.arbitrary_id_stamp()),
+            logger.clone(),
+        ));
         self.is_adjustment_required_results.borrow_mut().remove(0)
     }
 
@@ -1427,10 +1438,15 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         now: SystemTime,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions {
-        self.adjust_payments_params
-            .lock()
-            .unwrap()
-            .push((setup, now, logger.clone()));
+        self.adjust_payments_params.lock().unwrap().push((
+            (
+                setup.adjustment,
+                setup.original_setup_msg.payload.clone(),
+                setup.original_setup_msg.agent.arbitrary_id_stamp(),
+            ),
+            now,
+            logger.clone(),
+        ));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1438,7 +1454,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PayablePaymentsSetupMsg, Logger)>>>,
+        params: &Arc<Mutex<Vec<((PayablePaymentsSetupMsgPayload, ArbitraryIdStamp), Logger)>>>,
     ) -> Self {
         self.is_adjustment_required_params = params.clone();
         self
@@ -1456,7 +1472,15 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
+        params: &Arc<
+            Mutex<
+                Vec<(
+                    (Adjustment, PayablePaymentsSetupMsgPayload, ArbitraryIdStamp),
+                    SystemTime,
+                    Logger,
+                )>,
+            >,
+        >,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
@@ -1717,28 +1741,6 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         self.pending_transaction_id_results.borrow_mut().remove(0)
     }
 
-    fn debug(&self) -> String {
-        format!("{:?}", self.arbitrary_id_stamp())
-    }
-
-    // Be careful about the implications in your tests!
-    // The resulting "clone" will be dull (empty except the id) even though you might've wanted to
-    // have the original in that place.
-    //
-    // THE FACT IT WOULD FAIL IF THE CLONE WOULD BE INVOKED IN THE PRODUCTION CODE AND IF THE CLONE
-    // AWAITED A METHOD CALL, IS HOPEFULLY SECURE ENOUGH TO FIND OUT BECAUSE WE DON'T WANT TO DO THIS
-    // CLONING ANYWHERE ELSE BUT IN TESTS
-    fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
-        let original_arbitrary_id_stamp = self.arbitrary_id_stamp();
-        // trying to make clones of mockable objects isn't advisable, may this be an exception based on
-        // the speciality that we push for more convenient in-test comparison between structures that
-        // contain these, exclusively by manipulation of the assigned arbitrary id stamp, no other
-        // attribute matters
-        let new_self =
-            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(original_arbitrary_id_stamp);
-        Box::new(new_self)
-    }
-
     arbitrary_id_stamp_in_trait_impl!();
 }
 
@@ -1805,39 +1807,4 @@ impl PayablePaymentsAgentMock {
     }
 
     set_arbitrary_id_stamp_in_mock_impl!();
-}
-
-pub fn assert_on_cloneable_agent_objects<F>(act: F)
-where
-    F: Fn(PayablePaymentsAgentWeb3) -> Box<dyn PayablePaymentsAgent>,
-{
-    let mut original_agent = PayablePaymentsAgentWeb3::new(777);
-    let nonce = U256::from(4444);
-    let consuming_wallet_balances = ConsumingWalletBalances {
-        transaction_fee_balance_in_minor_units: U256::from(123_456),
-        masq_token_balance_in_minor_units: U256::from(444_444_444),
-    };
-    let gas_price = 333;
-    let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(gas_price));
-    original_agent.set_up_pending_transaction_id(nonce);
-    original_agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
-    original_agent
-        .conclude_required_fee_per_computed_unit(&persistent_config)
-        .unwrap();
-    let original_estimated_fees = original_agent.estimated_transaction_fee_total(4);
-    let original_debug = original_agent.debug();
-
-    let duplicate = act(original_agent);
-
-    assert_eq!(duplicate.pending_transaction_id(), Some(nonce));
-    assert_eq!(
-        duplicate.consuming_wallet_balances(),
-        Some(consuming_wallet_balances)
-    );
-    assert_eq!(duplicate.required_fee_per_computed_unit(), Some(gas_price));
-    assert_eq!(
-        duplicate.estimated_transaction_fee_total(4),
-        original_estimated_fees
-    );
-    assert_eq!(duplicate.debug(), original_debug)
 }

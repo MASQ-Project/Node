@@ -52,14 +52,6 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     fn pending_transaction_id(&self) -> Option<U256> {
         self.pending_transaction_id_opt
     }
-
-    fn debug(&self) -> String {
-        format!("{:?}", self)
-    }
-
-    fn duplicate(&self) -> Box<dyn PayablePaymentsAgent> {
-        Box::new(self.clone())
-    }
 }
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
@@ -84,7 +76,6 @@ mod tests {
     use crate::accountant::scanners::payable_payments_agent_web3::{
         PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
-    use crate::accountant::test_utils::assert_on_cloneable_agent_objects;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -178,22 +169,5 @@ mod tests {
             second_agent.estimated_transaction_fee_total(3),
             (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 550
         )
-    }
-
-    #[test]
-    fn debug_works() {
-        let subject = PayablePaymentsAgentWeb3::new(789);
-        let std_debug = format!("{:?}", subject);
-
-        let debug_from_trait = subject.debug();
-
-        assert_eq!(debug_from_trait, std_debug)
-    }
-
-    #[test]
-    fn duplicate_works() {
-        assert_on_cloneable_agent_objects(|original_object: PayablePaymentsAgentWeb3| {
-            original_object.duplicate()
-        })
     }
 }

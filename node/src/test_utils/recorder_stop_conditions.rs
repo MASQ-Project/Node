@@ -124,6 +124,13 @@ macro_rules! match_every_type_id{
     }
 }
 
+#[macro_export]
+macro_rules! match_every_type_id_partial_eq_less {
+    ($($single_message: ident),+) => {
+         StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<PretendedMatchable<$single_message>>())),+])
+    }
+}
+
 mod tests {
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForPayables};
     use crate::daemon::crash_notification::CrashNotification;

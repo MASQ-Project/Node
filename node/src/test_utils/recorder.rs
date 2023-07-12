@@ -80,70 +80,85 @@ pub struct RecordAwaiter {
     recording: Arc<Mutex<Recording>>,
 }
 
+pub struct PretendedMatchable<T: 'static + Send>(pub T);
+
 impl Actor for Recorder {
     type Context = Context<Self>;
 }
 
-macro_rules! recorder_message_handler {
-    ($message_type: ty) => {
+use masq_lib::utils::type_name_of;
+macro_rules! message_handler_common {
+    ($message_type: ty, $handling_fn: ident) => {
         impl Handler<$message_type> for Recorder {
             type Result = ();
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
-                self.handle_msg(msg)
+                self.$handling_fn(msg)
             }
         }
     };
 }
 
-recorder_message_handler!(AddReturnRouteMessage);
-recorder_message_handler!(AddRouteMessage);
-recorder_message_handler!(AddStreamMsg);
-recorder_message_handler!(BindMessage);
-recorder_message_handler!(ConnectionProgressMessage);
-recorder_message_handler!(CrashNotification);
-recorder_message_handler!(DaemonBindMessage);
-recorder_message_handler!(DispatcherNodeQueryMessage);
-recorder_message_handler!(DispatcherNodeQueryResponse);
-recorder_message_handler!(DnsResolveFailure_0v1);
-recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<MessageType>);
-recorder_message_handler!(InboundClientData);
-recorder_message_handler!(InboundServerData);
-recorder_message_handler!(PayablePaymentsSetupMsgPayload);
-recorder_message_handler!(IncipientCoresPackage);
-recorder_message_handler!(NewPasswordMessage);
-recorder_message_handler!(NewPublicIp);
-recorder_message_handler!(NodeFromUiMessage);
-recorder_message_handler!(NodeToUiMessage);
-recorder_message_handler!(NoLookupIncipientCoresPackage);
-recorder_message_handler!(OutboundPaymentsInstructions);
-recorder_message_handler!(PayablePaymentsSetupMsg);
-recorder_message_handler!(PendingPayableFingerprintSeeds);
-recorder_message_handler!(PoolBindMessage);
-recorder_message_handler!(ReceivedPayments);
-recorder_message_handler!(RemoveNeighborMessage);
-recorder_message_handler!(RemoveStreamMsg);
-recorder_message_handler!(ReportExitServiceProvidedMessage);
-recorder_message_handler!(ReportRoutingServiceProvidedMessage);
-recorder_message_handler!(ReportServicesConsumedMessage);
-recorder_message_handler!(ReportTransactionReceipts);
-recorder_message_handler!(RetrieveTransactions);
-recorder_message_handler!(RequestTransactionReceipts);
-recorder_message_handler!(ScanError);
-recorder_message_handler!(SentPayables);
-recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(StartMessage);
-recorder_message_handler!(StreamShutdownMsg);
-recorder_message_handler!(ScanForReceivables);
-recorder_message_handler!(ScanForPayables);
-recorder_message_handler!(ScanForPendingPayables);
-recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(UpdateNodeRecordMetadataMessage);
+macro_rules! recorder_message_handler_t_m_p {
+    ($message_type: ty) => {
+        message_handler_common!($message_type, handle_msg_t_m_p);
+    };
+}
+
+macro_rules! recorder_message_handler_t_p {
+    ($message_type: ty) => {
+        message_handler_common!($message_type, handle_msg_t_p);
+    };
+}
+
+recorder_message_handler_t_m_p!(AddReturnRouteMessage);
+recorder_message_handler_t_m_p!(AddRouteMessage);
+recorder_message_handler_t_m_p!(AddStreamMsg);
+recorder_message_handler_t_m_p!(BindMessage);
+recorder_message_handler_t_m_p!(ConnectionProgressMessage);
+recorder_message_handler_t_m_p!(CrashNotification);
+recorder_message_handler_t_m_p!(DaemonBindMessage);
+recorder_message_handler_t_m_p!(DispatcherNodeQueryMessage);
+recorder_message_handler_t_m_p!(DispatcherNodeQueryResponse);
+recorder_message_handler_t_m_p!(DnsResolveFailure_0v1);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<Gossip_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<GossipFailure_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<MessageType>);
+recorder_message_handler_t_m_p!(InboundClientData);
+recorder_message_handler_t_m_p!(InboundServerData);
+recorder_message_handler_t_m_p!(PayablePaymentsSetupMsgPayload);
+recorder_message_handler_t_m_p!(IncipientCoresPackage);
+recorder_message_handler_t_m_p!(NewPasswordMessage);
+recorder_message_handler_t_m_p!(NewPublicIp);
+recorder_message_handler_t_m_p!(NodeFromUiMessage);
+recorder_message_handler_t_m_p!(NodeToUiMessage);
+recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
+recorder_message_handler_t_p!(OutboundPaymentsInstructions);
+recorder_message_handler_t_p!(PayablePaymentsSetupMsg);
+recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
+recorder_message_handler_t_m_p!(PoolBindMessage);
+recorder_message_handler_t_m_p!(ReceivedPayments);
+recorder_message_handler_t_m_p!(RemoveNeighborMessage);
+recorder_message_handler_t_m_p!(RemoveStreamMsg);
+recorder_message_handler_t_m_p!(ReportExitServiceProvidedMessage);
+recorder_message_handler_t_m_p!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler_t_m_p!(ReportServicesConsumedMessage);
+recorder_message_handler_t_m_p!(ReportTransactionReceipts);
+recorder_message_handler_t_m_p!(RetrieveTransactions);
+recorder_message_handler_t_m_p!(RequestTransactionReceipts);
+recorder_message_handler_t_m_p!(ScanError);
+recorder_message_handler_t_m_p!(SentPayables);
+recorder_message_handler_t_m_p!(SetConsumingWalletMessage);
+recorder_message_handler_t_m_p!(StartMessage);
+recorder_message_handler_t_m_p!(StreamShutdownMsg);
+recorder_message_handler_t_m_p!(ScanForReceivables);
+recorder_message_handler_t_m_p!(ScanForPayables);
+recorder_message_handler_t_m_p!(ScanForPendingPayables);
+recorder_message_handler_t_m_p!(TransmitDataMsg);
+recorder_message_handler_t_m_p!(UpdateNodeRecordMetadataMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where
@@ -152,7 +167,7 @@ where
     type Result = ();
 
     fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
-        self.handle_msg(msg)
+        self.handle_msg_t_m_p(msg)
     }
 }
 
@@ -233,9 +248,12 @@ impl Recorder {
         system_killer.start();
     }
 
-    fn handle_msg<T: 'static + PartialEq + Send>(&mut self, msg: T) {
+    fn handle_msg_t_m_p<M>(&mut self, msg: M)
+    where
+        M: 'static + PartialEq + Send,
+    {
         let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
-            stop_conditions.resolve_stop_conditions::<T>(&msg)
+            stop_conditions.resolve_stop_conditions::<M>(&msg)
         } else {
             false
         };
@@ -245,6 +263,14 @@ impl Recorder {
         if kill_system {
             System::current().stop()
         }
+    }
+
+    //for messages that cannot implement PartialEq
+    fn handle_msg_t_p<M>(&mut self, msg: M)
+    where
+        M: 'static + Send,
+    {
+        self.handle_msg_t_m_p(PretendedMatchable(msg))
     }
 }
 
@@ -272,6 +298,16 @@ impl Recording {
     {
         self.get_record_inner_body(index)
             .unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    pub fn get_record_partial_eq_less<T>(&self, index: usize) -> &T
+    where
+        T: Any + Send,
+    {
+        let wrapped_msg: &PretendedMatchable<T> = self
+            .get_record_inner_body(index)
+            .unwrap_or_else(|e| panic!("{}", e));
+        &wrapped_msg.0
     }
 
     pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
@@ -327,6 +363,17 @@ impl RecordAwaiter {
             }
             thread::sleep(Duration::from_millis(50))
         }
+    }
+}
+
+impl<T: Send> PartialEq for PretendedMatchable<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        panic!(
+            r#"You requested the stop condition of the "precise match" for
+            message that does not implement PartialEq. Consider to use stop
+            conditions matching on the type only or using a predicate which
+            don't require this trait to be implemented."#
+        )
     }
 }
 
@@ -552,13 +599,14 @@ mod tests {
     use super::*;
     use actix::Message;
     use actix::System;
+    use std::any::TypeId;
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct FirstMessageType {
         string: String,
     }
 
-    recorder_message_handler!(FirstMessageType);
+    recorder_message_handler_t_m_p!(FirstMessageType);
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct SecondMessageType {
@@ -566,7 +614,7 @@ mod tests {
         flag: bool,
     }
 
-    recorder_message_handler!(SecondMessageType);
+    recorder_message_handler_t_m_p!(SecondMessageType);
 
     #[test]
     fn recorder_records_different_messages() {
@@ -606,5 +654,21 @@ mod tests {
             }
         );
         assert_eq!(recording.len(), 2);
+    }
+
+    struct ExampleMsgA;
+
+    struct ExampleMsgB;
+
+    #[test]
+    fn different_messages_in_pretending_matchable_have_different_type_ids() {
+        assert_eq!(
+            TypeId::of::<PretendedMatchable<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchable<ExampleMsgA>>()
+        );
+        assert_ne!(
+            TypeId::of::<PretendedMatchable<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchable<ExampleMsgB>>()
+        )
     }
 }
