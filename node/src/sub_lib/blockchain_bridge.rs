@@ -65,17 +65,10 @@ pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
-    use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
-    use crate::accountant::ResponseSkeleton;
-    use crate::sub_lib::blockchain_bridge::{
-        web3_gas_limit_const_part, OutboundPaymentsInstructions,
-    };
+    use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
-    use web3::types::U256;
 
     #[test]
     fn blockchain_bridge_subs_debug() {

@@ -1017,10 +1017,6 @@ mod tests {
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
-    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-    use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
-    use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsgPayload;
-    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1541,7 +1537,6 @@ mod tests {
             payload: payload.clone(),
             agent: Box::new(agent),
         };
-        let persistent_config = PersistentConfigurationMock::default();
         //in the real world the agents are identical, here they bear different ids so that we can be sure about where they come from
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
@@ -2224,78 +2219,77 @@ mod tests {
 
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
-        todo!("fix me");
-        // init_test_logging();
-        // let payment_thresholds = PaymentThresholds {
-        //     threshold_interval_sec: 2_592_000,
-        //     debt_threshold_gwei: 1_000_000_000,
-        //     payment_grace_period_sec: 86_400,
-        //     maturity_threshold_sec: 86_400,
-        //     permanent_debt_allowed_gwei: 10_000_000,
-        //     unban_below_gwei: 10_000_000,
-        // };
-        // let config = bc_from_earning_wallet(make_wallet("mine"));
-        // let now = to_time_t(SystemTime::now());
-        // let accounts = vec![
-        //     // below minimum balance, to the right of time intersection (inside buffer zone)
-        //     PayableAccount {
-        //         wallet: make_wallet("wallet0"),
-        //         balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
-        //         last_paid_timestamp: from_time_t(
-        //             now - checked_conversion::<u64, i64>(
-        //                 payment_thresholds.threshold_interval_sec + 10,
-        //             ),
-        //         ),
-        //         pending_payable_opt: None,
-        //     },
-        //     // above balance intersection, to the left of minimum time (outside buffer zone)
-        //     PayableAccount {
-        //         wallet: make_wallet("wallet1"),
-        //         balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
-        //         last_paid_timestamp: from_time_t(
-        //             now - checked_conversion::<u64, i64>(
-        //                 payment_thresholds.maturity_threshold_sec - 10,
-        //             ),
-        //         ),
-        //         pending_payable_opt: None,
-        //     },
-        //     // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
-        //     PayableAccount {
-        //         wallet: make_wallet("wallet2"),
-        //         balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
-        //         last_paid_timestamp: from_time_t(
-        //             now - checked_conversion::<u64, i64>(
-        //                 payment_thresholds.maturity_threshold_sec + 15,
-        //             ),
-        //         ),
-        //         pending_payable_opt: None,
-        //     },
-        // ];
-        // let payable_dao = PayableDaoMock::new()
-        //     .non_pending_payables_result(accounts.clone())
-        //     .non_pending_payables_result(vec![]);
-        // let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        // let system = System::new(
-        //     "scan_for_payable_message_does_not_trigger_payment_for_balances_below_the_curve",
-        // );
-        // let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
-        // let outbound_payments_instructions_sub =
-        //     blockchain_bridge_addr.recipient::<OutboundPaymentsInstructions>();
-        // let mut subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .payable_daos(vec![ForPayableScanner(payable_dao)])
-        //     .build();
-        // subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
-        //
-        // let _result = subject
-        //     .scanners
-        //     .payable
-        //     .begin_scan(SystemTime::now(), None, &subject.logger);
-        //
-        // System::current().stop();
-        // system.run();
-        // let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
-        // assert_eq!(blockchain_bridge_recordings.len(), 0);
+        init_test_logging();
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2_592_000,
+            debt_threshold_gwei: 1_000_000_000,
+            payment_grace_period_sec: 86_400,
+            maturity_threshold_sec: 86_400,
+            permanent_debt_allowed_gwei: 10_000_000,
+            unban_below_gwei: 10_000_000,
+        };
+        let config = bc_from_earning_wallet(make_wallet("mine"));
+        let now = to_time_t(SystemTime::now());
+        let accounts = vec![
+            // below minimum balance, to the right of time intersection (inside buffer zone)
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
+                last_paid_timestamp: from_time_t(
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.threshold_interval_sec + 10,
+                    ),
+                ),
+                pending_payable_opt: None,
+            },
+            // above balance intersection, to the left of minimum time (outside buffer zone)
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
+                last_paid_timestamp: from_time_t(
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec - 10,
+                    ),
+                ),
+                pending_payable_opt: None,
+            },
+            // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
+            PayableAccount {
+                wallet: make_wallet("wallet2"),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
+                last_paid_timestamp: from_time_t(
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec + 15,
+                    ),
+                ),
+                pending_payable_opt: None,
+            },
+        ];
+        let payable_dao = PayableDaoMock::new()
+            .non_pending_payables_result(accounts.clone())
+            .non_pending_payables_result(vec![]);
+        let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
+        let system = System::new(
+            "scan_for_payable_message_does_not_trigger_payment_for_balances_below_the_curve",
+        );
+        let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
+        let outbound_payments_instructions_sub =
+            blockchain_bridge_addr.recipient::<OutboundPaymentsInstructions>();
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .build();
+        subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
+
+        let _result = subject
+            .scanners
+            .payable
+            .begin_scan(SystemTime::now(), None, &subject.logger);
+
+        System::current().stop();
+        system.run();
+        let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recordings.len(), 0);
     }
 
     #[test]

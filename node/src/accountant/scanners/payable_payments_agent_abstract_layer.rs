@@ -6,7 +6,6 @@ use crate::db_config::persistent_configuration::{PersistentConfigError, Persiste
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 #[cfg(test)]
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use std::fmt::{Debug, Formatter};
 use web3::types::U256;
 
 // Table of chains by

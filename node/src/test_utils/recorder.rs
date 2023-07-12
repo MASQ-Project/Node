@@ -86,7 +86,6 @@ impl Actor for Recorder {
     type Context = Context<Self>;
 }
 
-use masq_lib::utils::type_name_of;
 macro_rules! message_handler_common {
     ($message_type: ty, $handling_fn: ident) => {
         impl Handler<$message_type> for Recorder {
@@ -98,6 +97,9 @@ macro_rules! message_handler_common {
         }
     };
 }
+
+// t, m, p, stand for type, match, predicate, regarding a list of the system stop conditions
+// to possibly use
 
 macro_rules! recorder_message_handler_t_m_p {
     ($message_type: ty) => {

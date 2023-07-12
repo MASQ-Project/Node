@@ -15,7 +15,6 @@ use crate::accountant::database_access_objects::receivable_dao::{
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::scanners::payable_payments_setup_msg::{
     PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
 };
@@ -43,7 +42,6 @@ use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPayment
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -1493,7 +1491,7 @@ impl PaymentAdjusterMock {
 }
 
 //in order to bypass restricted visibility
-pub fn make_initial_payable_payment_setup_message(
+pub fn make_payable_payment_setup_msg_payload(
     qualified_payables: Vec<PayableAccount>,
     response_skeleton_opt: Option<ResponseSkeleton>,
 ) -> PayablePaymentsSetupMsgPayload {
