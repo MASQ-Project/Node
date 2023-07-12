@@ -8,13 +8,13 @@ use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct PayablePaymentsSetupMsgPayload {
-    // This field should stay private for anybody outside Accountant
+    // On purpose restricted visibility
     pub(in crate::accountant) qualified_payables: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl PayablePaymentsSetupMsgPayload {
-    // This function should stay private for anybody outside Accountant
+    // On purpose restricted visibility
     pub(in crate::accountant) fn new(
         qualified_payables: Vec<PayableAccount>,
         response_skeleton_opt: Option<ResponseSkeleton>,
@@ -38,7 +38,7 @@ pub struct PayablePaymentsSetupMsg {
     pub agent: Box<dyn PayablePaymentsAgent>,
 }
 
-// This gives you at least a limited ability to construct the msg also outside Accountant
+// To be able to construct that msg outside Accountant
 impl
     From<(
         PayablePaymentsSetupMsgPayload,

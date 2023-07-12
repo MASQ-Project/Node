@@ -1047,14 +1047,15 @@ pub mod unshared_test_utils {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
                     match self.arbitrary_id_stamp_opt {
                         Some(id) => id,
-                        // In some cases the id stamp can play a role in some identity tracking
-                        // mechanism, even though it does not necessarily end up seen directly
-                        // in an assertion;
-                        // To avoid confusion from setting up a useless id stamp abandoned for
-                        // the rest of the test, we provide a null id stamp, which allows for both
-                        // calling this method without a direct punishment if the id isn't set and
-                        // also setting an assertion on fire if it cannot match an expected id
-                        // stamp when we do care
+                        // At some mockable methods with present params, the best they can do is to
+                        // ask for an ArbitraryId of the argument. If that needs to happen once it will
+                        // happen always actually, even in cases where we won't be interested in checking
+                        // the id up again. If we do nothing the call of this method will probably blow up,
+                        // because the filed it points to is optional and is likely set to None.
+                        // To avoid confusion from setting up a useless id stamp we provide a null id
+                        // stamp, which allows for both calling this method without a direct punishment
+                        // (if the id isn't set manually) but also setting the assertion on fire if it cannot
+                        // match the expected id stamp when we suddenly do care
                         None => ArbitraryIdStamp::null(),
                     }
                 }

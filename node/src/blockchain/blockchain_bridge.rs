@@ -246,8 +246,8 @@ impl BlockchainBridge {
         )
     }
 
-    // TODO when we have multiple chains of fundamentally different architectures and the ability to switch them,
-    // this might be replaced with a HashMap of the respective blockchain interfaces, different for every chain
+    // TODO when we have multiple chains of fundamentally different architectures and also ability to switch them,
+    // this should probably be replaced by a HashMap of a distinct blockchain interface for each chain
     fn construct_blockchain_interface(
         http_event_loop_handle: EventLoopHandle,
         transport: Http,

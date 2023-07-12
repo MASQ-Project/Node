@@ -1463,10 +1463,6 @@ mod tests {
         assert_eq!(actual_agent_id_stamp, agent_id_stamp);
         assert!(is_adjustment_required_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        eprintln!(
-            "messages in the queue: {}",
-            blockchain_bridge_recording.len()
-        );
         let payments_instructions = blockchain_bridge_recording
             .get_record_partial_eq_less::<OutboundPaymentsInstructions>(0);
         assert_eq!(payments_instructions.checked_accounts, accounts);
@@ -1537,7 +1533,8 @@ mod tests {
             payload: payload.clone(),
             agent: Box::new(agent),
         };
-        //in the real world the agents are identical, here they bear different ids so that we can be sure about where they come from
+        // In the real world the agents are identical, here they bear different ids
+        // so that we can watch their journey better
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
