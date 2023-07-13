@@ -83,11 +83,8 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .masq_tokens_wei
                 .as_u128(),
         ) {
-            Ok(required) => match required {
-                true => Ok(Some(Adjustment::MasqToken)),
-                false => Ok(None),
-            },
-            Err(e) => todo!(),
+            true => Ok(Some(Adjustment::MasqToken)),
+            false => Ok(None),
         }
     }
 
@@ -150,6 +147,8 @@ impl Default for PaymentAdjusterReal {
     }
 }
 
+//TODO think about splitting this file into a folder of files
+
 impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {}
@@ -171,17 +170,17 @@ impl PaymentAdjusterReal {
             .into()
     }
 
-    fn find_smallest_debt(qualified_accounts: &[&PayableAccount]) -> u128 {
-        qualified_accounts
-            .iter()
-            .sorted_by(|account_a, account_b| {
-                Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
-            })
-            .last()
-            .expect("at least one qualified payable must have been sent here")
-            .balance_wei
-            .into()
-    }
+    // fn find_smallest_debt(qualified_accounts: &[&PayableAccount]) -> u128 {
+    //     qualified_accounts
+    //         .iter()
+    //         .sorted_by(|account_a, account_b| {
+    //             Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
+    //         })
+    //         .last()
+    //         .expect("at least one qualified payable must have been sent here")
+    //         .balance_wei
+    //         .into()
+    // }
 
     fn determine_transactions_count_limit_by_gas(
         tech_info: &FinancialAndTechDetails,
@@ -461,15 +460,9 @@ impl PaymentAdjusterReal {
     fn adjust_cw_balance_in_setup_data(
         current_data: FinancialAndTechDetails,
         processed_prioritized: &[PayableAccount],
-        disqualified_accounts: &[DisqualifiedPayableAccount],
     ) -> FinancialAndTechDetails {
-        let subtrahend_total: u128 = if !disqualified_accounts.is_empty() {
-            Self::sum_as(disqualified_accounts, |disq_account| {
-                disq_account.original_balance
-            })
-        } else {
-            Self::sum_as(processed_prioritized, |account| account.balance_wei)
-        };
+        let subtrahend_total: u128 =
+            Self::sum_as(processed_prioritized, |account| account.balance_wei);
         let consuming_wallet_balances = ConsumingWalletBalances {
             gas_currency_wei: current_data.consuming_wallet_balances.gas_currency_wei,
             masq_tokens_wei: U256::from(
@@ -682,7 +675,6 @@ impl PaymentAdjusterReal {
             let adjusted_setup_data = Self::adjust_cw_balance_in_setup_data(
                 collected_setup_data,
                 &adjustment_result.decided_accounts,
-                &adjustment_result.disqualified_accounts,
             );
             //TODO what happens if we choose one that will get us into negative when subtracted
             return Self::run_recursively(
@@ -717,16 +709,13 @@ impl PaymentAdjusterReal {
                     Either::Right(&weighted_accounts_cut_by_gas),
                     cw_masq_balance_wei,
                 ) {
-                    Ok(is_needed) => match is_needed {
-                        true => AdjustmentCompletion::Continue(Self::handle_masq_token_adjustment(
-                            cw_masq_balance_wei,
-                            weighted_accounts_cut_by_gas,
-                        )),
-                        false => AdjustmentCompletion::Finished(Self::rebuild_accounts(
-                            weighted_accounts_cut_by_gas,
-                        )),
-                    },
-                    Err(e) => todo!(),
+                    true => AdjustmentCompletion::Continue(Self::handle_masq_token_adjustment(
+                        cw_masq_balance_wei,
+                        weighted_accounts_cut_by_gas,
+                    )),
+                    false => AdjustmentCompletion::Finished(Self::rebuild_accounts(
+                        weighted_accounts_cut_by_gas,
+                    )),
                 }
             }
             None => AdjustmentCompletion::Continue(Self::handle_masq_token_adjustment(
@@ -740,7 +729,7 @@ impl PaymentAdjusterReal {
         logger: &Logger,
         qualified_payables: Either<&[PayableAccount], &[(u128, PayableAccount)]>,
         consuming_wallet_balance_wei: u128,
-    ) -> Result<bool, AnalysisError> {
+    ) -> bool {
         let qualified_payables: Vec<&PayableAccount> = match qualified_payables {
             Either::Left(accounts) => accounts.iter().collect(),
             Either::Right(criteria_and_accounts) => criteria_and_accounts
@@ -754,16 +743,14 @@ impl PaymentAdjusterReal {
             });
 
         if required_masq_sum <= consuming_wallet_balance_wei {
-            Ok(false)
-        } else if Self::find_smallest_debt(&qualified_payables) > consuming_wallet_balance_wei {
-            todo!()
+            false
         } else {
             Self::log_adjustment_by_masq_required(
                 logger,
                 required_masq_sum,
                 consuming_wallet_balance_wei,
             );
-            Ok(true)
+            true
         }
     }
 }
@@ -1106,32 +1093,32 @@ bans you will need to put more funds into your consuming wallet."
         );
     }
 
-    #[test]
-    fn find_smallest_debt_works() {
-        let mut payable_1 = make_payable_account(111);
-        payable_1.balance_wei = 111_111;
-        let mut payable_3 = make_payable_account(333);
-        payable_3.balance_wei = 111_110;
-        let mut payable_2 = make_payable_account(222);
-        payable_2.balance_wei = 3_000_000;
-        let qualified_payables = vec![payable_1, payable_2, payable_3];
-        let referenced_qualified_payables = qualified_payables.iter().collect::<Vec<_>>();
-
-        let min = PaymentAdjusterReal::find_smallest_debt(&referenced_qualified_payables);
-
-        assert_eq!(min, 111_110)
-    }
-
-    #[test]
-    fn find_smallest_debt_handles_just_one_account() {
-        let payable = make_payable_account(111);
-        let qualified_payables = vec![payable];
-        let referenced_qualified_payables = qualified_payables.iter().collect::<Vec<_>>();
-
-        let min = PaymentAdjusterReal::find_smallest_debt(&referenced_qualified_payables);
-
-        assert_eq!(min, 111_000_000_000)
-    }
+    // #[test]
+    // fn find_smallest_debt_works() {
+    //     let mut payable_1 = make_payable_account(111);
+    //     payable_1.balance_wei = 111_111;
+    //     let mut payable_3 = make_payable_account(333);
+    //     payable_3.balance_wei = 111_110;
+    //     let mut payable_2 = make_payable_account(222);
+    //     payable_2.balance_wei = 3_000_000;
+    //     let qualified_payables = vec![payable_1, payable_2, payable_3];
+    //     let referenced_qualified_payables = qualified_payables.iter().collect::<Vec<_>>();
+    //
+    //     let min = PaymentAdjusterReal::find_smallest_debt(&referenced_qualified_payables);
+    //
+    //     assert_eq!(min, 111_110)
+    // }
+    //
+    // #[test]
+    // fn find_smallest_debt_handles_just_one_account() {
+    //     let payable = make_payable_account(111);
+    //     let qualified_payables = vec![payable];
+    //     let referenced_qualified_payables = qualified_payables.iter().collect::<Vec<_>>();
+    //
+    //     let min = PaymentAdjusterReal::find_smallest_debt(&referenced_qualified_payables);
+    //
+    //     assert_eq!(min, 111_000_000_000)
+    // }
 
     #[test]
     fn log_10_works() {
@@ -1728,18 +1715,17 @@ bans you will need to put more funds into your consuming wallet."
             .balance_wei;
         assert!(
             account_3_adjusted_balance < (balance_3 / 2),
-            "balance for account 3 after \
-        adjustment from the first iteration is {} but we need it smaller than {}",
+            "balance for account 3 after adjustment from the first iteration is {} but we need it \
+            smaller than {} to exercise what happens if the proposed balance is smaller than half \
+            the original one",
             account_3_adjusted_balance.separate_with_commas(),
             (balance_3 / 2).separate_with_commas()
         );
-        let adjusted_cw_balance_after_prioritizing_one_account =
-            consuming_wallet_masq_balance_wei.as_u128() - balance_3;
         let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
             account_1,
             account_2,
             None,
-            adjusted_cw_balance_after_prioritizing_one_account,
+            consuming_wallet_masq_balance_wei.as_u128(),
             now,
         );
         assert_eq!(result.accounts, expected_accounts);
@@ -1754,6 +1740,93 @@ bans you will need to put more funds into your consuming wallet."
         payable for wallet 0x000000000000000000000000000000000067686b is being ignored as the limited \
         consuming balance implied adjustment of its balance down to 22,572,576 wei, which is not at \
         least half of the debt"));
+    }
+
+    #[test]
+    fn adjust_payments_when_not_enough_masq_to_pay_at_least_half_of_each_account() {
+        // accounts in this test are evenly significant and so one cannot win over another,
+        // yet there is not enough balance to pay the minimum required which is a half of each
+        // thus we conclude none can be paid
+
+        init_test_logging();
+        let test_name = "adjust_payments_when_not_enough_masq_to_pay_at_least_halves_of_accounts";
+        let now = SystemTime::now();
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abcd"),
+            balance_wei: 100_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(12000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let mut account_2 = PayableAccount {
+            wallet: make_wallet("cdef"),
+            ..account_1.clone()
+        };
+        account_2.balance_wei = 90_000_000_000_000;
+        let qualified_payables = vec![account_1.clone(), account_2.clone()];
+        let subject = PaymentAdjusterReal::new();
+        let consuming_wallet_masq_balance_wei = U256::from(100_000_000_000_000_u64 + 1);
+        let setup_msg = PayablePaymentSetup {
+            qualified_payables,
+            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+                FinancialAndTechDetails {
+                    consuming_wallet_balances: ConsumingWalletBalances {
+                        gas_currency_wei: U256::from(u128::MAX),
+                        masq_tokens_wei: consuming_wallet_masq_balance_wei,
+                    },
+                    estimated_gas_limit_per_transaction: 55_000,
+                    desired_gas_price_gwei: 150,
+                },
+            )),
+            response_skeleton_opt: None,
+        };
+        let adjustment_setup = AwaitedAdjustment {
+            original_setup_msg: setup_msg,
+            adjustment: Adjustment::MasqToken,
+        };
+
+        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+
+        eprintln!("accounts adjusted: {:?}", result.accounts);
+        // let expected_accounts_first_iteration = emulation_of_the_actual_adjustment_algorithm(
+        //     account_1.clone(),
+        //     account_2.clone(),
+        //     Some(account_3),
+        //     consuming_wallet_masq_balance_wei.as_u128(),
+        //     now,
+        // );
+        // let account_3_adjusted_balance = expected_accounts_first_iteration
+        //     .iter()
+        //     .find(|account| account.wallet == wallet_3)
+        //     .unwrap()
+        //     .balance_wei;
+        // assert!(
+        //     account_3_adjusted_balance < (balance_3 / 2),
+        //     "balance for account 3 after \
+        // adjustment from the first iteration is {} but we need it smaller than {}",
+        //     account_3_adjusted_balance.separate_with_commas(),
+        //     (balance_3 / 2).separate_with_commas()
+        // );
+        // let adjusted_cw_balance_after_prioritizing_one_account =
+        //     consuming_wallet_masq_balance_wei.as_u128() - balance_3;
+        // let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
+        //     account_1,
+        //     account_2,
+        //     None,
+        //     adjusted_cw_balance_after_prioritizing_one_account,
+        //     now,
+        // );
+        // assert_eq!(result.accounts, expected_accounts);
+        // assert_eq!(
+        //     result.response_skeleton_opt,
+        //     Some(ResponseSkeleton {
+        //         client_id: 111,
+        //         context_id: 234
+        //     })
+        // );
+        // TestLogHandler::new().exists_log_containing(&format!("INFO: {test_name}: Recently qualified \
+        // payable for wallet 0x000000000000000000000000000000000067686b is being ignored as the limited \
+        // consuming balance implied adjustment of its balance down to 22,572,576 wei, which is not at \
+        // least half of the debt"));
     }
 
     //TODO do I really want to delete this test? Why?
@@ -1957,7 +2030,7 @@ bans you will need to put more funds into your consuming wallet."
 |                                           Adjusted
 |
 |0x000000000000000000000000000000000067686b 333000000000000
-|                                           299944910012241
+|                                           299999980172486
 |
 |Ignored minor payables                     Original
 |
