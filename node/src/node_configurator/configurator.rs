@@ -758,6 +758,10 @@ impl Configurator {
             }
         };
 
+        // TODO: Change Min Hops Value in
+        // Persistent Configuration
+        // Neighborhood
+
         Ok(())
     }
 

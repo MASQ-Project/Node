@@ -555,6 +555,28 @@ pub enum NRMetadataChange {
     AddUnreachableHost { hostname: String },
 }
 
+/*
+   TODO: Create a new SetConfigurationMessage
+   It's job should be to change the Configuration inside Node
+
+   Create an Enum:
+   - NewPassword(String)
+   - SetConsumingWallet(Wallet)
+   - SetMinHops(Hops)
+*/
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct SetConfigurationMessage {
+    pub parameter_change: SetConfigurationChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SetConfigurationChange {
+    SetNewPassword(String),
+    SetConsumingWallet(Wallet),
+    SetMinHops(Hops),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum GossipFailure_0v1 {
