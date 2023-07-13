@@ -1432,7 +1432,7 @@ mod tests {
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
-            ("data-directory", home_dir.join(TEST_DEFAULT_CHAIN.rec().literal_identifier).to_str().unwrap(), Set),
+            ("data-directory", previously_processed_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
             ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
@@ -2084,8 +2084,7 @@ mod tests {
             ("gas-price", "1", Default),
             ("ip", "1.2.3.4", Set),
             ("log-level", "warn", Default),
-            ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "", Blank),
+            ("neighborhood-mode", "zero-hop", Set),
             ("scans", "", Blank),
         ]);
         let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]

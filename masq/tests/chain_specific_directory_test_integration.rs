@@ -20,7 +20,7 @@ fn ensure_data_directory_has_specific_chain_directory_within_integration() {
     let mut masq_handle2 = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle2.create_stdin_handle();
 
-    stdin_handle.type_command("setup --data-directory /home/booga/masqhome");
+    stdin_handle.type_command("setup --data-directory /home/booga/masqhome/polygon-mainnet");
 
     thread::sleep(Duration::from_millis(1000));
 

@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(holder.stderr.get_bytes().is_empty(), true);
     }
 
-    fn dump_config_dumps_existing_database_without_password(
+    fn process_dump_config_dumps_existing_database_without_password(
         database_path: PathBuf,
         mock_dirs_wrapper_opt: Option<Box<dyn DirsWrapper>>,
         non_default_data_directory_opt: Option<PathBuf>,
@@ -380,7 +380,7 @@ mod tests {
         let database_path = data_dir.clone();
         let mock_dirs_wrapper_opt = None;
         let non_default_data_directory_opt = Some(data_dir);
-        dump_config_dumps_existing_database_without_password(
+        process_dump_config_dumps_existing_database_without_password(
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,
@@ -403,7 +403,7 @@ mod tests {
                 .home_dir_result(Some(home_dir)),
         ) as Box<dyn DirsWrapper>);
         let non_default_data_directory_opt = None;
-        dump_config_dumps_existing_database_without_password(
+        process_dump_config_dumps_existing_database_without_password(
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,

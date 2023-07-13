@@ -360,7 +360,7 @@ ip                            No sir, I don't like it.\n\
                 None,
                 Some("polygon-mainnet"),
                 Some("/home/cooga/.local/MASQ/polygon-mainnet"),
-                None,
+                false,
                 UiSetupResponseValueStatus::Default,
                 UiSetupResponseValueStatus::Default
             ),
@@ -369,7 +369,7 @@ ip                            No sir, I don't like it.\n\
                 None,
                 Some("polygon-mumbai"),
                 Some("/home/cooga/.local/MASQ/polygon-mumbai"),
-                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
+                true,
                 UiSetupResponseValueStatus::Set,
                 UiSetupResponseValueStatus::Default
             ),
@@ -378,7 +378,7 @@ ip                            No sir, I don't like it.\n\
                 Some("booga"),
                 Some("polygon-mainnet"),
                 Some("booga/polygon-mainnet"),
-                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
+                true,
                 UiSetupResponseValueStatus::Default,
                 UiSetupResponseValueStatus::Set
             ),
@@ -387,20 +387,20 @@ ip                            No sir, I don't like it.\n\
                 Some("booga/polygon-mumbai"),
                 Some("polygon-mumbai"),
                 Some("booga/polygon-mumbai/polygon-mumbai"),
-                Some("\nNOTE: your data directory was modified to match the chain parameter.\n"),
+                true,
                 UiSetupResponseValueStatus::Set,
                 UiSetupResponseValueStatus::Set
             ),
         ].iter().for_each(|
             (chain_opt,
-             data_directory_opt,
+             data_directory,
              chain_name_expected,
              data_directory_expected,
              note_expected,
              status_chain,
              status_data_dir)| {
             let note_expected_real = match note_expected {
-                Some(..) => note_expected.unwrap(),
+                true => "\nNOTE: your data directory was modified to match the chain parameter.\n",
                 _ => ""
             };
             let status_data_dir_str = match *status_data_dir {
@@ -428,8 +428,8 @@ NAME                          VALUE                                             
                                    status_data_dir_str, note_expected_real
             );
             let chain_real = match &*chain_opt { Some(..) => &*chain_opt.unwrap(), _ => "polygon-mainnet" };
-            let data_directory_real = match &*data_directory_opt {
-                Some(..) => format!("{}/{}", &data_directory_opt.unwrap(), chain_real),
+            let data_directory_real = match &*data_directory {
+                Some(..) => format!("{}/{}", &data_directory.unwrap(), chain_real),
                 _ => format!("/home/cooga/.local/MASQ/{}", chain_real)
             };
             process_setup_command_for_given_attributes(chain_real, &data_directory_real, &expected, *status_chain, *status_data_dir);

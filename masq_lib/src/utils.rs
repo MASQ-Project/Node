@@ -137,7 +137,10 @@ pub fn add_masq_and_chain_directories(chain: Chain, local_data_dir: &Path) -> Pa
 }
 
 pub fn add_chain_specific_directory(chain: Chain, local_data_dir: &Path) -> PathBuf {
-    PathBuf::from(local_data_dir).join(chain.rec().literal_identifier)
+    match local_data_dir.ends_with(chain.rec().literal_identifier) {
+        true => PathBuf::from(local_data_dir),
+        false => PathBuf::from(local_data_dir).join(chain.rec().literal_identifier)
+    }
 }
 
 pub fn localhost() -> IpAddr {
