@@ -2596,8 +2596,10 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+
         let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(&setup, &*data_directory);
+
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 
@@ -3517,13 +3519,13 @@ mod tests {
     }
 
     #[test]
-    fn calculate_setup_with_chain_specific_dir() {
+    fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
         let _guard = EnvironmentGuard::new();
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
         let incoming_setup = vec![UiSetupRequestValue::new(
             "data-directory",
-            "/homne/booga/masqhome",
+            "/home/booga/masqhome",
         )];
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -3531,22 +3533,26 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
-            "/homne/booga/masqhome/polygon-mainnet"
+            "/home/booga/masqhome/polygon-mainnet"
         );
+    }
 
-        let existing_setup2 =
+    #[test]
+    fn calculate_setup_with_chain_specific_dir_on_default_directory() {
+        let _guard = EnvironmentGuard::new();
+        let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let incoming_setup2 = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
-        let dirs_wrapper2 = Box::new(
+        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
+        let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(PathBuf::from("/home/booga/.local/share")))
                 .home_dir_result(Some(PathBuf::from("/home/booga"))),
         );
-        let subject2 = SetupReporterReal::new(dirs_wrapper2);
+        let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let result2 = subject2.get_modified_setup(existing_setup2, incoming_setup2);
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
         assert_eq!(
-            result2.unwrap().get("data-directory").unwrap().value,
+            result.unwrap().get("data-directory").unwrap().value,
             "/home/booga/.local/share/MASQ/polygon-mumbai"
         );
     }
