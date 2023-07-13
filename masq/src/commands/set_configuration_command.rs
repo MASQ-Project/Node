@@ -128,15 +128,26 @@ mod tests {
 
     #[test]
     fn command_execution_works_all_fine() {
-        test_command_execution("start-block", "123456");
-        test_command_execution("gas-price", "123456");
-        test_command_execution("min-hops", "6");
+        test_command_execution("--start-block", "123456");
+        test_command_execution("--gas-price", "123456");
+        test_command_execution("--min-hops", "6");
     }
 
     #[test]
-    #[should_panic(expected = "error: Found argument '--invalid-arg' which wasn't expected, or isn't valid in this context")]
-    fn command_execution_fails_for_invalid_arg() {
-        test_command_execution("invalid-arg", "123");
+    fn set_configuration_command_throws_err_for_invalid_arg() {
+        let (invalid_arg, some_value) = ("--invalid-arg", "123");
+
+        let result = SetConfigurationCommand::new(&[
+            "set-configuration".to_string(),
+            invalid_arg.to_string(),
+            some_value.to_string(),
+        ]);
+
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains(
+            "error: Found argument '--invalid-arg' \
+             which wasn't expected, or isn't valid in this context"
+        ));
     }
 
     fn test_command_execution(name: &str, value: &str) {
@@ -148,7 +159,7 @@ mod tests {
         let stderr_arc = context.stderr_arc();
         let subject = SetConfigurationCommand::new(&[
             "set-configuration".to_string(),
-            format!("--{name}"),
+            name.to_string(),
             value.to_string(),
         ])
         .unwrap();
@@ -161,7 +172,7 @@ mod tests {
             *transact_params,
             vec![(
                 UiSetConfigurationRequest {
-                    name: name.to_string(),
+                    name: name[2..].to_string(),
                     value: value.to_string(),
                 }
                 .tmb(0),
