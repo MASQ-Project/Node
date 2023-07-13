@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use actix::{Actor, Context, Handler, Recipient};
 
@@ -26,6 +27,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
+use crate::sub_lib::neighborhood::Hops;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -717,6 +719,8 @@ impl Configurator {
                     Self::set_gas_price(msg.value, persist_config)?;
                 } else if "start-block" == &msg.name {
                     Self::set_start_block(msg.value, persist_config)?;
+                } else if "min-hops" == &msg.name {
+                    Self::set_min_hops(msg.value)?;
                 } else {
                     return Err((
                         UNRECOGNIZED_PARAMETER,
@@ -744,6 +748,17 @@ impl Configurator {
             Ok(_) => Ok(()),
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("gas price: {:?}", e))),
         }
+    }
+
+    fn set_min_hops(string_number: String) -> Result<(), (u64, String)> {
+        let _min_hops = match Hops::from_str(&string_number) {
+            Ok(min_hops) => min_hops,
+            Err(e) => {
+                return Err((NON_PARSABLE_VALUE, format!("min hops: {:?}", e)));
+            }
+        };
+
+        Ok(())
     }
 
     fn set_start_block(
@@ -2096,6 +2111,59 @@ mod tests {
                 payload: Err((
                     NON_PARSABLE_VALUE,
                     r#"start block: ParseIntError { kind: InvalidDigit }"#.to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_works_for_min_hops() {
+        // let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
+        // let persistent_config = PersistentConfigurationMock::new()
+        //     .set_gas_price_params(&set_gas_price_params_arc)
+        //     .set_gas_price_result(Ok(()));
+        let mut subject = make_subject(None);
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: "6".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Ok(r#"{}"#.to_string())
+            }
+        );
+        // let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
+        // assert_eq!(*set_gas_price_params, vec![68])
+    }
+
+    #[test]
+    fn handle_set_configuration_throws_err_for_invalid_min_hops() {
+        let mut subject = make_subject(None);
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: "600".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    "min hops: \"Invalid value for min hops provided\"".to_string()
                 ))
             }
         );
