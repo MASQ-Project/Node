@@ -3,7 +3,7 @@
 pub mod big_int_processing;
 pub mod database_access_objects;
 pub mod financials;
-pub mod payment_adjuster;
+mod payment_adjuster;
 pub mod scanners;
 
 #[cfg(test)]
