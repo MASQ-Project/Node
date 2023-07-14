@@ -67,10 +67,10 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_consuming_wallet_subs_opt = Some(vec![
-            msg.peer_actors.neighborhood.set_consuming_wallet_sub,
-            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
-        ]);
+        // self.set_consuming_wallet_subs_opt = Some(vec![
+        //     msg.peer_actors.neighborhood.set_consuming_wallet_sub,
+        //     msg.peer_actors.proxy_server.set_consuming_wallet_sub,
+        // ]);
         self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);

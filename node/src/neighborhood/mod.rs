@@ -159,14 +159,14 @@ impl Handler<SetConfigurationMessage> for Neighborhood {
 
 //TODO comes across as basically dead code
 // I think the idea was to supply the wallet if wallets hadn't been generated until recently during the ongoing Node's run
-impl Handler<SetConsumingWalletMessage> for Neighborhood {
-    type Result = ();
-
-    fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
-        todo!("migrate to SetConfigurationMessage");
-        self.consuming_wallet_opt = Some(msg.wallet);
-    }
-}
+// impl Handler<SetConsumingWalletMessage> for Neighborhood {
+//     type Result = ();
+//
+//     fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
+//         todo!("migrate to SetConfigurationMessage");
+//         self.consuming_wallet_opt = Some(msg.wallet);
+//     }
+// }
 
 impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
     type Result = ();
@@ -502,7 +502,7 @@ impl Neighborhood {
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
-            set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
+            // set_consuming_wallet_sub: addr.clone().recipient::<SetConsumingWalletMessage>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),

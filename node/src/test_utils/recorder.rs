@@ -128,7 +128,7 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
-recorder_message_handler!(SetConsumingWalletMessage);
+// recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(RequestBalancesToPayPayables);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
@@ -344,7 +344,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+        // set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
@@ -392,7 +392,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
+        // set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
         new_password_sub: recipient!(addr, NewPasswordMessage),
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
