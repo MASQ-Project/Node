@@ -709,18 +709,18 @@ impl Configurator {
     fn unfriendly_handle_set_configuration(
         msg: UiSetConfigurationRequest,
         context_id: u64,
-        persist_config: &mut Box<dyn PersistentConfiguration>,
+        persistent_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
         match password {
             None => {
                 if "gas-price" == &msg.name {
-                    Self::set_gas_price(msg.value, persist_config)?;
+                    Self::set_gas_price(msg.value, persistent_config)?;
                 } else if "start-block" == &msg.name {
-                    Self::set_start_block(msg.value, persist_config)?;
+                    Self::set_start_block(msg.value, persistent_config)?;
                 } else if "min-hops" == &msg.name {
-                    Self::set_min_hops(msg.value)?;
+                    Self::set_min_hops(msg.value, persistent_config)?;
                 } else {
                     return Err((
                         UNRECOGNIZED_PARAMETER,
@@ -750,19 +750,25 @@ impl Configurator {
         }
     }
 
-    fn set_min_hops(string_number: String) -> Result<(), (u64, String)> {
-        let _min_hops = match Hops::from_str(&string_number) {
+    fn set_min_hops(
+        string_number: String,
+        config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        let min_hops = match Hops::from_str(&string_number) {
             Ok(min_hops) => min_hops,
             Err(e) => {
                 return Err((NON_PARSABLE_VALUE, format!("min hops: {:?}", e)));
             }
         };
 
-        // TODO: Change Min Hops Value in
-        // Persistent Configuration
-        // Neighborhood
-
-        Ok(())
+        // TODO: Change Min Hops Value in Neighborhood
+        match config.set_min_hops(min_hops) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                todo!("")
+                // Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e)));
+            }
+        }
     }
 
     fn set_start_block(
@@ -2122,16 +2128,17 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_works_for_min_hops() {
-        // let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
-        // let persistent_config = PersistentConfigurationMock::new()
-        //     .set_gas_price_params(&set_gas_price_params_arc)
-        //     .set_gas_price_result(Ok(()));
-        let mut subject = make_subject(None);
+        let new_min_hops = Hops::SixHops;
+        let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_min_hops_params(&set_min_hops_params_arc)
+            .set_min_hops_result(Ok(()));
+        let mut subject = make_subject(Some(persistent_config));
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
                 name: "min-hops".to_string(),
-                value: "6".to_string(),
+                value: new_min_hops.to_string(),
             },
             4000,
         );
@@ -2144,8 +2151,9 @@ mod tests {
                 payload: Ok(r#"{}"#.to_string())
             }
         );
-        // let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
-        // assert_eq!(*set_gas_price_params, vec![68])
+        let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
+        let min_hops_in_db = set_min_hops_params.get(0).unwrap();
+        assert_eq!(*min_hops_in_db, new_min_hops);
     }
 
     #[test]
