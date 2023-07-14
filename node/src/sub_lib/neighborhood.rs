@@ -567,14 +567,14 @@ pub enum NRMetadataChange {
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct SetConfigurationMessage {
-    pub parameter_change: ConfigurationChange,
+    pub change: ConfigurationChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigurationChange {
-    SetNewPassword(String),
-    SetConsumingWallet(Wallet),
-    SetMinHops(Hops),
+    UpdateNewPassword(String),
+    UpdateConsumingWallet(Wallet),
+    UpdateMinHops(Hops),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

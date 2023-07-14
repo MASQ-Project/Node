@@ -142,14 +142,14 @@ impl Handler<SetConfigurationMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: SetConfigurationMessage, ctx: &mut Self::Context) -> Self::Result {
-        match msg.parameter_change {
-            ConfigurationChange::SetNewPassword(new_password) => {
+        match msg.change {
+            ConfigurationChange::UpdateNewPassword(new_password) => {
                 self.db_password_opt = Some(new_password)
             }
-            ConfigurationChange::SetConsumingWallet(new_wallet) => {
+            ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
-            ConfigurationChange::SetMinHops(_) => todo!("min hops"),
+            ConfigurationChange::UpdateMinHops(_) => todo!("min hops"),
         }
     }
 }
@@ -2951,7 +2951,7 @@ mod tests {
     }
 
     #[test]
-    fn can_update_consuming_wallet() {
+    fn can_update_consuming_wallet_with_set_configuration_message() {
         let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
         let (o, r, e, mut subject) = make_o_r_e_subject();
@@ -2983,7 +2983,7 @@ mod tests {
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
         set_configuration_msg_sub
             .try_send(SetConfigurationMessage {
-                parameter_change: ConfigurationChange::SetConsumingWallet(expected_new_wallet),
+                change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
             })
             .unwrap();
         let route_request_2 =
@@ -3000,7 +3000,7 @@ mod tests {
     }
 
     #[test]
-    fn can_update_min_hops() {
+    fn can_update_min_hops_with_set_configuration_msg() {
         todo!()
     }
 
@@ -5690,7 +5690,7 @@ mod tests {
     }
 
     #[test]
-    fn new_password_message_works() {
+    fn can_update_new_password_with_set_configuration_message() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
@@ -5705,7 +5705,7 @@ mod tests {
 
         subject_addr
             .try_send(SetConfigurationMessage {
-                parameter_change: ConfigurationChange::SetNewPassword("borkety-bork".to_string()),
+                change: ConfigurationChange::UpdateNewPassword("borkety-bork".to_string()),
             })
             .unwrap();
 
