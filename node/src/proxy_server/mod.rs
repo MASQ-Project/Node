@@ -74,9 +74,8 @@ pub struct ProxyServer {
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
-    // dns_failure_retries: HashMap<StreamKey, HashMap<String, DNSFailureRetry>>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
     dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
-    stream_key_routes: HashMap<StreamKey, RouteQueryResponse>, // TODO: Does each stream key has it's unique route?
+    stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
     main_cryptde: &'static dyn CryptDE,
@@ -495,7 +494,6 @@ impl ProxyServer {
         match http_data {
             Some(ref host) if host.port == Some(443) => {
                 let stream_key = self.make_stream_key(msg);
-                panic!("Stop at tls_connect");
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -610,6 +608,7 @@ impl ProxyServer {
                     .stream_key_factory
                     .make(self.main_cryptde.public_key(), ibcd.peer_addr);
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
+                // todo!("Add Stream here to DNS_retries");
                 debug!(
                     self.logger,
                     "make_stream_key() inserted new key {} for {}", &stream_key, ibcd.peer_addr
@@ -1073,6 +1072,17 @@ impl IBCDHelper for IBCDHelperReal {
             Ok(payload) => payload,
             Err(e) => return Err(e),
         };
+
+        if let Some(retry) = proxy.dns_failure_retries.get_mut(&stream_key) {
+            todo!("StreamKey already found");
+
+        } else {
+            // todo!("Insert new entry here");
+            let dns_failure_retry = DNSFailureRetry{ unsuccessful_request: payload.clone(), retries_left: 3 };
+            proxy.dns_failure_retries.insert(stream_key, dns_failure_retry);
+
+        }
+
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: proxy.main_cryptde,
             payload,
@@ -5630,6 +5640,81 @@ mod tests {
     }
 
     #[test]
+    fn new_http_request_creates_new_entry_inside_dns_retries_hashmap () {
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
+        let destination_key = PublicKey::from(&b"our destination"[..]);
+        let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
+            route: Route { hops: vec![] },
+            expected_services: ExpectedServices::RoundTrip(
+                vec![make_exit_service_from_key(destination_key.clone())],
+                vec![],
+                1234,
+            ),
+        }));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(HTTP_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        // let expected_http_request = PlainData::new(http_request);
+        // let route = Route { hops: vec![] };
+        // let expected_payload = ClientRequestPayload_0v1 {
+        //     stream_key: stream_key.clone(),
+        //     sequenced_packet: SequencedPacket {
+        //         data: expected_http_request.into(),
+        //         sequence_number: 0,
+        //         last_data: true,
+        //     },
+        //     target_hostname: Some(String::from("nowhere.com")),
+        //     target_port: HTTP_PORT,
+        //     protocol: ProxyProtocol::HTTP,
+        //     originator_public_key: alias_cryptde.public_key().clone(),
+        // };
+        // let expected_pkg = IncipientCoresPackage::new(
+        //     main_cryptde,
+        //     route.clone(),
+        //     expected_payload.into(),
+        //     &destination_key,
+        // )
+        //     .unwrap();
+        thread::spawn(move || {
+            let stream_key_factory = StreamKeyFactoryMock::new()
+                .make_result(stream_key);
+            let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
+            let mut subject = ProxyServer::new(
+                main_cryptde,
+                alias_cryptde,
+                true,
+                Some(STANDARD_CONSUMING_WALLET_BALANCE),
+                false,
+            );
+            subject.stream_key_factory = Box::new(stream_key_factory);
+            let subject_addr: Addr<ProxyServer> = subject.start();
+            let mut peer_actors = peer_actors_builder()
+                .neighborhood(neighborhood_mock)
+                .build();
+            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+            subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+            system.run();
+        });
+
+
+    }
+
+    #[test]
     fn hostname_works () {
         assert_on_hostname("https://example.com/folder/file.html", "example.com");
         assert_on_hostname("example.com/index.php?arg=test", "example.com");
@@ -5639,8 +5724,6 @@ mod tests {
         assert_on_hostname("example", "example");
         assert_on_hostname("htttttps://example.com/folder/file.html", "htttttps://example.com/folder/file.html");
     }
-
-
 
     fn assert_on_hostname(raw_url: &str, expected_hostname: &str) {
         let clean_hostname = Hostname::new(raw_url);
