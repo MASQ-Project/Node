@@ -8,6 +8,7 @@ pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
 
+use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
@@ -149,7 +150,13 @@ impl Handler<SetConfigurationMessage> for Neighborhood {
             ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
-            ConfigurationChange::UpdateMinHops(_) => todo!("min hops"),
+            ConfigurationChange::UpdateMinHops(new_min_hops) => {
+                self.min_hops = new_min_hops;
+                self.persistent_config_opt
+                    .as_mut()
+                    .expect("Database error")
+                    .set_min_hops(new_min_hops);
+            }
         }
     }
 }
@@ -3001,7 +3008,37 @@ mod tests {
 
     #[test]
     fn can_update_min_hops_with_set_configuration_msg() {
-        todo!()
+        let system = System::new("can_update_min_hops_with_set_configuration_msg");
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::TwoHops;
+        let root_node_record = subject.neighborhood_database.root().clone();
+        let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_min_hops_params(&set_min_hops_params_arc)
+            .set_min_hops_result(Ok(()));
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(SetConfigurationMessage {
+                change: ConfigurationChange::UpdateMinHops(Hops::FourHops),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(|actor: &mut Neighborhood| {
+                    assert_eq!(actor.min_hops, Hops::FourHops);
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        system.run();
+        let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
+        let new_min_hops = set_min_hops_params.get(0).unwrap();
+        assert_eq!(*new_min_hops, Hops::FourHops);
     }
 
     #[test]
