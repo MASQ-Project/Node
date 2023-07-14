@@ -764,10 +764,7 @@ impl Configurator {
         // TODO: Change Min Hops Value in Neighborhood
         match config.set_min_hops(min_hops) {
             Ok(_) => Ok(()),
-            Err(e) => {
-                todo!("")
-                // Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e)));
-            }
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e))),
         }
     }
 
@@ -2176,6 +2173,33 @@ mod tests {
                 payload: Err((
                     NON_PARSABLE_VALUE,
                     "min hops: \"Invalid value for min hops provided\"".to_string()
+                ))
+            }
+        );
+    }
+
+    #[test]
+    fn handle_set_configuration_handles_failure_on_min_hops_database_issue() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_min_hops_result(Err(PersistentConfigError::TransactionError));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: "4".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    "min hops: TransactionError".to_string()
                 ))
             }
         );
