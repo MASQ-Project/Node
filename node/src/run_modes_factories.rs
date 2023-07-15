@@ -69,7 +69,6 @@ pub trait DaemonInitializerFactory {
 pub trait DumpConfigRunner {
     fn go(
         &self,
-        dirs_wrapper: &dyn DirsWrapper,
         streams: &mut StdStreams,
         args: &[String],
     ) -> RunModeResult;
@@ -88,7 +87,7 @@ pub trait DaemonInitializer {
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
-        Box::new(DumpConfigRunnerReal)
+        Box::new(DumpConfigRunnerReal { dirs_wrapper: &Box::new(DirsWrapperReal) })
     }
 }
 
@@ -369,7 +368,6 @@ pub mod mocks {
     impl DumpConfigRunner for DumpConfigRunnerMock {
         fn go(
             &self,
-            _dirs_wrapper: &dyn DirsWrapper,
             _streams: &mut StdStreams,
             args: &[String],
         ) -> Result<(), ConfiguratorError> {

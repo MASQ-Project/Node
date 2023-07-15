@@ -10,7 +10,7 @@ use crate::database::db_initializer::{
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::{
-    data_directory_from_context, real_user_data_directory_opt_and_chain, DirsWrapper,
+    data_directory_from_context, real_user_data_directory_path_and_chain, DirsWrapper,
 };
 use crate::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::run_modes_factories::DumpConfigRunner;
@@ -31,16 +31,17 @@ use serde_json::{Map, Value};
 use std::any::Any;
 use std::path::{Path, PathBuf};
 
-pub struct DumpConfigRunnerReal;
+pub struct DumpConfigRunnerReal<'s> {
+    pub dirs_wrapper: &'s dyn DirsWrapper,
+}
 
-impl DumpConfigRunner for DumpConfigRunnerReal {
+impl DumpConfigRunner for DumpConfigRunnerReal<'static> {
     fn go(
         &self,
-        dirs_wrapper: &dyn DirsWrapper,
         streams: &mut StdStreams,
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory, chain, password_opt) = distill_args(dirs_wrapper, args)?;
+        let (real_user, data_directory, chain, password_opt) = distill_args(self.dirs_wrapper, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(
@@ -148,9 +149,9 @@ fn distill_args(
         Box::new(EnvironmentVcl::new(&app)),
     ];
     let multi_config = make_new_multi_config(&app, vcls)?;
-    let (real_user, data_directory_opt, chain) =
-        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let directory = match data_directory_opt {
+    let (real_user, data_directory_path, chain) =
+        real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
+    let directory = match data_directory_path {
         Some(data_dir) => data_dir,
         None => data_directory_from_context(dirs_wrapper, &real_user, chain),
     };
@@ -185,6 +186,7 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use crate::node_configurator;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -199,10 +201,10 @@ mod tests {
             .param("--real-user", "123::")
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal;
+        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice())
+            subject.go(&mut holder.streams(), args_vec.as_slice())
         }))
         .unwrap_err();
 
@@ -238,9 +240,9 @@ mod tests {
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal;
+        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
 
-        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
@@ -305,11 +307,17 @@ mod tests {
             args_builder = args_builder.param("--data-directory", data_dir.to_str().unwrap());
         }
         let args_vec: Vec<String> = args_builder.into();
-        let subject = DumpConfigRunnerReal;
-        let dirs_wrapper = mock_dirs_wrapper_opt.unwrap_or(Box::new(DirsWrapperReal));
+        let dirs_wrapper = mock_dirs_wrapper_opt.unwrap_or(
+            Box::new(
+                DirsWrapperMock {
+                    data_dir_result: Some(PathBuf::from("/home/booga/.loca/share".to_string())),
+                    home_dir_result: Some(PathBuf::from("/home/booga".to_string()))
+                }
+            )
+        );
+        let subject = DumpConfigRunnerReal { dirs_wrapper: &dirs_wrapper };
 
         let result = subject.go(
-            dirs_wrapper.as_ref(),
             &mut holder.streams(),
             args_vec.as_slice(),
         );
@@ -467,9 +475,9 @@ mod tests {
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal;
+        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
 
-        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok());
         let output = holder.stdout.get_string();
@@ -573,9 +581,9 @@ mod tests {
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal;
+            let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
 
-        let result = subject.go(&DirsWrapperReal, &mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
         assert!(result.is_ok(), "we expected Ok but got: {:?}", result);
         let output = holder.stdout.get_string();
