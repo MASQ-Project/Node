@@ -57,9 +57,9 @@ pub fn determine_fundamentals(
     let config_file_path =
         value_m!(multi_config, "config-file", PathBuf).expect("config-file parameter is not properly defaulted by clap");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
-    let (real_user, data_directory_opt, chain) =
-        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let data_directory = match data_directory_opt {
+    let (real_user, data_directory_path, chain) =
+        real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
+    let data_directory = match data_directory_path {
         Some(data_dir) => data_dir,
         None => data_directory_from_context(dirs_wrapper, &real_user, chain),
     };
@@ -99,17 +99,17 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_data_directory_opt_and_chain(
+pub fn real_user_data_directory_path_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name = value_m!(multi_config, "chain", String)
         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
-    let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
+    let data_directory_path = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
-        data_directory_opt,
+        data_directory_path,
         Chain::from(chain_name.as_str()),
     )
 }

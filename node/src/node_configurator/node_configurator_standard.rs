@@ -24,7 +24,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals, real_user_data_directory_opt_and_chain,
+    data_directory_from_context, determine_fundamentals, real_user_data_directory_path_and_chain,
 };
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::PublicKey;
@@ -195,10 +195,10 @@ pub fn privileged_parse_args(
     multi_config: &MultiConfig,
     privileged_config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let (real_user, data_directory_opt, chain) =
-        real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
-    let directory = match data_directory_opt {
-        Some(data_directory_opt) => data_directory_opt,
+    let (real_user, data_directory_path, chain) =
+        real_user_data_directory_path_and_chain(dirs_wrapper, multi_config);
+    let directory = match data_directory_path {
+        Some(data_directory_path) => data_directory_path,
         None => data_directory_from_context(dirs_wrapper, &real_user, chain),
     };
     privileged_config.real_user = real_user;
@@ -456,7 +456,6 @@ mod tests {
         )
         .unwrap();
 
-        eprintln!("{:?}", gathered_params.config_file_path);
         let multi_config = gathered_params.multi_config;
         assert_eq!(
             value_m!(multi_config, "dns-servers", String).unwrap(),
@@ -994,7 +993,7 @@ mod tests {
         assert_eq!(result, expected)
     }
 
-    fn check_data_directory_combinations(
+    fn check_data_directory_combinations_when_user_specifies_data_directory_without_chain_specific_directory(
         chain_opt: Option<&str>,
         data_directory_opt: Option<&str>,
         expected: Option<&str>,
@@ -1027,6 +1026,7 @@ mod tests {
                 .home_dir_result(Some(home_dir))
                 .data_dir_result(Some(PathBuf::from(standard_data_dir))),
         };
+
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
             .unwrap()
             .data_directory
@@ -1067,7 +1067,11 @@ mod tests {
         ]
         .iter()
         .for_each(|(chain_opt, data_directory_opt, expected)| {
-            check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
+            check_data_directory_combinations_when_user_specifies_data_directory_without_chain_specific_directory(
+                *chain_opt,
+                *data_directory_opt,
+                *expected
+            );
         });
     }
 }

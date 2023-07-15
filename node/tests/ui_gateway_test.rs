@@ -3,7 +3,6 @@
 pub mod utils;
 
 use crate::utils::MASQNode;
-use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::SerializableLogLevel::Warn;
 use masq_lib::messages::{
@@ -103,7 +102,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         "ui_gateway_test",
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
     );
-    let expected_chain_data_dir = add_chain_specific_directory(Chain::PolyMainnet, &data_directory);
+    let expected_chain_data_dir = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",

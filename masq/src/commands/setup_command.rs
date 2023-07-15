@@ -351,66 +351,71 @@ ip                            No sir, I don't like it.\n\
 \n");
     }
 
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct SetupCommandData {
+        chain_str: Option<String>,
+        data_directory: Option<String>,
+        chain_name_expected: Option<&'static str>,
+        data_directory_expected: Option<&'static str>,
+        note_expected: bool,
+        status_chain: UiSetupResponseValueStatus,
+        status_data_dir: UiSetupResponseValueStatus
+    }
+
     #[test]
     fn setup_command_with_data_directory_shows_right_path() {
         #[rustfmt::skip]
         vec![
-            (
-                None,
-                None,
-                Some("polygon-mainnet"),
-                Some("/home/cooga/.local/MASQ/polygon-mainnet"),
-                false,
-                UiSetupResponseValueStatus::Default,
-                UiSetupResponseValueStatus::Default
-            ),
-            (
-                Some("polygon-mumbai"),
-                None,
-                Some("polygon-mumbai"),
-                Some("/home/cooga/.local/MASQ/polygon-mumbai"),
-                true,
-                UiSetupResponseValueStatus::Set,
-                UiSetupResponseValueStatus::Default
-            ),
-            (
-                None,
-                Some("booga"),
-                Some("polygon-mainnet"),
-                Some("booga/polygon-mainnet"),
-                true,
-                UiSetupResponseValueStatus::Default,
-                UiSetupResponseValueStatus::Set
-            ),
-            (
-                Some("polygon-mumbai"),
-                Some("booga/polygon-mumbai"),
-                Some("polygon-mumbai"),
-                Some("booga/polygon-mumbai/polygon-mumbai"),
-                true,
-                UiSetupResponseValueStatus::Set,
-                UiSetupResponseValueStatus::Set
-            ),
+            SetupCommandData {
+                chain_str: None,
+                data_directory: None,
+                chain_name_expected: Some("polygon-mainnet"),
+                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-mainnet"),
+                note_expected: false,
+                status_chain: UiSetupResponseValueStatus::Default,
+                status_data_dir: UiSetupResponseValueStatus::Default,
+            },
+            SetupCommandData {
+                chain_str: Some("polygon-mumbai".to_owned()),
+                data_directory: None,
+                chain_name_expected: Some("polygon-mumbai"),
+                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+                note_expected: true,
+                status_chain: UiSetupResponseValueStatus::Set,
+                status_data_dir: UiSetupResponseValueStatus::Default,
+            },
+            SetupCommandData {
+                chain_str: None,
+                data_directory: Some("booga".to_owned()),
+                chain_name_expected: Some("polygon-mainnet"),
+                data_directory_expected: Some("booga/polygon-mainnet"),
+                note_expected: true,
+                status_chain: UiSetupResponseValueStatus::Default,
+                status_data_dir: UiSetupResponseValueStatus::Set,
+            },
+            SetupCommandData {
+                chain_str: Some("polygon-mumbai".to_owned()),
+                data_directory: Some("booga/polygon-mumbai".to_owned()),
+                chain_name_expected: Some("polygon-mumbai"),
+                data_directory_expected: Some("booga/polygon-mumbai/polygon-mumbai"),
+                note_expected: true,
+                status_chain: UiSetupResponseValueStatus::Set,
+                status_data_dir: UiSetupResponseValueStatus::Set,
+            },
         ].iter().for_each(|
-            (chain_opt,
-             data_directory,
-             chain_name_expected,
-             data_directory_expected,
-             note_expected,
-             status_chain,
-             status_data_dir)| {
-            let note_expected_real = match note_expected {
+            data| {
+            let note_expected_real = match data.note_expected {
                 true => "\nNOTE: your data directory was modified to match the chain parameter.\n",
                 _ => ""
             };
-            let status_data_dir_str = match *status_data_dir {
+            let status_data_dir_str = match data.status_data_dir {
                 Default => "Default",
                 Set => "Set",
                 Configured => "Configured",
                 UiSetupResponseValueStatus::Blank => "Blank",
                 UiSetupResponseValueStatus::Required => "Required"
             };
-            let status_chain_str = match *status_chain {
+            let status_chain_str = match data.status_chain {
                 Default => "Default",
                 Set => "Set",
                 Configured => "Configured",
@@ -421,18 +426,25 @@ ip                            No sir, I don't like it.\n\
 NAME                          VALUE                                                            STATUS\n\
 {:29} {:64} {}\n{:29} {:64} {}\n{}\n",
                                    "chain",
-                                   &*chain_name_expected.unwrap(),
+                                   data.chain_name_expected.unwrap(),
                                    status_chain_str,
                                    "data-directory",
-                                   &*data_directory_expected.unwrap(),
-                                   status_data_dir_str, note_expected_real
+                                   data.data_directory_expected.unwrap(),
+                                   status_data_dir_str,
+                                   note_expected_real
             );
-            let chain_real = match &*chain_opt { Some(..) => &*chain_opt.unwrap(), _ => "polygon-mainnet" };
-            let data_directory_real = match &*data_directory {
-                Some(..) => format!("{}/{}", &data_directory.unwrap(), chain_real),
+            let chain_real = match &data.chain_str { Some(chain) => chain, _ => "polygon-mainnet" };
+            let data_directory_real = match &data.data_directory {
+                Some(dir) => format!("{}/{}", dir, chain_real),
                 _ => format!("/home/cooga/.local/MASQ/{}", chain_real)
             };
-            process_setup_command_for_given_attributes(chain_real, &data_directory_real, &expected, *status_chain, *status_data_dir);
+            process_setup_command_for_given_attributes(
+                chain_real,
+                &data_directory_real,
+                &expected,
+                data.status_chain,
+                data.status_data_dir
+            );
         });
     }
 
