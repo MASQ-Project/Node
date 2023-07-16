@@ -31,17 +31,18 @@ use serde_json::{Map, Value};
 use std::any::Any;
 use std::path::{Path, PathBuf};
 
-pub struct DumpConfigRunnerReal<'s> {
-    pub dirs_wrapper: &'s dyn DirsWrapper,
+pub struct DumpConfigRunnerReal {
+    pub(crate) dirs_wrapper: Box<dyn DirsWrapper>,
 }
 
-impl DumpConfigRunner for DumpConfigRunnerReal<'static> {
+impl DumpConfigRunner for DumpConfigRunnerReal {
     fn go(
         &self,
         streams: &mut StdStreams,
         args: &[String],
     ) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory, chain, password_opt) = distill_args(self.dirs_wrapper, args)?;
+        let dirs_wrapper_ref: &dyn DirsWrapper = self.dirs_wrapper.as_ref();
+        let (real_user, data_directory, chain, password_opt) = distill_args(dirs_wrapper_ref, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
         let config_dao = make_config_dao(
@@ -186,7 +187,6 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use crate::node_configurator;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -201,7 +201,7 @@ mod tests {
             .param("--real-user", "123::")
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
+        let subject = DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) };
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
             subject.go(&mut holder.streams(), args_vec.as_slice())
@@ -240,7 +240,7 @@ mod tests {
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
+        let subject = DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
@@ -315,7 +315,7 @@ mod tests {
                 }
             )
         );
-        let subject = DumpConfigRunnerReal { dirs_wrapper: &dirs_wrapper };
+        let subject = DumpConfigRunnerReal { dirs_wrapper: dirs_wrapper };
 
         let result = subject.go(
             &mut holder.streams(),
@@ -475,7 +475,7 @@ mod tests {
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
-        let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
+        let subject = DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
@@ -581,7 +581,7 @@ mod tests {
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
-            let subject = DumpConfigRunnerReal { dirs_wrapper: &DirsWrapperReal };
+            let subject = DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 

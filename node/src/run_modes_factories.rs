@@ -87,7 +87,7 @@ pub trait DaemonInitializer {
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
-        Box::new(DumpConfigRunnerReal { dirs_wrapper: &Box::new(DirsWrapperReal) })
+        Box::new(DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) })
     }
 }
 
@@ -241,7 +241,7 @@ mod tests {
 pub mod mocks {
     use crate::daemon::daemon_initializer::{RecipientsFactoryReal, RerunnerReal};
     use crate::node_configurator::node_configurator_initialization::InitializationConfig;
-    use crate::node_configurator::{DirsWrapper, NodeConfigurator};
+    use crate::node_configurator::NodeConfigurator;
     use crate::run_modes_factories::{
         DIClusteredParams, DaemonInitializer, DaemonInitializerFactory, DumpConfigRunner,
         DumpConfigRunnerFactory, RunModeResult, ServerInitializer, ServerInitializerFactory,
