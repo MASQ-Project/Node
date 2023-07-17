@@ -1007,14 +1007,12 @@ mod tests {
                 .param("--real-user", "999:999:/home/cooga")
                 .param("--data-directory", data_directory_opt),
             (None, Some(data_directory_opt)) => ArgsBuilder::new()
-                .param("--chain", "polygon-mainnet")
                 .param("--data-directory", data_directory_opt)
                 .param("--real-user", "999:999:/home/cooga"),
             (Some(chain_opt), None) => ArgsBuilder::new()
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga"),
             (None, None) => ArgsBuilder::new()
-                .param("--chain", "polygon-mainnet")
                 .param("--real-user", "999:999:/home/cooga"),
         };
         let args_vec: Vec<String> = args.into();

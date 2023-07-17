@@ -253,7 +253,7 @@ impl Runner for RunnerReal {
     ) -> Result<(), RunnerError> {
         self.dump_config_runner_factory
             .make()
-            .go(streams, args) //TODO test if changing the wrapper for the mock one will break tests
+            .go(streams, args)
             .map_err(RunnerError::Configurator)
     }
 

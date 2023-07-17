@@ -69,7 +69,6 @@ pub fn determine_fundamentals(
         config_file_path
     };
 
-    //TODO check out if config_file_path and user_specified belong together
     (config_file_path, user_specified, data_directory, real_user).wrap_to_ok()
 }
 

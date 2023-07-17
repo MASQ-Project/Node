@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(holder.stderr.get_bytes().is_empty(), true);
     }
 
-    fn process_dump_config_dumps_existing_database_without_password(
+    fn check_that_dump_config_dumps_existing_database_without_password(
         database_path: PathBuf,
         mock_dirs_wrapper_opt: Option<Box<dyn DirsWrapper>>,
         non_default_data_directory_opt: Option<PathBuf>,
@@ -310,7 +310,7 @@ mod tests {
         let dirs_wrapper = mock_dirs_wrapper_opt.unwrap_or(
             Box::new(
                 DirsWrapperMock {
-                    data_dir_result: Some(PathBuf::from("/home/booga/.loca/share".to_string())),
+                    data_dir_result: Some(PathBuf::from("/home/booga/.local/share".to_string())),
                     home_dir_result: Some(PathBuf::from("/home/booga".to_string()))
                 }
             )
@@ -388,7 +388,7 @@ mod tests {
         let database_path = data_dir.clone();
         let mock_dirs_wrapper_opt = None;
         let non_default_data_directory_opt = Some(data_dir);
-        process_dump_config_dumps_existing_database_without_password(
+        check_that_dump_config_dumps_existing_database_without_password(
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,
@@ -411,7 +411,7 @@ mod tests {
                 .home_dir_result(Some(home_dir)),
         ) as Box<dyn DirsWrapper>);
         let non_default_data_directory_opt = None;
-        process_dump_config_dumps_existing_database_without_password(
+        check_that_dump_config_dumps_existing_database_without_password(
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,
