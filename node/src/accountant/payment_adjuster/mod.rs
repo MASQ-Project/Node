@@ -72,7 +72,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         ) {
             Ok(None) => (),
             Ok(Some(limited_count_from_gas)) => {
-                return Ok(Some(Adjustment::TransactionFeeFirstLaterMaybeMasq {
+                return Ok(Some(Adjustment::TransactionFeeDefinitelyOtherMaybe {
                     limited_count_from_gas,
                 }))
             }
@@ -105,7 +105,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let qualified_payables: Vec<PayableAccount> = msg.qualified_payables;
 
         let gas_limitation_opt = match setup.adjustment {
-            Adjustment::TransactionFeeFirstLaterMaybeMasq {
+            Adjustment::TransactionFeeDefinitelyOtherMaybe {
                 limited_count_from_gas,
             } => Some(limited_count_from_gas),
             Adjustment::MasqToken => None,
@@ -118,7 +118,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .collect::<HashMap<Wallet, u128>>()
         });
 
-        let adjusted_accounts = Self::run_recursively(
+        let adjusted_accounts = Self::run_adjustment_in_recursion(
             vec![],
             qualified_payables,
             current_stage_data,
@@ -220,7 +220,7 @@ impl PaymentAdjusterReal {
         let available_balance_in_minor = tech_info.consuming_wallet_balances.gas_currency_wei;
         let limiting_max_possible_count = (available_balance_in_minor / tfrpt_in_minor).as_u128();
         if limiting_max_possible_count == 0 {
-            Err(AnalysisError::TransactionFeeBalanceBelowOneTransaction {
+            Err(AnalysisError::BalanceBelowSingleTxFee {
                 one_transaction_requirement: transaction_fee_required_per_transaction_in_major
                     as u64,
                 cw_balance: wei_to_gwei(available_balance_in_minor),
@@ -269,7 +269,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn run_recursively(
+    fn run_adjustment_in_recursion(
         resolved_qualified_accounts: Vec<PayableAccount>,
         unresolved_qualified_accounts: Vec<PayableAccount>,
         collected_setup_data: FinancialAndTechDetails, //TODO this maybe should be just cw_balance
@@ -312,7 +312,7 @@ impl PaymentAdjusterReal {
                 &adjustment_result.decided_accounts,
             );
             //TODO what happens if we choose one that will get us into negative when subtracted
-            return Self::run_recursively(
+            return Self::run_adjustment_in_recursion(
                 adjustment_result.decided_accounts,
                 adjustment_result.remaining_accounts,
                 adjusted_setup_data,
@@ -621,6 +621,7 @@ impl PaymentAdjusterReal {
                         .into_iter()
                         .map(|(_,account)|account)
                         .partition(|(_, account)| wallets_of_outweighed.contains(&account.wallet));
+                // TODO you probably will want to supply the accounts naked to adjust_balance_of_outweighed_accounts_to_cw_balance_if_necessary
                 let remaining= Self::drop_criteria_and_leave_accounts(remaining_with_criteria);
                 let outweighed = Self::adjust_balance_of_outweighed_accounts_to_cw_balance_if_necessary(outweighed_with_criteria,cw_masq_balance,logger);
                 (outweighed,remaining)
@@ -679,7 +680,7 @@ impl PaymentAdjusterReal {
                 vec![PayableAccount {balance_wei: cw_masq_balance, ..account}]
             } else {Self::drop_criteria_and_leave_accounts(outweighed_with_criteria)}
         } else {
-                Self::run_recursively(vec![], outweighed, logger)
+                Self::run_adjustment_in_recursion(vec![], outweighed, logger)
                 //
                 // if !adjustment_result.decided_accounts.is_empty() && adjustment_result.remaining_accounts.is_empty() && adjustment_result.disqualified_accounts.is_empty() {
                 //     todo!()
@@ -870,7 +871,7 @@ impl DisqualifiedPayableAccount {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Adjustment {
     MasqToken,
-    TransactionFeeFirstLaterMaybeMasq { limited_count_from_gas: u16 },
+    TransactionFeeDefinitelyOtherMaybe { limited_count_from_gas: u16 },
 }
 
 #[derive(Clone, Copy)]
@@ -881,11 +882,19 @@ struct GasLimitationContext {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AnalysisError {
-    TransactionFeeBalanceBelowOneTransaction {
+    BalanceBelowSingleTxFee {
         one_transaction_requirement: u64,
         cw_balance: u64,
     },
 }
+
+// struct AdjustmentCircumstances {
+//     now: SystemTime,
+//     cw_masq_balance: u128,
+//     gas_limitation_opt: Option<u16>,
+//     // TODO information about accounts
+//     // from Neighborhood should later go here
+// }
 
 #[cfg(test)]
 mod tests {
@@ -1085,7 +1094,7 @@ mod tests {
         let expected_limiting_count = number_of_payments as u16 - 1;
         assert_eq!(
             result,
-            Ok(Some(Adjustment::TransactionFeeFirstLaterMaybeMasq {
+            Ok(Some(Adjustment::TransactionFeeDefinitelyOtherMaybe {
                 limited_count_from_gas: expected_limiting_count
             }))
         );
@@ -1118,7 +1127,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AnalysisError::TransactionFeeBalanceBelowOneTransaction {
+            Err(AnalysisError::BalanceBelowSingleTxFee {
                 one_transaction_requirement: 55_000 * 100,
                 cw_balance: 54_000 * 100
             })
@@ -1388,7 +1397,7 @@ mod tests {
         let logger = Logger::new("test");
         let qualified_payables = vec![account_1, account_2.clone()];
 
-        let result = PaymentAdjusterReal::run_recursively(
+        let result = PaymentAdjusterReal::run_adjustment_in_recursion(
             vec![],
             qualified_payables.clone(),
             collected_setup_data,
@@ -1665,7 +1674,7 @@ mod tests {
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::TransactionFeeFirstLaterMaybeMasq {
+            adjustment: Adjustment::TransactionFeeDefinitelyOtherMaybe {
                 limited_count_from_gas: 2,
             },
         };
@@ -2100,7 +2109,7 @@ mod tests {
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::TransactionFeeFirstLaterMaybeMasq {
+            adjustment: Adjustment::TransactionFeeDefinitelyOtherMaybe {
                 limited_count_from_gas: 2,
             },
         };
