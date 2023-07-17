@@ -40,7 +40,6 @@ use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -368,15 +367,6 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
     }
 }
 
-impl Handler<NewPasswordMessage> for Neighborhood {
-    type Result = ();
-
-    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
-        todo!("migrate to SetConfigurationMessage");
-        self.handle_new_password(msg.new_password);
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
@@ -490,7 +480,6 @@ impl Neighborhood {
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }

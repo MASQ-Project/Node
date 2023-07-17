@@ -26,7 +26,6 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::neighborhood::Hops;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -48,7 +47,6 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
-    new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>,
     crashable: bool,
     logger: Logger,
 }
@@ -62,7 +60,8 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub])
+        todo!("implement the subscriber for new password change");
+        // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub])
     }
 }
 
@@ -110,7 +109,6 @@ impl Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub: None,
-            new_password_subs: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -792,15 +790,16 @@ impl Configurator {
     }
 
     fn send_password_changes(&self, new_password: String) {
-        let msg = NewPasswordMessage { new_password };
-        self.new_password_subs
-            .as_ref()
-            .expect("Configurator is unbound")
-            .iter()
-            .for_each(|sub| {
-                sub.try_send(msg.clone())
-                    .expect("New password recipient is dead")
-            });
+        todo!("implement this");
+        // let msg = NewPasswordMessage { new_password };
+        // self.new_password_subs
+        //     .as_ref()
+        //     .expect("Configurator is unbound")
+        //     .iter()
+        //     .for_each(|sub| {
+        //         sub.try_send(msg.clone())
+        //             .expect("New password recipient is dead")
+        //     });
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -891,7 +890,6 @@ mod tests {
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
-        subject.new_password_subs = Some(vec![]);
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1006,62 +1004,63 @@ mod tests {
 
     #[test]
     fn change_password_works() {
-        let system = System::new("test");
-        let change_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .change_password_params(&change_password_params_arc)
-            .change_password_result(Ok(()));
-        let subject = make_subject(Some(persistent_config));
-        let subject_addr = subject.start();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder()
-            .ui_gateway(ui_gateway)
-            .neighborhood(neighborhood)
-            .build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiChangePasswordRequest {
-                    old_password_opt: Some("old_password".to_string()),
-                    new_password: "new_password".to_string(),
-                }
-                .tmb(4321),
-            })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-        let change_password_params = change_password_params_arc.lock().unwrap();
-        assert_eq!(
-            *change_password_params,
-            vec![(Some("old_password".to_string()), "new_password".to_string())]
-        );
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-            &NodeToUiMessage {
-                target: MessageTarget::AllExcept(1234),
-                body: UiNewPasswordBroadcast {}.tmb(0)
-            }
-        );
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(1),
-            &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
-                body: UiChangePasswordResponse {}.tmb(4321)
-            }
-        );
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(
-            neighborhood_recording.get_record::<NewPasswordMessage>(0),
-            &NewPasswordMessage {
-                new_password: "new_password".to_string()
-            }
-        );
-        assert_eq!(neighborhood_recording.len(), 1);
+        todo!("write this");
+        // let system = System::new("test");
+        // let change_password_params_arc = Arc::new(Mutex::new(vec![]));
+        // let persistent_config = PersistentConfigurationMock::new()
+        //     .change_password_params(&change_password_params_arc)
+        //     .change_password_result(Ok(()));
+        // let subject = make_subject(Some(persistent_config));
+        // let subject_addr = subject.start();
+        // let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        // let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        // let peer_actors = peer_actors_builder()
+        //     .ui_gateway(ui_gateway)
+        //     .neighborhood(neighborhood)
+        //     .build();
+        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        //
+        // subject_addr
+        //     .try_send(NodeFromUiMessage {
+        //         client_id: 1234,
+        //         body: UiChangePasswordRequest {
+        //             old_password_opt: Some("old_password".to_string()),
+        //             new_password: "new_password".to_string(),
+        //         }
+        //         .tmb(4321),
+        //     })
+        //     .unwrap();
+        //
+        // System::current().stop();
+        // system.run();
+        // let change_password_params = change_password_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *change_password_params,
+        //     vec![(Some("old_password".to_string()), "new_password".to_string())]
+        // );
+        // let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        // assert_eq!(
+        //     ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+        //     &NodeToUiMessage {
+        //         target: MessageTarget::AllExcept(1234),
+        //         body: UiNewPasswordBroadcast {}.tmb(0)
+        //     }
+        // );
+        // assert_eq!(
+        //     ui_gateway_recording.get_record::<NodeToUiMessage>(1),
+        //     &NodeToUiMessage {
+        //         target: MessageTarget::ClientId(1234),
+        //         body: UiChangePasswordResponse {}.tmb(4321)
+        //     }
+        // );
+        // let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        // assert_eq!(
+        //     neighborhood_recording.get_record::<NewPasswordMessage>(0),
+        //     &NewPasswordMessage {
+        //         new_password: "new_password".to_string()
+        //     }
+        // );
+        // assert_eq!(neighborhood_recording.len(), 1);
     }
 
     #[test]
@@ -2652,7 +2651,6 @@ mod tests {
             Configurator {
                 persistent_config,
                 node_to_ui_sub: None,
-                new_password_subs: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }
