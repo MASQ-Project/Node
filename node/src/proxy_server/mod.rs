@@ -74,7 +74,7 @@ pub struct ProxyServer {
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
-    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // HashMap<StreamKey, Vec<RouteQueryResponse>>
+    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // TODO: TTLHashmap look into using this for clean up if all else fails.
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
@@ -170,26 +170,15 @@ impl Handler<RouteResultMessage> for ProxyServer {
     fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(self.logger, "Establishing stream key {}", msg.stream_key);
 
-        // TODO Segregate the retry request from a fresh request, by checking the retry count with the Hashmap.
         match msg.result {
             Ok(route_query_response) => {
                 self.stream_key_routes
                     .insert(msg.stream_key, route_query_response);
                 // TODO Preserve all the previously know routes and halt the retry process if the new route is already present.
+                // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
-                error!(self.logger, "{}", e);
-
-                // TODO conditionally handle error for fresh & retry failures
-
-                // ** For DNS retry failures
-                // We should be sending an error message to the browser, informing the user that their request has failed.
-                // Send message to browser - Error
-                // Stop retry -- Purge the stream_key?
-                // Remove TCP connection
-
-                // ** For fresh request
-                // Send message to browser - No route found.
+                error!(self.logger, "RouteResultMessage Error: {}", e);
             }
         }
     }
@@ -249,7 +238,7 @@ impl ProxyServer {
             stream_key_factory: Box::new(StreamKeyFactoryReal {}),
             keys_and_addrs: BidiHashMap::new(),
             tunneled_hosts: HashMap::new(),
-            dns_failure_retries: HashMap::new(), //TODO take care of me later
+            dns_failure_retries: HashMap::new(),
             stream_key_routes: HashMap::new(),
             is_decentralized,
             consuming_wallet_balance,
@@ -385,18 +374,14 @@ impl ProxyServer {
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
-                //TODO we want to put our new logic here (GH-651)
                 let retries_left = match self.dns_failure_retries_left(&response.stream_key) {
                     Ok(retries_left) => retries_left,
                     Err(_) => {
-                        todo!("Test my feeling is the code is broken in such a case...maybe even panic");
+                        panic!("No entry found inside dns_failure_retries hashmap for the stream_key: {:?}", &response.stream_key);
                     }
                 };
 
-                // TODO: List of points to take out dns_failure_retries
-                // when all retry have failed
-                // If it succeeds
-                // when ever purge_stream_key is called
+                // TODO: Take out dns_failure_retries - Handle it properly is case a new attempt succeeds (We might need a multi node test for this)
 
                 if retries_left > 0 {
                     self.retry_dns_resolution(&response.stream_key, socket_addr);
@@ -784,15 +769,15 @@ impl ProxyServer {
         };
         match destination_key_opt {
             None => {
+                // Route not found
                 Err(ProxyServer::handle_route_failure(
                     payload,
                     source_addr,
                     dispatcher,
                 ))
-                // TODO: We didnt find a new route
             }
             Some(payload_destination_key) => {
-                // TODO: Route found
+                // Route found
                 debug!(
                     logger,
                     "transmit to hopper with destination key {:?}", payload_destination_key
@@ -851,7 +836,6 @@ impl ProxyServer {
         dispatcher: &Recipient<TransmitDataMsg>,
     ) -> String {
         let target_hostname = ProxyServer::hostname(&payload);
-        // let stream_key = payload.stream_key;
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
         format!("Failed to find route to {}", target_hostname) // TODO: Would be better if we added stream_key
     }
@@ -1086,7 +1070,6 @@ impl IBCDHelper for IBCDHelperReal {
         if let Some(retry) = proxy.dns_failure_retries.get_mut(&stream_key) {
             todo!("StreamKey already found");
         } else {
-            // todo!("Insert new entry here");
             let dns_failure_retry = DNSFailureRetry {
                 unsuccessful_request: payload.clone(),
                 retries_left: 3,
@@ -1135,7 +1118,7 @@ impl IBCDHelper for IBCDHelperReal {
     fn request_route_and_transmit(
         &self,
         tth_args: TryTransmitToHopperArgs,
-        route_source: Recipient<RouteQueryMessage>, // TODO: Rename route_source to something with neighborhood or / and add sub suffix
+        neighborhood_sub: Recipient<RouteQueryMessage>,
         proxy_server_sub: Recipient<RouteResultMessage>,
     ) {
         let pld = &tth_args.payload;
@@ -1152,16 +1135,13 @@ impl IBCDHelper for IBCDHelperReal {
         let message_resolver = self.factory.make();
 
         tokio::spawn(
-            route_source
+            neighborhood_sub
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    // TODO: Inside of resolve_message, when we hit an error. look at sending `send_route_failure` and update retry_routes.
-                    // TODO: TTLHashmap look into using this for clean up if all else fails.
                     message_resolver.resolve_message(tth_args, proxy_server_sub, route_result);
-
                     Ok(())
                 }),
         );
@@ -1469,7 +1449,7 @@ mod tests {
             _route_source: Recipient<RouteQueryMessage>,
             _proxy_server_sub: Recipient<RouteResultMessage>,
         ) {
-            todo!()
+            unimplemented!();
         }
     }
 
@@ -3080,7 +3060,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Failed to find route to nowhere.com"
+            "ERROR: {test_name}: RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3253,7 +3233,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Failed to find route to nowhere.com"
+            "ERROR: {test_name}: RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3595,8 +3575,9 @@ mod tests {
         };
         assert_eq!(record, &expected_msg);
 
-        TestLogHandler::new()
-            .exists_log_containing("ERROR: ProxyServer: Failed to find route to server.com");
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: ProxyServer: RouteResultMessage Error: Failed to find route to server.com",
+        );
     }
 
     #[test]
@@ -4767,8 +4748,6 @@ mod tests {
         let (transmit_to_hopper_args, route_query_message_response) =
             resolve_message_params.remove(0);
         let args = transmit_to_hopper_args;
-        // let retry = subject.dns_failure_retries.get(&stream_key).unwrap();
-        // assert_eq!(retry.retries_left , 2);
 
         assert!(resolve_message_params.is_empty());
         assert_eq!(args.payload, client_payload);
@@ -4780,6 +4759,61 @@ mod tests {
             route_query_message_response.unwrap().unwrap(),
             route_query_response_expected
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "No entry found inside dns_failure_retries hashmap for the stream_key: +dKB2Lsh3ET2TS/J/cexaanFQz4"
+    )]
+    fn handle_dns_resolve_failure_panics_when_there_is_no_entry_in_the_hashmap_for_the_stream_key()
+    {
+        let system = System::new("test");
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = make_wallet("exit wallet");
+        let expected_services = vec![ExpectedService::Exit(
+            exit_public_key.clone(),
+            exit_wallet,
+            rate_pack(10),
+        )];
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: expected_services.clone(),
+                protocol: ProxyProtocol::HTTP,
+                hostname_opt: Some("server.com".to_string()),
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop();
+        system.run();
     }
 
     #[test]
@@ -4845,13 +4879,11 @@ mod tests {
                 hostname_opt: Some("server.com".to_string()),
             },
         );
-
         let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()));
-
         subject.inbound_client_data_helper_opt = Some(Box::new(IBCDHelperReal {
             factory: Box::new(message_resolver_factory),
         }));
@@ -5689,7 +5721,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
+        let (neighborhood_mock, _, _) = make_recorder();
         let destination_key = PublicKey::from(&b"our destination"[..]);
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: Route { hops: vec![] },
