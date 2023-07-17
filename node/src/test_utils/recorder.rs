@@ -40,7 +40,6 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;

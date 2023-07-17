@@ -8,7 +8,6 @@ pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
@@ -62,7 +61,6 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::utils::{
     db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,

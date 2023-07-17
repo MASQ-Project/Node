@@ -19,7 +19,6 @@ use crate::sub_lib::blockchain_bridge::{
     BlockchainBridgeSubs, ReportAccountsPayable, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;

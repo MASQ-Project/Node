@@ -8,7 +8,6 @@ use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
