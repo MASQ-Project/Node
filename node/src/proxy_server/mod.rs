@@ -247,7 +247,6 @@ impl ProxyServer {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            // set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }

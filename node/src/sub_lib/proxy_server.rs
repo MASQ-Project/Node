@@ -79,7 +79,6 @@ pub struct ProxyServerSubs {
     pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    // pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
 }
 
@@ -111,7 +110,6 @@ mod tests {
             add_return_route: recipient!(recorder, AddReturnRouteMessage),
             add_route: recipient!(recorder, AddRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
-            // set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
         };
 
