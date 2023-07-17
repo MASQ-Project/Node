@@ -478,6 +478,7 @@ impl Neighborhood {
                 .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
+            set_configuration_msg_sub: addr.clone().recipient::<SetConfigurationMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),

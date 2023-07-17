@@ -26,7 +26,7 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::neighborhood::Hops;
+use crate::sub_lib::neighborhood::{Hops, SetConfigurationMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -47,6 +47,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
+    set_configuration_msg_sub: Option<Recipient<SetConfigurationMessage>>,
     crashable: bool,
     logger: Logger,
 }
@@ -60,8 +61,12 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        todo!("implement the subscriber for new password change");
-        // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub])
+        self.set_configuration_msg_sub = Some(
+            msg.peer_actors
+                .neighborhood
+                .set_configuration_msg_sub
+                .clone(),
+        );
     }
 }
 
@@ -109,6 +114,7 @@ impl Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub: None,
+            set_configuration_msg_sub: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -2651,6 +2657,7 @@ mod tests {
             Configurator {
                 persistent_config,
                 node_to_ui_sub: None,
+                set_configuration_msg_sub: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }
