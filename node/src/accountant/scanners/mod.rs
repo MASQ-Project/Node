@@ -180,7 +180,7 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
-    pub payment_adjuster: Box<dyn PaymentAdjuster>,
+    pub payment_adjuster: RefCell<Box<dyn PaymentAdjuster>>,
 }
 
 impl Scanner<PayablePaymentSetup, SentPayables> for PayableScanner {
@@ -262,6 +262,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
             .payment_adjuster
+            .borrow()
             .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
@@ -279,7 +280,9 @@ impl PayableScannerMiddleProcedures for PayableScanner {
         logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         let now = SystemTime::now();
-        self.payment_adjuster.adjust_payments(setup, now, logger)
+        self.payment_adjuster
+            .borrow_mut()
+            .adjust_payments(setup, now, logger)
     }
 }
 
@@ -297,7 +300,7 @@ impl PayableScanner {
             payable_dao,
             pending_payable_dao,
             payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
-            payment_adjuster,
+            payment_adjuster: RefCell::new(payment_adjuster),
         }
     }
 
@@ -1112,10 +1115,6 @@ mod tests {
             .as_any()
             .downcast_ref::<PayableThresholdsGaugeReal>()
             .unwrap();
-        payable_scanner
-            .payment_adjuster
-            .as_any()
-            .downcast_ref::<PaymentAdjusterReal>();
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec

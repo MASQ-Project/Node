@@ -1414,7 +1414,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
     }
 
     fn adjust_payments(
-        &self,
+        &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
         logger: &Logger,

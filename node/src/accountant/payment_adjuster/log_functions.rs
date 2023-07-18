@@ -119,11 +119,12 @@ pub fn log_info_for_disqualified_accounts(
     disqualified_accounts.iter().for_each(|account| {
         info!(
                 logger,
-                "Recently qualified payable for wallet {} is being ignored as the limited consuming \
-                balance implied adjustment of its balance down to {} wei, which is not at least half \
-                of the debt",
+            "Consuming wallet low in MASQ balance. Recently qualified \
+            payable for wallet {} will not be paid as the consuming wallet handles to provide only {} wei \
+            which is not at least more than a half of the original debt {}",
                 account.wallet,
-                account.proposed_adjusted_balance.separate_with_commas()
+                account.proposed_adjusted_balance.separate_with_commas(),
+                account.original_balance.separate_with_commas()
             )
     });
 }
