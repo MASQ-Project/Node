@@ -773,15 +773,17 @@ impl Configurator {
                 return Err((NON_PARSABLE_VALUE, format!("min hops: {:?}", e)));
             }
         };
-        set_configuration_msg_sub_opt
-            .as_ref()
-            .expect("Configurator is unbound")
-            .try_send(SetConfigurationMessage {
-                change: UpdateMinHops(min_hops),
-            })
-            .expect("Configurator is unbound");
         match config.set_min_hops(min_hops) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                set_configuration_msg_sub_opt
+                    .as_ref()
+                    .expect("Configurator is unbound")
+                    .try_send(SetConfigurationMessage {
+                        change: UpdateMinHops(min_hops),
+                    })
+                    .expect("Configurator is unbound");
+                Ok(())
+            }
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e))),
         }
     }
@@ -2215,13 +2217,14 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_handles_failure_on_min_hops_database_issue() {
-        // TODO: Don't send a msg to Neighborhood in this case
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_result(Err(PersistentConfigError::TransactionError));
-        // let (neighborhood, _, _) = make_recorder();
-        // let neighborhood_addr =
+        let system =
+            System::new("handle_set_configuration_handles_failure_on_min_hops_database_issue");
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let set_configuration_msg_sub = neighborhood.start().recipient::<SetConfigurationMessage>();
         let mut subject = make_subject(Some(persistent_config));
-        // subject.set_configuration_msg_sub_opt = Some()
+        subject.set_configuration_msg_sub_opt = Some(set_configuration_msg_sub);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2231,6 +2234,10 @@ mod tests {
             4000,
         );
 
+        System::current().stop();
+        system.run();
+        let recording = neighborhood_recording_arc.lock().unwrap();
+        assert!(recording.is_empty());
         assert_eq!(
             result,
             MessageBody {
