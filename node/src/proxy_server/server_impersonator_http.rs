@@ -19,10 +19,7 @@ impl ServerImpersonator for ServerImpersonatorHttp {
         )
     }
 
-    fn dns_resolution_failure_response(
-        &self,
-        server_name_opt: Option<String>,
-    ) -> Vec<u8> {
+    fn dns_resolution_failure_response(&self, server_name_opt: Option<String>) -> Vec<u8> {
         let (server_name, quoted_server_name) = match &server_name_opt {
             Some(name) => (name.clone(), format!("\"{}\"", name)),
             None => ("<unspecified>".to_string(), "<unspecified>".to_string()),
@@ -200,9 +197,7 @@ mod tests {
     fn dns_resolution_failure_response_with_server_name_produces_expected_error_page() {
         let subject = ServerImpersonatorHttp {};
 
-        let result = subject.dns_resolution_failure_response(
-            Some("server.com".to_string()),
-        );
+        let result = subject.dns_resolution_failure_response(Some("server.com".to_string()));
 
         let expected = ServerImpersonatorHttp::make_error_response(
             503,

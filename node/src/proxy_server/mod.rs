@@ -47,7 +47,7 @@ use actix::{Actor, MailboxError};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
-use regex::{Captures, Match, Regex};
+use regex::Regex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -294,8 +294,7 @@ impl ProxyServer {
 
         inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
         retry.retries_left -= 1;
-        self.dns_failure_retries
-            .insert(stream_key.clone(), retry.clone());
+        self.dns_failure_retries.insert(*stream_key, retry);
     }
 
     fn mark_dns_resolution_as_failed(&mut self, stream_key: &StreamKey) {
@@ -363,7 +362,7 @@ impl ProxyServer {
                         .expect("Neighborhood unbound in ProxyServer")
                         .update_node_record_metadata
                         .try_send(NodeRecordMetadataMessage {
-                            public_key: exit_public_key.clone(),
+                            public_key: exit_public_key,
                             metadata_change: NRMetadataChange::AddUnreachableHost {
                                 hostname: server_name,
                             },
@@ -390,7 +389,7 @@ impl ProxyServer {
                     self.send_dns_failure_response_to_the_browser(
                         socket_addr,
                         return_route_info.protocol,
-                        hostname_opt.clone(),
+                        hostname_opt,
                     );
                 }
             }
@@ -414,7 +413,6 @@ impl ProxyServer {
             msg.remaining_route
                 .to_string(vec![self.main_cryptde, self.main_cryptde])
         );
-        todo!("Stoping at handle_client_response_payload");
         let payload_data_len = msg.payload_len;
         let response = msg.payload;
         debug!(
@@ -1076,10 +1074,12 @@ impl IBCDHelper for IBCDHelperReal {
             proxy
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
-        } else {
-            todo!("Found same stream key");
-            // proxy.dns_failure_retries.remove(&stream_key);
         }
+        // TODO Fix this later - GH-651 - This needs to be implemented to remove the dns_failure_retries for a successful DNS request after a failure
+        // else {
+        //     todo!("Found same stream key");
+        //     // proxy.dns_failure_retries.remove(&stream_key);
+        // }
 
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: proxy.main_cryptde,
@@ -1194,6 +1194,7 @@ struct Hostname {
 }
 
 impl Hostname {
+    #[allow(dead_code)]
     fn new(raw_url: &str) -> Self {
         let regex = Regex::new(
             r"^((http[s]?|ftp):/)?/?([^:/\s]+)((/\w+)*/)([\w\-.]+[^#?\s]+)(.*)?(#[\w\-]+)?$",

@@ -36,10 +36,8 @@ use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::{RouteResultMessage, ProxyServerSubs};
-use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, ClientRequestPayload_0v1,
-};
+use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
+use crate::sub_lib::proxy_server::{ProxyServerSubs, RouteResultMessage};
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -48,6 +46,7 @@ use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
+use crate::type_id;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -60,8 +59,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use crate::type_id;
-
 
 #[derive(Default)]
 pub struct Recorder {
@@ -229,7 +226,9 @@ impl Recorder {
     }
 
     pub fn stop_on_message(self, type_id: TypeId) -> Recorder {
-        self.system_stop_conditions(StopConditions::All(vec![StopCondition::StopOnType(type_id)]))
+        self.system_stop_conditions(StopConditions::All(vec![StopCondition::StopOnType(
+            type_id,
+        )]))
     }
 
     fn start_system_killer(&mut self) {
@@ -639,6 +638,5 @@ mod tests {
             }
         );
         assert_eq!(recording.len(), 1);
-
     }
 }

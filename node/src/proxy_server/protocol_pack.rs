@@ -58,9 +58,6 @@ pub fn from_ibcd(ibcd: &InboundClientData) -> Result<Box<dyn ProtocolPack>, Stri
 
 pub trait ServerImpersonator {
     fn route_query_failure_response(&self, server_name: &str) -> Vec<u8>;
-    fn dns_resolution_failure_response(
-        &self,
-        server_name_opt: Option<String>,
-    ) -> Vec<u8>;
+    fn dns_resolution_failure_response(&self, server_name_opt: Option<String>) -> Vec<u8>;
     fn consuming_wallet_absent(&self) -> Vec<u8>;
 }

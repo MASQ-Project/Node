@@ -125,10 +125,10 @@ macro_rules! match_every_type_id{
 }
 
 #[macro_export]
-macro_rules! type_id{
+macro_rules! type_id {
     ($message: ident) => {
         TypeId::of::<$message>()
-    }
+    };
 }
 
 mod tests {

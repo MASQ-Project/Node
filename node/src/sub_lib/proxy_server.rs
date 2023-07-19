@@ -80,7 +80,7 @@ pub struct ProxyServerSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
-    pub route_result_sub: Recipient<RouteResultMessage>
+    pub route_result_sub: Recipient<RouteResultMessage>,
 }
 
 impl Debug for ProxyServerSubs {
