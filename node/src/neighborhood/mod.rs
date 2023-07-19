@@ -49,13 +49,13 @@ use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
-use crate::sub_lib::neighborhood::{NodeRecordMetadataMessage, SetConfigurationMessage};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
@@ -136,10 +136,10 @@ impl Handler<NewPublicIp> for Neighborhood {
     }
 }
 
-impl Handler<SetConfigurationMessage> for Neighborhood {
+impl Handler<ConfigurationChangeMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: SetConfigurationMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
         match msg.change {
             ConfigurationChange::UpdateNewPassword(new_password) => {
                 self.db_password_opt = Some(new_password)
@@ -478,7 +478,7 @@ impl Neighborhood {
                 .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
-            set_configuration_msg_sub: addr.clone().recipient::<SetConfigurationMessage>(),
+            configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
@@ -1615,8 +1615,8 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigurationChange, ExpectedServices, NeighborhoodMode,
-        SetConfigurationMessage,
+        AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage,
+        ExpectedServices, NeighborhoodMode,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
@@ -2930,13 +2930,13 @@ mod tests {
     }
 
     #[test]
-    fn can_update_consuming_wallet_with_set_configuration_message() {
+    fn can_update_consuming_wallet_with_configuration_change_msg() {
         let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
         let (o, r, e, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
-        let set_configuration_msg_sub = addr.clone().recipient::<SetConfigurationMessage>();
+        let configuration_change_msg_sub = addr.clone().recipient::<ConfigurationChangeMessage>();
         let route_sub = addr.recipient::<RouteQueryMessage>();
         let expected_new_wallet = make_paying_wallet(b"new consuming wallet");
         let expected_before_route = Route::round_trip(
@@ -2960,8 +2960,8 @@ mod tests {
 
         let route_request_1 =
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
-        set_configuration_msg_sub
-            .try_send(SetConfigurationMessage {
+        configuration_change_msg_sub
+            .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
             })
             .unwrap();
@@ -2979,8 +2979,8 @@ mod tests {
     }
 
     #[test]
-    fn can_update_min_hops_with_set_configuration_msg() {
-        let system = System::new("can_update_min_hops_with_set_configuration_msg");
+    fn can_update_min_hops_with_configuration_change_msg() {
+        let system = System::new("can_update_min_hops_with_configuration_change_msg");
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         let new_min_hops = Hops::FourHops;
@@ -2989,7 +2989,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(SetConfigurationMessage {
+            .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateMinHops(new_min_hops),
             })
             .unwrap();
@@ -5691,7 +5691,7 @@ mod tests {
     }
 
     #[test]
-    fn can_update_new_password_with_set_configuration_message() {
+    fn can_update_new_password_with_configuration_change_msg() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
@@ -5705,7 +5705,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(SetConfigurationMessage {
+            .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateNewPassword("borkety-bork".to_string()),
             })
             .unwrap();

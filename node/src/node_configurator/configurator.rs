@@ -27,7 +27,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
-use crate::sub_lib::neighborhood::{ConfigurationChange, Hops, SetConfigurationMessage};
+use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage, Hops};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -48,7 +48,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    set_configuration_msg_sub_opt: Option<Recipient<SetConfigurationMessage>>,
+    configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
     logger: Logger,
 }
@@ -62,10 +62,10 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.set_configuration_msg_sub_opt = Some(
+        self.configuration_change_msg_sub_opt = Some(
             msg.peer_actors
                 .neighborhood
-                .set_configuration_msg_sub
+                .configuration_change_msg_sub
                 .clone(),
         );
     }
@@ -115,7 +115,7 @@ impl Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub_opt: None,
-            set_configuration_msg_sub_opt: None,
+            configuration_change_msg_sub_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -697,12 +697,12 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        let set_configuration_msg_sub_opt = self.set_configuration_msg_sub_opt.clone();
+        let configuration_change_msg_sub_opt = self.configuration_change_msg_sub_opt.clone();
         match Self::unfriendly_handle_set_configuration(
             msg,
             context_id,
             &mut self.persistent_config,
-            set_configuration_msg_sub_opt,
+            configuration_change_msg_sub_opt,
         ) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
@@ -717,7 +717,7 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
-        set_configuration_msg_sub_opt: Option<Recipient<SetConfigurationMessage>>,
+        configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
@@ -731,7 +731,7 @@ impl Configurator {
                     Self::set_min_hops(
                         msg.value,
                         persistent_config,
-                        set_configuration_msg_sub_opt,
+                        configuration_change_msg_sub_opt,
                     )?;
                 } else {
                     return Err((
@@ -765,7 +765,7 @@ impl Configurator {
     fn set_min_hops(
         string_number: String,
         config: &mut Box<dyn PersistentConfiguration>,
-        set_configuration_msg_sub_opt: Option<Recipient<SetConfigurationMessage>>,
+        configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     ) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&string_number) {
             Ok(min_hops) => min_hops,
@@ -775,10 +775,10 @@ impl Configurator {
         };
         match config.set_min_hops(min_hops) {
             Ok(_) => {
-                set_configuration_msg_sub_opt
+                configuration_change_msg_sub_opt
                     .as_ref()
                     .expect("Configurator is unbound")
-                    .try_send(SetConfigurationMessage {
+                    .try_send(ConfigurationChangeMessage {
                         change: UpdateMinHops(min_hops),
                     })
                     .expect("Configurator is unbound");
@@ -812,10 +812,10 @@ impl Configurator {
     }
 
     fn send_password_changes(&self, new_password: String) {
-        let msg = SetConfigurationMessage {
+        let msg = ConfigurationChangeMessage {
             change: ConfigurationChange::UpdateNewPassword(new_password),
         };
-        self.set_configuration_msg_sub_opt
+        self.configuration_change_msg_sub_opt
             .as_ref()
             .expect("Configurator is unbound")
             .try_send(msg)
@@ -912,7 +912,7 @@ mod tests {
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.set_configuration_msg_sub_opt = Some(neighborhood_addr.recipient());
+        subject.configuration_change_msg_sub_opt = Some(neighborhood_addr.recipient());
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1077,8 +1077,8 @@ mod tests {
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(
-            neighborhood_recording.get_record::<SetConfigurationMessage>(0),
-            &SetConfigurationMessage {
+            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
+            &ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateNewPassword("new_password".to_string())
             }
         );
@@ -2155,8 +2155,8 @@ mod tests {
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_addr = neighborhood.start();
         let mut subject = make_subject(Some(persistent_config));
-        subject.set_configuration_msg_sub_opt =
-            Some(neighborhood_addr.recipient::<SetConfigurationMessage>());
+        subject.configuration_change_msg_sub_opt =
+            Some(neighborhood_addr.recipient::<ConfigurationChangeMessage>());
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2170,7 +2170,7 @@ mod tests {
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let message_to_neighborhood =
-            neighborhood_recording.get_record::<SetConfigurationMessage>(0);
+            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0);
         let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
         let min_hops_in_db = set_min_hops_params.get(0).unwrap();
         assert_eq!(
@@ -2183,7 +2183,7 @@ mod tests {
         );
         assert_eq!(
             message_to_neighborhood,
-            &SetConfigurationMessage {
+            &ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateMinHops(new_min_hops)
             }
         );
@@ -2222,9 +2222,11 @@ mod tests {
         let system =
             System::new("handle_set_configuration_handles_failure_on_min_hops_database_issue");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let set_configuration_msg_sub = neighborhood.start().recipient::<SetConfigurationMessage>();
+        let configuration_change_msg_sub = neighborhood
+            .start()
+            .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
-        subject.set_configuration_msg_sub_opt = Some(set_configuration_msg_sub);
+        subject.configuration_change_msg_sub_opt = Some(configuration_change_msg_sub);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2698,7 +2700,7 @@ mod tests {
             Configurator {
                 persistent_config,
                 node_to_ui_sub_opt: None,
-                set_configuration_msg_sub_opt: None,
+                configuration_change_msg_sub_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }

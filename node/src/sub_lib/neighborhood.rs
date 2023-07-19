@@ -421,7 +421,7 @@ pub struct NeighborhoodSubs {
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
-    pub set_configuration_msg_sub: Recipient<SetConfigurationMessage>,
+    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
@@ -552,18 +552,8 @@ pub enum NRMetadataChange {
     AddUnreachableHost { hostname: String },
 }
 
-/*
-   TODO: Create a new SetConfigurationMessage
-   It's job should be to change the Configuration inside Node
-
-   Create an Enum:
-   - NewPassword(String)
-   - SetConsumingWallet(Wallet)
-   - SetMinHops(Hops)
-*/
-
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct SetConfigurationMessage {
+pub struct ConfigurationChangeMessage {
     pub change: ConfigurationChange,
 }
 
@@ -678,7 +668,7 @@ mod tests {
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
-            set_configuration_msg_sub: recipient!(recorder, SetConfigurationMessage),
+            configuration_change_msg_sub: recipient!(recorder, ConfigurationChangeMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),

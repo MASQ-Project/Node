@@ -23,7 +23,7 @@ use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::{ConnectionProgressMessage, SetConfigurationMessage};
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, ConnectionProgressMessage};
 
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -127,7 +127,7 @@ recorder_message_handler!(ScanError);
 recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(RequestBalancesToPayPayables);
-recorder_message_handler!(SetConfigurationMessage);
+recorder_message_handler!(ConfigurationChangeMessage);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
@@ -388,7 +388,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
-        set_configuration_msg_sub: recipient!(addr, SetConfigurationMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
