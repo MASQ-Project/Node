@@ -56,6 +56,7 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use automap_lib::control_layer::automap_control::AutomapConfig;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -342,7 +343,7 @@ pub struct BootstrapperConfig {
     pub node_descriptor: NodeDescriptor,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
-    pub mapping_protocol_opt: Option<AutomapProtocol>,
+    pub automap_config: AutomapConfig,
     pub real_user: RealUser,
     pub payment_thresholds_opt: Option<PaymentThresholds>,
 
@@ -383,7 +384,7 @@ impl BootstrapperConfig {
             node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            mapping_protocol_opt: None,
+            automap_config: AutomapConfig::default(),
             real_user: RealUser::new(None, None, None),
             payment_thresholds_opt: Default::default(),
 

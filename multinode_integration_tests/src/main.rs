@@ -9,6 +9,7 @@ use node_lib::sub_lib::framer::Framer;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use std::borrow::BorrowMut;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::{Display, Formatter};
@@ -165,7 +166,7 @@ impl DataProbe {
                     Some(chunk) => {
                         let data_hunk: DataHunk = chunk.chunk.into();
                         let mut write_streams = self.write_streams();
-                        if !write_streams.contains_key(&data_hunk.to) {
+                        if let Entry::Vacant(e) = write_streams.entry(data_hunk.to) {
                             let stream = match TcpStream::connect(data_hunk.to) {
                                 Err(e) => {
                                     writeln!(
@@ -178,12 +179,9 @@ impl DataProbe {
                                 }
                                 Ok(s) => s,
                             };
-                            write_streams.insert(
-                                data_hunk.to,
-                                stream.try_clone().unwrap_or_else(|_| {
+                            e.insert(stream.try_clone().unwrap_or_else(|_| {
                                     panic!("Cloning stream to {} failed", data_hunk.to)
-                                }),
-                            );
+                            }));
                             Self::start_stream_reader(
                                 stream,
                                 self.write_control_stream_arc(),
@@ -627,9 +625,7 @@ mod tests {
         ]
         .into_iter()
         .for_each(|probe_target_str| {
-            let result = ProbeTarget::from_str(probe_target_str).err().unwrap();
-
-            assert_eq!(&result, SYNTAX_MSG)
+            assert_eq!(ProbeTarget::from_str(probe_target_str).err().unwrap(), SYNTAX_MSG)
         });
     }
 

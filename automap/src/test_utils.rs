@@ -7,9 +7,7 @@ use crate::comm_layer::pcp_pmp_common::{
 use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
 };
-use crate::control_layer::automap_control::{
-    replace_transactor, AutomapControlReal, ChangeHandler,
-};
+use crate::control_layer::automap_control::{replace_transactor, AutomapControlReal, ChangeHandler, AutomapConfig};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
 use masq_lib::utils::{find_free_port, AutomapProtocol};
@@ -659,10 +657,10 @@ impl TransactorMock {
 
 pub fn parameterizable_automap_control(
     change_handler: ChangeHandler,
-    usual_protocol_opt: Option<AutomapProtocol>,
+    config: AutomapConfig,
     mock_transactors: Vec<TransactorMock>,
 ) -> AutomapControlReal {
-    let subject = AutomapControlReal::new(usual_protocol_opt, change_handler);
+    let subject = AutomapControlReal::new(config, change_handler);
     mock_transactors
         .into_iter()
         .fold(subject, |mut subject_so_far, transactor| {

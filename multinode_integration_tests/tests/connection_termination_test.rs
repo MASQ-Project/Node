@@ -4,7 +4,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
-use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
+use multinode_integration_tests_lib::masq_node::{MASQNode, DataProbeUtils, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
@@ -502,7 +502,7 @@ fn ensure_no_further_traffic(mock_node: &MASQMockNode, masquerader: &dyn Masquer
 fn wait_for_client_shutdown(real_node: &MASQRealNode) {
     // This is a jury-rigged way to wait for a shutdown, since client.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    DataProbeUtils::wrote_log_containing(
         real_node.name(),
         "Shutting down stream to client at 127.0.0.1",
         Duration::from_secs(1),
@@ -512,7 +512,7 @@ fn wait_for_client_shutdown(real_node: &MASQRealNode) {
 fn wait_for_server_shutdown(real_node: &MASQRealNode, local_addr: SocketAddr) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    DataProbeUtils::wrote_log_containing(
         real_node.name(),
         &format!(
             "Shutting down stream to server at {} in response to client-drop report",

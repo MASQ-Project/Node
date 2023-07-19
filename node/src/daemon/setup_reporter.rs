@@ -814,7 +814,7 @@ impl ValueRetriever for MappingProtocol {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match (
-            bootstrapper_config.mapping_protocol_opt,
+            bootstrapper_config.automap_config.usual_protocol_opt,
             persistent_config.mapping_protocol(),
         ) {
             (_, Err(e)) => panic!("Error retrieving mapping protocol from database: {:?}", e),
@@ -2996,7 +2996,7 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
         let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
+        bootstrapper_config.automap_config.usual_protocol_opt = Some(AutomapProtocol::Pcp);
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 

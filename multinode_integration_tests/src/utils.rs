@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command::Command;
-use crate::masq_node::{MASQNode, MASQNodeUtils};
+use crate::masq_node::{MASQNode, DataProbeUtils};
 use crate::masq_real_node::MASQRealNode;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -17,10 +17,11 @@ use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
-use std::net::TcpStream;
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use node_lib::sub_lib::node_addr::NodeAddr;
 
 pub trait UrlHolder {
     fn url(&self) -> String;
@@ -71,7 +72,7 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
 pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
     let db_initializer = DbInitializerReal::default();
     let path = std::path::PathBuf::from(MASQRealNode::node_home_dir(
-        &MASQNodeUtils::find_project_root(),
+        &DataProbeUtils::find_project_root(),
         node_name,
     ));
     db_initializer
@@ -123,6 +124,59 @@ pub fn open_all_file_permissions(dir: PathBuf) {
             dir.to_str().unwrap()
         ),
     }
+}
+
+pub fn do_docker_run(ip_addr: IpAddr, host_node_parent_dir: Option<String>, name: &str, program_args: Vec<String>) {
+    let root = match host_node_parent_dir {
+        Some(dir) => dir,
+        None => DataProbeUtils::find_project_root(),
+    };
+    let command_dir = format!("{}/node/target/release", root);
+    let docker_command = "docker";
+    let v_param = format!("{}:/node_root/node", command_dir);
+    let mut docker_args = Command::strings(vec![
+        "run",
+        "--detach",
+        "--ip",
+        &ip_addr.to_string(),
+        "--name",
+        name,
+        "--net",
+        "integration_net",
+        "-v",
+        v_param.as_str(),
+        "test_node_image",
+        "/node_root/node/mock_node", // TODO: Should be /node_root/node/data_probe
+    ]);
+    docker_args.extend(program_args);
+    let mut command = Command::new(docker_command, docker_args);
+    command.stdout_or_stderr().unwrap();
+}
+
+pub fn wait_for_startup(wait_addr: SocketAddr, name: &str) -> TcpStream {
+    let mut retries = 10;
+    let mut stream: Option<TcpStream> = None;
+    loop {
+        match TcpStream::connect(wait_addr) {
+            Ok(s) => {
+                println!("{} startup detected on {}", name, wait_addr);
+                stream = Some(s);
+                break;
+            }
+            Err(e) => {
+                println!("{} not yet started on {}: {}", name, wait_addr, e);
+            }
+        }
+        retries -= 1;
+        if retries <= 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(100))
+    }
+    if retries <= 0 {
+        panic!("Timed out trying to contact {}", name)
+    }
+    stream.unwrap()
 }
 
 impl From<&dyn MASQNode> for AccessibleGossipRecord {

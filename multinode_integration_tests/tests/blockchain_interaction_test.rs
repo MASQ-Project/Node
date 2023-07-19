@@ -12,7 +12,7 @@ use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest
 use masq_lib::test_utils::utils::is_running_under_github_actions;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
-use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
+use multinode_integration_tests_lib::masq_node::DataProbeUtils;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
@@ -72,7 +72,7 @@ fn debtors_are_credited_once_but_not_twice() {
         .build();
     let (node_name, node_index) = cluster.prepare_real_node(&node_config);
     let node_home_dir =
-        MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), &node_name);
+        MASQRealNode::node_home_dir(&DataProbeUtils::find_project_root(), &node_name);
     open_all_file_permissions(PathBuf::from(node_home_dir));
     {
         let config_dao = config_dao(&node_name);
@@ -167,7 +167,7 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
         "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
         subject.consuming_wallet().unwrap()
     ));
-    MASQNodeUtils::wrote_log_containing(
+    DataProbeUtils::wrote_log_containing(
         subject.name(),
         &escaped_pattern,
         Duration::from_millis(1000),

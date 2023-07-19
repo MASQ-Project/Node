@@ -58,7 +58,7 @@ pub trait UnprivilegedParseArgsConfiguration {
             };
         unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
-        unprivileged_config.mapping_protocol_opt =
+        unprivileged_config.automap_config.usual_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
         let mnc_result = {
             get_wallets(multi_config, persistent_config, unprivileged_config)?;
@@ -1503,7 +1503,7 @@ mod tests {
             }
         );
         assert_eq!(config.db_password_opt, Some(password.to_string()));
-        assert_eq!(config.mapping_protocol_opt, Some(Pcp));
+        assert_eq!(config.automap_config.usual_protocol_opt, Some(Pcp));
     }
 
     #[test]
@@ -1544,7 +1544,8 @@ mod tests {
         );
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
         assert_eq!(config.consuming_wallet_opt, None);
-        assert_eq!(config.mapping_protocol_opt, None);
+        assert_eq!(config.automap_config.usual_protocol_opt, None);
+        assert_eq!(config.automap_config.fake_router_ip_opt, None);
     }
 
     #[test]
@@ -1608,7 +1609,7 @@ mod tests {
         );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(past_neighbors_params[0], "password".to_string());
-        assert_eq!(config.mapping_protocol_opt, Some(Pcp));
+        assert_eq!(config.automap_config.usual_protocol_opt, Some(Pcp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
         assert_eq!(*set_mapping_protocol_params, vec![]);
     }
@@ -1678,7 +1679,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pmp));
+        assert_eq!(config.automap_config.usual_protocol_opt, Some(AutomapProtocol::Pmp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
         assert_eq!(
             *set_mapping_protocol_params,

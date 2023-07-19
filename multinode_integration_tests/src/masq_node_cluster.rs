@@ -4,7 +4,7 @@ use crate::masq_mock_node::{
     ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
     MutableMASQMockNodeStarter,
 };
-use crate::masq_node::{MASQNode, MASQNodeUtils};
+use crate::masq_node::{MASQNode, DataProbeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
 use masq_lib::blockchains::chains::Chain;
@@ -186,7 +186,7 @@ impl MASQNodeCluster {
             &self
                 .host_node_parent_dir
                 .clone()
-                .unwrap_or_else(MASQNodeUtils::find_project_root),
+                .unwrap_or_else(DataProbeUtils::find_project_root),
             &name,
         )
     }

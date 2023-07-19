@@ -226,6 +226,7 @@ pub fn privileged_parse_args(
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
     handle_fake_public_key_if_supplied(multi_config, privileged_config);
+    handle_fake_router_ip_if_supplied(multi_config, privileged_config);
 
     Ok(())
 }
@@ -255,6 +256,13 @@ fn handle_fake_public_key_if_supplied(
         privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
         privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
     }
+}
+
+fn handle_fake_router_ip_if_supplied(
+    multi_config: &MultiConfig,
+    privileged_config: &mut BootstrapperConfig,
+) {
+    privileged_config.automap_config.fake_router_ip_opt = value_m!(multi_config, "fake-router-ip", IpAddr);
 }
 
 fn configure_database(

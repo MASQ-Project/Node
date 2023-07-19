@@ -368,6 +368,15 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .hidden(true),
     )
     .arg(
+        Arg::with_name("fake-router-ip")
+            .long("fake-router-ip")
+            .value_name("FAKE-ROUTER-IP")
+            .required(false)
+            .min_values(0)
+            .max_values(1)
+            .hidden(true),
+    )
+    .arg(
         Arg::with_name("gas-price")
             .long("gas-price")
             .value_name("GAS-PRICE")

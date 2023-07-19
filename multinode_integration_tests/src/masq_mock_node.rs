@@ -3,7 +3,7 @@
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::MASQNode;
-use crate::masq_node::MASQNodeUtils;
+use crate::masq_node::DataProbeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
@@ -42,6 +42,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant};
+use crate::utils::{do_docker_run, wait_for_startup};
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
@@ -123,7 +124,7 @@ impl MASQNode for MASQMockNode {
     }
 
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr {
-        MASQNodeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
+        DataProbeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
     }
 
     fn earning_wallet(&self) -> Wallet {
@@ -505,10 +506,11 @@ impl MASQMockNode {
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
         let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
-        MASQNodeUtils::clean_up_existing_container(&name[..]);
-        MASQMockNode::do_docker_run(&node_addr, host_node_parent_dir, &name);
+        DataProbeUtils::clean_up_existing_container(&name[..]);
+        let mock_node_args = Self::make_mock_node_args(node_addr);
+        do_docker_run(&node_addr, host_node_parent_dir, &name, mock_node_args);
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
-        let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
+        let control_stream = RefCell::new(wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
         let guts = MASQMockNodeGuts {
             name,
@@ -521,61 +523,6 @@ impl MASQMockNode {
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         };
         (control_stream, guts)
-    }
-
-    fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {
-        let root = match host_node_parent_dir {
-            Some(dir) => dir,
-            None => MASQNodeUtils::find_project_root(),
-        };
-        let command_dir = format!("{}/node/target/release", root);
-        let mock_node_args = Self::make_mock_node_args(node_addr);
-        let docker_command = "docker";
-        let ip_addr_string = format!("{}", node_addr.ip_addr());
-        let v_param = format!("{}:/node_root/node", command_dir);
-        let mut docker_args = Command::strings(vec![
-            "run",
-            "--detach",
-            "--ip",
-            &ip_addr_string,
-            "--name",
-            name,
-            "--net",
-            "integration_net",
-            "-v",
-            v_param.as_str(),
-            "test_node_image",
-            "/node_root/node/mock_node",
-        ]);
-        docker_args.extend(mock_node_args);
-        let mut command = Command::new(docker_command, docker_args);
-        command.stdout_or_stderr().unwrap();
-    }
-
-    fn wait_for_startup(wait_addr: SocketAddr, name: &str) -> TcpStream {
-        let mut retries = 10;
-        let mut stream: Option<TcpStream> = None;
-        loop {
-            match TcpStream::connect(wait_addr) {
-                Ok(s) => {
-                    println!("{} startup detected on {}", name, wait_addr);
-                    stream = Some(s);
-                    break;
-                }
-                Err(e) => {
-                    println!("{} not yet started on {}: {}", name, wait_addr, e);
-                }
-            }
-            retries -= 1;
-            if retries <= 0 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(100))
-        }
-        if retries <= 0 {
-            panic!("Timed out trying to contact {}", name)
-        }
-        stream.unwrap()
     }
 
     fn make_mock_node_args(node_addr: &NodeAddr) -> Vec<String> {
@@ -609,7 +556,7 @@ pub struct MASQMockNodeGuts {
 
 impl Drop for MASQMockNodeGuts {
     fn drop(&mut self) {
-        MASQNodeUtils::stop(self.name.as_str());
+        DataProbeUtils::stop(self.name.as_str());
     }
 }
 

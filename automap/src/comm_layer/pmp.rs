@@ -7,7 +7,7 @@ use crate::comm_layer::pcp_pmp_common::{
     ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
-use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
+use crate::control_layer::automap_control::{AutomapChange, AutomapConfig, ChangeHandler};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
 use crate::protocols::pmp::pmp_packet::{Opcode, PmpPacket, ResultCode};
@@ -45,6 +45,7 @@ impl Default for Factories {
 pub struct PmpTransactor {
     mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
     factories_arc: Arc<Mutex<Factories>>,
+    fake_router_ip_opt: Option<IpAddr>,
     router_port: u16,
     announcement_multicast_group: u8,
     announcement_port: u16,
@@ -56,8 +57,16 @@ pub struct PmpTransactor {
 
 impl Transactor for PmpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-        debug!(self.logger, "Seeking routers on LAN");
-        find_routers()
+        match self.fake_router_ip_opt {
+            Some (fake_router_ip) => {
+                debug!(self.logger, "Using fake router IP {}", fake_router_ip);
+                Ok(vec![fake_router_ip])
+            },
+            None => {
+                debug!(self.logger, "Seeking routers on LAN");
+                find_routers()
+            }
+        }
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -222,11 +231,12 @@ impl Transactor for PmpTransactor {
     }
 }
 
-impl Default for PmpTransactor {
-    fn default() -> Self {
+impl PmpTransactor {
+    pub fn new(config: &AutomapConfig) -> Self {
         Self {
             mapping_adder_arc: Arc::new(Mutex::new(Box::<MappingAdderReal>::default())),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
+            fake_router_ip_opt: config.fake_router_ip_opt,
             router_port: ROUTER_PORT,
             announcement_port: ANNOUNCEMENT_PORT,
             announcement_multicast_group: ANNOUNCEMENT_MULTICAST_GROUP,
@@ -235,12 +245,6 @@ impl Default for PmpTransactor {
             join_handle_opt: None,
             logger: Logger::new("PmpTransactor"),
         }
-    }
-}
-
-impl PmpTransactor {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     fn transact(
@@ -791,7 +795,7 @@ mod tests {
 
     #[test]
     fn knows_its_method() {
-        let subject = PmpTransactor::new();
+        let subject = PmpTransactor::new(&AutomapConfig::default());
 
         let method = subject.protocol();
 
@@ -884,7 +888,7 @@ mod tests {
             .send_to_result(Ok(24))
             .recv_from_result(Ok((0, SocketAddr::new(router_ip, ROUTER_PORT))), vec![]);
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
-        let subject = PmpTransactor::default();
+        let subject = PmpTransactor::new(&AutomapConfig::default());
         subject.factories_arc.lock().unwrap().socket_factory = Box::new(socket_factory);
 
         let result = subject.add_mapping(router_ip, 7777, 1234);
@@ -903,7 +907,7 @@ mod tests {
 
     #[test]
     fn find_routers_returns_something_believable() {
-        let subject = PmpTransactor::default();
+        let subject = PmpTransactor::new(&AutomapConfig::default());
 
         let result = subject.find_routers().unwrap();
 
@@ -1392,7 +1396,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "PMP cannot add permanent mappings")]
     fn add_permanent_mapping_is_not_implemented() {
-        let subject = PmpTransactor::default();
+        let subject = PmpTransactor::new(&AutomapConfig::default());
 
         let _ = subject.add_permanent_mapping(IpAddr::from_str("0.0.0.0").unwrap(), 0);
     }
@@ -1473,7 +1477,7 @@ mod tests {
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
         let router_connections = make_router_connections();
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         subject.router_port = router_connections.router_port;
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
@@ -1562,7 +1566,7 @@ mod tests {
             .recv_from_result(Err(Error::from(ErrorKind::WouldBlock)), vec![]);
         let (_, rx) = unbounded(); // channel is already dead
         let mut subject = ThreadGuts::new(
-            &PmpTransactor::default(),
+            &PmpTransactor::new(&AutomapConfig::default()),
             router_ip,
             Box::new(announcement_socket),
             Box::new(|_| ()),
@@ -1632,7 +1636,7 @@ mod tests {
             changes_arc_inner.lock().unwrap().push(change);
         };
         let subject = ThreadGuts::new(
-            &PmpTransactor::default(),
+            &PmpTransactor::new(&AutomapConfig::default()),
             ROUTER_ADDR.ip(),
             Box::new(announcement_socket),
             Box::new(change_handler),
@@ -1685,7 +1689,7 @@ mod tests {
         init_test_logging();
         let router_connections = make_router_connections();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         subject.router_port = router_connections.router_port;
         subject.announcement_port = router_connections.announcement_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
@@ -1747,7 +1751,7 @@ mod tests {
             change_log.push(change)
         });
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         subject.announcement_port = find_free_port();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let _ = subject
@@ -1765,7 +1769,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No HousekeepingCommander: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_housekeeper_commander() {
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         subject.housekeeper_commander_opt = None;
 
         let _ = subject.stop_housekeeping_thread();
@@ -1774,7 +1778,7 @@ mod tests {
     #[test]
     fn stop_housekeeping_thread_handles_broken_commander_connection() {
         init_test_logging();
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         let (tx, rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
         drop(rx);
@@ -1788,7 +1792,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No JoinHandle: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_join_handle() {
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         let (tx, _rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
         subject.join_handle_opt = None;
@@ -1799,7 +1803,7 @@ mod tests {
     #[test]
     fn stop_housekeeping_thread_handles_panicked_housekeeping_thread() {
         init_test_logging();
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         let (tx, _rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
         subject.join_handle_opt = Some(thread::spawn(|| panic!("Booga!")));
@@ -1828,7 +1832,7 @@ mod tests {
             next_lifetime: Duration::from_secs(20),
             remap_interval: Duration::from_secs(10),
         };
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
@@ -1876,7 +1880,7 @@ mod tests {
             next_lifetime: Duration::from_secs(1000),
             remap_interval: Duration::from_millis(80),
         };
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
@@ -1945,7 +1949,7 @@ mod tests {
         };
         let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_addr.ip(),
@@ -1982,7 +1986,7 @@ mod tests {
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
@@ -2011,7 +2015,7 @@ mod tests {
         let mut buffer = [0u8; 100];
         let buflen = packet.marshal(&mut buffer).unwrap();
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
@@ -2036,7 +2040,7 @@ mod tests {
         let router_ip = IpAddr::from_str("2.2.2.2").unwrap();
         let buffer = [0xFFu8; 100];
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_ip,
@@ -2074,7 +2078,7 @@ mod tests {
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             ROUTER_ADDR.ip(),
@@ -2133,7 +2137,7 @@ mod tests {
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new(test_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_address.ip(),
@@ -2205,7 +2209,7 @@ mod tests {
         let change_handler: ChangeHandler =
             Box::new(move |change| change_handler_log_inner.lock().unwrap().push(change));
         let logger = Logger::new(logger_name);
-        let transactor = PmpTransactor::new();
+        let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(
             &transactor,
             router_address.ip(),
@@ -2249,7 +2253,7 @@ mod tests {
                 .add_mapping_params(&add_mapping_params_arc)
                 .add_mapping_result(Err(AutomapError::Unknown)), // means smaller setup
         )));
-        let mut transactor = PmpTransactor::new();
+        let mut transactor = PmpTransactor::new(&AutomapConfig::default());
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
         let subject = ThreadGuts::new(
             &transactor,
@@ -2281,7 +2285,7 @@ mod tests {
                 .add_mapping_params(&add_mapping_params_arc)
                 .add_mapping_result(Err(AutomapError::Unknown)), // means smaller setup
         )));
-        let mut transactor = PmpTransactor::new();
+        let mut transactor = PmpTransactor::new(&AutomapConfig::default());
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
         let subject = ThreadGuts::new(
             &transactor,
@@ -2312,7 +2316,7 @@ mod tests {
                 "NetworkFailure".to_string(),
             ))),
         )));
-        let mut transactor = PmpTransactor::new();
+        let mut transactor = PmpTransactor::new(&AutomapConfig::default());
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
         let subject = ThreadGuts::new(
             &transactor,
@@ -2346,7 +2350,7 @@ mod tests {
                 "MalformedRequest".to_string(),
             ))),
         )));
-        let mut transactor = PmpTransactor::new();
+        let mut transactor = PmpTransactor::new(&AutomapConfig::default());
         transactor.mapping_adder_arc = mapping_adder_arc.clone();
         let subject = ThreadGuts::new(
             &transactor,
@@ -2374,7 +2378,7 @@ mod tests {
     }
 
     fn make_subject(socket_factory: UdpSocketWrapperFactoryMock) -> PmpTransactor {
-        let mut subject = PmpTransactor::default();
+        let mut subject = PmpTransactor::new(&AutomapConfig::default());
         let mut factories = Factories::default();
         factories.socket_factory = Box::new(socket_factory);
         factories.free_port_factory = Box::new(FreePortFactoryMock::new().make_result(5566));

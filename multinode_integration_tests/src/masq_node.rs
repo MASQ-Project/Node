@@ -211,9 +211,9 @@ pub trait MASQNode: Any {
     fn routes_data(&self) -> bool;
 }
 
-pub struct MASQNodeUtils {}
+pub struct DataProbeUtils {}
 
-impl MASQNodeUtils {
+impl DataProbeUtils {
     pub fn clean_up_existing_container(name: &str) {
         let mut command = Command::new("docker", Command::strings(vec!["stop", "-t", "0", name]));
         command.stdout_and_stderr(); // success, failure, don't care
@@ -252,7 +252,7 @@ impl MASQNodeUtils {
         let time_limit = Instant::now() + timeout;
         let mut entire_log = String::new();
         while Instant::now() < time_limit {
-            entire_log = MASQNodeUtils::retrieve_logs(name);
+            entire_log = DataProbeUtils::retrieve_logs(name);
             let regex = Regex::new(pattern).unwrap();
             if regex.is_match(&entire_log) {
                 return;

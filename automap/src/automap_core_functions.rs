@@ -4,7 +4,7 @@ use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
 use crate::comm_layer::{AutomapError, AutomapErrorCause, Transactor};
-use crate::control_layer::automap_control::AutomapChange;
+use crate::control_layer::automap_control::{AutomapChange, AutomapConfig};
 use crate::probe_researcher::request_probe;
 use log::{error, info, warn};
 use masq_lib::utils::{find_free_port, AutomapProtocol};
@@ -102,14 +102,14 @@ pub fn test_pcp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &mut PcpTransactor::default(), test_parameters)
+    perform_test(status, &mut PcpTransactor::new(&AutomapConfig::default()), test_parameters)
 }
 
 pub fn test_pmp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &mut PmpTransactor::default(), test_parameters)
+    perform_test(status, &mut PmpTransactor::new(&AutomapConfig::default()), test_parameters)
 }
 
 pub fn test_igdp(

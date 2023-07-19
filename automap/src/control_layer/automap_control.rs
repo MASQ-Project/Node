@@ -12,7 +12,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::cell::{RefCell, RefMut};
 use std::collections::HashSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -22,6 +22,45 @@ pub enum AutomapChange {
 }
 
 pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
+
+pub struct AutomapConfig {
+    pub usual_protocol_opt: Option<AutomapProtocol>,
+    pub change_handler: ChangeHandler,
+    pub fake_router_ip_opt: Option<IpAddr>,
+}
+
+impl Default for AutomapConfig {
+    fn default() -> Self {
+        Self {
+            usual_protocol_opt: None,
+            change_handler: Box::new(|_| ()),
+            fake_router_ip_opt: None
+        }
+    }
+}
+
+impl Debug for AutomapConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{usual_protocol_opt: {:?}, change_handler: <unprintable>, fake_router_ip_opt: {:?}}}",
+            self.usual_protocol_opt, self.fake_router_ip_opt)
+    }
+}
+
+impl Clone for AutomapConfig {
+    fn clone(&self) -> Self {
+        todo!("Why are we trying to clone a BootstrapperConfig?")
+    }
+}
+
+impl AutomapConfig {
+    pub fn new(
+        usual_protocol_opt: Option<AutomapProtocol>,
+        change_handler: ChangeHandler,
+        fake_router_ip_opt: Option<IpAddr>
+    ) -> Self {
+        Self {usual_protocol_opt, change_handler, fake_router_ip_opt}
+    }
+}
 
 pub trait AutomapControl {
     fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError>;
@@ -133,18 +172,19 @@ impl AutomapControl for AutomapControlReal {
 }
 
 impl AutomapControlReal {
-    pub fn new(usual_protocol_opt: Option<AutomapProtocol>, change_handler: ChangeHandler) -> Self {
+    // TODO: Remove change_handler from this signature: it's now inside AutomapConfig
+    pub fn new(config: AutomapConfig, change_handler: ChangeHandler) -> Self {
         Self {
             transactors: RefCell::new(vec![
-                Box::<PcpTransactor>::default(),
-                Box::<PmpTransactor>::default(),
-                Box::<IgdpTransactor>::default(),
+                Box::new(PcpTransactor::new(&config)),
+                Box::new(PmpTransactor::new(&config)),
+                Box::new(IgdpTransactor::new()),
             ]),
             housekeeping_tools: RefCell::new(HousekeepingTools {
                 change_handler_opt: Some(change_handler),
                 housekeeping_thread_commander_opt: None,
             }),
-            usual_protocol_opt,
+            usual_protocol_opt: config.usual_protocol_opt,
             hole_ports: HashSet::new(),
             inner_opt: None,
             logger: Logger::new("AutomapControl"),
@@ -360,6 +400,17 @@ mod tests {
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn automap_config_default_implmentation_works_properly() {
+        let subject = AutomapConfig::default();
+
+        assert_eq!(subject.usual_protocol_opt, None);
+        // Don't know how to assert that subject.change_handler does nothing, but we can make sure
+        // it doesn't panic, at least.
+        (subject.change_handler)(AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap()));
+        assert_eq!(subject.fake_router_ip_opt, None);
+    }
 
     fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
         let mut subject = make_multirouter_specific_success_subject(
@@ -1170,7 +1221,8 @@ mod tests {
                 Err(AutomapError::NoLocalIpAddress)
             }
         });
-        let subject = AutomapControlReal::new(None, Box::new(|_| ()));
+        let subject = AutomapControlReal::new(AutomapConfig::default(),
+                                              Box::new(|_| ()));
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1194,7 +1246,8 @@ mod tests {
             .stop_housekeeping_thread_result(Ok(extracted_change_handler));
         let experiment: TransactorExperiment<String> =
             Box::new(|_, _| Err(AutomapError::NoLocalIpAddress));
-        let subject = AutomapControlReal::new(None, initial_change_handler);
+        let subject = AutomapControlReal::new(AutomapConfig::default(),
+                                              initial_change_handler);
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1266,7 +1319,8 @@ mod tests {
     }
 
     fn make_general_failure_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
+                                                  Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors
@@ -1311,7 +1365,8 @@ mod tests {
     }
 
     fn make_null_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| ()));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
+                                                  Box::new(|_x| ()));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1328,7 +1383,8 @@ mod tests {
     }
 
     fn make_fully_populated_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
+                                                  Box::new(|_x| {}));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1350,7 +1406,8 @@ mod tests {
     }
 
     fn make_no_routers_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
+                                                  Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors

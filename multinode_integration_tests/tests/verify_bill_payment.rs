@@ -5,7 +5,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
+use multinode_integration_tests_lib::masq_node::{MASQNode, DataProbeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
@@ -98,7 +98,7 @@ fn verify_bill_payment() {
 
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_OF_GWEI as u128;
 
-    let project_root = MASQNodeUtils::find_project_root();
+    let project_root = DataProbeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()

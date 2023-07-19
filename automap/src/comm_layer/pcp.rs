@@ -10,7 +10,7 @@ use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
 };
-use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
+use crate::control_layer::automap_control::{AutomapChange, AutomapConfig, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
 use crate::protocols::utils::{Direction, Packet};
@@ -76,6 +76,7 @@ struct PcpTransactorInner {
 
 pub struct PcpTransactor {
     inner_arc: Arc<Mutex<PcpTransactorInner>>,
+    fake_router_ip_opt: Option<IpAddr>,
     router_port: u16,
     announcement_multicast_group: u8,
     announcement_port: u16,
@@ -87,8 +88,16 @@ pub struct PcpTransactor {
 
 impl Transactor for PcpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
-        debug!(self.logger, "Seeking routers on LAN");
-        find_routers()
+        match self.fake_router_ip_opt {
+            Some(fake_router_ip) => {
+                debug!(self.logger, "Using fake router IP: {}", fake_router_ip);
+                Ok(vec![fake_router_ip])
+            }
+            None => {
+                debug!(self.logger, "Seeking routers on LAN");
+                find_routers()
+            }
+        }
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -257,13 +266,14 @@ impl Transactor for PcpTransactor {
     }
 }
 
-impl Default for PcpTransactor {
-    fn default() -> Self {
+impl PcpTransactor {
+    pub fn new(config: &AutomapConfig) -> Self {
         Self {
             inner_arc: Arc::new(Mutex::new(PcpTransactorInner {
                 mapping_transactor: Box::<MappingTransactorReal>::default(),
                 factories: Factories::default(),
             })),
+            fake_router_ip_opt: config.fake_router_ip_opt,
             router_port: ROUTER_PORT,
             announcement_multicast_group: ANNOUNCEMENT_MULTICAST_GROUP,
             announcement_port: ANNOUNCEMENT_PORT,
@@ -273,9 +283,7 @@ impl Default for PcpTransactor {
             logger: Logger::new("PcpTransactor"),
         }
     }
-}
 
-impl PcpTransactor {
     fn inner(&self) -> MutexGuard<PcpTransactorInner> {
         self.inner_arc
             .lock()
@@ -754,7 +762,7 @@ mod tests {
 
     #[test]
     fn knows_its_method() {
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
 
         let method = subject.protocol();
 
@@ -1021,7 +1029,7 @@ mod tests {
 
     #[test]
     fn find_routers_returns_something_believable() {
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
 
         let result = subject.find_routers().unwrap();
 
@@ -1060,7 +1068,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1112,7 +1120,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1194,7 +1202,7 @@ mod tests {
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let free_port_factory = FreePortFactoryMock::new().make_result(34567);
         let (tx, rx) = unbounded();
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         subject.housekeeper_commander_opt = Some(tx);
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
@@ -1267,7 +1275,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1287,7 +1295,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "PCP cannot add permanent mappings")]
     fn add_permanent_mapping_is_not_implemented() {
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
 
         let _ = subject.add_permanent_mapping(IpAddr::from_str("0.0.0.0").unwrap(), 0);
     }
@@ -1325,7 +1333,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1371,7 +1379,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(socket));
         let nonce_factory =
             MappingNonceFactoryMock::new().make_result([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let subject = PcpTransactor::default();
+        let subject = PcpTransactor::new(&AutomapConfig::default());
         {
             let factories = &mut subject.inner_arc.lock().unwrap().factories;
             factories.socket_factory = Box::new(socket_factory);
@@ -1392,7 +1400,7 @@ mod tests {
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
         let router_connections = make_router_connections();
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         subject.router_port = router_connections.router_port;
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
@@ -1475,7 +1483,7 @@ mod tests {
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let _ = EnvironmentGuard::new();
         let router_connections = make_router_connections();
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         subject.router_port = router_connections.router_port;
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
@@ -1545,7 +1553,7 @@ mod tests {
 
     #[test]
     fn start_housekeeping_thread_doesnt_work_if_change_handler_stopper_is_populated() {
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         subject.housekeeper_commander_opt = Some(unbounded().0);
         let change_handler = move |_| {};
 
@@ -1565,7 +1573,7 @@ mod tests {
             let mut change_log = inner_cla.lock().unwrap();
             change_log.push(change)
         });
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         let _ =
             subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
@@ -1580,7 +1588,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No HousekeepingCommander: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_housekeeper_commander() {
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         subject.housekeeper_commander_opt = None;
 
         let _ = subject.stop_housekeeping_thread();
@@ -1589,10 +1597,10 @@ mod tests {
     #[test]
     fn stop_housekeeping_thread_handles_broken_commander_connection() {
         init_test_logging();
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         let (tx, rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
-        std::mem::drop(rx);
+        drop(rx);
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
@@ -1603,7 +1611,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "No JoinHandle: can't stop housekeeping thread")]
     fn stop_housekeeping_thread_handles_missing_join_handle() {
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         let (tx, _rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
         subject.join_handle_opt = None;
@@ -1614,7 +1622,7 @@ mod tests {
     #[test]
     fn stop_housekeeping_thread_handles_panicked_housekeeping_thread() {
         init_test_logging();
-        let mut subject = PcpTransactor::default();
+        let mut subject = PcpTransactor::new(&AutomapConfig::default());
         let (tx, _rx) = unbounded();
         subject.housekeeper_commander_opt = Some(tx);
         subject.join_handle_opt = Some(thread::spawn(|| panic!("Booga!")));
