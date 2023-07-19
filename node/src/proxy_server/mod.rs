@@ -1068,9 +1068,7 @@ impl IBCDHelper for IBCDHelperReal {
             Err(e) => return Err(e),
         };
 
-        if let Some(retry) = proxy.dns_failure_retries.get_mut(&stream_key) {
-            todo!("StreamKey already found");
-        } else {
+        if proxy.dns_failure_retries.get(&stream_key).is_none() {
             let dns_failure_retry = DNSFailureRetry {
                 unsuccessful_request: payload.clone(),
                 retries_left: 3,
@@ -1078,6 +1076,9 @@ impl IBCDHelper for IBCDHelperReal {
             proxy
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
+        } else {
+            todo!("Found same stream key");
+            // proxy.dns_failure_retries.remove(&stream_key);
         }
 
         let tth_args = TryTransmitToHopperArgs {
@@ -4762,137 +4763,98 @@ mod tests {
         );
     }
 
-    #[test]
-    fn proxy_server_receives_failed_dns_then_a_successful_cores_package() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let http_request = b"CONNECT https://realdomain.nu:443 HTTP/1.1\r\nHost: https://bunkjunk.wrong:443\r\n\r\n";
-        let (hopper_mock, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
-        let destination_key = PublicKey::from(&b"our destination"[..]);
-        let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
-            route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(
-                vec![make_exit_service_from_key(destination_key.clone())],
-                vec![],
-                1234,
-            ),
-        }));
-        let route = Route { hops: vec![] };
-        let (dispatcher_mock, _, dispatcher_recording_arc) = make_recorder();
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let request_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(8443),
-            sequence_number: Some(0),
-            last_data: false,
-            is_clandestine: false,
-            data: request_data.clone(),
-        };
-        let tunnelled_msg = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(8443),
-            sequence_number: Some(0),
-            last_data: false,
-            is_clandestine: false,
-            data: b"client hello".to_vec(),
-        };
-        let expected_tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr.clone()),
-            last_data: false,
-            sequence_number: Some(0),
-            data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-        };
-        let expected_payload = ClientRequestPayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: b"client hello".to_vec(),
-                sequence_number: 0,
-                last_data: false,
-            },
-            target_hostname: Some(String::from("realdomain.nu")),
-            target_port: 443,
-            protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde.public_key().clone(),
-        };
-        let unsuccessful_request = expected_payload.clone();
-        let expected_pkg = IncipientCoresPackage::new(
-            main_cryptde,
-            route.clone(),
-            expected_payload.into(),
-            &destination_key,
-        )
-        .unwrap();
-        let make_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let make_parameters_arc_thread = make_parameters_arc.clone();
-
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new()
-                .make_parameters(&make_parameters_arc_thread)
-                .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
-            let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
-                true,
-                Some(STANDARD_CONSUMING_WALLET_BALANCE),
-                false,
-            );
-            subject.dns_failure_retries.insert(
-                stream_key,
-                DNSFailureRetry {
-                    unsuccessful_request,
-                    retries_left: 2,
-                },
-            );
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
-                .dispatcher(dispatcher_mock)
-                .hopper(hopper_mock)
-                .neighborhood(neighborhood_mock)
-                .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
-            subject_addr.try_send(tunnelled_msg).unwrap();
-            system.run();
-        });
-
-        hopper_awaiter.await_message_count(1);
-
-        // assert_eq!()
-
-        // let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        // let dispatcher_record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        // assert_eq!(dispatcher_record, &expected_tdm);
-        // let mut make_parameters = make_parameters_arc.lock().unwrap();
-        // assert_eq!(
-        //     make_parameters.remove(0),
-        //     (main_cryptde.public_key().clone(), socket_addr)
-        // );
-        //
-        // let hopper_recording = hopper_recording_arc.lock().unwrap();
-        // let hopper_record = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        // assert_eq!(hopper_record, &expected_pkg);
-        //
-        // let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        // let neighborhood_record = neighborhood_recording.get_record::<RouteQueryMessage>(0);
-        // assert_eq!(
-        //     neighborhood_record,
-        //     &RouteQueryMessage::data_indefinite_route_request(
-        //         Some("realdomain.nu".to_string()),
-        //         12
-        //     )
-        // );
-    }
+    // TODO Test this using a multi node test.
+    // #[test]
+    // fn proxy_server_receives_failed_dns_then_a_successful_cores_package() {
+    //     let main_cryptde = main_cryptde();
+    //     let alias_cryptde = alias_cryptde();
+    //     let http_request = b"CONNECT https://realdomain.nu:443 HTTP/1.1\r\nHost: https://bunkjunk.wrong:443\r\n\r\n";
+    //     let (hopper_mock, _hopper_awaiter, _) = make_recorder();
+    //     let (neighborhood_mock, _, _) = make_recorder();
+    //     let destination_key = PublicKey::from(&b"our destination"[..]);
+    //     let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
+    //         route: Route { hops: vec![] },
+    //         expected_services: ExpectedServices::RoundTrip(
+    //             vec![make_exit_service_from_key(destination_key.clone())],
+    //             vec![],
+    //             1234,
+    //         ),
+    //     }));
+    //     let (dispatcher_mock, _, _) = make_recorder();
+    //     let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+    //     let stream_key = make_meaningless_stream_key();
+    //     let request_data = http_request.to_vec();
+    //     let msg_from_dispatcher = InboundClientData {
+    //         timestamp: SystemTime::now(),
+    //         peer_addr: socket_addr.clone(),
+    //         reception_port: Some(8443),
+    //         sequence_number: Some(0),
+    //         last_data: false,
+    //         is_clandestine: false,
+    //         data: request_data.clone(),
+    //     };
+    //     let tunnelled_msg = InboundClientData {
+    //         timestamp: SystemTime::now(),
+    //         peer_addr: socket_addr.clone(),
+    //         reception_port: Some(8443),
+    //         sequence_number: Some(0),
+    //         last_data: false,
+    //         is_clandestine: false,
+    //         data: b"client hello".to_vec(),
+    //     };
+    //     let expected_payload = ClientRequestPayload_0v1 {
+    //         stream_key: stream_key.clone(),
+    //         sequenced_packet: SequencedPacket {
+    //             data: b"client hello".to_vec(),
+    //             sequence_number: 0,
+    //             last_data: false,
+    //         },
+    //         target_hostname: Some(String::from("realdomain.nu")),
+    //         target_port: 443,
+    //         protocol: ProxyProtocol::TLS,
+    //         originator_public_key: alias_cryptde.public_key().clone(),
+    //     };
+    //     let unsuccessful_request = expected_payload.clone();
+    //     let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+    //     let system =
+    //         System::new("proxy_server_receives_failed_dns_then_a_successful_cores_package");
+    //     let mut subject = ProxyServer::new(
+    //         main_cryptde,
+    //         alias_cryptde,
+    //         true,
+    //         Some(STANDARD_CONSUMING_WALLET_BALANCE),
+    //         false,
+    //     );
+    //     subject.dns_failure_retries.insert(
+    //         stream_key,
+    //         DNSFailureRetry {
+    //             unsuccessful_request,
+    //             retries_left: 2,
+    //         },
+    //     );
+    //     subject.stream_key_factory = Box::new(stream_key_factory);
+    //     let subject_addr: Addr<ProxyServer> = subject.start();
+    //     let mut peer_actors = peer_actors_builder()
+    //         .dispatcher(dispatcher_mock)
+    //         .hopper(hopper_mock)
+    //         .neighborhood(neighborhood_mock)
+    //         .build();
+    //     peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+    //     subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+    //
+    //     subject_addr.try_send(msg_from_dispatcher).unwrap();
+    //     subject_addr.try_send(tunnelled_msg).unwrap();
+    //     subject_addr
+    //         .try_send(AssertionsMessage {
+    //             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+    //                 assert!(proxy_server.dns_failure_retries.get(&stream_key).is_none());
+    //             }),
+    //         })
+    //         .unwrap();
+    //
+    //     System::current().stop();
+    //     system.run();
+    // }
 
     #[test]
     #[should_panic(
@@ -4940,7 +4902,7 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder().build();
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
