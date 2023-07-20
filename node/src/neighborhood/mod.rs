@@ -752,7 +752,7 @@ impl Neighborhood {
         let neighborhood_metadata = NeighborhoodMetadata {
             connection_progress_peers: self.overall_connection_status.get_peer_addrs(),
             cpm_recipient,
-            min_hops: self.min_hops,
+            min_hops: self.db_patch_size,
         };
         let acceptance_result = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
@@ -3878,6 +3878,7 @@ mod tests {
         let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.db_patch_size = Hops::SixHops;
         let mut peer_2_db = db_from_node(&peer_2);
         peer_2_db.add_node(peer_1.clone()).unwrap();
         peer_2_db.add_arbitrary_full_neighbor(peer_2.public_key(), peer_1.public_key());
@@ -3889,6 +3890,8 @@ mod tests {
 
         subject.handle_agrs(agrs, peer_2_socket_addr, make_cpm_recipient().0);
 
+        let (_, _, _, neighborhood_metadata) = handle_params_arc.lock().unwrap().remove(0);
+        assert_eq!(neighborhood_metadata.min_hops, Hops::SixHops);
         TestLogHandler::new()
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
     }
@@ -3952,10 +3955,10 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_logs_when_three_hops_route_can_not_be_made() {
+    fn neighborhood_logs_when_min_hops_route_can_not_be_made() {
         init_test_logging();
-        let test_name = "neighborhood_logs_when_three_hops_route_can_not_be_made";
-        let mut subject: Neighborhood = make_neighborhood_with_linearly_connected_nodes(3);
+        let test_name = "neighborhood_logs_when_min_hops_route_can_not_be_made";
+        let mut subject: Neighborhood = make_neighborhood_with_linearly_connected_nodes(5);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
@@ -3963,6 +3966,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
+        subject.min_hops = Hops::FiveHops;
         let system = System::new(test_name);
 
         subject.handle_gossip_agrs(
