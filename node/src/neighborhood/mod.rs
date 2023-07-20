@@ -140,7 +140,11 @@ impl Handler<NewPublicIp> for Neighborhood {
 impl Handler<ConfigurationChangeMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: ConfigurationChangeMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         match msg.change {
             ConfigurationChange::UpdateNewPassword(new_password) => {
                 self.db_password_opt = Some(new_password)
@@ -149,7 +153,7 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
-                self.min_hops = new_min_hops;
+                self.set_min_hops_and_patch_size(new_min_hops);
             }
         }
     }
@@ -1552,8 +1556,8 @@ impl Neighborhood {
         }
     }
 
-    fn set_min_hops_and_patch_size(&mut self) {
-        todo!("test drive me too");
+    fn set_min_hops_and_patch_size(&mut self, new_min_hops: Hops) {
+        self.min_hops = new_min_hops;
     }
 }
 
@@ -3021,7 +3025,15 @@ mod tests {
 
     #[test]
     fn can_set_min_hops_and_db_patch_size() {
-        todo!("write me");
+        let initial_min_hops = Hops::TwoHops;
+        let new_min_hops = Hops::FourHops;
+        let mut subject = make_standard_subject();
+        subject.min_hops = initial_min_hops;
+
+        subject.set_min_hops_and_patch_size(new_min_hops);
+
+        // TODO: Test for db_patch_size
+        assert_eq!(subject.min_hops, new_min_hops);
     }
 
     #[test]
