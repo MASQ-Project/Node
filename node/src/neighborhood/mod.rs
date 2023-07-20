@@ -93,7 +93,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     mode: NeighborhoodModeLight,
     min_hops: Hops,
-    // db_patch_size: Hops,
+    db_patch_size: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -414,6 +414,7 @@ impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
         let min_hops = neighborhood_config.min_hops;
+        let db_patch_size = Neighborhood::calculate_db_patch_size(min_hops);
         let neighborhood_mode = &neighborhood_config.mode;
         let mode: NeighborhoodModeLight = neighborhood_mode.into();
         let neighbor_configs = neighborhood_mode.neighbor_configs();
@@ -458,6 +459,7 @@ impl Neighborhood {
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             mode,
             min_hops,
+            db_patch_size,
             next_return_route_id: 0,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
@@ -1558,6 +1560,7 @@ impl Neighborhood {
 
     fn set_min_hops_and_patch_size(&mut self, new_min_hops: Hops) {
         self.min_hops = new_min_hops;
+        self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
     }
 }
 
@@ -1693,7 +1696,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_is_set_inside_neighborhood() {
+    fn min_hops_and_db_patch_size_is_set_inside_neighborhood() {
         let min_hops = Hops::SixHops;
         let mode = NeighborhoodMode::Standard(
             NodeAddr::new(&make_ip(1), &[1234, 2345]),
@@ -1712,7 +1715,9 @@ mod tests {
             ),
         );
 
-        assert_eq!(subject.min_hops, Hops::SixHops);
+        let expected_db_patch_size = Neighborhood::calculate_db_patch_size(min_hops);
+        assert_eq!(subject.min_hops, min_hops);
+        assert_eq!(subject.db_patch_size, expected_db_patch_size);
     }
 
     #[test]
@@ -3032,8 +3037,9 @@ mod tests {
 
         subject.set_min_hops_and_patch_size(new_min_hops);
 
-        // TODO: Test for db_patch_size
+        let expected_db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         assert_eq!(subject.min_hops, new_min_hops);
+        assert_eq!(subject.db_patch_size, expected_db_patch_size);
     }
 
     #[test]
@@ -3055,7 +3061,10 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |actor: &mut Neighborhood| {
+                    let expected_db_patch_size =
+                        Neighborhood::calculate_db_patch_size(new_min_hops);
                     assert_eq!(actor.min_hops, new_min_hops);
+                    assert_eq!(actor.db_patch_size, expected_db_patch_size);
                 }),
             })
             .unwrap();
