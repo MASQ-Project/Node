@@ -368,7 +368,7 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub enum Hops {
     OneHop = 1,
     TwoHops = 2,

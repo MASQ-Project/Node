@@ -93,6 +93,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     mode: NeighborhoodModeLight,
     min_hops: Hops,
+    // db_patch_size: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -1542,6 +1543,18 @@ impl Neighborhood {
     fn handle_new_password(&mut self, new_password: String) {
         self.db_password_opt = Some(new_password);
     }
+
+    fn calculate_db_patch_size(min_hops: Hops) -> Hops {
+        if min_hops <= DEFAULT_MIN_HOPS {
+            DEFAULT_MIN_HOPS
+        } else {
+            min_hops
+        }
+    }
+
+    fn set_min_hops_and_patch_size(&mut self) {
+        todo!("test drive me too");
+    }
 }
 
 pub fn regenerate_signed_gossip(
@@ -2976,6 +2989,39 @@ mod tests {
 
         assert_eq!(route_1, expected_before_route);
         assert_eq!(route_2, expected_after_route);
+    }
+
+    #[test]
+    fn can_calculate_db_patch_size_from_min_hops() {
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::OneHop),
+            Hops::ThreeHops
+        );
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::TwoHops),
+            Hops::ThreeHops
+        );
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::ThreeHops),
+            Hops::ThreeHops
+        );
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::FourHops),
+            Hops::FourHops
+        );
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::FiveHops),
+            Hops::FiveHops
+        );
+        assert_eq!(
+            Neighborhood::calculate_db_patch_size(Hops::SixHops),
+            Hops::SixHops
+        );
+    }
+
+    #[test]
+    fn can_set_min_hops_and_db_patch_size() {
+        todo!("write me");
     }
 
     #[test]
