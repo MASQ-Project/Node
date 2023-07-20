@@ -752,7 +752,7 @@ impl Neighborhood {
         let neighborhood_metadata = NeighborhoodMetadata {
             connection_progress_peers: self.overall_connection_status.get_peer_addrs(),
             cpm_recipient,
-            min_hops: self.db_patch_size,
+            db_patch_size: self.db_patch_size,
         };
         let acceptance_result = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
@@ -3891,7 +3891,7 @@ mod tests {
         subject.handle_agrs(agrs, peer_2_socket_addr, make_cpm_recipient().0);
 
         let (_, _, _, neighborhood_metadata) = handle_params_arc.lock().unwrap().remove(0);
-        assert_eq!(neighborhood_metadata.min_hops, Hops::SixHops);
+        assert_eq!(neighborhood_metadata.db_patch_size, Hops::SixHops);
         TestLogHandler::new()
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
     }
