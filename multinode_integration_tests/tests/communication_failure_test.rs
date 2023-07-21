@@ -127,6 +127,126 @@ fn neighborhood_notified_of_newly_missing_node() {
 }
 
 #[test]
+fn dns_resolution_failure_automatic_retries_works() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    // Make network:
+    // originating_node --> relay1 --> relay2 --> cheap_exit
+
+    let (originating_node, relay1_mock, cheap_exit_key) = {
+        let originating_node: NodeRecord = make_node_record(1234, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
+        let relay1_key = db.add_node(make_node_record(2345, true)).unwrap();
+        let relay2_key = db.add_node(make_node_record(3456, false)).unwrap();
+        let cheap_exit_node = make_node_record(4567, false);
+        let cheap_exit_key = db.add_node(cheap_exit_node).unwrap();
+        db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1_key);
+        db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key);
+        db.add_arbitrary_full_neighbor(&relay2_key, &cheap_exit_key);
+        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+        let relay1_mock = node_map.remove(&relay1_key).unwrap();
+        (
+            originating_node,
+            relay1_mock,
+            cheap_exit_key,
+        )
+    };
+    let mut client: MASQNodeClient =
+        originating_node.make_client(8080, 5000);
+    let masquerader = JsonMasquerader::new();
+    let originating_node_alias_cryptde = CryptDENull::from(
+        &originating_node.alias_public_key(),
+        TEST_DEFAULT_MULTINODE_CHAIN,
+    );
+    let relay1_cryptde =
+        CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
+    let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let key_length = cheap_exit_key.len();
+
+    // This request should be routed through cheap_exit because it's cheaper
+    client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
+    let (_, _, live_cores_package) = relay1_mock
+        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .unwrap();
+    let (_, intended_exit_public_key) =
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    assert_eq!(intended_exit_public_key, cheap_exit_key);
+    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
+        .to_expired(
+            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            &relay1_cryptde,
+            &cheap_exit_cryptde,
+        )
+        .unwrap();
+
+    // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
+    let dns_fail_pkg_1 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_2 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_3 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_4 =
+        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
+
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_1,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_2,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_3,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_4,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    let dns_error_response: Vec<u8> = client.wait_for_chunk();
+    let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
+    assert_string_contains(&dns_error_response_str, "<h1>Error 503</h1>");
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h2>Title: DNS Resolution Problem</h2>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h3>Subtitle: Exit Nodes couldn't resolve \"nonexistent.com\"</h3>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        &format!(
+            "<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address nonexistent.com</p>"
+        ),
+    );
+
+
+
+}
+
+#[test]
 fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     // Make network:
