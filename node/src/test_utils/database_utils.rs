@@ -2,10 +2,11 @@
 
 #![cfg(test)]
 
-use crate::accountant::dao_utils::VigilantRusqliteFlatten;
+use crate::accountant::database_access_objects::dao_utils::VigilantRusqliteFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
-use crate::database::db_migrations::DbMigrator;
+
+use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -15,10 +16,10 @@ use std::env::current_dir;
 use std::fs::{remove_file, File};
 use std::io::Read;
 use std::iter::once;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub fn bring_db_0_back_to_life_and_return_connection(db_path: &PathBuf) -> Connection {
+pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connection {
     match remove_file(db_path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => panic!("Unexpected but serious error: {}", e),

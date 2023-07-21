@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
@@ -10,10 +11,13 @@ use node_lib::database::db_initializer::{
 };
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::env;
 use std::io;
+use std::iter::once;
 use std::net::SocketAddr;
-use std::ops::Drop;
+use std::ops::{Drop, Not};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::{Command, Output, Stdio};
@@ -138,7 +142,7 @@ impl MASQNode {
             sterile_logfile,
             piped_output,
             ensure_start,
-            Self::make_masqnode_without_initial_config,
+            Self::make_node_without_initial_config,
         )
     }
 
@@ -169,66 +173,74 @@ impl MASQNode {
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
         let logfile_path = Self::path_to_logfile(logfile_dir);
-        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<()> {
-            regex.is_match(&log_output[..]).then(|| ())
+        let log_output_processor = |log_output: &str, regex: &Regex| -> Option<()> {
+            regex.is_match(log_output).then(|| ())
         };
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            &do_with_log_output,
+            log_output_processor,
             limit_ms,
-        );
+        )
     }
 
-    //gives back all possible captures by given requirements;
-    //you can specify how many times the regex needs to be looked for;
-    //also allows to define multiple capturing groups and fetch them all at once (the inner vector)
+    //fetches all captures by given requirements;
+    //you can specify how many times you require to apply the regex and get separate captures (outer vector);
+    //also allows to define more than just one capture group and fetch them all at once (inner vector)
     pub fn capture_pieces_of_log_at_directory(
         pattern: &str,
         logfile_dir: &Path,
-        required_number_of_captures: usize,
+        required_repetition: usize,
         limit_ms: Option<u64>,
     ) -> Vec<Vec<String>> {
         let logfile_path = Self::path_to_logfile(logfile_dir);
 
-        let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<Vec<Vec<String>>> {
-            let captures = regex
-                .captures_iter(&log_output[..])
-                .collect::<Vec<Captures>>();
-            if captures.len() < required_number_of_captures {
-                return None;
-            }
-            let structured_captures = (0..captures.len())
-                .flat_map(|idx| {
-                    captures.get(idx).map(|capture| {
-                        (0..capture.len())
-                            .flat_map(|idx| {
-                                capture.get(idx).map(|particular_group_match| {
-                                    particular_group_match.as_str().to_string()
-                                })
-                            })
-                            .collect::<Vec<String>>()
-                    })
-                })
-                .collect::<Vec<Vec<String>>>();
-            Some(structured_captures)
+        let log_output_processor = |log_output: &str, regex: &Regex| {
+            Self::collect_captures_with_repetition(log_output, regex, required_repetition)
         };
 
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
-            &do_with_log_output,
+            log_output_processor,
             limit_ms,
         )
-        .unwrap()
     }
 
-    fn wait_for_log_at_directory<T>(
+    fn collect_captures_with_repetition(
+        log_output: &str,
+        regex: &Regex,
+        required_repetition: usize,
+    ) -> Option<Vec<Vec<String>>> {
+        let captures = regex.captures_iter(log_output).collect::<Vec<Captures>>();
+        if captures.len() < required_repetition {
+            return None;
+        }
+        let structured_captures = captures
+            .into_iter()
+            .map(|groups| {
+                groups
+                    .iter()
+                    .flat_map(|group_opt| {
+                        group_opt.map(|particular_group_match| {
+                            particular_group_match.as_str().to_string()
+                        })
+                    })
+                    .collect::<Vec<String>>()
+            })
+            .collect::<Vec<Vec<String>>>();
+        Some(structured_captures)
+    }
+
+    fn wait_for_log_at_directory<T, F>(
         pattern: &str,
         path_to_logfile: &Path,
-        do_with_log_output: &dyn Fn(&String, &Regex) -> Option<T>,
+        log_output_processor: F,
         limit_ms: Option<u64>,
-    ) -> Option<T> {
+    ) -> T
+    where
+        F: Fn(&str, &Regex) -> Option<T>,
+    {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
@@ -237,21 +249,23 @@ impl MASQNode {
             match std::fs::read_to_string(&path_to_logfile) {
                 Ok(contents) => {
                     read_content_opt = Some(contents.clone());
-                    if let Some(result) = do_with_log_output(&contents, &regex) {
-                        break Some(result);
+                    if let Some(result) = log_output_processor(&contents, &regex) {
+                        break result;
                     }
                 }
                 Err(e) => {
                     eprintln!("Could not read logfile at {:?}: {:?}", path_to_logfile, e);
                 }
             };
-            assert_eq!(
+            assert!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
-                true,
                 "Timeout: waited for more than {}ms without finding '{}' in these logs:\n{}\n",
                 real_limit_ms,
                 pattern,
-                read_content_opt.unwrap_or(String::from("None"))
+                match read_content_opt {
+                    Some(rc) => rc,
+                    None => "None".to_string(),
+                }
             );
             thread::sleep(Duration::from_millis(200));
         }
@@ -398,11 +412,14 @@ impl MASQNode {
         remove_database: bool,
     ) -> process::Command {
         let chain = Self::get_chain_from_config(&config_opt);
-        let mut args = Self::daemon_args();
-        args.extend(match config_opt {
-            Some(c) => c.args,
-            None => vec![],
-        });
+        let args = Self::daemon_args();
+        let args = Self::extend_args_without_duplication(
+            args,
+            match config_opt {
+                Some(c) => c.args,
+                None => vec![],
+            },
+        );
         Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
@@ -412,18 +429,30 @@ impl MASQNode {
         remove_database: bool,
     ) -> process::Command {
         let chain = Self::get_chain_from_config(&config_opt);
-        let mut args = Self::standard_args();
-        args.extend(Self::get_extra_args(data_dir, config_opt));
+        let args = Self::standard_args();
+        let args =
+            Self::extend_args_without_duplication(args, Self::get_extra_args(data_dir, config_opt));
         Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
-    fn make_masqnode_without_initial_config(
+    fn make_node_without_initial_config(
         data_dir: &PathBuf,
         config_opt: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
         let chain = Self::get_chain_from_config(&config_opt);
         let args = Self::get_extra_args(data_dir, config_opt);
+        Self::start_with_args_extension(chain, data_dir, args, remove_database)
+    }
+
+    fn make_dump_config_command(
+        data_dir: &PathBuf,
+        config_opt: Option<CommandConfig>,
+        remove_database: bool,
+    ) -> process::Command {
+        let chain = Self::get_chain_from_config(&config_opt);
+        let mut args = Self::dump_config_args();
+        args.extend(Self::get_extra_args(data_dir, config_opt));
         Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
@@ -437,30 +466,17 @@ impl MASQNode {
             Self::remove_database(data_dir, chain)
         }
         let mut command = command_to_start();
+        command.args(apply_prefix_parameters());
         command.args(additional_args);
         command
     }
 
-    fn make_dump_config_command(
-        data_dir: &PathBuf,
-        config_opt: Option<CommandConfig>,
-        _unused: bool,
-    ) -> process::Command {
-        let mut command = command_to_start();
-        let mut args = Self::dump_config_args();
-        args.extend(Self::get_extra_args(data_dir, config_opt));
-        command.args(&args);
-        command
-    }
-
     fn daemon_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--initialization")
-            .args
+        CommandConfig::new().opt("--initialization").args
     }
 
     fn standard_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
+        CommandConfig::new()
             .pair("--neighborhood-mode", "zero-hop")
             .pair(
                 "--consuming-private-key",
@@ -472,9 +488,7 @@ impl MASQNode {
 
     #[allow(dead_code)]
     fn dump_config_args() -> Vec<String> {
-        apply_prefix_parameters(CommandConfig::new())
-            .opt("--dump-config")
-            .args
+        CommandConfig::new().opt("--dump-config").args
     }
 
     fn get_extra_args(data_dir: &PathBuf, config_opt: Option<CommandConfig>) -> Vec<String> {
@@ -484,6 +498,116 @@ impl MASQNode {
             args.push(data_dir.to_string_lossy().to_string());
         }
         args
+    }
+
+    fn virtual_arg_pairs_with_remembered_position(
+        args: Vec<String>,
+    ) -> Vec<(String, PositionedArg)> {
+        let shifted_by_one = {
+            let with_the_first_cut = args.clone().into_iter().map(Some).skip(1);
+            let none_added_for_end_param_without_value = with_the_first_cut.chain(once(None));
+            none_added_for_end_param_without_value
+        };
+        let params_and_yet_suspected_args = {
+            let zipped = args.into_iter().zip(shifted_by_one.enumerate());
+            let ignored_anomalies_with_value_at_the_first_position =
+                zipped.filter(|(param, _)| param.starts_with("--"));
+            ignored_anomalies_with_value_at_the_first_position
+        };
+        params_and_yet_suspected_args
+            .map(|(param_name, (original_position, suspected_arg_opt))| {
+                let construct_positioned_arg = |val_opt| {
+                    (
+                        param_name,
+                        PositionedArg {
+                            arg_opt: val_opt,
+                            remembered_position: original_position,
+                        },
+                    )
+                };
+
+                match suspected_arg_opt {
+                    Some(suspected_arg) => {
+                        if suspected_arg.starts_with("--") {
+                            construct_positioned_arg(None)
+                        } else {
+                            construct_positioned_arg(Some(suspected_arg))
+                        }
+                    }
+                    //just to handle the end parameter if it has no value
+                    None => construct_positioned_arg(None),
+                }
+            })
+            .collect()
+    }
+
+    fn extend_args_without_duplication(
+        default_args: Vec<String>,
+        config_args: Vec<String>,
+    ) -> Vec<String> {
+        fn retain_unconfigured_default_args(
+            default_args: Vec<String>,
+            config_args: &HashMap<String, PositionedArg>,
+        ) -> HashMap<String, PositionedArg> {
+            MASQNode::virtual_arg_pairs_with_remembered_position(default_args)
+                .into_iter()
+                .flat_map(|(arg_name, value)| {
+                    config_args
+                        .keys()
+                        .contains(&&arg_name)
+                        .not()
+                        .then_some((arg_name, value))
+                })
+                .collect()
+        }
+        fn hash_map_with_panic_on_duplicated_params(
+            config_args_as_tuples: Vec<(String, PositionedArg)>,
+        ) -> HashMap<String, PositionedArg> {
+            let mut dedup_assert_hashmap = HashMap::new();
+            let duplicates: Vec<(String, PositionedArg)> = vec![];
+            let duplicates = config_args_as_tuples.into_iter().fold(
+                duplicates,
+                |mut so_far, (param_name, value)| {
+                    match dedup_assert_hashmap.entry(param_name) {
+                        Entry::Occupied(occupied_entry) => {
+                            so_far.push((occupied_entry.key().to_string(), value))
+                        }
+                        Entry::Vacant(vacant) => {
+                            let _ = vacant.insert(value);
+                        }
+                    };
+                    so_far
+                },
+            );
+            assert!(
+                duplicates.is_empty(),
+                "You supplied additional arguments with some of \
+                them duplicated, use each only once! Duplicates: {:?}",
+                duplicates
+            );
+            dedup_assert_hashmap
+        }
+
+        let config_args_as_tuples = Self::virtual_arg_pairs_with_remembered_position(config_args);
+        let config_args: HashMap<String, PositionedArg> =
+            hash_map_with_panic_on_duplicated_params(config_args_as_tuples);
+        let default_args_to_keep = retain_unconfigured_default_args(default_args, &config_args);
+        default_args_to_keep
+            .into_iter()
+            .chain(config_args)
+            .sorted_by(|(_, positioned_arg_a), (_, positioned_arg_b)| {
+                Ord::cmp(
+                    &positioned_arg_a.remembered_position,
+                    &positioned_arg_b.remembered_position,
+                )
+            })
+            .flat_map(|(arg_name, positioned_arg)| {
+                [Some(arg_name), positioned_arg.arg_opt]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<String>>()
+            })
+            .collect()
     }
 
     fn wait_for_node(&mut self, ui_port: u16) -> Result<(), String> {
@@ -514,6 +638,12 @@ impl MASQNode {
     }
 }
 
+#[derive(Debug)]
+struct PositionedArg {
+    arg_opt: Option<String>,
+    remembered_position: usize,
+}
+
 #[cfg(target_os = "windows")]
 fn command_to_start() -> process::Command {
     process::Command::new("cmd")
@@ -534,13 +664,13 @@ fn command_to_start() -> process::Command {
 }
 
 #[cfg(target_os = "windows")]
-fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config.pair("/c", &node_command())
+fn apply_prefix_parameters() -> Vec<String> {
+    CommandConfig::new().pair("/c", &node_command()).args
 }
 
 #[cfg(not(target_os = "windows"))]
-fn apply_prefix_parameters(command_config: CommandConfig) -> CommandConfig {
-    command_config
+fn apply_prefix_parameters() -> Vec<String> {
+    vec![]
 }
 
 #[cfg(target_os = "windows")]
@@ -561,4 +691,81 @@ pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
     DbInitializerReal::default()
         .initialize(home_dir, DbInitializationConfig::panic_on_migration())
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MASQNode;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
+
+    #[test]
+    fn extend_without_duplication_replaces_default_params_with_additionally_supplied_values() {
+        let default_args = slice_of_strs_to_vec_of_strings(&[
+            "--arg-without-val",
+            "--whatever-arg",
+            "12345",
+            "--different-arg",
+            "hello",
+            "--final-arg",
+            "true",
+        ]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&[
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--final-arg",
+            "false",
+        ]);
+
+        let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
+
+        let expected_args = slice_of_strs_to_vec_of_strings(&[
+            "--arg-without-val",
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--different-arg",
+            "hello",
+            "--final-arg",
+            "false",
+        ]);
+        assert_eq!(result, expected_args)
+    }
+
+    #[test]
+    fn extend_without_duplication_handles_ending_parameter_with_no_value() {
+        let default_args = slice_of_strs_to_vec_of_strings(&["--arg1", "value1"]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&["--arg2", "value2", "--arg3"]);
+
+        let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
+
+        let expected_args =
+            slice_of_strs_to_vec_of_strings(&["--arg1", "value1", "--arg2", "value2", "--arg3"]);
+        assert_eq!(result, expected_args)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "You supplied additional arguments with some of them duplicated, \
+    use each only once! Duplicates: [(\"--unique-arg\", PositionedArg { arg_opt: Some(\"booga\"), \
+     remembered_position: 6 })]"
+    )]
+    fn extend_without_duplication_catches_duplicated_config_arg() {
+        let default_args =
+            slice_of_strs_to_vec_of_strings(&["--default-arg", "val-of-default-arg"]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&[
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--final-arg",
+            "false",
+            "--unique-arg",
+            "booga",
+        ]);
+
+        let _ = MASQNode::extend_args_without_duplication(default_args, args_extension);
+    }
 }

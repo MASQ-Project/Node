@@ -500,7 +500,7 @@ impl RoutingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::banned_dao::BAN_CACHE;
+    use crate::accountant::database_access_objects::banned_dao::BAN_CACHE;
     use crate::bootstrapper::Bootstrapper;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;
@@ -1911,7 +1911,7 @@ mod tests {
                         target_hostname: Some("hostname".to_string()),
                         target_port: 1234,
                         protocol: ProxyProtocol::TLS,
-                        originator_alias_public_key: PublicKey::new(b"1234"),
+                        originator_public_key: PublicKey::new(b"1234"),
                     },
                 )),
             )

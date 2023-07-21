@@ -3,12 +3,11 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
-use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_CHAIN};
 use masq_lib::messages::{UiShutdownRequest, NODE_UI_PROTOCOL};
 use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
-use node_lib::database::db_initializer::CURRENT_SCHEMA_VERSION;
 use node_lib::test_utils::assert_string_contains;
 
 #[test]

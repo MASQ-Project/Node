@@ -139,7 +139,7 @@ pub fn add_masq_and_chain_directories(chain: Chain, local_data_dir: &Path) -> Pa
 pub fn add_chain_specific_directory(chain: Chain, local_data_dir: &Path) -> PathBuf {
     match local_data_dir.ends_with(chain.rec().literal_identifier) {
         true => PathBuf::from(local_data_dir),
-        false => PathBuf::from(local_data_dir).join(chain.rec().literal_identifier)
+        false => PathBuf::from(local_data_dir).join(chain.rec().literal_identifier),
     }
 }
 
@@ -285,7 +285,7 @@ pub fn exit_process_with_sigterm(message: &str) {
     }
 }
 
-pub fn array_of_borrows_to_vec(slice: &[&str]) -> Vec<String> {
+pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
     slice
         .iter()
         .map(|item| item.to_string())
@@ -326,25 +326,6 @@ fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
             .map(|cause| format!(", got: {:?}", cause))
             .unwrap_or_else(|| "".to_string())
     )
-}
-
-pub trait WrapResult {
-    fn wrap_to_ok<E>(self) -> Result<Self, E>
-    where
-        Self: Sized;
-    fn wrap_to_err<T>(self) -> Result<T, Self>
-    where
-        Self: Sized;
-}
-
-impl<T> WrapResult for T {
-    fn wrap_to_ok<E>(self) -> Result<Self, E> {
-        Ok(self)
-    }
-
-    fn wrap_to_err<V>(self) -> Result<V, Self> {
-        Err(self)
-    }
 }
 
 pub fn type_name_of<T>(_examined: T) -> &'static str {

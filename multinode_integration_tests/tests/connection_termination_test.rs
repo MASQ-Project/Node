@@ -7,7 +7,9 @@ use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
-use multinode_integration_tests_lib::masq_real_node::MASQRealNode;
+use multinode_integration_tests_lib::masq_real_node::{
+    MASQRealNode, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
@@ -45,7 +47,7 @@ fn actual_client_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
-    let mut client = real_node.make_client(8080);
+    let mut client = real_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     mock_node
@@ -77,7 +79,7 @@ fn reported_server_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, exit_key) = create_neighborhood(&mut cluster);
     let exit_cryptde = CryptDENull::from(&exit_key, cluster.chain);
-    let mut client = real_node.make_client(8080);
+    let mut client = real_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let masquerader = JsonMasquerader::new();
     client.send_chunk(HTTP_REQUEST);
     let (_, _, lcp) = mock_node
@@ -338,7 +340,7 @@ fn create_request_icp(
                 target_hostname: Some(format!("{}", server.local_addr().ip())),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originating_node.main_public_key().clone(),
+                originator_public_key: originating_node.main_public_key().clone(),
             },
         )),
         exit_node.main_public_key(),
@@ -383,7 +385,7 @@ fn create_meaningless_icp(
                 target_hostname: Some(format!("nowhere.com")),
                 target_port: socket_addr.port(),
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originating_node.main_public_key().clone(),
+                originator_public_key: originating_node.main_public_key().clone(),
             },
         )),
         exit_node.main_public_key(),
@@ -473,7 +475,7 @@ fn create_client_drop_report(
             target_hostname: Some(String::from("doesnt.matter.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: originating_node.main_public_key().clone(),
+            originator_public_key: originating_node.main_public_key().clone(),
         },
     ));
 

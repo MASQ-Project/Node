@@ -67,11 +67,7 @@ pub trait DaemonInitializerFactory {
 }
 
 pub trait DumpConfigRunner {
-    fn go(
-        &self,
-        streams: &mut StdStreams,
-        args: &[String],
-    ) -> RunModeResult;
+    fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     declare_as_any!();
 }
 
@@ -87,7 +83,9 @@ pub trait DaemonInitializer {
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
-        Box::new(DumpConfigRunnerReal { dirs_wrapper: Box::new(DirsWrapperReal) })
+        Box::new(DumpConfigRunnerReal {
+            dirs_wrapper: Box::new(DirsWrapperReal),
+        })
     }
 }
 
@@ -146,7 +144,7 @@ mod tests {
     };
     use crate::server_initializer::ServerInitializerReal;
     use masq_lib::shared_schema::ConfiguratorError;
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
@@ -190,7 +188,7 @@ mod tests {
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
         );
-        let args = &array_of_borrows_to_vec(&["program", "--wooooooo", "--fooooooo"]);
+        let args = &slice_of_strs_to_vec_of_strings(&["program", "--wooooooo", "--fooooooo"]);
 
         let result = subject.make(&args);
 
@@ -220,7 +218,7 @@ mod tests {
             ),
             daemon_clustered_params,
         );
-        let args = &array_of_borrows_to_vec(&["program", "--initialization"]);
+        let args = &slice_of_strs_to_vec_of_strings(&["program", "--initialization"]);
 
         let result = subject.make(&args);
 
@@ -366,11 +364,7 @@ pub mod mocks {
     }
 
     impl DumpConfigRunner for DumpConfigRunnerMock {
-        fn go(
-            &self,
-            _streams: &mut StdStreams,
-            args: &[String],
-        ) -> Result<(), ConfiguratorError> {
+        fn go(&self, _streams: &mut StdStreams, args: &[String]) -> Result<(), ConfiguratorError> {
             self.dump_config_params.lock().unwrap().push(args.to_vec());
             self.dump_config_results.borrow_mut().remove(0)
         }

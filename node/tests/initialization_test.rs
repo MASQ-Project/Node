@@ -9,6 +9,7 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
@@ -181,21 +182,23 @@ fn incomplete_node_descriptor_is_refused_integration() {
 }
 
 #[test]
-fn started_without_explicit_chain_parameter_runs_fine() {
+fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
+        .pair("--log-level", "trace")
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
 
     let mut node = MASQNode::start_with_blank_config(
-        "started_without_explicit_chain_parameter_runs_fine",
+        "started_without_explicit_chain_parameter_runs_fine_integration",
         Some(config),
         true,
         true,
@@ -258,4 +261,47 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         &chain_literal
     );
     node.wait_for_log(&regex_pattern, Some(1000));
+}
+
+#[test]
+fn node_creates_log_file_with_heading_integration() {
+    let config = CommandConfig::new()
+        .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
+        .pair(
+            "--neighbors",
+            &format!(
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
+                TEST_DEFAULT_CHAIN.rec().literal_identifier
+            ),
+        );
+
+    let mut node = MASQNode::start_standard(
+        "node_creates_log_file_with_heading",
+        Some(config),
+        true,
+        true,
+        false,
+        true,
+    );
+
+    let mut expected_heading_regex = format!(
+        r#"^
+          _____ ______  ________   ________   _______          Node Version: \d+\.\d+\.\d+
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: [a-z]+
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS \(\d+\.\d+\)
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS \(\d+\.\d+\)
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS \(\d+\.\d+\)
+                                             |__|/             gossip_failure::MIGRATIONS \(\d+\.\d+\)
+                                                               node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
+\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
+        //The last line represents the first log with its timestamp.
+    );
+
+    expected_heading_regex = expected_heading_regex.replace("|", "\\|");
+
+    node.wait_for_log(&expected_heading_regex, Some(5000));
+    //Node is dropped and killed
 }

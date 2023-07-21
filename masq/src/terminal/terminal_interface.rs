@@ -7,7 +7,6 @@ use crate::terminal::secondary_infrastructure::{
 use linefeed::{Interface, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
-use masq_lib::utils::WrapResult;
 use std::sync::Arc;
 
 #[cfg(not(test))]
@@ -65,8 +64,9 @@ impl TerminalWrapper {
         if std::env::var(prod_cfg::MASQ_TEST_INTEGRATION_KEY)
             .eq(&Ok(prod_cfg::MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
-            TerminalWrapper::new(Arc::new(prod_cfg::IntegrationTestTerminal::default()))
-                .wrap_to_ok()
+            Ok(TerminalWrapper::new(Arc::new(
+                prod_cfg::IntegrationTestTerminal::default(),
+            )))
         } else {
             //we have no positive test aimed at this (only negative and as an integration test)
             Self::configure_interface_generic(Box::new(prod_cfg::DefaultTerminal::new))
@@ -80,11 +80,10 @@ impl TerminalWrapper {
         F: FnOnce() -> std::io::Result<TerminalType>,
         TerminalType: linefeed::Terminal + 'static,
     {
-        Self::new(Arc::new(interface_configurator(
+        Ok(Self::new(Arc::new(interface_configurator(
             terminal_creator_of_certain_type,
             Box::new(Interface::with_term),
-        )?))
-        .wrap_to_ok()
+        )?)))
     }
 }
 
@@ -109,7 +108,7 @@ where
 
     set_all_settable_parameters(interface.as_mut())?;
 
-    TerminalReal::new(interface).wrap_to_ok()
+    Ok(TerminalReal::new(interface))
 }
 
 fn set_all_settable_parameters<I>(interface: &mut I) -> Result<(), String>
@@ -135,7 +134,6 @@ impl TerminalWrapper {
         Self::configure_interface_generic(Box::new(Self::result_wrapper_for_in_memory_terminal))
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
         Ok(test_cfg::MemoryTerminal::new())
     }

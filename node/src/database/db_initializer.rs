@@ -1,15 +1,18 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
+
+use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT,
+    LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
-#[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -22,7 +25,6 @@ use std::{fs, vec};
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 7;
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -230,6 +232,13 @@ impl DbInitializerReal {
             None,
             false,
             "last successful protocol for port mapping on the router",
+        );
+        Self::set_config_value(
+            conn,
+            "min_hops",
+            Some(&DEFAULT_MIN_HOPS.to_string()),
+            false,
+            "min hops",
         );
         Self::set_config_value(
             conn,
@@ -487,12 +496,7 @@ pub fn connection_or_panic(
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
         .initialize(path, init_config)
-        .unwrap_or_else(|_| {
-            panic!(
-                "Failed to connect to database at {:?}",
-                path.join(DATABASE_FILE)
-            )
-        })
+        .unwrap_or_else(|err| db_connection_launch_panic(err, path))
 }
 
 #[derive(Clone)]
@@ -550,7 +554,6 @@ impl DbInitializationConfig {
         }
     }
 
-    #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
             mode: InitializationMode::CreationAndMigration {
@@ -624,8 +627,6 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -637,7 +638,6 @@ pub mod test_utils {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-        arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
     }
 
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
@@ -656,8 +656,6 @@ pub mod test_utils {
             self.transaction_results.borrow_mut().push(result);
             self
         }
-
-        set_arbitrary_id_stamp!();
     }
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
@@ -672,8 +670,6 @@ pub mod test_utils {
         fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
             self.transaction_results.borrow_mut().remove(0)
         }
-
-        arbitrary_id_stamp!();
     }
 
     #[derive(Default)]
@@ -768,7 +764,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
     }
 
     #[test]
@@ -1043,6 +1039,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,
             "neighborhood_mode",
@@ -1375,8 +1372,8 @@ mod tests {
             )
         );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let (mismatched_schema, target_version, _) = migrate_database_params.remove(0);
-        assert_eq!(mismatched_schema, 0);
+        let (obsolete_schema, target_version, _) = migrate_database_params.remove(0);
+        assert_eq!(obsolete_schema, 0);
         assert_eq!(target_version, 5);
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",

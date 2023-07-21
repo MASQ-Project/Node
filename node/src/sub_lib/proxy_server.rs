@@ -37,7 +37,7 @@ pub struct ClientRequestPayload_0v1 {
     pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
-    pub originator_alias_public_key: PublicKey,
+    pub originator_public_key: PublicKey,
 }
 
 impl From<ClientRequestPayload_0v1> for MessageType {
@@ -95,11 +95,6 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyServerSubs;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_MINIMUM_HOP_COUNT, 3);
-    }
 
     #[test]
     fn proxy_server_subs_debug() {

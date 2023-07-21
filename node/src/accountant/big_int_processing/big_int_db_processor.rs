@@ -2,8 +2,8 @@
 
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::payable_dao::PayableDaoError;
-use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -30,7 +30,8 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             .params
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
-            Ok(_) => Ok(()),
+            Ok(1) => Ok(()),
+            Ok(x) => Err(BigIntDbError(format!("Expected 1 row to be changed for the unique key {} but got this count: {}", config.key_param_value(), x))),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
@@ -286,7 +287,7 @@ impl<'a> SQLParamsBuilder<'a> {
         self
     }
 
-    pub fn other(mut self, params: Vec<Param<'a>>) -> Self {
+    pub fn other_params(mut self, params: Vec<Param<'a>>) -> Self {
         self.other_params = params;
         self
     }
@@ -474,6 +475,8 @@ pub trait TableNameDAO: Debug + Send {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WeiChange {
     Addition(&'static str, u128),
+    //This means that the supplied amount is internally converted into a signed number and
+    //so even though the related SQL contains + signs the resulting math operation is subtraction
     Subtraction(&'static str, u128),
 }
 
@@ -577,7 +580,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![Param::new(("other_thing", &46565), true)]);
+            .other_params(vec![Param::new(("other_thing", &46565), true)]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
         let key_spec = result.key_spec_opt.unwrap();
@@ -602,7 +605,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![Param::new((":other_thing", &11111), true)])
+            .other_params(vec![Param::new((":other_thing", &11111), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -640,7 +643,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"wooow",
             })
-            .other(vec![Param::new((":other_thing", &46565), true)])
+            .other_params(vec![Param::new((":other_thing", &46565), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -674,7 +677,7 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .other(vec![Param::new(("laughter", &"hahaha"), true)])
+            .other_params(vec![Param::new(("laughter", &"hahaha"), true)])
             .build();
     }
 
@@ -689,7 +692,7 @@ mod tests {
                 sub_name: ":wallet",
                 val: &make_wallet("wallet"),
             })
-            .other(vec![Param::new(("other_thing", &46565), true)])
+            .other_params(vec![Param::new(("other_thing", &46565), true)])
             .build();
     }
 
@@ -1357,6 +1360,34 @@ mod tests {
             Err(BigIntDbError(
                 "Error from invalid upsert command for test_table table and change of 4879898145125 \
                 wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
+                    .to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn different_count_of_changed_rows_than_expected_with_update_only_configuration() {
+        let conn = initiate_simple_connection_and_test_table(
+            "big_int_db_processor",
+            "different_count_of_changed_rows_than_expected_with_update_only_configuration",
+        );
+        let subject = BigIntDbProcessor::<DummyDao>::default();
+        let balance_change = Addition("balance", 12345);
+        let config = BigIntSqlConfig::new(
+            STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
+            "",
+            SQLParamsBuilder::default()
+                .key(test_database_key(&"Joe"))
+                .wei_change(balance_change)
+                .build(),
+        );
+
+        let result = subject.execute(Left(conn.as_ref()), config);
+
+        assert_eq!(
+            result,
+            Err(BigIntDbError(
+                "Expected 1 row to be changed for the unique key Joe but got this count: 0"
                     .to_string()
             ))
         );

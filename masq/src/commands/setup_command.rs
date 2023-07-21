@@ -6,7 +6,10 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::messages::{UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
+use masq_lib::messages::{
+    UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
+    UiSetupResponseValue, UiSetupResponseValueStatus,
+};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
@@ -107,9 +110,20 @@ impl SetupCommand {
                 .expect("String comparison failed")
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
-        let chain_and_data_dir = |p: &UiSetupResponseValue| { (p.name.to_owned(), (p.value.clone(), p.status)) };
-        let chain = inner.values.iter().find(|&p| p.name.as_str() == "chain").map(chain_and_data_dir).expect("Chain name is missing in setup cluster!");
-        let data_directory = inner.values.iter().find(|&p| p.name.as_str() == "data-directory").map(chain_and_data_dir).expect("data-directory is missing in setup cluster!");
+        let chain_and_data_dir =
+            |p: &UiSetupResponseValue| (p.name.to_owned(), (p.value.clone(), p.status));
+        let chain = inner
+            .values
+            .iter()
+            .find(|&p| p.name.as_str() == "chain")
+            .map(chain_and_data_dir)
+            .expect("Chain name is missing in setup cluster!");
+        let data_directory = inner
+            .values
+            .iter()
+            .find(|&p| p.name.as_str() == "data-directory")
+            .map(chain_and_data_dir)
+            .expect("data-directory is missing in setup cluster!");
 
         inner.values.into_iter().for_each(|value| {
             short_writeln!(
@@ -134,8 +148,8 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
-        if chain.1.1 != UiSetupResponseValueStatus::Default
-            || data_directory.1.1 != UiSetupResponseValueStatus::Default
+        if chain.1 .1 != UiSetupResponseValueStatus::Default
+            || data_directory.1 .1 != UiSetupResponseValueStatus::Default
         {
             short_writeln!(
                 stdout,
@@ -359,7 +373,7 @@ ip                            No sir, I don't like it.\n\
         data_directory_expected: Option<&'static str>,
         note_expected: bool,
         status_chain: UiSetupResponseValueStatus,
-        status_data_dir: UiSetupResponseValueStatus
+        status_data_dir: UiSetupResponseValueStatus,
     }
 
     #[test]

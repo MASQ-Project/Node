@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::payable_dao::PayableDaoFactory;
-use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
-use crate::accountant::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::database_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::database_access_objects::payable_dao::PayableDaoFactory;
+use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoFactory;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::{
-    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
-    SentPayables,
+    checked_conversion, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
+    ReportTransactionReceipts, ScanError, SentPayables,
 };
-use crate::banned_dao::BannedDaoFactory;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -94,8 +94,10 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
+    pub report_consuming_wallet_balances_and_qualified_payables:
+        Recipient<ConsumingWalletBalancesAndQualifiedPayables>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
+    pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,

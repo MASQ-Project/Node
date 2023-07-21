@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
-use crate::utils::WrapResult;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
@@ -79,16 +78,42 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
-        MultiConfig { arg_matches }.wrap_to_ok()
+        Ok(MultiConfig { arg_matches })
+    }
+
+    fn check_for_invalid_value_err(
+        error_msg: &str,
+        pattern: &str,
+        index_of_name: usize,
+        index_of_value: usize,
+    ) -> Option<ConfiguratorError> {
+        let regex = Regex::new(pattern).expect("Bad regex");
+
+        match regex.captures(error_msg) {
+            Some(captures) => {
+                let name = &captures[index_of_name];
+                let message = format!("Invalid value: {}", &captures[index_of_value]);
+
+                Some(ConfiguratorError::required(name, &message))
+            }
+            None => None,
+        }
     }
 
     pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
-        let invalid_value_regex =
-            Regex::new("Invalid value for.*'--(.*?) <.*? (.*)$").expect("Bad regex");
-        if let Some(captures) = invalid_value_regex.captures(&e.message) {
-            let name = &captures[1];
-            let message = format!("Invalid value: {}", &captures[2]);
-            return ConfiguratorError::required(name, &message);
+        let invalid_value_patterns = vec![
+            ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
+            ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
+        ];
+        for (pattern, index_of_name, index_of_value) in invalid_value_patterns {
+            if let Some(invalid_value_err) = MultiConfig::check_for_invalid_value_err(
+                &e.message,
+                pattern,
+                index_of_name,
+                index_of_value,
+            ) {
+                return invalid_value_err;
+            };
         }
         if e.message
             .contains("The following required arguments were not provided:")

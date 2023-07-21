@@ -6,7 +6,6 @@ use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::Migrations;
-use crate::sub_lib::versioned_data::FUTURE_VERSION;
 use crate::sub_lib::versioned_data::{MigrationError, StepError, VersionedData};
 use lazy_static::lazy_static;
 use serde_cbor::Value;
@@ -14,13 +13,13 @@ use std::convert::TryFrom;
 
 lazy_static! {
     pub static ref MIGRATIONS: Migrations = {
-        let current_version = dv!(0, 1);
+        let current_version = masq_lib::constants::CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION;
         let mut migrations = Migrations::new(current_version);
 
         migrate_value!(dv!(0, 1), ClientRequestPayload_0v1, ClientRequestPayloadMF_0v1, {|value: serde_cbor::Value| {
             ClientRequestPayload_0v1::try_from (&value)
         }});
-        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (ClientRequestPayloadMF_0v1{}));
+        migrations.add_step (masq_lib::data_version::FUTURE_VERSION, dv!(0, 1), Box::new (ClientRequestPayloadMF_0v1{}));
 
         // add more steps here
 
@@ -107,7 +106,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                     target_hostname: target_hostname_opt.expect("target_hostname disappeared"),
                     target_port: target_port_opt.expect("target_port disappeared"),
                     protocol: protocol_opt.expect("protocol disappeared"),
-                    originator_alias_public_key: originator_public_key_opt
+                    originator_public_key: originator_public_key_opt
                         .expect("originator_public_key disappeared"),
                 })
             }
@@ -123,7 +122,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::versioned_data::DataVersion;
+    use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -150,7 +149,7 @@ mod tests {
             target_hostname: Some("target.hostname.com".to_string()),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&[2, 3, 4, 5]),
+            originator_public_key: PublicKey::new(&[2, 3, 4, 5]),
         };
         let future_crp = ExampleFutureCRP {
             stream_key: expected_crp.stream_key.clone(),
@@ -158,7 +157,7 @@ mod tests {
             target_hostname: expected_crp.target_hostname.clone(),
             target_port: expected_crp.target_port.clone(),
             protocol: expected_crp.protocol.clone(),
-            originator_public_key: expected_crp.originator_alias_public_key.clone(),
+            originator_public_key: expected_crp.originator_public_key.clone(),
             another_field: "These are the times that try men's souls".to_string(),
             yet_another_field: 1234567890,
         };

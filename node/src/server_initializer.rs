@@ -13,8 +13,10 @@ use flexi_logger::{
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
+use log::{log, Level};
 use masq_lib::command::StdStreams;
-use masq_lib::logger::real_format_function;
+use masq_lib::logger;
+use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
@@ -47,7 +49,7 @@ impl ServerInitializer for ServerInitializerReal {
                     .as_mut()
                     .initialize_as_privileged(&params.multi_config),
             );
-        
+
         self.privilege_dropper
             .chown(&params.data_directory, &params.real_user);
 
@@ -195,6 +197,14 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
+
+        // Info level is not shown within the log
+        log!(Level::Info, "{}", logger::Logger::log_file_heading());
+
+        unsafe {
+            // This resets the format function after specialized formatting for the log heading is used.
+            POINTER_TO_FORMAT_FUNCTION = real_format_function;
+        }
     }
 }
 
@@ -273,7 +283,8 @@ fn format_function(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, OffsetDateTime::now_utc(), record)
+    let pointer_to_format_function = unsafe { POINTER_TO_FORMAT_FUNCTION };
+    pointer_to_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]
@@ -406,7 +417,7 @@ pub mod tests {
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
@@ -708,7 +719,7 @@ pub mod tests {
             stderr,
         };
         subject
-            .go(streams, &array_of_borrows_to_vec(&["MASQNode"]))
+            .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
         let res = subject.wait();
 
@@ -784,7 +795,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
             .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -793,7 +804,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -820,7 +831,7 @@ pub mod tests {
 
         let result = subject.go(
             streams,
-            &array_of_borrows_to_vec(&[
+            &slice_of_strs_to_vec_of_strings(&[
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
@@ -889,7 +900,8 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
-        let args = array_of_borrows_to_vec(&["MASQNode", "--real-user", "123:123:/home/alice"]);
+        let args =
+            slice_of_strs_to_vec_of_strings(&["MASQNode", "--real-user", "123:123:/home/alice"]);
         let stderr = ByteArrayWriter::new();
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;

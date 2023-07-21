@@ -7,11 +7,11 @@ pub mod unprivileged_parse_args_configuration;
 
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::utils::make_new_multi_config;
+use crate::sub_lib::utils::{db_connection_launch_panic, make_new_multi_config};
 use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
@@ -20,7 +20,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{add_masq_and_chain_directories, localhost, WrapResult};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -54,8 +54,8 @@ pub fn determine_fundamentals(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path =
-        value_m!(multi_config, "config-file", PathBuf).expect("config-file parameter is not properly defaulted by clap");
+    let config_file_path = value_m!(multi_config, "config-file", PathBuf)
+        .expect("config-file parameter is not properly defaulted by clap");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
     let (real_user, data_directory_path, chain) =
         real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
@@ -69,7 +69,7 @@ pub fn determine_fundamentals(
         config_file_path
     };
 
-    (config_file_path, user_specified, data_directory, real_user).wrap_to_ok()
+    Ok((config_file_path, user_specified, data_directory, real_user))
 }
 
 pub fn initialize_database(
@@ -78,13 +78,7 @@ pub fn initialize_database(
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, migrator_config)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Can't initialize database at {:?}: {:?}",
-                data_directory.join(DATABASE_FILE),
-                e
-            )
-        });
+        .unwrap_or_else(|e| db_connection_launch_panic(e, data_directory));
     Box::new(PersistentConfigurationReal::from(conn))
 }
 

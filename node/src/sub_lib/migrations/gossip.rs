@@ -1,22 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
-use crate::sub_lib::versioned_data::{
-    MigrationError, Migrations, StepError, VersionedData, FUTURE_VERSION,
-};
+use crate::sub_lib::versioned_data::{MigrationError, Migrations, StepError, VersionedData};
 use lazy_static::lazy_static;
 use serde_cbor::Value;
 use std::convert::TryFrom;
 
 lazy_static! {
     static ref MIGRATIONS: Migrations = {
-        let current_version = dv!(0, 1);
+        let current_version = masq_lib::constants::GOSSIP_CURRENT_VERSION;
         let mut migrations = Migrations::new(current_version);
 
         migrate_value!(dv!(0, 1), Gossip_0v1, GossipMF_0v1, {|value: serde_cbor::Value| {
             Gossip_0v1::try_from (&value)
         }});
-        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (GossipMF_0v1{}));
+        migrations.add_step (masq_lib::data_version::FUTURE_VERSION, dv!(0, 1), Box::new (GossipMF_0v1{}));
 
         // add more steps here
 
@@ -84,8 +82,8 @@ impl TryFrom<&Value> for Gossip_0v1 {
 mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
-    use crate::sub_lib::versioned_data::DataVersion;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
 
     #[test]

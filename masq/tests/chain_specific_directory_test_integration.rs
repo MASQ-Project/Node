@@ -32,8 +32,15 @@ fn ensure_data_directory_has_specific_chain_directory_within_integration() {
         "data-directory", "/home/booga/masqhome/polygon-mainnet", "Set"
     );
 
-    assert!(!stdout.contains("MASQ/polygon-mainnet/MASQ/polygon-mainnet Default"), "Wrong directory: duplication of /MASQ/polygon-mainnet when Default");
-    assert!(stdout2.contains(&expected), "Wrong directory: missing chain specific directory when Set:\nstdout: {}\n", stdout2);
+    assert!(
+        !stdout.contains("MASQ/polygon-mainnet/MASQ/polygon-mainnet Default"),
+        "Wrong directory: duplication of /MASQ/polygon-mainnet when Default"
+    );
+    assert!(
+        stdout2.contains(&expected),
+        "Wrong directory: missing chain specific directory when Set:\nstdout: {}\n",
+        stdout2
+    );
 
     daemon_handle.kill();
 }

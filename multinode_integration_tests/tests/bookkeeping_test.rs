@@ -3,11 +3,12 @@ use multinode_integration_tests_lib::masq_node::{MASQNode, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
+    STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
-use node_lib::accountant::dao_utils::CustomQuery;
-use node_lib::accountant::payable_dao::PayableAccount;
-use node_lib::accountant::receivable_dao::ReceivableAccount;
+use node_lib::accountant::database_access_objects::dao_utils::CustomQuery;
+use node_lib::accountant::database_access_objects::payable_dao::PayableAccount;
+use node_lib::accountant::database_access_objects::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
@@ -25,7 +26,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
     thread::sleep(Duration::from_secs(10));
 
-    let mut client = originating_node.make_client(8080);
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     client.set_timeout(Duration::from_secs(10));
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
 
@@ -41,7 +42,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     let payables = non_pending_payables(&originating_node);
 
     // Waiting until the serving nodes have finished accruing their receivables
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_secs(7));
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
