@@ -133,20 +133,27 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // originating_node --> relay1 --> relay2 --> cheap_exit
     //                                   |
     //                                   +--> normal_exit
-    let (originating_node, relay1_mock, cheap_exit_key, normal_exit_key) = {
+    let (originating_node, relay1_mock, cheap_exit_key, normal_exit_key, _third_exit_key, _forth_exit_key) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
         let relay1_key = db.add_node(make_node_record(2345, true)).unwrap();
         let relay2_key = db.add_node(make_node_record(3456, false)).unwrap();
         let mut cheap_exit_node = make_node_record(4567, false);
         let normal_exit_node = make_node_record(5678, false);
+        let third_exit_node = make_node_record(6789, false);
+        let forth_exit_node = make_node_record(7890, false);
         cheap_exit_node.inner.rate_pack = cheaper_rate_pack(normal_exit_node.rate_pack(), 1);
         let cheap_exit_key = db.add_node(cheap_exit_node).unwrap();
         let normal_exit_key = db.add_node(normal_exit_node).unwrap();
+        let third_exit_key = db.add_node(third_exit_node).unwrap();
+        let forth_exit_key = db.add_node(forth_exit_node).unwrap();
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1_key);
         db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key);
         db.add_arbitrary_full_neighbor(&relay2_key, &cheap_exit_key);
         db.add_arbitrary_full_neighbor(&relay2_key, &normal_exit_key);
+        db.add_arbitrary_full_neighbor(&relay2_key, &third_exit_key);
+        db.add_arbitrary_full_neighbor(&relay2_key, &forth_exit_key);
+
         let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
         let relay1_mock = node_map.remove(&relay1_key).unwrap();
         (
@@ -154,10 +161,12 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             relay1_mock,
             cheap_exit_key,
             normal_exit_key,
+            third_exit_key,
+            forth_exit_key,
         )
     };
     let mut client: MASQNodeClient =
-        originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
+        originating_node.make_client(8080, 5000);
     let masquerader = JsonMasquerader::new();
     let originating_node_alias_cryptde = CryptDENull::from(
         &originating_node.alias_public_key(),
@@ -185,12 +194,46 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .unwrap();
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
-    let dns_fail_pkg =
+    let dns_fail_pkg_1 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_2 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_3 =
+        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+    let dns_fail_pkg_4 =
         make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
+
     relay1_mock
         .transmit_package(
             relay1_mock.port_list()[0],
-            dns_fail_pkg,
+            dns_fail_pkg_1,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_2,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_3,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    relay1_mock
+        .transmit_package(
+            relay1_mock.port_list()[0],
+            dns_fail_pkg_4,
             &masquerader,
             originating_node.main_public_key(),
             originating_node.socket_addr(PortSelector::First),
@@ -205,23 +248,19 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     );
     assert_string_contains(
         &dns_error_response_str,
-        "<h3>Subtitle: Exit Node couldn't resolve \"nonexistent.com\"</h3>",
+        "<h3>Subtitle: Exit Nodes couldn't resolve \"nonexistent.com\"</h3>",
     );
     assert_string_contains(
         &dns_error_response_str,
         &format!(
-            "<p>We chose the exit Node {cheap_exit_key} for your request to nonexistent.com; \
-        but when it asked its DNS server to look up the IP address for nonexistent.com, \
-        it wasn't found. If nonexistent.com exists, it will need to be looked up by a \
-        different exit Node. We've deprioritized this exit Node. Reload the page, \
-        and we'll try to find another.</p>"
+            "<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address nonexistent.com</p>"
         ),
     );
 
     // This request should be routed through normal_exit because it's unreachable through cheap_exit
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
     let (_, _, live_cores_package) = relay1_mock
-        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .wait_for_package(&masquerader, Duration::from_secs(5))
         .unwrap();
     let (_, intended_exit_public_key) =
         CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
@@ -237,7 +276,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // will pick the last route.
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
     let (_, _, live_cores_package) = relay1_mock
-        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .wait_for_package(&masquerader, Duration::from_secs(5))
         .unwrap();
     let (_, intended_exit_public_key) =
         CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
