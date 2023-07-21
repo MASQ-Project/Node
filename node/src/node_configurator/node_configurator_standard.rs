@@ -141,6 +141,8 @@ pub fn server_initializer_collected_params<'a>(
     args: &[String],
 ) -> Result<GatheredParams<'a>, ConfiguratorError> {
     let app = app_node();
+    todo!("Send args out of this function and retrieve them with replaced all important tildas with home dir");
+    //TODO important strings config file path, data directory and real user, and only on the begining of the string
     let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
