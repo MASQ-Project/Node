@@ -66,7 +66,6 @@ impl Handler<BindMessage> for Configurator {
             msg.peer_actors
                 .neighborhood
                 .configuration_change_msg_sub
-                .clone(),
         );
     }
 }

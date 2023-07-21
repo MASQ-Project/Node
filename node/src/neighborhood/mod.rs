@@ -1546,10 +1546,6 @@ impl Neighborhood {
         );
     }
 
-    fn handle_new_password(&mut self, new_password: String) {
-        self.db_password_opt = Some(new_password);
-    }
-
     fn calculate_db_patch_size(min_hops: Hops) -> Hops {
         if min_hops <= DEFAULT_MIN_HOPS {
             DEFAULT_MIN_HOPS
