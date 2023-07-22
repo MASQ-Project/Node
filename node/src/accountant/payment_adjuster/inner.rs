@@ -13,6 +13,7 @@ pub trait PaymentAdjusterInner {
         PaymentAdjusterInnerNull::panicking_operation("cw_masq_balance()")
     }
 
+    //TODO this method should use RefCell internally...and we could have PaymentAdjuster with &self instead of &mut self
     fn lower_remaining_cw_balance(&mut self, subtrahend: u128) {
         PaymentAdjusterInnerNull::panicking_operation("lower_remaining_cw_balance()")
     }

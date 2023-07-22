@@ -24,6 +24,7 @@ use crate::accountant::{gwei_to_wei, wei_to_gwei};
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutcomingPaymentsInstructions};
 use crate::sub_lib::wallet::Wallet;
+use itertools::Either::{Left, Right};
 use itertools::{Either, Itertools};
 use log::logger;
 use masq_lib::logger::Logger;
@@ -122,7 +123,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .collect::<HashMap<Wallet, u128>>()
         });
 
-        let adjusted_accounts = self.run_adjustment_in_recursion(vec![], qualified_payables);
+        let adjusted_accounts = self.run_full_adjustment_procedure(qualified_payables, vec![]);
 
         debug!(
             self.logger,
@@ -273,10 +274,10 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn run_adjustment_in_recursion(
+    fn run_full_adjustment_procedure(
         &mut self,
-        resolved_qualified_accounts: Vec<PayableAccount>,
         unresolved_qualified_accounts: Vec<PayableAccount>,
+        resolved_qualified_accounts: Vec<PayableAccount>,
     ) -> Vec<PayableAccount> {
         diagnostics_collective("RESOLVED QUALIFIED ACCOUNTS:", &resolved_qualified_accounts);
         diagnostics_collective(
@@ -288,7 +289,18 @@ impl PaymentAdjusterReal {
         let sorted_accounts_with_individual_criteria =
             self.apply_criteria(accounts_with_zero_criteria);
 
-        let adjustment_result: AdjustmentIterationResult =
+        self.run_adjustment_by_criteria_recursively(
+            sorted_accounts_with_individual_criteria,
+            resolved_qualified_accounts,
+        )
+    }
+
+    fn run_adjustment_by_criteria_recursively(
+        &mut self,
+        sorted_accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        resolved_qualified_accounts: Vec<PayableAccount>,
+    ) -> Vec<PayableAccount> {
+        let adjustment_result: AdjustmentIterationSummary =
             match self.give_job_to_adjustment_workers(sorted_accounts_with_individual_criteria) {
                 AdjustmentCompletion::Finished(accounts_adjusted) => return accounts_adjusted,
                 AdjustmentCompletion::Continue(iteration_result) => iteration_result,
@@ -300,9 +312,9 @@ impl PaymentAdjusterReal {
             adjustment_result.decided_accounts
         } else {
             self.adjust_next_round_cw_balance_down(&adjustment_result.decided_accounts);
-            return self.run_adjustment_in_recursion(
-                adjustment_result.decided_accounts,
+            return self.run_full_adjustment_procedure(
                 adjustment_result.remaining_accounts,
+                adjustment_result.decided_accounts,
             );
         };
 
@@ -348,7 +360,7 @@ impl PaymentAdjusterReal {
                 let divisor = (elapsed_sec as f64).sqrt().ceil() as u128;
                 (elapsed_sec as u128)
                     .checked_pow(AGE_EXPONENT)
-                    .unwrap_or(u128::MAX) //TODO????
+                    .unwrap_or(u128::MAX) //TODO sensible and tested ????
                     .checked_div(divisor)
                     .expect("div overflow")
                     * AGE_MULTIPLIER
@@ -443,23 +455,58 @@ impl PaymentAdjusterReal {
     fn handle_masq_token_adjustment(
         &mut self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-    ) -> AdjustmentIterationResult {
-        let required_balance_total = Self::balance_total(&accounts_with_individual_criteria);
+    ) -> AdjustmentIterationSummary {
+        //      let required_balance_total = Self::balance_total(&accounts_with_individual_criteria);
         let criteria_total = Self::criteria_total(&accounts_with_individual_criteria);
 
-        match self.try_separating_outweighed_accounts(
+        // match self.handle_possibly_outweighed_accounts(
+        //     accounts_with_individual_criteria,
+        //     required_balance_total,
+        //     criteria_total,
+        // ) {
+        //     Either::Left(accounts_with_individual_criteria) => {
+        self.perform_adjustment_and_determine_adjustment_iteration_result(
             accounts_with_individual_criteria,
-            required_balance_total,
+            criteria_total,
+        )
+        //     }
+        //     Either::Right((outweighed, remaining)) => AdjustmentIterationSummary {
+        //         decided_accounts: outweighed,
+        //         remaining_accounts: remaining,
+        //         disqualified_accounts: vec![],
+        //     },
+        // }
+    }
+
+    fn perform_adjustment_and_determine_adjustment_iteration_result(
+        &mut self,
+        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        criteria_total: u128,
+    ) -> AdjustmentIterationSummary {
+        //TODO simplify this...one of these enums is probably redundant
+        match self.recreate_accounts_with_proportioned_balances(
+            accounts_with_individual_criteria,
             criteria_total,
         ) {
-            Either::Left(accounts_with_individual_criteria) => {
-                Self::perform_adjustment_and_determine_adjustment_iteration_result(
-                    accounts_with_individual_criteria,
-                    self.inner.cw_masq_balance(),
-                    criteria_total,
-                )
+            AccountsRecreationResult::AllAccountsCleanlyProcessed(decided_accounts) => {
+                AdjustmentIterationSummary {
+                    decided_accounts,
+                    remaining_accounts: vec![],
+                    disqualified_accounts: vec![],
+                }
             }
-            Either::Right((outweighed, remaining)) => AdjustmentIterationResult {
+            AccountsRecreationResult::InsignificantAccounts {
+                disqualified,
+                remaining,
+            } => AdjustmentIterationSummary {
+                decided_accounts: vec![],
+                remaining_accounts: remaining,
+                disqualified_accounts: disqualified,
+            },
+            AccountsRecreationResult::OutweighedAccounts {
+                outweighed,
+                remaining,
+            } => AdjustmentIterationSummary {
                 decided_accounts: outweighed,
                 remaining_accounts: remaining,
                 disqualified_accounts: vec![],
@@ -467,54 +514,12 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn perform_adjustment_and_determine_adjustment_iteration_result(
-        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-        cw_masq_balance: u128,
-        criteria_total: u128,
-    ) -> AdjustmentIterationResult {
-        let (decided_accounts, disqualified_accounts): (
-            Vec<ReversiblePayableAccount>,
-            Vec<DisqualifiedPayableAccount>,
-        ) = Self::recreate_accounts_with_proportioned_balances(
-            accounts_with_individual_criteria,
-            cw_masq_balance,
-            criteria_total,
-        );
-
-        if disqualified_accounts.is_empty() {
-            let decided_accounts = Self::finalize_decided_accounts(
-                decided_accounts,
-                DecidedPayableAccountResolution::Finalize,
-            );
-            AdjustmentIterationResult {
-                decided_accounts,
-                remaining_accounts: vec![],
-                disqualified_accounts: vec![],
-            }
-        } else {
-            // reverting decided accounts because after we lose the disqualified ones from
-            // the compilation it may be that the remaining accounts could be now paid
-            // in more favorable proportions or even in the full size
-            let remaining_accounts = Self::finalize_decided_accounts(
-                decided_accounts,
-                DecidedPayableAccountResolution::Revert,
-            );
-            AdjustmentIterationResult {
-                decided_accounts: vec![],
-                remaining_accounts,
-                disqualified_accounts,
-            }
-        }
-    }
-
     fn recreate_accounts_with_proportioned_balances(
+        &mut self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-        cw_masq_balance: u128,
         criteria_total: u128,
-    ) -> (
-        Vec<ReversiblePayableAccount>,
-        Vec<DisqualifiedPayableAccount>,
-    ) {
+    ) -> AccountsRecreationResult {
+        let cw_masq_balance = self.inner.cw_masq_balance();
         let multiplication_coeff = PaymentAdjusterReal::compute_fractions_preventing_mul_coeff(
             cw_masq_balance,
             criteria_total,
@@ -529,10 +534,9 @@ impl PaymentAdjusterReal {
             .checked_div(criteria_total_u256)
             .expect("div overflow");
 
-        accounts_with_individual_criteria.into_iter().fold(
-            (vec![], vec![]),
-            |(decided, disqualified), (criteria_sum, account)| {
-                let original_balance = account.balance_wei;
+        let accounts_with_unchecked_adjustment: Vec<_> = accounts_with_individual_criteria
+            .into_iter()
+            .map(|(criteria_sum, account)| {
                 let proposed_adjusted_balance = (U256::from(criteria_sum)
                     * proportional_fragment_of_cw_balance
                     / multiplication_coeff_u256)
@@ -541,172 +545,237 @@ impl PaymentAdjusterReal {
                 diagnostics(&account.wallet, "PROPOSED ADJUSTED BALANCE", || {
                     proposed_adjusted_balance.separate_with_commas()
                 });
-
-                Self::consider_account_disqualification_from_percentage_insignificance(
-                    decided,
-                    disqualified,
+                AccountWithUncheckedAdjustment::new(
                     account,
-                    original_balance,
                     proposed_adjusted_balance,
+                    criteria_sum,
                 )
-            },
-        )
+            })
+            .collect();
+
+        let unchecked_for_outweighed =
+            match Self::consider_account_disqualification_from_percentage_insignificance(
+                accounts_with_unchecked_adjustment,
+            ) {
+                Left(still_not_fully_checked) => still_not_fully_checked,
+                Right(with_some_disqualified) => return with_some_disqualified,
+            };
+
+        let finalized_accounts =
+            match self.handle_possibly_outweighed_account(unchecked_for_outweighed) {
+                Left(finalized_accounts) => finalized_accounts,
+                Right(with_some_outweighed) => return with_some_outweighed,
+            };
+
+        AccountsRecreationResult::AllAccountsCleanlyProcessed(finalized_accounts)
     }
 
     fn consider_account_disqualification_from_percentage_insignificance(
-        mut decided: Vec<ReversiblePayableAccount>,
-        mut disqualified: Vec<DisqualifiedPayableAccount>,
-        mut account: PayableAccount,
-        original_balance: u128,
-        proposed_adjusted_balance: u128,
-    ) -> (
-        Vec<ReversiblePayableAccount>,
-        Vec<DisqualifiedPayableAccount>,
-    ) {
-        let balance_at_the_edge =
-            ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance * 10)
-                / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor);
-        if balance_at_the_edge <= (proposed_adjusted_balance * 10) {
-            account.balance_wei = proposed_adjusted_balance;
-            let decided_account = ReversiblePayableAccount::new(account, original_balance);
-            decided.push(decided_account);
-            (decided, disqualified)
-        } else {
-            let disqualified_account = DisqualifiedPayableAccount::new(
-                account.wallet,
-                original_balance,
-                proposed_adjusted_balance,
-            );
-            disqualified.push(disqualified_account);
-            (decided, disqualified)
-        }
-    }
-
-    fn try_separating_outweighed_accounts(
-        &mut self,
-        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-        required_balance_total: u128,
-        criteria_total: u128,
-    ) -> Either<Vec<(u128, PayableAccount)>, (Vec<PayableAccount>, Vec<PayableAccount>)> {
-        match Self::check_for_outweighed_accounts(
-            &accounts_with_individual_criteria,
-            required_balance_total,
-            criteria_total,
-            self.inner.cw_masq_balance(),
-        ) {
-            None => Either::Left(accounts_with_individual_criteria),
-            Some(wallets_of_outweighed) => Either::Right({
-                eprintln!("wallets: {:?}", wallets_of_outweighed);
-                debug!(
-                    self.logger,
-                    "Found outweighed accounts that will have to be readjusted ({:?}).",
-                    wallets_of_outweighed
-                );
-                let (unchecked_outweighed, remaining): (Vec<PayableAccount>, Vec<PayableAccount>) =
-                    accounts_with_individual_criteria
-                        .into_iter()
-                        .map(|(_, account)| account)
-                        .partition(|account| wallets_of_outweighed.contains(&account.wallet));
-                let outweighed = self
-                    .adjust_balance_of_outweighed_accounts_to_cw_balance_if_necessary(
-                        unchecked_outweighed,
-                    );
-                (outweighed, remaining)
-            }),
-        }
-    }
-
-    fn check_for_outweighed_accounts(
-        accounts_with_individual_criteria: &[(u128, PayableAccount)],
-        required_balance_total: u128,
-        criteria_total: u128,
-        cw_masq_balance: u128, //TODO remove me after the experiment
-    ) -> Option<Vec<Wallet>> {
-        let coeff = PaymentAdjusterReal::compute_fractions_preventing_mul_coeff(
-            cw_masq_balance,
-            criteria_total,
-        );
-        eprintln!("required bala {} coeff: {}", required_balance_total, coeff);
-        let required_balance_total_for_safe_math = required_balance_total * 1000;
-        let criteria_total_for_safe_math = criteria_total * 1000;
-        let accounts_to_be_outweighed = accounts_with_individual_criteria
+        accounts_with_unchecked_adjustment: Vec<AccountWithUncheckedAdjustment>,
+    ) -> Either<Vec<AccountWithUncheckedAdjustment>, AccountsRecreationResult> {
+        let wallets_of_accounts_to_disqualify: Vec<&Wallet> = accounts_with_unchecked_adjustment
             .iter()
-            .filter(|(criterion, account)| {
-                //TODO maybe this part should have its own fn, where we could test closely the relation between the ration and the proposed balance
-                let balance_ratio =
-                    required_balance_total_for_safe_math / (account.balance_wei * 1000); //TODO also try giving each parameter a diff const in order to mitigate the sensitiveness
-                let criterion_ratio = criteria_total_for_safe_math / (criterion * 1000); //TODO try moving with this constant and watch the impact on this check
-                                                                                         // true means we would pay more than we were asked to pay at the beginning,
-                                                                                         // this happens when the debt size is quite small but its age is large and
-                                                                                         // plays the main factor
-                {
-                    let balance_fragment = cw_masq_balance
-                        .checked_mul(coeff)
-                        .unwrap()
-                        .checked_div(criteria_total)
-                        .unwrap();
-                    eprintln!(
-                        "account {} balance before {} and after {}",
-                        account.wallet,
-                        account.balance_wei.separate_with_commas(),
-                        ((balance_fragment * criterion).checked_div(coeff).unwrap())
-                            .separate_with_commas()
-                    );
-                    eprintln!(
-                        "this is current balance ratio: {}, this is current criterion ratio {}",
-                        balance_ratio, criterion_ratio
-                    )
-                };
-                let is_highly_significant = balance_ratio > criterion_ratio;
-                if is_highly_significant {
-                    diagnostics(
-                        &account.wallet,
-                        "ACCOUNT PROPOSED WITH BALANCE HIGHER THAN THE ORIGIN ONE",
-                        || {
-                            format!(
-                                "balance_ration ({}) > criterion_ration ({})",
-                                balance_ratio, criterion_ratio
-                            )
-                        },
-                    )
+            .flat_map(|account_info| {
+                let original_balance = account_info.original_account.balance_wei;
+                let balance_at_the_edge = ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance * 10) //TODO what about these 10s?
+                / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor);
+                let proposed_adjusted_balance = account_info.proposed_adjusted_balance * 10;
+                if proposed_adjusted_balance <= balance_at_the_edge {
+                    Some(&account_info.original_account.wallet)
+                } else {
+                    None
+                    // let disqualified_account = DisqualifiedPayableAccount::new(
+                    //     account.wallet,
+                    //     original_balance,
+                    //     proposed_adjusted_balance,
+                    // );
+                    // disqualified.push(disqualified_account);
+                    // (decided, disqualified)
                 }
-
-                is_highly_significant
             })
-            .map(|(_, account)| account.wallet.clone())
-            .collect::<Vec<Wallet>>();
-        if !accounts_to_be_outweighed.is_empty() {
-            Some(accounts_to_be_outweighed)
+            .collect();
+        if wallets_of_accounts_to_disqualify.is_empty() {
+            Left(accounts_with_unchecked_adjustment)
         } else {
-            None
+            //TODO add console diagnostics here
+            todo!("create the account creation result")
         }
     }
+
+    fn handle_possibly_outweighed_account(
+        &mut self,
+        accounts_with_unchecked_adjustment: Vec<AccountWithUncheckedAdjustment>,
+    ) -> Either<Vec<PayableAccount>, AccountsRecreationResult> {
+        let init: (
+            Vec<(u128, PayableAccount)>,
+            Vec<AccountWithUncheckedAdjustment>,
+        ) = (vec![], vec![]);
+        let (outweighed_with_already_made_criteria, passing_through) =
+            accounts_with_unchecked_adjustment.into_iter().fold(
+                init,
+                |(mut outweighed, mut passing_through), account_info| {
+                    if account_info.proposed_adjusted_balance
+                        > account_info.original_account.balance_wei
+                    //TODO test the operator against <=
+                    {
+                        diagnostics(
+                            &account_info.original_account.wallet,
+                            "OUTWEIGHED ACCOUNT FOUND",
+                            || {
+                                format!(
+                                    "original balance: {}, proposed balance {}",
+                                    account_info.original_account.balance_wei,
+                                    account_info.proposed_adjusted_balance
+                                )
+                            },
+                        );
+
+                        let outweighed_record =
+                            (account_info.criteria_sum, account_info.original_account);
+                        outweighed.push(outweighed_record);
+                        (outweighed, passing_through)
+                    } else {
+                        passing_through.push(account_info);
+                        (outweighed, passing_through)
+                    }
+                },
+            );
+
+        if outweighed_with_already_made_criteria.is_empty() {
+            Left(AccountWithUncheckedAdjustment::finalize_collection(
+                passing_through,
+                DecidedPayableAccountResolution::Finalize,
+            ))
+        } else {
+            let clean_outweighed_accounts = self
+                .adjust_balance_of_outweighed_accounts_to_cw_balance_if_necessary(
+                    outweighed_with_already_made_criteria,
+                );
+            let remaining = AccountWithUncheckedAdjustment::finalize_collection(
+                passing_through,
+                DecidedPayableAccountResolution::Revert,
+            );
+            Right(AccountsRecreationResult::OutweighedAccounts {
+                outweighed: clean_outweighed_accounts,
+                remaining,
+            })
+        }
+
+        //     None => Either::Left(account_with_individual_criteria),
+        //     Some(wallets_of_outweighed) => Either::Right({
+        //         eprintln!("wallets: {:?}", wallets_of_outweighed);
+        //         debug!(
+        //             self.logger,
+        //             "Found outweighed accounts that will have to be readjusted ({:?}).",
+        //             wallets_of_outweighed
+        //         );
+        //         let (unchecked_outweighed, remaining): (Vec<PayableAccount>, Vec<PayableAccount>) =
+        //             account_with_individual_criteria
+        //                 .into_iter()
+        //                 .map(|(_, account)| account)
+        //                 .partition(|account| wallets_of_outweighed.contains(&account.wallet));
+        //
+        //         (outweighed, remaining)
+        //     }),
+        // }
+    }
+
+    // fn check_for_outweighed_accounts(
+    //     accounts_with_individual_criteria: &[(u128, PayableAccount)],
+    //     required_balance_total: u128,
+    //     criteria_total: u128,
+    //     cw_masq_balance: u128, //TODO remove me after the experiment
+    // ) -> Option<Vec<Wallet>> {
+    //     let coeff = PaymentAdjusterReal::compute_fractions_preventing_mul_coeff(
+    //         cw_masq_balance,
+    //         criteria_total,
+    //     );
+    //     eprintln!("required bala {} coeff: {}", required_balance_total, coeff);
+    //     let required_balance_total_for_safe_math = required_balance_total * 1000;
+    //     let criteria_total_for_safe_math = criteria_total * 1000;
+    //     let accounts_to_be_outweighed = accounts_with_individual_criteria
+    //         .iter()
+    //         .filter(|(criterion, account)| {
+    //             //TODO maybe this part should have its own fn, where we could test closely the relation between the ration and the proposed balance
+    //             let balance_ratio =
+    //                 required_balance_total_for_safe_math / (account.balance_wei * 1000); //TODO also try giving each parameter a diff const in order to mitigate the sensitiveness
+    //             let criterion_ratio = criteria_total_for_safe_math / (criterion * 1000); //TODO try moving with this constant and watch the impact on this check
+    //                                                                                      // true means we would pay more than we were asked to pay at the beginning,
+    //                                                                                      // this happens when the debt size is quite small but its age is large and
+    //                                                                                      // plays the main factor
+    //             // {
+    //             //     let balance_fragment = cw_masq_balance
+    //             //         .checked_mul(coeff)
+    //             //         .unwrap()
+    //             //         .checked_div(criteria_total)
+    //             //         .unwrap();
+    //             //     eprintln!(
+    //             //         "account {} balance before {} and after {}",
+    //             //         account.wallet,
+    //             //         account.balance_wei.separate_with_commas(),
+    //             //         ((balance_fragment * criterion).checked_div(coeff).unwrap())
+    //             //             .separate_with_commas()
+    //             //     );
+    //             //     eprintln!(
+    //             //         "this is current balance ratio: {}, this is current criterion ratio {}",
+    //             //         balance_ratio, criterion_ratio
+    //             //     )
+    //             // };
+    //             let is_highly_significant = balance_ratio > criterion_ratio;
+    //             if is_highly_significant {
+    //                 diagnostics(
+    //                     &account.wallet,
+    //                     "ACCOUNT PROPOSED WITH BALANCE HIGHER THAN THE ORIGIN ONE",
+    //                     || {
+    //                         format!(
+    //                             "balance_ration ({}) > criterion_ration ({})",
+    //                             balance_ratio, criterion_ratio
+    //                         )
+    //                     },
+    //                 )
+    //             }
+    //
+    //             is_highly_significant
+    //         })
+    //         .map(|(_, account)| account.wallet.clone())
+    //         .collect::<Vec<Wallet>>();
+    //     if !accounts_to_be_outweighed.is_empty() {
+    //         Some(accounts_to_be_outweighed)
+    //     } else {
+    //         None
+    //     }
+    // }
 
     //TODO we probably want to drop the criteria before here where we've got no use for them........or maybe not...because the computation has always the same res
     fn adjust_balance_of_outweighed_accounts_to_cw_balance_if_necessary(
         &mut self,
-        mut outweighed: Vec<PayableAccount>,
+        mut outweighed_with_criteria: Vec<(u128, PayableAccount)>,
     ) -> Vec<PayableAccount> {
-        if outweighed.len() == 1 {
-            let only_account = &outweighed[0];
-            let cw_masq_balance = self.inner.cw_masq_balance();
+        //TODO is this special condition for the single guy necessary??
+        let cw_masq_balance = self.inner.cw_masq_balance();
+        if outweighed_with_criteria.len() == 1 {
+            let (_, only_account) = outweighed_with_criteria.remove(0);
             if only_account.balance_wei > cw_masq_balance {
-                let account = outweighed.remove(0);
                 vec![PayableAccount {
                     balance_wei: cw_masq_balance,
-                    ..account
+                    ..only_account
                 }]
             } else {
-                outweighed
+                vec![only_account]
             }
-        } else {
-            self.run_adjustment_in_recursion(vec![], outweighed)
+        } else if Self::sum_as::<u128, _, _>(&outweighed_with_criteria, |(_, account)| {
+            account.balance_wei
+        }) > cw_masq_balance
+        {
+            self.run_adjustment_by_criteria_recursively(outweighed_with_criteria, vec![])
             //
             // if !adjustment_result.decided_accounts.is_empty() && adjustment_result.remaining_accounts.is_empty() && adjustment_result.disqualified_accounts.is_empty() {
             //     todo!()
             // } else {
             //     todo!("{:?}", adjustment_result)
             // }
+        } else {
+            todo!()
         }
     }
 
@@ -756,16 +825,6 @@ impl PaymentAdjusterReal {
             .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
     }
 
-    fn finalize_decided_accounts(
-        decided_accounts: Vec<ReversiblePayableAccount>,
-        resolution: DecidedPayableAccountResolution,
-    ) -> Vec<PayableAccount> {
-        decided_accounts
-            .into_iter()
-            .map(|decided_account| PayableAccount::from((decided_account, resolution)))
-            .collect()
-    }
-
     fn cut_back_by_gas_count_limit(
         weights_and_accounts: Vec<(u128, PayableAccount)>,
         limit: u16,
@@ -809,19 +868,43 @@ fn log_2(x: u128) -> u32 {
     num_bits::<i128>() as u32 - x.leading_zeros() - 1
 }
 
+enum AccountsRecreationResult {
+    AllAccountsCleanlyProcessed(Vec<PayableAccount>),
+    InsignificantAccounts {
+        disqualified: Vec<DisqualifiedPayableAccount>,
+        remaining: Vec<PayableAccount>,
+    },
+    OutweighedAccounts {
+        outweighed: Vec<PayableAccount>,
+        remaining: Vec<PayableAccount>,
+    },
+}
+
+impl AccountsRecreationResult {
+    fn add_ok_adjusted_account(mut self, adjusted_account: PayableAccount) -> Self {
+        match self {
+            AccountsRecreationResult::AllAccountsCleanlyProcessed(_) => todo!(),
+            AccountsRecreationResult::InsignificantAccounts { .. } => todo!(),
+            AccountsRecreationResult::OutweighedAccounts { .. } => todo!(),
+        }
+    }
+}
+
 #[derive(Debug)]
-struct AdjustmentIterationResult {
+struct AdjustmentIterationSummary {
     decided_accounts: Vec<PayableAccount>,
     remaining_accounts: Vec<PayableAccount>,
     disqualified_accounts: Vec<DisqualifiedPayableAccount>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct ReversiblePayableAccount {
-    adjusted_account: PayableAccount,
-    former_balance: u128,
-}
+// #[derive(Debug, PartialEq, Eq)]
+// struct ReversiblePayableAccount {
+//     adjusted_account: PayableAccount,
+//     former_balance: u128,
+// }
+//
 
+//TODO rename???
 #[derive(Clone, Copy)]
 enum DecidedPayableAccountResolution {
     Finalize,
@@ -830,30 +913,68 @@ enum DecidedPayableAccountResolution {
 
 enum AdjustmentCompletion {
     Finished(Vec<PayableAccount>),
-    Continue(AdjustmentIterationResult),
+    Continue(AdjustmentIterationSummary),
 }
 
-impl ReversiblePayableAccount {
-    fn new(adjusted_account: PayableAccount, former_balance: u128) -> Self {
-        Self {
-            adjusted_account,
-            former_balance,
+// impl ReversiblePayableAccount {
+//     fn new(adjusted_account: PayableAccount, former_balance: u128) -> Self {
+//         Self {
+//             adjusted_account,
+//             former_balance,
+//         }
+//     }
+// }
+//
+
+impl
+    From<(
+        AccountWithUncheckedAdjustment,
+        DecidedPayableAccountResolution,
+    )> for PayableAccount
+{
+    fn from(
+        (account_info, resolution): (
+            AccountWithUncheckedAdjustment,
+            DecidedPayableAccountResolution,
+        ),
+    ) -> Self {
+        match resolution {
+            DecidedPayableAccountResolution::Finalize => PayableAccount {
+                balance_wei: account_info.proposed_adjusted_balance,
+                ..account_info.original_account
+            },
+            DecidedPayableAccountResolution::Revert => account_info.original_account,
         }
     }
 }
 
-impl From<(ReversiblePayableAccount, DecidedPayableAccountResolution)> for PayableAccount {
-    fn from(
-        (decided_account, resolution): (ReversiblePayableAccount, DecidedPayableAccountResolution),
+pub struct AccountWithUncheckedAdjustment {
+    original_account: PayableAccount,
+    proposed_adjusted_balance: u128,
+    criteria_sum: u128,
+}
+
+impl AccountWithUncheckedAdjustment {
+    fn new(
+        original_account: PayableAccount,
+        proposed_adjusted_balance: u128,
+        criteria_sum: u128,
     ) -> Self {
-        match resolution {
-            DecidedPayableAccountResolution::Finalize => decided_account.adjusted_account,
-            DecidedPayableAccountResolution::Revert => {
-                let mut reverted_account = decided_account.adjusted_account;
-                reverted_account.balance_wei = decided_account.former_balance;
-                reverted_account
-            }
+        Self {
+            original_account,
+            proposed_adjusted_balance,
+            criteria_sum,
         }
+    }
+
+    fn finalize_collection(
+        account_infos: Vec<Self>,
+        resolution: DecidedPayableAccountResolution,
+    ) -> Vec<PayableAccount> {
+        account_infos
+            .into_iter()
+            .map(|account_info| PayableAccount::from((account_info, resolution)))
+            .collect()
     }
 }
 
@@ -902,10 +1023,9 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::{
         log_10, log_2, Adjustment, AnalysisError, DisqualifiedPayableAccount, PaymentAdjuster,
-        PaymentAdjusterReal, PercentageAccountInsignificance, ReversiblePayableAccount,
-        ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, AGE_EXPONENT, AGE_MULTIPLIER,
-        BALANCE_LOG_2_BASE_MULTIPLIER, BALANCE_OUTER_MULTIPLIER, BALANCE_TAIL_WEIGHT_EXPONENT,
-        BALANCE_TAIL_WEIGHT_MASK, BALANCE_TAIL_WEIGHT_MULTIPLIER,
+        PaymentAdjusterReal, PercentageAccountInsignificance, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+        AGE_EXPONENT, AGE_MULTIPLIER, BALANCE_LOG_2_BASE_MULTIPLIER, BALANCE_OUTER_MULTIPLIER,
+        BALANCE_TAIL_WEIGHT_EXPONENT, BALANCE_TAIL_WEIGHT_MASK, BALANCE_TAIL_WEIGHT_MULTIPLIER,
         COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS, PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS,
     };
     use crate::accountant::scanners::payable_scan_setup_msgs::{
@@ -1275,46 +1395,47 @@ mod tests {
     #[test]
     fn recreate_accounts_with_proportioned_balances_adheres_to_the_manifested_edge_of_insignificance(
     ) {
-        let mut payable_account_1 = make_payable_account(1);
-        payable_account_1.balance_wei = 1_000_000;
-        let mut payable_account_2 = make_payable_account(2);
-        payable_account_2.balance_wei = 1_000_001;
-        let proportional_fragment_of_cw_balance = 200_000;
-        let multiplication_coeff = 10;
-        let proposed_adjusted_balance = 500_000;
-        let criterion =
-            proposed_adjusted_balance * multiplication_coeff / proportional_fragment_of_cw_balance; // = 25
-        let weights_and_accounts = vec![
-            (criterion, payable_account_1.clone()),
-            (criterion, payable_account_2.clone()),
-        ];
-
-        let (decided_accounts, disqualified_accounts) =
-            PaymentAdjusterReal::recreate_accounts_with_proportioned_balances(
-                weights_and_accounts,
-                proportional_fragment_of_cw_balance,
-                multiplication_coeff,
-            );
-
-        // coefficients used reversely on purpose
-        let ok_former_balance = proposed_adjusted_balance
-            * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
-        let expected_decided_payable_account = ReversiblePayableAccount {
-            adjusted_account: PayableAccount {
-                balance_wei: 500_000,
-                ..payable_account_1
-            },
-            former_balance: ok_former_balance,
-        };
-        let bad_former_balance = ok_former_balance + 1;
-        let expected_disqualified_account = DisqualifiedPayableAccount {
-            wallet: payable_account_2.wallet,
-            proposed_adjusted_balance: 500_000,
-            original_balance: bad_former_balance,
-        };
-        assert_eq!(decided_accounts, vec![expected_decided_payable_account]);
-        assert_eq!(disqualified_accounts, vec![expected_disqualified_account])
+        todo!("fix me")
+        // let mut payable_account_1 = make_payable_account(1);
+        // payable_account_1.balance_wei = 1_000_000;
+        // let mut payable_account_2 = make_payable_account(2);
+        // payable_account_2.balance_wei = 1_000_001;
+        // let proportional_fragment_of_cw_balance = 200_000;
+        // let multiplication_coeff = 10;
+        // let proposed_adjusted_balance = 500_000;
+        // let criterion =
+        //     proposed_adjusted_balance * multiplication_coeff / proportional_fragment_of_cw_balance; // = 25
+        // let weights_and_accounts = vec![
+        //     (criterion, payable_account_1.clone()),
+        //     (criterion, payable_account_2.clone()),
+        // ];
+        //
+        // let (decided_accounts, disqualified_accounts) =
+        //     PaymentAdjusterReal::recreate_accounts_with_proportioned_balances(
+        //         weights_and_accounts,
+        //         proportional_fragment_of_cw_balance,
+        //         multiplication_coeff,
+        //     );
+        //
+        // // coefficients used reversely on purpose
+        // let ok_former_balance = proposed_adjusted_balance
+        //     * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
+        //     / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
+        // let expected_decided_payable_account = ReversiblePayableAccount {
+        //     adjusted_account: PayableAccount {
+        //         balance_wei: 500_000,
+        //         ..payable_account_1
+        //     },
+        //     former_balance: ok_former_balance,
+        // };
+        // let bad_former_balance = ok_former_balance + 1;
+        // let expected_disqualified_account = DisqualifiedPayableAccount {
+        //     wallet: payable_account_2.wallet,
+        //     proposed_adjusted_balance: 500_000,
+        //     original_balance: bad_former_balance,
+        // };
+        // assert_eq!(decided_accounts, vec![expected_decided_payable_account]);
+        // assert_eq!(disqualified_accounts, vec![expected_disqualified_account])
     }
 
     #[test]
@@ -1384,7 +1505,7 @@ mod tests {
         let logger = Logger::new("test");
         let qualified_payables = vec![account_1, account_2.clone()];
 
-        let result = subject.run_adjustment_in_recursion(vec![], qualified_payables.clone());
+        let result = subject.run_full_adjustment_procedure(qualified_payables.clone(), vec![]);
 
         //first a presentation of why this test is important
         let total = balance_1 * 10_000 + balance_2 * 10_000;
@@ -1420,133 +1541,135 @@ mod tests {
     #[test]
     fn try_separating_outweighed_accounts_cuts_back_the_outweighed_account_when_only_one_and_if_cw_balance_is_even_less(
     ) {
-        let test_name = "try_separating_outweighed_accounts_cuts_back_the_outweighed_account_when_only_one_and_if_cw_balance_is_even_less";
-        let now = SystemTime::now();
-        let consuming_wallet_balance = 1_000_000_000_000_u128 - 1;
-        let mut subject = make_initialized_subject(
-            now,
-            Some(consuming_wallet_balance),
-            Some(Logger::new(test_name)),
-        );
-        let account_1_made_up_criteria = 18_000_000_000_000;
-        let account_1 = PayableAccount {
-            wallet: make_wallet("blah"),
-            balance_wei: 1_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(200000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2_made_up_criteria = 5_000_000_000_000;
-        let account_2 = PayableAccount {
-            wallet: make_wallet("booga"),
-            balance_wei: 8_000_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let required_balance_total = 1_000_000_000_000 + 333 + 8_000_000_000_000_000;
-        let criteria_total = account_1_made_up_criteria + account_2_made_up_criteria;
-        let accounts_with_individual_criteria = vec![
-            (account_1_made_up_criteria, account_1.clone()),
-            (account_2_made_up_criteria, account_2.clone()),
-        ];
-
-        let (outweighed, remaining) = subject
-            .try_separating_outweighed_accounts(
-                accounts_with_individual_criteria,
-                required_balance_total,
-                criteria_total,
-            )
-            .right()
-            .unwrap();
-
-        let mut expected_account = account_1;
-        expected_account.balance_wei = 1_000_000_000_000 - 1;
-        assert_eq!(outweighed, vec![expected_account]);
-        assert_eq!(remaining, vec![account_2])
+        todo!("fix me")
+        // let test_name = "try_separating_outweighed_accounts_cuts_back_the_outweighed_account_when_only_one_and_if_cw_balance_is_even_less";
+        // let now = SystemTime::now();
+        // let consuming_wallet_balance = 1_000_000_000_000_u128 - 1;
+        // let mut subject = make_initialized_subject(
+        //     now,
+        //     Some(consuming_wallet_balance),
+        //     Some(Logger::new(test_name)),
+        // );
+        // let account_1_made_up_criteria = 18_000_000_000_000;
+        // let account_1 = PayableAccount {
+        //     wallet: make_wallet("blah"),
+        //     balance_wei: 1_000_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(200000)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let account_2_made_up_criteria = 5_000_000_000_000;
+        // let account_2 = PayableAccount {
+        //     wallet: make_wallet("booga"),
+        //     balance_wei: 8_000_000_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let required_balance_total = 1_000_000_000_000 + 333 + 8_000_000_000_000_000;
+        // let criteria_total = account_1_made_up_criteria + account_2_made_up_criteria;
+        // let accounts_with_individual_criteria = vec![
+        //     (account_1_made_up_criteria, account_1.clone()),
+        //     (account_2_made_up_criteria, account_2.clone()),
+        // ];
+        //
+        // let (outweighed, remaining) = subject
+        //     .handle_possibly_outweighed_account(
+        //         accounts_with_individual_criteria,
+        //         required_balance_total,
+        //         criteria_total,
+        //     )
+        //     .right()
+        //     .unwrap();
+        //
+        // let mut expected_account = account_1;
+        // expected_account.balance_wei = 1_000_000_000_000 - 1;
+        // assert_eq!(outweighed, vec![expected_account]);
+        // assert_eq!(remaining, vec![account_2])
     }
 
     #[test]
     fn try_separating_outweighed_accounts_cuts_back_multiple_outweighed_accounts_if_cw_balance_is_even_less_than_their_sum(
     ) {
-        let test_name = "try_separating_outweighed_accounts_cuts_back_multiple_outweighed_accounts_if_cw_balance_is_even_less_than_their_sum";
-        let now = SystemTime::now();
-        let consuming_wallet_balance = 90_000_000_000_000;
-        let mut subject = make_initialized_subject(
-            now,
-            Some(consuming_wallet_balance),
-            Some(Logger::new(test_name)),
-        );
-        let balance_1 = 150_000_000_000_000;
-        let account_1 = PayableAccount {
-            wallet: make_wallet("blah"),
-            balance_wei: balance_1,
-            last_paid_timestamp: SystemTime::now()
-                .checked_sub(Duration::from_secs(170000))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let balance_2 = 300_000_000_000_000;
-        let account_2 = PayableAccount {
-            wallet: make_wallet("booga"),
-            balance_wei: balance_2,
-            last_paid_timestamp: SystemTime::now()
-                .checked_sub(Duration::from_secs(170000))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_3 = PayableAccount {
-            wallet: make_wallet("giraffe"),
-            balance_wei: 800_000_000_000_000_000,
-            last_paid_timestamp: SystemTime::now()
-                .checked_sub(Duration::from_secs(1000))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let accounts_with_zero_criteria = PaymentAdjusterReal::initialize_zero_criteria(vec![
-            account_1.clone(),
-            account_2.clone(),
-            account_3.clone(),
-        ]);
-        let accounts_with_individual_criteria = subject.apply_criteria(accounts_with_zero_criteria);
-        let required_balance_total =
-            PaymentAdjusterReal::balance_total(&accounts_with_individual_criteria);
-        let criteria_total =
-            PaymentAdjusterReal::criteria_total(&accounts_with_individual_criteria);
-
-        let (outweighed, remaining) = subject
-            .try_separating_outweighed_accounts(
-                accounts_with_individual_criteria.clone(),
-                required_balance_total,
-                criteria_total,
-            )
-            .right()
-            .unwrap();
-
-        // the algorithm first isolates the two first outweighed accounts and because
-        // they are more than one it will apply the standard adjustment strategy according to their criteria,
-        // with one big difference, now the third account will stay out
-        let individual_criteria_for_just_two_accounts = accounts_with_individual_criteria
-            .iter()
-            .take(2)
-            .map(|(criteria_sum, _)| *criteria_sum)
-            .collect();
-        let expected_balances = compute_expected_balanced_portions_from_criteria(
-            individual_criteria_for_just_two_accounts,
-            consuming_wallet_balance,
-        );
-        // //making sure the proposed balances are non zero
-        // assert!(expected_balances[0] > (balance_1 / 4));
-        // assert!(expected_balances[1] > (balance_2 / 4));
-        // let check_sum = expected_balances.iter().sum();
-        // assert!( (consuming_wallet_balance / 100) * 99 <= check_sum && check_sum <= (consuming_wallet_balance / 100) * 101);
-        let expected_outweighed_accounts = {
-            let mut account_1 = account_1;
-            account_1.balance_wei = expected_balances[0];
-            let mut account_2 = account_2;
-            account_2.balance_wei = expected_balances[1];
-            vec![account_1, account_2]
-        };
-        assert_eq!(outweighed, expected_outweighed_accounts);
-        assert_eq!(remaining, vec![account_3])
+        todo!("fix me")
+        // let test_name = "try_separating_outweighed_accounts_cuts_back_multiple_outweighed_accounts_if_cw_balance_is_even_less_than_their_sum";
+        // let now = SystemTime::now();
+        // let consuming_wallet_balance = 90_000_000_000_000;
+        // let mut subject = make_initialized_subject(
+        //     now,
+        //     Some(consuming_wallet_balance),
+        //     Some(Logger::new(test_name)),
+        // );
+        // let balance_1 = 150_000_000_000_000;
+        // let account_1 = PayableAccount {
+        //     wallet: make_wallet("blah"),
+        //     balance_wei: balance_1,
+        //     last_paid_timestamp: SystemTime::now()
+        //         .checked_sub(Duration::from_secs(170000))
+        //         .unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let balance_2 = 300_000_000_000_000;
+        // let account_2 = PayableAccount {
+        //     wallet: make_wallet("booga"),
+        //     balance_wei: balance_2,
+        //     last_paid_timestamp: SystemTime::now()
+        //         .checked_sub(Duration::from_secs(170000))
+        //         .unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let account_3 = PayableAccount {
+        //     wallet: make_wallet("giraffe"),
+        //     balance_wei: 800_000_000_000_000_000,
+        //     last_paid_timestamp: SystemTime::now()
+        //         .checked_sub(Duration::from_secs(1000))
+        //         .unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let accounts_with_zero_criteria = PaymentAdjusterReal::initialize_zero_criteria(vec![
+        //     account_1.clone(),
+        //     account_2.clone(),
+        //     account_3.clone(),
+        // ]);
+        // let accounts_with_individual_criteria = subject.apply_criteria(accounts_with_zero_criteria);
+        // let required_balance_total =
+        //     PaymentAdjusterReal::balance_total(&accounts_with_individual_criteria);
+        // let criteria_total =
+        //     PaymentAdjusterReal::criteria_total(&accounts_with_individual_criteria);
+        //
+        // let (outweighed, remaining) = subject
+        //     .handle_possibly_outweighed_account(
+        //         accounts_with_individual_criteria.clone(),
+        //         required_balance_total,
+        //         criteria_total,
+        //     )
+        //     .right()
+        //     .unwrap();
+        //
+        // // the algorithm first isolates the two first outweighed accounts and because
+        // // they are more than one it will apply the standard adjustment strategy according to their criteria,
+        // // with one big difference, now the third account will stay out
+        // let individual_criteria_for_just_two_accounts = accounts_with_individual_criteria
+        //     .iter()
+        //     .take(2)
+        //     .map(|(criteria_sum, _)| *criteria_sum)
+        //     .collect();
+        // let expected_balances = compute_expected_balanced_portions_from_criteria(
+        //     individual_criteria_for_just_two_accounts,
+        //     consuming_wallet_balance,
+        // );
+        // // //making sure the proposed balances are non zero
+        // // assert!(expected_balances[0] > (balance_1 / 4));
+        // // assert!(expected_balances[1] > (balance_2 / 4));
+        // // let check_sum = expected_balances.iter().sum();
+        // // assert!( (consuming_wallet_balance / 100) * 99 <= check_sum && check_sum <= (consuming_wallet_balance / 100) * 101);
+        // let expected_outweighed_accounts = {
+        //     let mut account_1 = account_1;
+        //     account_1.balance_wei = expected_balances[0];
+        //     let mut account_2 = account_2;
+        //     account_2.balance_wei = expected_balances[1];
+        //     vec![account_1, account_2]
+        // };
+        // assert_eq!(outweighed, expected_outweighed_accounts);
+        // assert_eq!(remaining, vec![account_3])
     }
 
     #[test]
