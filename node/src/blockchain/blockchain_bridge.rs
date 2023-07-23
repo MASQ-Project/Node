@@ -521,7 +521,7 @@ impl BlockchainBridge {
 
     pub fn extract_max_block_count(&self, error: BlockchainError) -> Option<u64> {
         let regex_result =
-            Regex::new(r".* (max:|more than|allowed for your plan:|limited to) (?P<max_block_count>\d+)(.*| blocks at once\.)")
+            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \()(?P<max_block_count>\d+).*")
                 .expect("Invalid regex");
         let max_block_count = match error {
             BlockchainError::QueryFailed(msg) => match regex_result.captures(msg.as_str()) {
@@ -2035,7 +2035,9 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_from_pokt_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32064), message: \"You cannot query logs for more than 100000 blocks at once.\", data: None }".to_string());
+        // [{"jsonrpc":"2.0","id":4,"result":"0x2400ee1","error":{}},{"jsonrpc":"2.0","id":5,"error":{"code":-32001,"message":"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded"}}]
+
+        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\"}".to_string());
         let subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
