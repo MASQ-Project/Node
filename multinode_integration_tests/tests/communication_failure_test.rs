@@ -1,13 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::find_free_port;
+use masq_lib::utils::{find_free_port, index_of};
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{
-    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
-};
+use multinode_integration_tests_lib::masq_real_node::{make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -25,6 +23,7 @@ use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_reco
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 
 #[test]
@@ -123,6 +122,45 @@ fn neighborhood_notified_of_newly_missing_node() {
         originating_node.main_public_key(),
         disappearing_node.main_public_key(),
         dot_graph
+    );
+}
+
+#[test]
+fn dns_resolution_failure_with_real_nodes() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let first_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .consuming_wallet_info(make_consuming_wallet_info("first_node"))
+            .chain(cluster.chain)
+            .build(),
+    );
+    let nodes = (0..5)
+        .map(|_| {
+            cluster.start_real_node(
+                NodeStartupConfigBuilder::standard()
+                    .neighbor(first_node.node_reference())
+                    .chain(cluster.chain)
+                    .build(),
+            )
+        })
+        .collect::<Vec<MASQRealNode>>();
+    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
+    let mut client = first_node.make_client(8080, 10000);
+
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.nonexistent.com\r\n\r\n");
+
+    let response = client.wait_for_chunk();
+    assert_eq!(
+        index_of(&response, &b"<h2>Title: DNS Resolution Problem</h2>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response.clone()).unwrap()
+    );
+    assert_eq!(
+        index_of(&response, &b"<h3>Subtitle: Exit Nodes couldn't resolve \"www.nonexistent.com\"</h3>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
     );
 }
 
