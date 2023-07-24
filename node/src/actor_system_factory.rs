@@ -1632,14 +1632,11 @@ mod tests {
     #[test]
     fn handle_automap_error_delegates_correctly_to_factory() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_result =
-            AutomapControlMock::new().add_mapping_result(Err(AutomapError::DeleteMappingError(
-                "handle_automap_error_delegates_correctly_to_factory".to_string(),
-            )));
+        let automap_control = AutomapControlMock::new();
         let automap_control_factory = AutomapControlFactoryMock::new()
             .make_params(&make_params_arc)
-            .make_result(Box::new(expected_result.clone()));
-        let (new_ip_recipient, _, _new_ip_recipient_recording_arc) = make_recorder();
+            .make_result(Box::new(automap_control));
+        let (new_ip_recipient, _, new_ip_recipient_recording_arc) = make_recorder();
         let new_ip_recipient_sub = new_ip_recipient.start().recipient();
         let mut subject = ActorSystemFactoryToolsReal::new();
         subject.automap_control_factory = Box::new(automap_control_factory);
@@ -1652,12 +1649,27 @@ mod tests {
         );
 
         let mut make_params = make_params_arc.lock().unwrap();
-        let (automap_config, _change_handler) = make_params.remove(0);
+        // Make sure the AutomapConfig was passed correctly
+        let (automap_config, change_handler) = make_params.remove(0);
         assert_eq!(
             automap_config,
             AutomapConfig::new(Some(AutomapProtocol::Pcp), Some(fake_router_ip))
         );
-        // TODO: assert on the new_ip_recipient_sub
+        // Make sure the generated change_handler handles new IP addresses properly
+        let new_ip = IpAddr::from_str("1.2.3.4").unwrap();
+        let system = System::new("handle_automap_error_delegates_correctly_to_factory");
+        change_handler(AutomapChange::NewIp(new_ip));
+        System::current().stop();
+        system.run();
+        let new_ip_recipient_recording = new_ip_recipient_recording_arc.lock().unwrap();
+        assert_eq!(
+            new_ip_recipient_recording.get_record::<NewPublicIp>(0),
+            &NewPublicIp {new_ip}
+        );
+        // Make sure the generated change_handler handles errors properly
+        init_test_logging();
+        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError("handle_automap_error_delegates_correctly_to_factory".to_string())));
+        TestLogHandler::new().exists_log_containing("ERROR: Automap: Automap failure: DeleteMappingError(\"handle_automap_error_delegates_correctly_to_factory\")");
     }
 
     #[test]
