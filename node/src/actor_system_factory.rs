@@ -36,9 +36,7 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Arbiter;
 use actix::{Addr, Recipient};
 use automap_lib::comm_layer::AutomapError;
-use automap_lib::control_layer::automap_control::{
-    AutomapChange, AutomapConfig, AutomapControl, ChangeHandler,
-};
+use automap_lib::control_layer::automap_control::{AutomapChange, AutomapConfig, AutomapControl, AutomapControlReal, ChangeHandler};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::prepare_log_recipient;
@@ -568,11 +566,10 @@ pub struct AutomapControlFactoryReal {}
 impl AutomapControlFactory for AutomapControlFactoryReal {
     fn make(
         &self,
-        _automap_config: AutomapConfig,
-        _change_handler: ChangeHandler,
+        automap_config: AutomapConfig,
+        change_handler: ChangeHandler,
     ) -> Box<dyn AutomapControl> {
-        todo!("Test-drive me");
-        // Box::new(AutomapControlReal::new(automap_config, change_handler))
+        Box::new(AutomapControlReal::new(automap_config, change_handler))
     }
 }
 
