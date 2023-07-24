@@ -52,3 +52,43 @@ fn assert_http_end_to_end_routing_test(min_hops: Hops) {
     );
 }
 
+fn make_linear_network(hops: Hops) -> MASQRealNode {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let first_node_config = NodeStartupConfigBuilder::standard()
+        .min_hops(hops)
+        .chain(cluster.chain)
+        .consuming_wallet_info(make_consuming_wallet_info("first_node"))
+        .build();
+    let first_node = cluster.start_real_node(first_node_config);
+    let mut prev_node_reference = first_node.node_reference();
+
+    for _ in 0..hops as u8 {
+        let new_node_config = NodeStartupConfigBuilder::standard()
+            .neighbor(prev_node_reference)
+            .chain(cluster.chain)
+            .build();
+        let new_node = cluster.start_real_node(new_node_config);
+        prev_node_reference = new_node.node_reference();
+    }
+
+    thread::sleep(Duration::from_millis(500 * hops as u64));
+
+    first_node
+}
+
+#[test]
+fn test_make_linear_network() {
+    let node = make_linear_network(Hops::ThreeHops);
+
+    let mut client = node.make_client(8080, 5000);
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    let response = client.wait_for_chunk();
+
+    assert_eq!(
+        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
+    );
+}
+
