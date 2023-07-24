@@ -48,7 +48,11 @@ pub fn compute_progressive_characteristics<F>(
             let different_values_for_chief_parameter: Vec<(u128, u32)> = vec![
                 (10, 1),
                 (10, 3),
+                (10, 4),
+                (10, 5),
                 (10, 6),
+                (10, 7),
+                (10, 8),
                 (10, 9),
                 (10, 12),
                 (10, 15),
