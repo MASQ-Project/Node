@@ -6,8 +6,8 @@ mod log_functions;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics::{
-    diagnostics, diagnostics_collective, FinalizationAndDiagnostics, AGE_SINGLETON,
-    BALANCE_SINGLETON,
+    diagnostics, diagnostics_collective, DiagnosticsSetting, FinalizationAndDiagnostics,
+    AGE_SINGLETON, BALANCE_SINGLETON,
 };
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
@@ -371,15 +371,18 @@ impl PaymentAdjusterReal {
                 account,
                 criterion,
                 criteria_sum_so_far,
-                label: "AGE",
-                diagnostics_adapted_formula: |x: u128| {
-                    let approx_before = SystemTime::now()
-                        .checked_sub(Duration::from_secs(x as u64))
-                        .expect("characteristics for age blew up");
-                    formula(approx_before)
+                diagnostics: DiagnosticsSetting {
+                    label: "AGE",
+                    diagnostics_adaptive_formula: |x: u128| {
+                        let secs_in_the_past = Duration::from_secs(x as u64);
+                        let approx_time_anchor = SystemTime::now()
+                            .checked_sub(secs_in_the_past)
+                            .expect("age formula characteristics blew up");
+                        formula(approx_time_anchor)
+                    },
+                    singleton_ref: &AGE_SINGLETON,
+                    bonds_safe_count_to_print: 8,
                 },
-                singleton_ref: &AGE_SINGLETON,
-                safe_count_of_examples_to_print: 8,
             }
             .perform()
         });
@@ -403,10 +406,12 @@ impl PaymentAdjusterReal {
                     account,
                     criterion,
                     criteria_sum_so_far,
-                    label: "BALANCE",
-                    diagnostics_adapted_formula: |x: u128| formula(x),
-                    singleton_ref: &BALANCE_SINGLETON,
-                    safe_count_of_examples_to_print: 11,
+                    diagnostics: DiagnosticsSetting {
+                        label: "BALANCE",
+                        diagnostics_adaptive_formula: |x: u128| formula(x),
+                        singleton_ref: &BALANCE_SINGLETON,
+                        bonds_safe_count_to_print: 11,
+                    },
                 }
                 .perform()
             });

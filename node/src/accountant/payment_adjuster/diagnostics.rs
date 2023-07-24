@@ -10,6 +10,7 @@ use thousands::Separable;
 
 pub static AGE_SINGLETON: Once = Once::new();
 pub static BALANCE_SINGLETON: Once = Once::new();
+const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18];
 
 pub fn diagnostics<F>(account: &Wallet, description: &str, value_renderer: F)
 where
@@ -35,44 +36,6 @@ pub fn diagnostics_collective(label: &str, accounts: &[PayableAccount]) {
     }
 }
 
-pub fn compute_progressive_characteristics<F>(
-    label: &str,
-    formula: F,
-    singleton: &Once,
-    examples_count: usize,
-) where
-    F: Fn(u128) -> u128,
-{
-    if COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS {
-        singleton.call_once(|| {
-            let different_values_for_chief_parameter: Vec<(u128, u32)> = vec![
-                (10, 1),
-                (10, 3),
-                (10, 4),
-                (10, 5),
-                (10, 6),
-                (10, 7),
-                (10, 8),
-                (10, 9),
-                (10, 12),
-                (10, 15),
-                (10, 18),
-            ];
-
-            eprintln!("{}", label);
-            different_values_for_chief_parameter
-                .into_iter()
-                .take(examples_count)
-                .map(|(base, factor)| base.pow(factor))
-                .for_each(|num| {
-                    let value = formula(num);
-                    eprintln!("x: {:<length$} y: {}", num, value, length = 40)
-                });
-            eprintln!()
-        })
-    }
-}
-
 pub struct FinalizationAndDiagnostics<'a, F>
 where
     F: Fn(u128) -> u128,
@@ -80,12 +43,39 @@ where
     pub account: PayableAccount,
     pub criterion: u128,
     pub criteria_sum_so_far: u128,
-    // below only diagnostics purposes
+    pub diagnostics: DiagnosticsSetting<'a, F>,
+}
+
+pub struct DiagnosticsSetting<'a, F>
+where
+    F: Fn(u128) -> u128,
+{
     pub label: &'static str,
-    pub diagnostics_adapted_formula: F,
+    pub diagnostics_adaptive_formula: F,
     pub singleton_ref: &'a Once,
-    // max 9
-    pub safe_count_of_examples_to_print: usize,
+    pub bonds_safe_count_to_print: usize,
+}
+
+impl<'a, F> DiagnosticsSetting<'a, F>
+where
+    F: Fn(u128) -> u128,
+{
+    pub fn compute_progressive_characteristics(&self) {
+        if COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS {
+            self.singleton_ref.call_once(|| {
+                eprintln!("CHARACTERISTICS FOR {} FORMULA", self.label);
+                EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS
+                    .into_iter()
+                    .take(self.bonds_safe_count_to_print)
+                    .map(|exponent| 10_u128.pow(exponent))
+                    .for_each(|num| {
+                        let value = (self.diagnostics_adaptive_formula)(num);
+                        eprintln!("x: {:<length$} y: {}", num, value, length = 40)
+                    });
+                eprintln!()
+            })
+        }
+    }
 }
 
 impl<F> FinalizationAndDiagnostics<'_, F>
@@ -95,15 +85,10 @@ where
     pub fn perform(self) -> (u128, PayableAccount) {
         diagnostics(
             &self.account.wallet,
-            &format!("COMPUTED {} CRITERIA", self.label),
+            &format!("COMPUTED {} CRITERIA", self.diagnostics.label),
             || self.criterion.separate_with_commas(),
         );
-        compute_progressive_characteristics(
-            &format!("CHARACTERISTICS FOR {} FORMULA", self.label),
-            self.diagnostics_adapted_formula,
-            self.singleton_ref,
-            self.safe_count_of_examples_to_print,
-        );
+        self.diagnostics.compute_progressive_characteristics();
 
         (
             self.criteria_sum_so_far
