@@ -86,10 +86,7 @@ pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
 }
 
 pub fn node_chain_specific_data_directory(node_name: &str) -> String {
-    format!(
-        "{}/MASQ/dev",
-        MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), node_name,)
-    )
+    MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), node_name)
 }
 
 pub fn config_dao(node_name: &str) -> Box<dyn ConfigDao> {

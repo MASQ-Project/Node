@@ -73,6 +73,7 @@ fn debtors_are_credited_once_but_not_twice() {
         .build();
     let (node_name, node_index) = cluster.prepare_real_node(&node_config);
     let chain_specific_dir = node_chain_specific_data_directory(&node_name);
+    println!("chain_specific_dir: {}", chain_specific_dir);
     open_all_file_permissions(PathBuf::from(chain_specific_dir));
     {
         let config_dao = config_dao(&node_name);

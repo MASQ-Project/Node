@@ -12,7 +12,7 @@ use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::{add_masq_and_chain_directories, localhost};
+use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
@@ -1167,8 +1167,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
-        let chain_specific_directory =
-            add_masq_and_chain_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(DATA_DIRECTORY));
+        let log_file_path = Path::new(DATA_DIRECTORY).join(CURRENT_LOGFILE_NAME);
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {
@@ -1179,14 +1178,7 @@ impl MASQRealNode {
             thread::sleep(Duration::from_millis(250));
             match Self::exec_command_on_container_and_wait(
                 name,
-                vec![
-                    "cat",
-                    &format!(
-                        "{}/{}",
-                        &chain_specific_directory.to_string_lossy(),
-                        CURRENT_LOGFILE_NAME
-                    ),
-                ],
+                vec!["cat", &log_file_path.to_string_lossy()],
             ) {
                 Ok(output) => {
                     if let Some(captures) = descriptor_regex.captures(output.as_str()) {
@@ -1203,10 +1195,9 @@ impl MASQRealNode {
                 }
                 Err(e) => {
                     println!(
-                        "Failed to cat logfile for {} at {}/{}: {}",
+                        "Failed to cat logfile for {} at {}: {}",
                         name,
-                        &chain_specific_directory.to_string_lossy(),
-                        CURRENT_LOGFILE_NAME,
+                        &log_file_path.to_string_lossy(),
                         e
                     );
                 }

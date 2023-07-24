@@ -18,6 +18,7 @@ use node_lib::database::db_initializer::DATABASE_FILE;
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags};
 use std::ops::Add;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 use utils::CommandConfig;
 use utils::MASQNode;
@@ -265,9 +266,11 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
 #[test]
 fn node_creates_log_file_with_heading_integration() {
+    let data_directory = Path::new("node_root").join("home").to_string_lossy();
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
+        .pair("--data-directory", &*data_directory)
         .pair(
             "--neighbors",
             &format!(
