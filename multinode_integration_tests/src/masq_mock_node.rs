@@ -2,11 +2,12 @@
 
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
-use crate::masq_node::MASQNode;
 use crate::masq_node::DataProbeUtils;
+use crate::masq_node::MASQNode;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
+use crate::utils::{do_docker_run, wait_for_startup};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
@@ -42,7 +43,6 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::utils::{do_docker_run, wait_for_startup};
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,

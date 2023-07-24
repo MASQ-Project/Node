@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::masq_node::MASQNode;
 use crate::masq_node::DataProbeUtils;
+use crate::masq_node::MASQNode;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;

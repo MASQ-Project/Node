@@ -1679,7 +1679,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(config.automap_config.usual_protocol_opt, Some(AutomapProtocol::Pmp));
+        assert_eq!(
+            config.automap_config.usual_protocol_opt,
+            Some(AutomapProtocol::Pmp)
+        );
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
         assert_eq!(
             *set_mapping_protocol_params,

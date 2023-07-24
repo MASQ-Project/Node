@@ -12,7 +12,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, AutomapProtocol};
 use std::cell::{RefCell, RefMut};
 use std::collections::HashSet;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::net::IpAddr;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -23,42 +23,21 @@ pub enum AutomapChange {
 
 pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
 
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub struct AutomapConfig {
     pub usual_protocol_opt: Option<AutomapProtocol>,
-    pub change_handler: ChangeHandler,
     pub fake_router_ip_opt: Option<IpAddr>,
-}
-
-impl Default for AutomapConfig {
-    fn default() -> Self {
-        Self {
-            usual_protocol_opt: None,
-            change_handler: Box::new(|_| ()),
-            fake_router_ip_opt: None
-        }
-    }
-}
-
-impl Debug for AutomapConfig {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{usual_protocol_opt: {:?}, change_handler: <unprintable>, fake_router_ip_opt: {:?}}}",
-            self.usual_protocol_opt, self.fake_router_ip_opt)
-    }
-}
-
-impl Clone for AutomapConfig {
-    fn clone(&self) -> Self {
-        todo!("Why are we trying to clone a BootstrapperConfig?")
-    }
 }
 
 impl AutomapConfig {
     pub fn new(
         usual_protocol_opt: Option<AutomapProtocol>,
-        change_handler: ChangeHandler,
-        fake_router_ip_opt: Option<IpAddr>
+        fake_router_ip_opt: Option<IpAddr>,
     ) -> Self {
-        Self {usual_protocol_opt, change_handler, fake_router_ip_opt}
+        Self {
+            usual_protocol_opt,
+            fake_router_ip_opt,
+        }
     }
 }
 
@@ -172,7 +151,6 @@ impl AutomapControl for AutomapControlReal {
 }
 
 impl AutomapControlReal {
-    // TODO: Remove change_handler from this signature: it's now inside AutomapConfig
     pub fn new(config: AutomapConfig, change_handler: ChangeHandler) -> Self {
         Self {
             transactors: RefCell::new(vec![
@@ -406,9 +384,6 @@ mod tests {
         let subject = AutomapConfig::default();
 
         assert_eq!(subject.usual_protocol_opt, None);
-        // Don't know how to assert that subject.change_handler does nothing, but we can make sure
-        // it doesn't panic, at least.
-        (subject.change_handler)(AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap()));
         assert_eq!(subject.fake_router_ip_opt, None);
     }
 
@@ -1221,8 +1196,7 @@ mod tests {
                 Err(AutomapError::NoLocalIpAddress)
             }
         });
-        let subject = AutomapControlReal::new(AutomapConfig::default(),
-                                              Box::new(|_| ()));
+        let subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_| ()));
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1246,8 +1220,7 @@ mod tests {
             .stop_housekeeping_thread_result(Ok(extracted_change_handler));
         let experiment: TransactorExperiment<String> =
             Box::new(|_, _| Err(AutomapError::NoLocalIpAddress));
-        let subject = AutomapControlReal::new(AutomapConfig::default(),
-                                              initial_change_handler);
+        let subject = AutomapControlReal::new(AutomapConfig::default(), initial_change_handler);
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1319,8 +1292,7 @@ mod tests {
     }
 
     fn make_general_failure_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
-                                                  Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors
@@ -1365,8 +1337,7 @@ mod tests {
     }
 
     fn make_null_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
-                                                  Box::new(|_x| ()));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| ()));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1383,8 +1354,7 @@ mod tests {
     }
 
     fn make_fully_populated_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
-                                                  Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1406,8 +1376,7 @@ mod tests {
     }
 
     fn make_no_routers_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(AutomapConfig::default(),
-                                                  Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors

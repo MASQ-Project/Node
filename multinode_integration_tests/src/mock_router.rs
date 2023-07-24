@@ -1,9 +1,9 @@
-use std::cell::RefCell;
-use std::net::{IpAddr, SocketAddr, TcpStream};
-use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::DataProbeUtils;
 use crate::utils::{do_docker_run, wait_for_startup};
+use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
+use std::cell::RefCell;
+use std::net::{IpAddr, SocketAddr, TcpStream};
 
 pub trait MockRouter {
     fn announce_ip_change(&self, target_ip: IpAddr, new_ip_address: IpAddr);
@@ -11,7 +11,7 @@ pub trait MockRouter {
 
 pub struct MockPcpRouter {
     control_stream: TcpStream,
-    framer: DataHunkFramer
+    framer: DataHunkFramer,
 }
 
 impl MockRouter for MockPcpRouter {
@@ -29,14 +29,10 @@ impl Default for MockPcpRouter {
 impl MockPcpRouter {
     pub fn new(port: u16) -> Self {
         let control_stream = Self::start(port);
-        Self {
-
-        }
+        Self {}
     }
 
-    fn start(
-        port: u16,
-    ) -> TcpStream {
+    fn start(port: u16) -> TcpStream {
         let name = "pcp_router".to_string();
         DataProbeUtils::clean_up_existing_container(&name[..]);
         let mock_router_args = Self::make_mock_router_args(port);

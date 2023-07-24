@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command::Command;
-use crate::masq_node::{MASQNode, DataProbeUtils};
+use crate::masq_node::{DataProbeUtils, MASQNode};
 use crate::masq_real_node::MASQRealNode;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -15,13 +15,13 @@ use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
+use node_lib::sub_lib::node_addr::NodeAddr;
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use node_lib::sub_lib::node_addr::NodeAddr;
 
 pub trait UrlHolder {
     fn url(&self) -> String;
@@ -126,7 +126,12 @@ pub fn open_all_file_permissions(dir: PathBuf) {
     }
 }
 
-pub fn do_docker_run(ip_addr: IpAddr, host_node_parent_dir: Option<String>, name: &str, program_args: Vec<String>) {
+pub fn do_docker_run(
+    ip_addr: IpAddr,
+    host_node_parent_dir: Option<String>,
+    name: &str,
+    program_args: Vec<String>,
+) {
     let root = match host_node_parent_dir {
         Some(dir) => dir,
         None => DataProbeUtils::find_project_root(),

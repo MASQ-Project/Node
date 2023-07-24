@@ -262,7 +262,8 @@ fn handle_fake_router_ip_if_supplied(
     multi_config: &MultiConfig,
     privileged_config: &mut BootstrapperConfig,
 ) {
-    privileged_config.automap_config.fake_router_ip_opt = value_m!(multi_config, "fake-router-ip", IpAddr);
+    privileged_config.automap_config.fake_router_ip_opt =
+        value_m!(multi_config, "fake-router-ip", IpAddr);
 }
 
 fn configure_database(

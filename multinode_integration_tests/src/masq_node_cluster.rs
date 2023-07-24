@@ -4,7 +4,7 @@ use crate::masq_mock_node::{
     ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
     MutableMASQMockNodeStarter,
 };
-use crate::masq_node::{MASQNode, DataProbeUtils};
+use crate::masq_node::{DataProbeUtils, MASQNode};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
 use masq_lib::blockchains::chains::Chain;

@@ -4,7 +4,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
-use multinode_integration_tests_lib::masq_node::{MASQNode, DataProbeUtils, PortSelector};
+use multinode_integration_tests_lib::masq_node::{DataProbeUtils, MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
 use multinode_integration_tests_lib::masq_real_node::MASQRealNode;

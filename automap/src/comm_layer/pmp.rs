@@ -58,10 +58,10 @@ pub struct PmpTransactor {
 impl Transactor for PmpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         match self.fake_router_ip_opt {
-            Some (fake_router_ip) => {
+            Some(fake_router_ip) => {
                 debug!(self.logger, "Using fake router IP {}", fake_router_ip);
                 Ok(vec![fake_router_ip])
-            },
+            }
             None => {
                 debug!(self.logger, "Seeking routers on LAN");
                 find_routers()

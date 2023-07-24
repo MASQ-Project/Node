@@ -180,7 +180,7 @@ impl DataProbe {
                                 Ok(s) => s,
                             };
                             e.insert(stream.try_clone().unwrap_or_else(|_| {
-                                    panic!("Cloning stream to {} failed", data_hunk.to)
+                                panic!("Cloning stream to {} failed", data_hunk.to)
                             }));
                             Self::start_stream_reader(
                                 stream,
@@ -625,7 +625,10 @@ mod tests {
         ]
         .into_iter()
         .for_each(|probe_target_str| {
-            assert_eq!(ProbeTarget::from_str(probe_target_str).err().unwrap(), SYNTAX_MSG)
+            assert_eq!(
+                ProbeTarget::from_str(probe_target_str).err().unwrap(),
+                SYNTAX_MSG
+            )
         });
     }
 

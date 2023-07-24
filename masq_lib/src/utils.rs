@@ -203,7 +203,7 @@ pub enum NeighborhoodModeLight {
 }
 
 impl Display for NeighborhoodModeLight {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Standard => write!(f, "standard"),
             Self::ConsumeOnly => write!(f, "consume-only"),
@@ -257,7 +257,7 @@ pub fn exit_process(code: i32, message: &str) -> ! {
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
-        ::std::process::exit(code)
+        std::process::exit(code)
     }
 }
 
@@ -311,7 +311,7 @@ impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
 }
 
 #[track_caller]
-fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
+fn expect_value_panic(subject: &str, found: Option<&dyn Debug>) -> ! {
     panic!(
         "value for '{}' badly prepared{}",
         subject,

@@ -37,7 +37,7 @@ use actix::Arbiter;
 use actix::{Addr, Recipient};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
-    AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
+    AutomapChange, AutomapConfig, AutomapControl, ChangeHandler,
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
@@ -286,8 +286,7 @@ impl ActorSystemFactoryToolsReal {
                 return;
             }
             let mut automap_control =
-                self.make_automap_control(config.automap_config.usual_protocol_opt,
-                                          new_ip_recipients.clone(), None);
+                self.make_automap_control(config.automap_config, new_ip_recipients.clone());
             let public_ip = match automap_control.get_public_ip() {
                 Ok(ip) => ip,
                 Err(e) => {
@@ -315,9 +314,8 @@ impl ActorSystemFactoryToolsReal {
 
     fn make_automap_control(
         &self,
-        mapping_protocol_opt: Option<AutomapProtocol>,
+        automap_config: AutomapConfig,
         new_ip_recipients: Vec<Recipient<NewPublicIp>>,
-        fake_router_ip_opt: Option<IpAddr>,
     ) -> Box<dyn AutomapControl> {
         let logger = Logger::new("Automap");
         let change_handler = move |change: AutomapChange| match change {
@@ -327,7 +325,7 @@ impl ActorSystemFactoryToolsReal {
             AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(&logger, e),
         };
         self.automap_control_factory
-            .make(mapping_protocol_opt, Box::new(change_handler), fake_router_ip_opt)
+            .make(automap_config, Box::new(change_handler))
     }
 
     fn notify_of_public_ip_change(
@@ -560,10 +558,8 @@ fn is_crashable(config: &BootstrapperConfig) -> bool {
 pub trait AutomapControlFactory {
     fn make(
         &self,
-        // TODO: Should probably take an AutomapConfig
-        usual_protocol_opt: Option<AutomapProtocol>,
+        automap_config: AutomapConfig,
         change_handler: ChangeHandler,
-        fake_router_ip_opt: Option<IpAddr>,
     ) -> Box<dyn AutomapControl>;
 }
 
@@ -572,12 +568,11 @@ pub struct AutomapControlFactoryReal {}
 impl AutomapControlFactory for AutomapControlFactoryReal {
     fn make(
         &self,
-        usual_protocol_opt: Option<AutomapProtocol>,
-        change_handler: ChangeHandler,
-        fake_router_ip_opt: Option<IpAddr>,
+        _automap_config: AutomapConfig,
+        _change_handler: ChangeHandler,
     ) -> Box<dyn AutomapControl> {
-        todo! ("Test-drive me");
-        // Box::new(AutomapControlReal::new(usual_protocol_opt, change_handler, fake_router_ip_opt))
+        todo!("Test-drive me");
+        // Box::new(AutomapControlReal::new(automap_config, change_handler))
     }
 }
 
@@ -592,9 +587,8 @@ pub struct AutomapControlFactoryNull {}
 impl AutomapControlFactory for AutomapControlFactoryNull {
     fn make(
         &self,
-        _usual_protocol_opt: Option<AutomapProtocol>,
+        _automap_config: AutomapConfig,
         _change_handler: ChangeHandler,
-        _fake_router_ip_opt: Option<IpAddr>,
     ) -> Box<dyn AutomapControl> {
         panic!("Should never call make() on an AutomapControlFactoryNull.");
     }
@@ -1155,7 +1149,7 @@ mod tests {
             node_descriptor: NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            automap_config: AutomapConfig::new(Some(Igdp), Box::new(|_| ()), None),
+            automap_config: AutomapConfig::new(Some(Igdp), None),
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
@@ -1245,10 +1239,7 @@ mod tests {
         );
         let (cryptde, bootstrapper_config) = Parameters::get(parameters.neighborhood_params);
         check_cryptde(cryptde);
-        assert_eq!(
-            bootstrapper_config.neighborhood_config,
-            neighborhood_config
-        );
+        assert_eq!(bootstrapper_config.neighborhood_config, neighborhood_config);
         assert_eq!(
             bootstrapper_config.consuming_wallet_opt,
             consuming_wallet_opt
@@ -1503,8 +1494,8 @@ mod tests {
         );
 
         let mut make_params = make_params_arc.lock().unwrap();
-        let (usual_protocol_opt, change_handler, fake_router_ip_opt) = make_params.remove(0);
-        assert_eq!(usual_protocol_opt, None);
+        let (automap_config, change_handler) = make_params.remove(0);
+        assert_eq!(automap_config, AutomapConfig::default());
         let system = System::new("test");
         change_handler(AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         System::current().stop();
@@ -1522,7 +1513,6 @@ mod tests {
                 new_ip: IpAddr::from_str("4.3.2.1").unwrap()
             }
         );
-        assert_eq!(fake_router_ip_opt, None);
     }
 
     #[test]
@@ -1554,10 +1544,9 @@ mod tests {
 
         subject.start_automap(&config, Box::new(persistent_configuration), vec![]);
 
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(make_params[0].0, None);
+        let (automap_config, change_handler) = make_params_arc.lock().unwrap().remove(0);
+        assert_eq!(automap_config, AutomapConfig::default());
         let system = System::new("test");
-        let change_handler = &make_params[0].1;
         change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed(
             vec![],
         )));
@@ -1643,27 +1632,32 @@ mod tests {
     #[test]
     fn handle_automap_error_delegates_correctly_to_factory() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_result = AutomapControlMock::new()
-            .add_mapping_result(Err(AutomapError::DeleteMappingError("handle_automap_error_delegates_correctly_to_factory".to_string())));
+        let expected_result =
+            AutomapControlMock::new().add_mapping_result(Err(AutomapError::DeleteMappingError(
+                "handle_automap_error_delegates_correctly_to_factory".to_string(),
+            )));
         let automap_control_factory = AutomapControlFactoryMock::new()
             .make_params(&make_params_arc)
-            .make_result(Box::new (expected_result.clone()));
+            .make_result(Box::new(expected_result.clone()));
+        let (new_ip_recipient, _, _new_ip_recipient_recording_arc) = make_recorder();
+        let new_ip_recipient_sub = new_ip_recipient.start().recipient();
         let mut subject = ActorSystemFactoryToolsReal::new();
         subject.automap_control_factory = Box::new(automap_control_factory);
         let mapping_protocol = AutomapProtocol::Pcp;
         let fake_router_ip = IpAddr::from_str("1.5.2.4").unwrap();
 
-        let result = subject.make_automap_control(
-            Some(mapping_protocol),
-            vec![], // TODO Make this something assertable
-            Some(fake_router_ip)
+        let _result = subject.make_automap_control(
+            AutomapConfig::new(Some(mapping_protocol), Some(fake_router_ip)),
+            vec![new_ip_recipient_sub],
         );
 
         let mut make_params = make_params_arc.lock().unwrap();
-        let (automap_protocol_opt, change_handler, fake_router_ip_opt) = make_params.remove(0);
-        assert_eq!(automap_protocol_opt, Some(AutomapProtocol::Pcp));
-        todo!("assert on the new_ip_recipients");
-        assert_eq!(fake_router_ip_opt, Some(fake_router_ip));
+        let (automap_config, _change_handler) = make_params.remove(0);
+        assert_eq!(
+            automap_config,
+            AutomapConfig::new(Some(AutomapProtocol::Pcp), Some(fake_router_ip))
+        );
+        // TODO: assert on the new_ip_recipient_sub
     }
 
     #[test]
@@ -1676,10 +1670,10 @@ mod tests {
         let mut subject = ActorSystemFactoryToolsReal::new();
         subject.automap_control_factory = Box::new(automap_control_factory);
 
-        let _ = subject.make_automap_control(None, vec![], None);
+        let _ = subject.make_automap_control(AutomapConfig::default(), vec![]);
 
         let mut make_params = make_params_arc.lock().unwrap();
-        let (_automap_protocol_opt, change_handler, _fake_router_ip_opt) = make_params.remove(0);
+        let (_automap_config, change_handler) = make_params.remove(0);
         change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(
             "handle_automap_error_handles_non_crashing_errors".to_string(),
         )));

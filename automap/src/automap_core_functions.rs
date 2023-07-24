@@ -102,14 +102,22 @@ pub fn test_pcp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &mut PcpTransactor::new(&AutomapConfig::default()), test_parameters)
+    perform_test(
+        status,
+        &mut PcpTransactor::new(&AutomapConfig::default()),
+        test_parameters,
+    )
 }
 
 pub fn test_pmp(
     status: TestStatus,
     test_parameters: &TestParameters,
 ) -> Result<(), AutomapErrorCause> {
-    perform_test(status, &mut PmpTransactor::new(&AutomapConfig::default()), test_parameters)
+    perform_test(
+        status,
+        &mut PmpTransactor::new(&AutomapConfig::default()),
+        test_parameters,
+    )
 }
 
 pub fn test_igdp(

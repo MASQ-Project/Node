@@ -4,7 +4,9 @@ use automap_lib::automap_core_functions::{
     change_handler, run_probe_test, tester_for, AutomapParameters, TestStatus,
 };
 use automap_lib::comm_layer::AutomapErrorCause;
-use automap_lib::control_layer::automap_control::{AutomapControl, AutomapControlReal};
+use automap_lib::control_layer::automap_control::{
+    AutomapConfig, AutomapControl, AutomapControlReal,
+};
 use automap_lib::logger::initiate_logger;
 use log::info;
 use masq_lib::utils::AutomapProtocol;
@@ -69,7 +71,8 @@ fn manual(parameters: AutomapParameters) {
 fn automatic(parameters: AutomapParameters) {
     let status = TestStatus::new();
     let status = status.begin_attempt("Creating AutomapControl object".to_string());
-    let mut automap_control = AutomapControlReal::new(None, Box::new(change_handler));
+    let mut automap_control =
+        AutomapControlReal::new(AutomapConfig::default(), Box::new(change_handler));
     let status = status.succeed();
     let status = status.begin_attempt("Seeking public IP".to_string());
     let public_ip = match automap_control.get_public_ip() {

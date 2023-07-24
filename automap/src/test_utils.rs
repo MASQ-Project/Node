@@ -7,7 +7,9 @@ use crate::comm_layer::pcp_pmp_common::{
 use crate::comm_layer::{
     AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
 };
-use crate::control_layer::automap_control::{replace_transactor, AutomapControlReal, ChangeHandler, AutomapConfig};
+use crate::control_layer::automap_control::{
+    replace_transactor, AutomapConfig, AutomapControlReal, ChangeHandler,
+};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
 use masq_lib::utils::{find_free_port, AutomapProtocol};

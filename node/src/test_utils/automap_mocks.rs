@@ -2,7 +2,7 @@
 
 use crate::actor_system_factory::AutomapControlFactory;
 use automap_lib::comm_layer::AutomapError;
-use automap_lib::control_layer::automap_control::{AutomapControl, ChangeHandler};
+use automap_lib::control_layer::automap_control::{AutomapConfig, AutomapControl, ChangeHandler};
 use masq_lib::utils::AutomapProtocol;
 use std::cell::RefCell;
 use std::net::IpAddr;
@@ -10,21 +10,20 @@ use std::sync::{Arc, Mutex};
 
 #[allow(clippy::type_complexity)]
 pub struct AutomapControlFactoryMock {
-    make_params: Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler, Option<IpAddr>)>>>,
+    make_params: Arc<Mutex<Vec<(AutomapConfig, ChangeHandler)>>>,
     make_results: RefCell<Vec<Box<dyn AutomapControl>>>,
 }
 
 impl AutomapControlFactory for AutomapControlFactoryMock {
     fn make(
         &self,
-        usual_protocol_opt: Option<AutomapProtocol>,
+        automap_config: AutomapConfig,
         change_handler: ChangeHandler,
-        fake_router_ip_opt: Option<IpAddr>,
     ) -> Box<dyn AutomapControl> {
         self.make_params
             .lock()
             .unwrap()
-            .push((usual_protocol_opt, change_handler, fake_router_ip_opt));
+            .push((automap_config, change_handler));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -44,10 +43,7 @@ impl AutomapControlFactoryMock {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn make_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler, Option<IpAddr>)>>>,
-    ) -> Self {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(AutomapConfig, ChangeHandler)>>>) -> Self {
         self.make_params = params.clone();
         self
     }
