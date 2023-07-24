@@ -47,7 +47,11 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     }
 
     fn lower_remaining_cw_balance(&mut self, subtrahend: u128) {
-        self.cw_masq_balance -= subtrahend
+        let lowered_theoretical_cw_balance = self
+            .cw_masq_balance
+            .checked_sub(subtrahend)
+            .expect("should always subtract a small enough amount");
+        self.cw_masq_balance = lowered_theoretical_cw_balance
     }
 }
 

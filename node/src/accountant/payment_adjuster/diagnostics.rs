@@ -5,24 +5,47 @@ use crate::accountant::payment_adjuster::{
     COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS, PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS,
 };
 use crate::sub_lib::wallet::Wallet;
+use itertools::Either;
 use std::sync::Once;
 use thousands::Separable;
 
 pub static AGE_SINGLETON: Once = Once::new();
 pub static BALANCE_SINGLETON: Once = Once::new();
-const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18];
+pub const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 13] =
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21];
 
-pub fn diagnostics<F>(account: &Wallet, description: &str, value_renderer: F)
+pub const fn diagnostics_x_axis_exponents_len() -> usize {
+    EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS.len()
+}
+pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 40;
+
+#[macro_export]
+macro_rules! diagnostics {
+    ($description: literal, $value_renderer: expr) => {
+        diagnostics(|| Either::Left(""), $description, $value_renderer)
+    };
+    ($wallet_ref: expr, $description: expr, $value_renderer: expr) => {
+        diagnostics(
+            || Either::Right($wallet_ref.to_string()),
+            $description,
+            $value_renderer,
+        )
+    };
+}
+
+pub fn diagnostics<F1, F2>(subject_renderer: F1, description: &str, value_renderer: F2)
 where
-    F: Fn() -> String,
+    F1: Fn() -> Either<&'static str, String>,
+    F2: Fn() -> String,
 {
     if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
         eprintln!(
-            "{} {:<length$} {}",
-            account,
+            "{:<subject_column_length$} {:<length$} {}",
+            subject_renderer(),
             value_renderer(),
             description,
-            length = 40
+            subject_column_length = 42,
+            length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
         )
     }
 }
@@ -36,7 +59,8 @@ pub fn diagnostics_collective(label: &str, accounts: &[PayableAccount]) {
     }
 }
 
-pub struct FinalizationAndDiagnostics<'a, F>
+//TODO kill this when you have CriteriaCumputers that can take characteristics tests on them
+pub struct CriteriaWithDiagnostics<'a, F>
 where
     F: Fn(u128) -> u128,
 {
@@ -68,9 +92,14 @@ where
                     .into_iter()
                     .take(self.bonds_safe_count_to_print)
                     .map(|exponent| 10_u128.pow(exponent))
-                    .for_each(|num| {
-                        let value = (self.diagnostics_adaptive_formula)(num);
-                        eprintln!("x: {:<length$} y: {}", num, value, length = 40)
+                    .for_each(|input_num| {
+                        let value = (self.diagnostics_adaptive_formula)(input_num);
+                        eprintln!(
+                            "x: {:<length$} y: {}",
+                            input_num.separate_with_commas(),
+                            value.separate_with_commas(),
+                            length = 40
+                        )
                     });
                 eprintln!()
             })
@@ -78,16 +107,15 @@ where
     }
 }
 
-impl<F> FinalizationAndDiagnostics<'_, F>
+impl<F> CriteriaWithDiagnostics<'_, F>
 where
     F: Fn(u128) -> u128,
 {
-    pub fn perform(self) -> (u128, PayableAccount) {
-        diagnostics(
-            &self.account.wallet,
-            &format!("COMPUTED {} CRITERIA", self.diagnostics.label),
-            || self.criterion.separate_with_commas(),
-        );
+    pub fn diagnose_and_sum(self) -> (u128, PayableAccount) {
+        let account = &self.account.wallet;
+        let description = format!("COMPUTED {} CRITERIA", self.diagnostics.label);
+        let value_renderer = || self.criterion.separate_with_commas();
+        diagnostics!(account, &description, value_renderer);
         self.diagnostics.compute_progressive_characteristics();
 
         (
