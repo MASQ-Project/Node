@@ -266,16 +266,14 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
 #[test]
 fn node_creates_log_file_with_heading_integration() {
-    let data_directory = Path::new("node_root").join("home").to_string_lossy();
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
-        .pair("--data-directory", &*data_directory)
         .pair(
             "--neighbors",
             &format!(
                 "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
-                TEST_DEFAULT_CHAIN.rec().literal_identifier
+                DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
 
