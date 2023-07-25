@@ -1923,7 +1923,7 @@ mod tests {
             }
         );
         TestLogHandler::new()
-            .exists_log_containing(&format!("INFO: {}: Remapping port 6689", test_name));
+            .exists_log_containing(&format!("INFO: {test_name}: Remapping port 6689"));
     }
 
     #[test]

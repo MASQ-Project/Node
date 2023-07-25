@@ -26,6 +26,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
+static DATAPROBE_USAGE: String = format!("Usage: DataProbe <IP address>:<U|T><port>/<U|T><port>/... where <IP address> is the address DataProbe is running on, U means UDP and T means TCP, and <port> is between {LOWEST_USABLE_INSECURE_PORT} and {HIGHEST_USABLE_PORT}");
+const PROBE_TARGET_SYNTAX_MSG: &str = "Syntax: <IP address>:<U|T><port>/<U|T><port>/...";
+const PORT_SPEC_SYNTAX_MSG: &str = "Syntax: <U|T><port>";
 
 pub fn main() {
     let mut streams: StdStreams<'_> = StdStreams {
@@ -227,10 +230,7 @@ impl DataProbe {
     }
 
     fn usage(stderr: &mut dyn Write) -> u8 {
-        writeln! (stderr, "Usage: DataProbe <IP address>:<U|T><port>/<U|T><port>/... where <IP address> is the address DataProbe is running on, U means UDP and T means TCP, and <port> is between {} and {}",
-            LOWEST_USABLE_INSECURE_PORT,
-            HIGHEST_USABLE_PORT,
-        ).unwrap ();
+        writeln! (stderr, "{DATAPROBE_USAGE}").unwrap ();
         1
     }
 
@@ -346,8 +346,6 @@ impl DataProbe {
     }
 }
 
-const SYNTAX_MSG: &str = "Syntax: <IP address>:<U|T><port>/<U|T><port>/...";
-
 #[derive(Debug, Eq, PartialEq, Clone)]
 struct ProbeTarget {
     ip_address: IpAddr,
@@ -360,20 +358,20 @@ impl FromStr for ProbeTarget {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut main_pieces = s.split(':').collect_vec();
         if main_pieces.len() != 2 {
-            return Err(SYNTAX_MSG);
+            return Err(PROBE_TARGET_SYNTAX_MSG);
         }
         let ip_address_string = main_pieces.remove(0);
         let port_specs_string = main_pieces.remove(0);
         let ip_address = match IpAddr::from_str(ip_address_string) {
             Ok(ip_addr) => ip_addr,
-            Err(_) => return Err(SYNTAX_MSG),
+            Err(_) => return Err(PROBE_TARGET_SYNTAX_MSG),
         };
         let port_spec_results = port_specs_string
             .split('/')
             .map(PortSpec::from_str)
             .collect::<Vec<Result<PortSpec, &'static str>>>();
         if port_spec_results.iter().any(|result| result.is_err()) {
-            Err(SYNTAX_MSG)
+            Err(PROBE_TARGET_SYNTAX_MSG)
         } else {
             let port_specs = port_spec_results
                 .into_iter()
@@ -409,18 +407,18 @@ impl FromStr for PortSpec {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() < 2 {
-            return Err("Syntax: <U|T><port>");
+            return Err(PORT_SPEC_SYNTAX_MSG);
         }
         let protocol_label = &s[0..1];
         let port_string = &s[1..];
         let protocol = match protocol_label {
             "T" => NetworkProtocol::Tcp,
             "U" => NetworkProtocol::Udp,
-            _ => return Err("Syntax: <U|T><port>"),
+            _ => return Err(PORT_SPEC_SYNTAX_MSG),
         };
         let port = match u16::from_str(port_string) {
             Ok(p) => p,
-            Err(_) => return Err("Syntax: <U|T><port>"),
+            Err(_) => return Err(PORT_SPEC_SYNTAX_MSG),
         };
         Ok(PortSpec { protocol, port })
     }
@@ -468,7 +466,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), String::from ("Usage: DataProbe <IP address>:<U|T><port>/<U|T><port>/... where <IP address> is the address DataProbe is running on, U means UDP and T means TCP, and <port> is between 1025 and 65535\n\n"));
+        assert_eq! (stderr.get_string (), format!("{DATAPROBE_USAGE}\n\n"));
     }
 
     #[test]
@@ -485,7 +483,7 @@ mod tests {
         let stderr = holder.stderr;
         assert_eq!(
             stderr.get_string(),
-            String::from("Syntax: <IP address>:<U|T><port>/<U|T><port>/...\n")
+            format!("{PROBE_TARGET_SYNTAX_MSG}\n")
         );
     }
 
@@ -627,7 +625,7 @@ mod tests {
         .for_each(|probe_target_str| {
             assert_eq!(
                 ProbeTarget::from_str(probe_target_str).err().unwrap(),
-                SYNTAX_MSG
+                PROBE_TARGET_SYNTAX_MSG
             )
         });
     }

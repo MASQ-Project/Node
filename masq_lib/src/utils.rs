@@ -189,10 +189,6 @@ where
         Some(index)
     }
 }
-//
-// pub fn to_millis(dur: &Duration) -> u64 {
-//     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
-// }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum NeighborhoodModeLight {
