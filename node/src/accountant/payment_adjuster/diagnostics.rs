@@ -11,8 +11,8 @@ use thousands::Separable;
 
 pub static AGE_SINGLETON: Once = Once::new();
 pub static BALANCE_SINGLETON: Once = Once::new();
-pub const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 13] =
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21];
+pub const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 14] =
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25];
 
 pub const fn diagnostics_x_axis_exponents_len() -> usize {
     EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS.len()

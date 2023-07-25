@@ -163,7 +163,7 @@ pub fn log_insufficient_transaction_fee_balance(
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::log_functions::{
+    use crate::accountant::payment_adjuster::log_fns::{
         log_info_for_disqualified_accounts, REFILL_RECOMMENDATION,
     };
     use crate::accountant::payment_adjuster::DisqualifiedPayableAccount;
