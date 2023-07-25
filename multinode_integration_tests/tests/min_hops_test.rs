@@ -52,7 +52,9 @@ fn assert_http_end_to_end_routing_test(min_hops: Hops) {
     );
 }
 
-fn make_linear_network(hops: Hops) -> MASQRealNode {
+#[test]
+fn make_linear_network() {
+    let hops = Hops::ThreeHops;
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node_config = NodeStartupConfigBuilder::standard()
         .min_hops(hops)
@@ -73,14 +75,9 @@ fn make_linear_network(hops: Hops) -> MASQRealNode {
 
     thread::sleep(Duration::from_millis(500 * hops as u64));
 
-    first_node
-}
+    // first_node
 
-#[test]
-fn test_make_linear_network() {
-    let node = make_linear_network(Hops::ThreeHops);
-
-    let mut client = node.make_client(8080, 5000);
+    let mut client = first_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
@@ -91,4 +88,20 @@ fn test_make_linear_network() {
         String::from_utf8(response).unwrap()
     );
 }
+
+// #[test]
+// fn test_make_linear_network() {
+//     let node = make_linear_network(Hops::ThreeHops);
+//
+//     let mut client = node.make_client(8080, 5000);
+//     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+//     let response = client.wait_for_chunk();
+//
+//     assert_eq!(
+//         index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+//         true,
+//         "Actual response:\n{}",
+//         String::from_utf8(response).unwrap()
+//     );
+// }
 
