@@ -112,11 +112,11 @@ pub fn before_and_after_debug_msg(
     )
 }
 
-pub fn log_info_for_disqualified_accounts(
+pub fn log_info_for_disqualified_account(
     logger: &Logger,
-    disqualified_accounts: &[DisqualifiedPayableAccount],
+    disqualified_account_opt: Option<&DisqualifiedPayableAccount>,
 ) {
-    disqualified_accounts.iter().for_each(|account| {
+    disqualified_account_opt.map(|account| {
         info!(
                 logger,
             "Consuming wallet low in MASQ balance. Recently qualified \
@@ -164,7 +164,7 @@ pub fn log_insufficient_transaction_fee_balance(
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::log_fns::{
-        log_info_for_disqualified_accounts, REFILL_RECOMMENDATION,
+        log_info_for_disqualified_account, REFILL_RECOMMENDATION,
     };
     use crate::accountant::payment_adjuster::DisqualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
@@ -181,38 +181,5 @@ mod tests {
 In order to continue using services of other Nodes and avoid delinquency \
 bans you will need to put more funds into your consuming wallet."
         )
-    }
-
-    #[test]
-    fn log_info_for_disqualified_accounts_can_log_multiple_accounts() {
-        init_test_logging();
-        let wallet_1 = make_wallet("abc");
-        let wallet_2 = make_wallet("efg");
-        let balance_1 = 456_789_012_345;
-        let balance_2 = 222_444_777;
-        let disqualified_accounts = vec![
-            DisqualifiedPayableAccount {
-                wallet: wallet_1.clone(),
-                original_balance: 500_000_000_000,
-                proposed_adjusted_balance: balance_1,
-            },
-            DisqualifiedPayableAccount {
-                wallet: wallet_2.clone(),
-                original_balance: 300_000_000,
-                proposed_adjusted_balance: balance_2,
-            },
-        ];
-        let logger = Logger::new("log_info_for_disqualified_accounts_can_log_multiple_accounts");
-
-        log_info_for_disqualified_accounts(&logger, &disqualified_accounts);
-
-        let make_expected_msg = |wallet: &Wallet, balance: u128| -> String {
-            format!("Recently qualified payable for wallet {wallet} is being ignored as the limited consuming \
-            balance implied adjustment of its balance down to {} wei, which is not at least half of the debt", balance.separate_with_commas())
-        };
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &make_expected_msg(&wallet_1, balance_1),
-            &make_expected_msg(&wallet_2, balance_2),
-        ]);
     }
 }

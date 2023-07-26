@@ -1,6 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::{
+    AccountWithUncheckedAdjustment, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+};
+use crate::diagnostics;
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use std::iter::successors;
 
@@ -51,6 +56,23 @@ pub fn compute_fractions_preventing_mul_coeff(cw_masq_balance: u128, criteria_su
     10_u128
         .checked_pow(safe_mul_coeff as u32)
         .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
+}
+
+pub fn find_disqualified_account_with_smallest_proposed_balance(
+    accounts: &[&AccountWithUncheckedAdjustment],
+) -> Wallet {
+    let account_ref = accounts.iter().reduce(|previous, current| {
+        if current.proposed_adjusted_balance <= previous.proposed_adjusted_balance {
+            current
+        } else {
+            previous
+        }
+    });
+    account_ref
+        .expect("the iterator was empty but we had checked it")
+        .original_account
+        .wallet
+        .clone()
 }
 
 pub fn drop_criteria_and_leave_accounts(
@@ -106,16 +128,21 @@ pub fn x_or_1(x: u128) -> u128 {
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::auxiliary_fns::{
-        compute_fractions_preventing_mul_coeff, log_10, log_2, EMPIRIC_PRECISION_COEFFICIENT,
-        MAX_EXPONENT_FOR_10_IN_U128,
+        compute_fractions_preventing_mul_coeff,
+        find_disqualified_account_with_smallest_proposed_balance, log_10, log_2,
+        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+    use crate::accountant::payment_adjuster::{
+        AccountWithUncheckedAdjustment, PaymentAdjusterReal,
+    };
+    use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn constants_are_correct() {
@@ -279,6 +306,27 @@ mod tests {
         )
     }
 
+    #[test]
+    fn find_disqualified_account_with_smallest_proposed_balance_when_accounts_with_equal_balances()
+    {
+        let account_info = AccountWithUncheckedAdjustment {
+            original_account: make_payable_account(111),
+            proposed_adjusted_balance: 1_234_567_890,
+            criteria_sum: 400_000_000,
+        };
+        let wallet_1 = make_wallet("abc");
+        let wallet_2 = make_wallet("def");
+        let mut account_info_1 = account_info.clone();
+        account_info_1.original_account.wallet = wallet_1;
+        let mut account_info_2 = account_info;
+        account_info_2.original_account.wallet = wallet_2.clone();
+        let accounts = vec![&account_info_1, &account_info_2];
+
+        let result = find_disqualified_account_with_smallest_proposed_balance(&accounts);
+
+        assert_eq!(result, wallet_2)
+    }
+
     fn get_extreme_criteria_and_initial_accounts_order(
         months_of_debt_and_balances_matrix: Vec<(usize, u128)>,
     ) -> (Vec<(u128, PayableAccount)>, Vec<Wallet>) {
@@ -288,13 +336,10 @@ mod tests {
             .iter()
             .map(|account| account.wallet.clone())
             .collect();
-        let zero_criteria_accounts = PaymentAdjusterReal::initialize_zero_criteria(accounts);
         let subject = make_initialized_subject(now, None, None);
-        // when criteria applied the collection gets sorted and so it does not have to match the initial order
+        // when criteria are applied the collection will get sorted and will not necessarily have to match the initial order
+        let criteria_and_accounts = subject.add_criteria_sums_to_accounts(accounts);
         eprintln!("wallets in order {:?}", wallets_in_order);
-        (
-            subject.apply_criteria(zero_criteria_accounts),
-            wallets_in_order,
-        )
+        (criteria_and_accounts, wallets_in_order)
     }
 }
