@@ -9,20 +9,20 @@ pub trait PaymentAdjusterInner {
     fn gas_limitation_opt(&self) -> Option<u16> {
         PaymentAdjusterInnerNull::panicking_operation("gas_limitation_opt()")
     }
-    fn cw_masq_balance(&self) -> u128 {
-        PaymentAdjusterInnerNull::panicking_operation("cw_masq_balance()")
+    fn unallocated_cw_masq_balance(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance()")
     }
 
     //TODO this method should use RefCell internally...and we could have PaymentAdjuster with &self instead of &mut self
-    fn lower_remaining_cw_balance(&mut self, subtrahend: u128) {
-        PaymentAdjusterInnerNull::panicking_operation("lower_remaining_cw_balance()")
+    fn lower_unallocated_cw_balance(&mut self, subtrahend: u128) {
+        PaymentAdjusterInnerNull::panicking_operation("lower_unallocated_cw_balance()")
     }
 }
 
 pub struct PaymentAdjusterInnerReal {
     now: SystemTime,
     gas_limitation_opt: Option<u16>,
-    cw_masq_balance: u128,
+    unallocated_cw_masq_balance: u128,
 }
 
 impl PaymentAdjusterInnerReal {
@@ -30,7 +30,7 @@ impl PaymentAdjusterInnerReal {
         Self {
             now,
             gas_limitation_opt,
-            cw_masq_balance,
+            unallocated_cw_masq_balance: cw_masq_balance,
         }
     }
 }
@@ -42,16 +42,16 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn gas_limitation_opt(&self) -> Option<u16> {
         self.gas_limitation_opt
     }
-    fn cw_masq_balance(&self) -> u128 {
-        self.cw_masq_balance
+    fn unallocated_cw_masq_balance(&self) -> u128 {
+        self.unallocated_cw_masq_balance
     }
 
-    fn lower_remaining_cw_balance(&mut self, subtrahend: u128) {
+    fn lower_unallocated_cw_balance(&mut self, subtrahend: u128) {
         let lowered_theoretical_cw_balance = self
-            .cw_masq_balance
+            .unallocated_cw_masq_balance
             .checked_sub(subtrahend)
             .expect("should always subtract a small enough amount");
-        self.cw_masq_balance = lowered_theoretical_cw_balance
+        self.unallocated_cw_masq_balance = lowered_theoretical_cw_balance
     }
 }
 
@@ -71,8 +71,21 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerNull {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::inner::{
-        PaymentAdjusterInner, PaymentAdjusterInnerNull,
+        PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
     };
+    use std::time::SystemTime;
+
+    #[test]
+    fn inner_real_is_constructed_correctly() {
+        let now = SystemTime::now();
+        let gas_limitation_opt = Some(3);
+        let cw_masq_balance = 123_456_789;
+        let result = PaymentAdjusterInnerReal::new(now, gas_limitation_opt, cw_masq_balance);
+
+        assert_eq!(result.now, now);
+        assert_eq!(result.gas_limitation_opt, gas_limitation_opt);
+        assert_eq!(result.unallocated_cw_masq_balance, cw_masq_balance)
+    }
 
     #[test]
     #[should_panic(
@@ -82,16 +95,6 @@ mod tests {
         let subject = PaymentAdjusterInnerNull {};
 
         let _ = subject.now();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Called the null implementation of the cw_masq_balance() method in PaymentAdjusterInner"
-    )]
-    fn inner_null_calling_cw_masq_balance() {
-        let subject = PaymentAdjusterInnerNull {};
-
-        let _ = subject.cw_masq_balance();
     }
 
     #[test]
@@ -106,11 +109,21 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the lower_remaining_cw_balance() method in PaymentAdjusterInner"
+        expected = "Called the null implementation of the unallocated_cw_masq_balance() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_lower_remaining_cw_balance() {
+    fn inner_null_calling_unallocated_cw_balance() {
         let mut subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.lower_remaining_cw_balance(123);
+        let _ = subject.unallocated_cw_masq_balance();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Called the null implementation of the lower_unallocated_cw_balance() method in PaymentAdjusterInner"
+    )]
+    fn inner_null_calling_lower_unallocated_cw_balance() {
+        let mut subject = PaymentAdjusterInnerNull {};
+
+        let _ = subject.lower_unallocated_cw_balance(123);
     }
 }

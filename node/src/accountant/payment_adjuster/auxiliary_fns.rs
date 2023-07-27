@@ -2,7 +2,8 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::{
-    AccountWithUncheckedAdjustment, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+    AdjustedAccountBeforeFinalization, DecidedPayableAccountResolution,
+    ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
 };
 use crate::diagnostics;
 use crate::sub_lib::wallet::Wallet;
@@ -59,7 +60,7 @@ pub fn compute_fractions_preventing_mul_coeff(cw_masq_balance: u128, criteria_su
 }
 
 pub fn find_disqualified_account_with_smallest_proposed_balance(
-    accounts: &[&AccountWithUncheckedAdjustment],
+    accounts: &[&AdjustedAccountBeforeFinalization],
 ) -> Wallet {
     let account_ref = accounts.iter().reduce(|previous, current| {
         if current.proposed_adjusted_balance <= previous.proposed_adjusted_balance {
@@ -73,6 +74,81 @@ pub fn find_disqualified_account_with_smallest_proposed_balance(
         .original_account
         .wallet
         .clone()
+}
+
+struct ExhaustionStatus {
+    remainder: u128,
+    already_finalized_accounts: Vec<PayableAccount>,
+}
+
+impl ExhaustionStatus {
+    fn new(remainder: u128) -> Self {
+        Self {
+            remainder,
+            already_finalized_accounts: vec![],
+        }
+    }
+
+    fn update(
+        mut self,
+        mut unfinalized_account_info: AdjustedAccountBeforeFinalization,
+        adjusted_balance_possible_addition: u128,
+    ) -> Self {
+        let corrected_adjusted_account_before_finalization = {
+            unfinalized_account_info.proposed_adjusted_balance = unfinalized_account_info
+                .proposed_adjusted_balance
+                + adjusted_balance_possible_addition;
+            unfinalized_account_info
+        };
+        let finalized_account = PayableAccount::from((
+            corrected_adjusted_account_before_finalization,
+            DecidedPayableAccountResolution::Finalize,
+        ));
+        self.remainder = self
+            .remainder
+            .checked_sub(adjusted_balance_possible_addition)
+            .unwrap_or(0); //TODO wait for overflow
+        self.already_finalized_accounts.push(finalized_account);
+        self
+    }
+}
+
+pub fn exhaust_cw_balance_as_much_as_possible(
+    verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
+    unallocated_cw_masq_balance: u128,
+) -> Vec<PayableAccount> {
+    let adjusted_balances_total: u128 = sum_as(&verified_accounts, |account_info| {
+        account_info.proposed_adjusted_balance
+    });
+    let remainder = unallocated_cw_masq_balance - adjusted_balances_total;
+    let init = ExhaustionStatus::new(remainder);
+    verified_accounts
+        .into_iter()
+        .sorted_by(|info_a, info_b| {
+            Ord::cmp(
+                &info_a.proposed_adjusted_balance,
+                &info_b.proposed_adjusted_balance,
+            )
+        })
+        .fold(init, |mut status, unfinalized_account_info| {
+            if status.remainder != 0 {
+                let balance_gap = unfinalized_account_info.original_account.balance_wei
+                    - unfinalized_account_info.proposed_adjusted_balance;
+                eprintln!(
+                    "balance gap: {}, unallocated_cw_balance {}",
+                    balance_gap, status.remainder
+                );
+                let adjusted_balance_possible_addition = if balance_gap < status.remainder {
+                    balance_gap
+                } else {
+                    status.remainder
+                };
+                status.update(unfinalized_account_info, adjusted_balance_possible_addition)
+            } else {
+                status
+            }
+        })
+        .already_finalized_accounts
 }
 
 pub fn drop_criteria_and_leave_accounts(
@@ -128,20 +204,22 @@ pub fn x_or_1(x: u128) -> u128 {
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::auxiliary_fns::{
-        compute_fractions_preventing_mul_coeff,
-        find_disqualified_account_with_smallest_proposed_balance, log_10, log_2,
+        compute_fractions_preventing_mul_coeff, exhaust_cw_balance_as_much_as_possible,
+        find_disqualified_account_with_smallest_proposed_balance, log_10, log_2, ExhaustionStatus,
         EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
-        AccountWithUncheckedAdjustment, PaymentAdjusterReal,
+        AdjustedAccountBeforeFinalization, PaymentAdjusterReal,
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
+    use masq_lib::messages::ScanType::Payables;
+    use std::collections::HashMap;
     use std::time::{Duration, SystemTime};
 
     #[test]
@@ -309,7 +387,7 @@ mod tests {
     #[test]
     fn find_disqualified_account_with_smallest_proposed_balance_when_accounts_with_equal_balances()
     {
-        let account_info = AccountWithUncheckedAdjustment {
+        let account_info = AdjustedAccountBeforeFinalization {
             original_account: make_payable_account(111),
             proposed_adjusted_balance: 1_234_567_890,
             criteria_sum: 400_000_000,
@@ -325,6 +403,149 @@ mod tests {
         let result = find_disqualified_account_with_smallest_proposed_balance(&accounts);
 
         assert_eq!(result, wallet_2)
+    }
+
+    fn make_unfinalized_adjusted_account(
+        wallet: &Wallet,
+        original_balance: u128,
+        proposed_adjusted_balance: u128,
+    ) -> AdjustedAccountBeforeFinalization {
+        AdjustedAccountBeforeFinalization {
+            original_account: PayableAccount {
+                wallet: wallet.clone(),
+                balance_wei: original_balance,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            },
+            proposed_adjusted_balance,
+            criteria_sum: 123456,
+        }
+    }
+
+    fn assert_correct_payable_accounts_after_finalization(
+        actual_accounts: Vec<PayableAccount>,
+        expected_parameters: Vec<(Wallet, u128)>,
+    ) {
+        let expected_in_map: HashMap<Wallet, u128> =
+            HashMap::from_iter(expected_parameters.into_iter());
+        actual_accounts.into_iter().for_each(|account| {
+            let wallet = &account.wallet;
+            let expected_balance = expected_in_map.get(wallet).unwrap_or_else(|| {
+                panic!("account for wallet {} is missing among the results", wallet)
+            });
+            assert_eq!(
+                account.balance_wei, *expected_balance,
+                "account {} should've had adjusted balance {} but has {}",
+                wallet, expected_balance, account.balance_wei
+            )
+        })
+    }
+
+    #[test]
+    fn exhaustive_status_is_constructed_properly() {
+        let cw_balance_remainder = 45678;
+
+        let result = ExhaustionStatus::new(cw_balance_remainder);
+
+        assert_eq!(result.remainder, cw_balance_remainder);
+        assert_eq!(result.already_finalized_accounts, vec![])
+    }
+
+    #[test]
+    fn exhaust_cw_balance_as_much_as_possible_for_three_non_exhaustive_accounts() {
+        // this can happen because some of the pre-qualified accounts could be
+        // eliminated for an insignificant pay and free the means for the other
+        // accounts and then we went through adjustment computation with some
+        // losses on precision, here we're gonna add in what was missing
+        let wallet_1 = make_wallet("abc");
+        let original_requested_balance_1 = 45_000_000_000;
+        let proposed_adjusted_balance_1 = 44_999_897_000;
+        let wallet_2 = make_wallet("def");
+        let original_requested_balance_2 = 33_500_000_000;
+        let proposed_adjusted_balance_2 = 33_487_999_999;
+        let wallet_3 = make_wallet("ghi");
+        let original_requested_balance_3 = 41_000_000;
+        let proposed_adjusted_balance_3 = 40_980_000;
+        let unallocated_cw_balance = original_requested_balance_1
+            + original_requested_balance_2
+            + original_requested_balance_3
+            + 5000;
+        let unfinalized_adjusted_accounts = vec![
+            make_unfinalized_adjusted_account(
+                &wallet_1,
+                original_requested_balance_1,
+                proposed_adjusted_balance_1,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_2,
+                original_requested_balance_2,
+                proposed_adjusted_balance_2,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_3,
+                original_requested_balance_3,
+                proposed_adjusted_balance_3,
+            ),
+        ];
+
+        let result = exhaust_cw_balance_as_much_as_possible(
+            unfinalized_adjusted_accounts,
+            unallocated_cw_balance,
+        );
+
+        let expected_resulted_balances = vec![
+            (wallet_1, original_requested_balance_1),
+            (wallet_2, original_requested_balance_2),
+            (wallet_3, original_requested_balance_3),
+        ];
+        assert_correct_payable_accounts_after_finalization(result, expected_resulted_balances)
+    }
+
+    #[test]
+    fn exhaust_cw_balance_as_much_as_possible_for_three_non_exhaustive_with_not_enough_to_fulfil_them_all(
+    ) {
+        let wallet_1 = make_wallet("abc");
+        let original_requested_balance_1 = 54_000_000_000;
+        let proposed_adjusted_balance_1 = 53_898_000_000;
+        let wallet_2 = make_wallet("def");
+        let original_requested_balance_2 = 33_500_000_000;
+        let proposed_adjusted_balance_2 = 33_487_999_999;
+        let wallet_3 = make_wallet("ghi");
+        let original_requested_balance_3 = 41_000_000;
+        let proposed_adjusted_balance_3 = 40_980_000;
+        let unallocated_cw_balance = original_requested_balance_2
+            + original_requested_balance_3
+            + proposed_adjusted_balance_1
+            + 2_000_000;
+        let unfinalized_adjusted_accounts = vec![
+            make_unfinalized_adjusted_account(
+                &wallet_1,
+                original_requested_balance_1,
+                proposed_adjusted_balance_1,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_2,
+                original_requested_balance_2,
+                proposed_adjusted_balance_2,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_3,
+                original_requested_balance_3,
+                proposed_adjusted_balance_3,
+            ),
+        ];
+
+        let result = exhaust_cw_balance_as_much_as_possible(
+            unfinalized_adjusted_accounts,
+            unallocated_cw_balance,
+        );
+
+        let expected_resulted_balances = vec![
+            (wallet_1, 53_900_000_000),
+            (wallet_2, original_requested_balance_2),
+            (wallet_3, original_requested_balance_3),
+        ];
+        assert_correct_payable_accounts_after_finalization(result, expected_resulted_balances)
     }
 
     fn get_extreme_criteria_and_initial_accounts_order(
