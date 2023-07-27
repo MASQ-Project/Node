@@ -4,8 +4,6 @@ use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::{
     COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS, PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS,
 };
-use crate::sub_lib::wallet::Wallet;
-use itertools::Either;
 use std::sync::Once;
 use thousands::Separable;
 
@@ -14,36 +12,38 @@ pub static BALANCE_SINGLETON: Once = Once::new();
 pub const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 14] =
     [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25];
 
-pub const fn diagnostics_x_axis_exponents_len() -> usize {
-    EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS.len()
-}
-pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 40;
+pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
 #[macro_export]
 macro_rules! diagnostics {
-    ($description: literal, $value_renderer: expr) => {
-        diagnostics(|| Either::Left(""), $description, $value_renderer)
+    ($description: literal, $($arg: tt)*) => {
+        diagnostics(None::<fn()->String>, $description, || format!($($arg)*))
     };
-    ($wallet_ref: expr, $description: expr, $value_renderer: expr) => {
+    ($wallet_ref: expr, $description: expr,  $($arg: tt)*) => {
         diagnostics(
-            || Either::Right($wallet_ref.to_string()),
+            Some(||$wallet_ref.to_string()),
             $description,
-            $value_renderer,
+            || format!($($arg)*)
         )
     };
 }
 
-pub fn diagnostics<F1, F2>(subject_renderer: F1, description: &str, value_renderer: F2)
+pub fn diagnostics<F1, F2>(subject_renderer_opt: Option<F1>, description: &str, value_renderer: F2)
 where
-    F1: Fn() -> Either<&'static str, String>,
+    F1: Fn() -> String,
     F2: Fn() -> String,
 {
     if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
+        let subject = if let Some(subject_renderer) = subject_renderer_opt {
+            subject_renderer()
+        } else {
+            "".to_string()
+        };
         eprintln!(
             "{:<subject_column_length$} {:<length$} {}",
-            subject_renderer(),
-            value_renderer(),
+            subject,
             description,
+            value_renderer(),
             subject_column_length = 42,
             length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
         )
@@ -114,8 +114,12 @@ where
     pub fn diagnose_and_sum(self) -> (u128, PayableAccount) {
         let account = &self.account.wallet;
         let description = format!("COMPUTED {} CRITERIA", self.diagnostics.label);
-        let value_renderer = || self.criterion.separate_with_commas();
-        diagnostics!(account, &description, value_renderer);
+        diagnostics!(
+            account,
+            &description,
+            "{}",
+            self.criterion.separate_with_commas()
+        );
         self.diagnostics.compute_progressive_characteristics();
 
         (

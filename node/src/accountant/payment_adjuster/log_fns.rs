@@ -163,15 +163,7 @@ pub fn log_insufficient_transaction_fee_balance(
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::log_fns::{
-        log_info_for_disqualified_account, REFILL_RECOMMENDATION,
-    };
-    use crate::accountant::payment_adjuster::DisqualifiedPayableAccount;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_wallet;
-    use masq_lib::logger::Logger;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use thousands::Separable;
+    use crate::accountant::payment_adjuster::log_fns::REFILL_RECOMMENDATION;
 
     #[test]
     fn constants_are_correct() {

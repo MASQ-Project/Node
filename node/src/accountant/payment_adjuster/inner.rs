@@ -14,7 +14,7 @@ pub trait PaymentAdjusterInner {
     }
 
     //TODO this method should use RefCell internally...and we could have PaymentAdjuster with &self instead of &mut self
-    fn lower_unallocated_cw_balance(&mut self, subtrahend: u128) {
+    fn lower_unallocated_cw_balance(&mut self, _subtrahend: u128) {
         PaymentAdjusterInnerNull::panicking_operation("lower_unallocated_cw_balance()")
     }
 }
@@ -112,7 +112,7 @@ mod tests {
         expected = "Called the null implementation of the unallocated_cw_masq_balance() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_unallocated_cw_balance() {
-        let mut subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull {};
 
         let _ = subject.unallocated_cw_masq_balance();
     }

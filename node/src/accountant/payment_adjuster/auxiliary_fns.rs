@@ -3,9 +3,7 @@
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::{
     AdjustedAccountBeforeFinalization, DecidedPayableAccountResolution,
-    ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
 };
-use crate::diagnostics;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use std::iter::successors;
@@ -50,10 +48,6 @@ pub fn compute_fractions_preventing_mul_coeff(cw_masq_balance: u128, criteria_su
         .checked_sub(cw_balance_digits_count)
         .unwrap_or(0);
     let safe_mul_coeff = positive_difference + EMPIRIC_PRECISION_COEFFICIENT;
-    eprintln!(
-        "criteria sum {}, safe mul coeff {}",
-        criteria_sum, safe_mul_coeff
-    );
     10_u128
         .checked_pow(safe_mul_coeff as u32)
         .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
@@ -62,11 +56,11 @@ pub fn compute_fractions_preventing_mul_coeff(cw_masq_balance: u128, criteria_su
 pub fn find_disqualified_account_with_smallest_proposed_balance(
     accounts: &[&AdjustedAccountBeforeFinalization],
 ) -> Wallet {
-    let account_ref = accounts.iter().reduce(|previous, current| {
-        if current.proposed_adjusted_balance <= previous.proposed_adjusted_balance {
-            current
+    let account_ref = accounts.iter().reduce(|smallest_so_far, current| {
+        if current.proposed_adjusted_balance > smallest_so_far.proposed_adjusted_balance {
+            smallest_so_far
         } else {
-            previous
+            current
         }
     });
     account_ref
@@ -130,14 +124,10 @@ pub fn exhaust_cw_balance_as_much_as_possible(
                 &info_b.proposed_adjusted_balance,
             )
         })
-        .fold(init, |mut status, unfinalized_account_info| {
+        .fold(init, |status, unfinalized_account_info| {
             if status.remainder != 0 {
                 let balance_gap = unfinalized_account_info.original_account.balance_wei
                     - unfinalized_account_info.proposed_adjusted_balance;
-                eprintln!(
-                    "balance gap: {}, unallocated_cw_balance {}",
-                    balance_gap, status.remainder
-                );
                 let adjusted_balance_possible_addition = if balance_gap < status.remainder {
                     balance_gap
                 } else {
@@ -149,15 +139,6 @@ pub fn exhaust_cw_balance_as_much_as_possible(
             }
         })
         .already_finalized_accounts
-}
-
-pub fn drop_criteria_and_leave_accounts(
-    accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-) -> Vec<PayableAccount> {
-    accounts_with_individual_criteria
-        .into_iter()
-        .map(|(_, account)| account)
-        .collect()
 }
 
 pub fn sort_in_descendant_order_by_weights(
@@ -211,16 +192,13 @@ mod tests {
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::{
-        AdjustedAccountBeforeFinalization, PaymentAdjusterReal,
-    };
+    use crate::accountant::payment_adjuster::AdjustedAccountBeforeFinalization;
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use masq_lib::messages::ScanType::Payables;
     use std::collections::HashMap;
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
 
     #[test]
     fn constants_are_correct() {
@@ -330,7 +308,7 @@ mod tests {
             .collect::<Vec<(u128, Wallet, u128)>>();
 
         eprintln!("results {:?}", results);
-        let mut initial_accounts_order_from_the_seeds_iter =
+        let initial_accounts_order_from_the_seeds_iter =
             initial_accounts_order_from_the_seeds.iter().enumerate();
         let coeffs_and_criteria_sums_matching_the_order_of_the_original_inputs = results
             .into_iter()
@@ -377,7 +355,7 @@ mod tests {
                     2962501520859680498325341824
                 )
             ]
-        };
+        }
         assert_eq!(
             coeffs_and_criteria_sums_matching_the_order_of_the_original_inputs,
             expected_result()
@@ -559,7 +537,7 @@ mod tests {
             .collect();
         let subject = make_initialized_subject(now, None, None);
         // when criteria are applied the collection will get sorted and will not necessarily have to match the initial order
-        let criteria_and_accounts = subject.add_criteria_sums_to_accounts(accounts);
+        let criteria_and_accounts = subject.pair_accounts_with_summed_criteria(accounts);
         eprintln!("wallets in order {:?}", wallets_in_order);
         (criteria_and_accounts, wallets_in_order)
     }
