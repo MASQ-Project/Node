@@ -153,15 +153,8 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
-                // todo!("stop");
-                debug!(Logger::new("MinHops"), "Setting up the new value of min hops: {} inside Neighborhood", new_min_hops);
                 self.set_min_hops_and_patch_size(new_min_hops);
-                {
-                    // untested_code
-                    debug!(self.logger, "Searching for a {}-hop route...", self.min_hops);
-                    self.overall_connection_status.stage = OverallConnectionStage::ConnectedToNeighbor;
-                    self.check_connectedness();
-                }
+                self.search_for_a_new_route();
             }
         }
     }
@@ -840,9 +833,14 @@ impl Neighborhood {
     }
 
     fn check_connectedness(&mut self) {
-        if self.overall_connection_status.can_make_routes() {
-            return;
+        if !self.overall_connection_status.can_make_routes() {
+            self.search_for_a_new_route();
         }
+
+    }
+
+    fn search_for_a_new_route(&mut self) {
+        debug!(self.logger, "Searching for a {}-hop route...", self.min_hops);
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
@@ -3054,6 +3052,7 @@ mod tests {
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         subject.logger = Logger::new(test_name);
+        subject.overall_connection_status.stage = OverallConnectionStage::RouteFound;
         let new_min_hops = Hops::FourHops;
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
