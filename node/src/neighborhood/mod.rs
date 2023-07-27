@@ -153,7 +153,15 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
+                // todo!("stop");
+                debug!(Logger::new("MinHops"), "Setting up the new value of min hops: {} inside Neighborhood", new_min_hops);
                 self.set_min_hops_and_patch_size(new_min_hops);
+                {
+                    // untested_code
+                    debug!(self.logger, "Searching for a {}-hop route...", self.min_hops);
+                    self.overall_connection_status.stage = OverallConnectionStage::ConnectedToNeighbor;
+                    self.check_connectedness();
+                }
             }
         }
     }
@@ -3040,9 +3048,12 @@ mod tests {
 
     #[test]
     fn can_update_min_hops_with_configuration_change_msg() {
-        let system = System::new("can_update_min_hops_with_configuration_change_msg");
+        init_test_logging();
+        let test_name = "can_update_min_hops_with_configuration_change_msg";
+        let system = System::new(test_name);
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
+        subject.logger = Logger::new(test_name);
         let new_min_hops = Hops::FourHops;
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -3066,6 +3077,10 @@ mod tests {
             .unwrap();
         System::current().stop();
         system.run();
+        TestLogHandler::new()
+            .exists_log_containing(&format!(
+            "DEBUG: {test_name}: Searching for a {new_min_hops}-hop route..."
+        ));
     }
 
     #[test]
