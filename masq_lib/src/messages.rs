@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
+use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use itertools::Itertools;
@@ -10,7 +11,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
-use crate::shared_schema::ConfiguratorError;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 

@@ -36,7 +36,9 @@ use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use actix::Arbiter;
 use actix::{Addr, Recipient};
 use automap_lib::comm_layer::AutomapError;
-use automap_lib::control_layer::automap_control::{AutomapChange, AutomapConfig, AutomapControl, AutomapControlReal, ChangeHandler};
+use automap_lib::control_layer::automap_control::{
+    AutomapChange, AutomapConfig, AutomapControl, AutomapControlReal, ChangeHandler,
+};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::prepare_log_recipient;
@@ -1643,18 +1645,12 @@ mod tests {
         let fake_router_ip = IpAddr::from_str("1.5.2.4").unwrap();
         let automap_config = AutomapConfig::new(Some(mapping_protocol), Some(fake_router_ip));
 
-        let _result = subject.make_automap_control(
-            automap_config,
-            vec![new_ip_recipient_sub],
-        );
+        let _result = subject.make_automap_control(automap_config, vec![new_ip_recipient_sub]);
 
         let mut make_params = make_params_arc.lock().unwrap();
         // Make sure the AutomapConfig was passed correctly
         let (actual_automap_config, change_handler) = make_params.remove(0);
-        assert_eq!(
-            actual_automap_config,
-            automap_config
-        );
+        assert_eq!(actual_automap_config, automap_config);
         // Make sure the generated change_handler handles new IP addresses properly
         let new_ip = IpAddr::from_str("1.2.3.4").unwrap();
         let system = System::new(test_name);
@@ -1664,12 +1660,16 @@ mod tests {
         let new_ip_recipient_recording = new_ip_recipient_recording_arc.lock().unwrap();
         assert_eq!(
             new_ip_recipient_recording.get_record::<NewPublicIp>(0),
-            &NewPublicIp {new_ip}
+            &NewPublicIp { new_ip }
         );
         // Make sure the generated change_handler handles errors properly
         init_test_logging();
-        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(test_name.to_string())));
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: Automap: Automap failure: DeleteMappingError(\"{test_name}\")"));
+        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(
+            test_name.to_string(),
+        )));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: Automap: Automap failure: DeleteMappingError(\"{test_name}\")"
+        ));
     }
 
     #[test]

@@ -508,7 +508,12 @@ impl MASQMockNode {
         let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
         DataProbeUtils::clean_up_existing_container(&name[..]);
         let mock_node_args = Self::make_mock_node_args(&node_addr);
-        do_docker_run(node_addr.ip_addr(), host_node_parent_dir, &name, mock_node_args);
+        do_docker_run(
+            node_addr.ip_addr(),
+            host_node_parent_dir,
+            &name,
+            mock_node_args,
+        );
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = RefCell::new(wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());

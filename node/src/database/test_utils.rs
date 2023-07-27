@@ -1,8 +1,6 @@
 #![cfg(test)]
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{
-    DbInitializationConfig, ExternalData, InitializationMode,
-};
+use crate::database::db_initializer::{DbInitializationConfig, ExternalData, InitializationMode};
 use crate::database::db_initializer::{DbInitializer, InitializationError};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
@@ -76,8 +74,7 @@ impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
 #[derive(Default)]
 pub struct DbInitializerMock {
     pub initialize_params: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
-    pub initialize_results:
-    RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
+    pub initialize_results: RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
 }
 
 impl DbInitializer for DbInitializerMock {

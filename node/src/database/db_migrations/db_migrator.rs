@@ -181,7 +181,6 @@ impl DbMigratorReal {
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
@@ -192,6 +191,7 @@ mod tests {
         DBMigratorInnerConfiguration,
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::logger::Logger;
