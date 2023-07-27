@@ -55,7 +55,7 @@ fn assert_http_end_to_end_routing_test(min_hops: Hops) {
 
 #[test]
 fn min_hops_can_be_changed_during_runtime() {
-    let hops = Hops::ThreeHops;
+    let hops = Hops::OneHop;
     let mut cluster = MASQNodeCluster::start().unwrap();
     let ui_port = find_free_port();
     let first_node_config = NodeStartupConfigBuilder::standard()
@@ -85,6 +85,8 @@ fn min_hops_can_be_changed_during_runtime() {
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
+    client.shutdown();
+
     assert_eq!(
         index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,
@@ -99,11 +101,12 @@ fn min_hops_can_be_changed_during_runtime() {
     let response = ui_client.wait_for_response(1, Duration::from_secs(2));
     assert!(response.payload.is_ok());
 
+    let mut client = first_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        index_of(&response, &b"<h3>Subtitle: Can't find a route to www.example.com</h3>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
