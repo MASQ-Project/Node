@@ -230,7 +230,7 @@ impl DataProbe {
     }
 
     fn usage(stderr: &mut dyn Write) -> u8 {
-        writeln! (stderr, "{DATAPROBE_USAGE}").unwrap ();
+        writeln!(stderr, "{DATAPROBE_USAGE}").unwrap();
         1
     }
 
@@ -466,7 +466,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq! (stderr.get_string (), format!("{DATAPROBE_USAGE}\n\n"));
+        assert_eq!(stderr.get_string(), format!("{DATAPROBE_USAGE}\n\n"));
     }
 
     #[test]
@@ -481,10 +481,7 @@ mod tests {
 
         assert_eq!(result, 1);
         let stderr = holder.stderr;
-        assert_eq!(
-            stderr.get_string(),
-            format!("{PROBE_TARGET_SYNTAX_MSG}\n")
-        );
+        assert_eq!(stderr.get_string(), format!("{PROBE_TARGET_SYNTAX_MSG}\n"));
     }
 
     #[test]

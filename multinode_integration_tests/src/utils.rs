@@ -130,7 +130,7 @@ pub fn do_docker_run(
     ip_addr: IpAddr,
     host_node_parent_dir: Option<String>,
     name: &str,
-    program_args: Vec<String>,
+    data_probe_args: Vec<String>,
 ) {
     let root = match host_node_parent_dir {
         Some(dir) => dir,
@@ -153,7 +153,7 @@ pub fn do_docker_run(
         "test_node_image",
         "/node_root/node/mock_node", // TODO: Should be /node_root/node/data_probe
     ]);
-    docker_args.extend(program_args);
+    docker_args.extend(data_probe_args);
     let mut command = Command::new(docker_command, docker_args);
     command.stdout_or_stderr().unwrap();
 }

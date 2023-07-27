@@ -54,7 +54,6 @@ impl AutomapControlFactoryMock {
     }
 }
 
-#[derive(Clone)]
 pub struct AutomapControlMock {
     get_public_ip_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
     add_mapping_params: Arc<Mutex<Vec<u16>>>,

@@ -20,26 +20,27 @@ impl MockRouter for MockPcpRouter {
     }
 }
 
-impl Default for MockPcpRouter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MockPcpRouter {
     pub fn new(port: u16) -> Self {
         let control_stream = Self::start(port);
-        Self {}
+        Self {
+            control_stream,
+            framer: DataHunkFramer::new(),
+        }
     }
 
     fn start(port: u16) -> TcpStream {
         let name = "pcp_router".to_string();
         DataProbeUtils::clean_up_existing_container(&name[..]);
         let mock_router_args = Self::make_mock_router_args(port);
-        do_docker_run(&node_addr, host_node_parent_dir, &name, mock_router_args);
+        do_docker_run(
+            node_addr.ip_addr(),
+            host_node_parent_dir,
+            &name,
+            mock_router_args,
+        );
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = wait_for_startup(wait_addr, &name);
-        let framer = RefCell::new(DataHunkFramer::new());
         control_stream
     }
 }
