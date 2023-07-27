@@ -380,7 +380,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn automap_config_default_implmentation_works_properly() {
+    fn automap_config_default_implementation_works_properly() {
         let subject = AutomapConfig::default();
 
         assert_eq!(subject.usual_protocol_opt, None);

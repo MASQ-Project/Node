@@ -569,6 +569,7 @@ impl AutomapControlFactory for AutomapControlFactoryReal {
         automap_config: AutomapConfig,
         change_handler: ChangeHandler,
     ) -> Box<dyn AutomapControl> {
+        // Untested factory-pattern code: test by inspection
         Box::new(AutomapControlReal::new(automap_config, change_handler))
     }
 }
@@ -1627,7 +1628,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_automap_error_delegates_correctly_to_factory() {
+    fn make_automap_control_initializes_properly() {
+        let test_name = "make_automap_control_initializes_properly";
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let automap_control = AutomapControlMock::new();
         let automap_control_factory = AutomapControlFactoryMock::new()
@@ -1639,22 +1641,23 @@ mod tests {
         subject.automap_control_factory = Box::new(automap_control_factory);
         let mapping_protocol = AutomapProtocol::Pcp;
         let fake_router_ip = IpAddr::from_str("1.5.2.4").unwrap();
+        let automap_config = AutomapConfig::new(Some(mapping_protocol), Some(fake_router_ip));
 
         let _result = subject.make_automap_control(
-            AutomapConfig::new(Some(mapping_protocol), Some(fake_router_ip)),
+            automap_config,
             vec![new_ip_recipient_sub],
         );
 
         let mut make_params = make_params_arc.lock().unwrap();
         // Make sure the AutomapConfig was passed correctly
-        let (automap_config, change_handler) = make_params.remove(0);
+        let (actual_automap_config, change_handler) = make_params.remove(0);
         assert_eq!(
-            automap_config,
-            AutomapConfig::new(Some(AutomapProtocol::Pcp), Some(fake_router_ip))
+            actual_automap_config,
+            automap_config
         );
         // Make sure the generated change_handler handles new IP addresses properly
         let new_ip = IpAddr::from_str("1.2.3.4").unwrap();
-        let system = System::new("handle_automap_error_delegates_correctly_to_factory");
+        let system = System::new(test_name);
         change_handler(AutomapChange::NewIp(new_ip));
         System::current().stop();
         system.run();
@@ -1665,8 +1668,8 @@ mod tests {
         );
         // Make sure the generated change_handler handles errors properly
         init_test_logging();
-        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError("handle_automap_error_delegates_correctly_to_factory".to_string())));
-        TestLogHandler::new().exists_log_containing("ERROR: Automap: Automap failure: DeleteMappingError(\"handle_automap_error_delegates_correctly_to_factory\")");
+        change_handler(AutomapChange::Error(AutomapError::DeleteMappingError(test_name.to_string())));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: Automap: Automap failure: DeleteMappingError(\"{test_name}\")"));
     }
 
     #[test]

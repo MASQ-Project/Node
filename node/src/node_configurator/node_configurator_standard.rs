@@ -902,6 +902,7 @@ mod tests {
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
             .param("--fake-public-key", "AQIDBA")
+            .param("--fake-router-ip", "4.5.6.7")
             .param("--db-password", "secret-db-password")
             .param(
                 "--earning-wallet",
@@ -945,6 +946,10 @@ mod tests {
         assert_eq!(
             config.main_cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
+        );
+        assert_eq!(
+            config.automap_config.fake_router_ip_opt,
+            Some(IpAddr::from_str("4.5.6.7").unwrap())
         );
         assert_eq!(
             config.real_user,

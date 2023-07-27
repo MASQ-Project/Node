@@ -1,3 +1,4 @@
+#![cfg(test)]
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{
     DbInitializationConfig, ExternalData, InitializationMode,
@@ -92,17 +93,16 @@ impl DbInitializer for DbInitializerMock {
         self.initialize_results.borrow_mut().remove(0)
     }
 
-    #[allow(unused_variables)]
     fn initialize_to_version(
         &self,
-        path: &Path,
-        target_version: usize,
-        init_config: DbInitializationConfig,
+        _path: &Path,
+        _target_version: usize,
+        _init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         intentionally_blank!()
-        /*all existing test calls only initialize() in the mocked version,
+        /* all existing tests call only initialize() in the mocked version,
         but we need to call initialize_to_version() for the real object
-        in order to carry out some important tests too*/
+        in order to carry out some important tests too */
     }
 }
 
