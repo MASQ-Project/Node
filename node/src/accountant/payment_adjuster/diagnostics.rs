@@ -1,14 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::{
-    COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS, PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS,
-};
-use std::sync::Once;
+use crate::accountant::payment_adjuster::criteria_calculators::DiagnosticsConfig;
+use crate::accountant::payment_adjuster::PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS;
+use itertools::Itertools;
+use std::fmt::Debug;
+use std::sync::{Mutex, Once};
 use thousands::Separable;
 
 pub static AGE_SINGLETON: Once = Once::new();
 pub static BALANCE_SINGLETON: Once = Once::new();
+
+pub const COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS: bool = true;
+pub const FORMULAS_DIAGNOSTICS_SINGLETON: Once = Once::new();
+
 pub const EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS: [u32; 14] =
     [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25];
 
@@ -80,53 +85,65 @@ where
     pub bonds_safe_count_to_print: usize,
 }
 
-impl<'a, F> DiagnosticsSetting<'a, F>
-where
-    F: Fn(u128) -> u128,
-{
-    pub fn compute_progressive_characteristics(&self) {
-        if COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS {
-            self.singleton_ref.call_once(|| {
-                eprintln!("CHARACTERISTICS FOR {} FORMULA", self.label);
-                EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS
-                    .into_iter()
-                    .take(self.bonds_safe_count_to_print)
-                    .map(|exponent| 10_u128.pow(exponent))
-                    .for_each(|input_num| {
-                        let value = (self.diagnostics_adaptive_formula)(input_num);
-                        eprintln!(
-                            "x: {:<length$} y: {}",
-                            input_num.separate_with_commas(),
-                            value.separate_with_commas(),
-                            length = 40
-                        )
-                    });
-                eprintln!()
-            })
-        }
-    }
+// impl<F> CriteriaWithDiagnostics<'_, F>
+// where
+//     F: Fn(u128) -> u128,
+// {
+//     pub fn diagnose_and_sum(self) -> (u128, PayableAccount) {
+//         let account = &self.account.wallet;
+//         let description = format!("COMPUTED {} CRITERIA", self.diagnostics.label);
+//         diagnostics!(
+//             account,
+//             &description,
+//             "{}",
+//             self.criterion.separate_with_commas()
+//         );
+//         self.diagnostics.compute_progressive_characteristics();
+//
+//         (
+//             self.criteria_sum_so_far
+//                 .checked_add(self.criterion)
+//                 .expect("add overflow"),
+//             self.account,
+//         )
+//     }
+// }
+
+pub const STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
+
+fn print_formulas_diagnostics() {
+    FORMULAS_DIAGNOSTICS_SINGLETON.call_once(|| {
+        let report = STRINGS_WITH_FORMULAS_CHARACTERISTICS
+            .lock()
+            .expect("diagnostics poisoned")
+            .join("\n\n");
+        eprintln!("{}", report)
+    })
 }
 
-impl<F> CriteriaWithDiagnostics<'_, F>
-where
-    F: Fn(u128) -> u128,
+pub fn compute_progressive_characteristics<A>(
+    config_opt: Option<DiagnosticsConfig<A>>,
+    formula: fn(A) -> u128,
+) where
+    A: Debug,
 {
-    pub fn diagnose_and_sum(self) -> (u128, PayableAccount) {
-        let account = &self.account.wallet;
-        let description = format!("COMPUTED {} CRITERIA", self.diagnostics.label);
-        diagnostics!(
-            account,
-            &description,
-            "{}",
-            self.criterion.separate_with_commas()
-        );
-        self.diagnostics.compute_progressive_characteristics();
-
-        (
-            self.criteria_sum_so_far
-                .checked_add(self.criterion)
-                .expect("add overflow"),
-            self.account,
-        )
-    }
+    config_opt.map(|config| {
+        let characteristics = config
+            .progressive_set_of_args
+            .into_iter()
+            .map(|input| {
+                let input_print = format!("{:?}", input);
+                format!(
+                    "x: {:<length$} y: {}",
+                    input_print,
+                    formula(input).separate_with_commas(),
+                    length = 40
+                )
+            })
+            .join("\n");
+        STRINGS_WITH_FORMULAS_CHARACTERISTICS
+            .lock()
+            .expect("diagnostics poisoned")
+            .push(characteristics);
+    });
 }
