@@ -840,7 +840,10 @@ impl Neighborhood {
     }
 
     fn search_for_a_new_route(&mut self) {
-        debug!(self.logger, "Searching for a {}-hop route...", self.min_hops);
+        debug!(
+            self.logger,
+            "Searching for a {}-hop route...", self.min_hops
+        );
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
@@ -3084,8 +3087,7 @@ mod tests {
             .unwrap();
         System::current().stop();
         system.run();
-        TestLogHandler::new()
-            .exists_log_containing(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Searching for a {new_min_hops}-hop route..."
         ));
     }

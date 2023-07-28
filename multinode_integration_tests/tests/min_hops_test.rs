@@ -1,13 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::thread;
-use std::time::Duration;
 use masq_lib::messages::{ToMessageBody, UiSetConfigurationRequest};
 use masq_lib::utils::{find_free_port, index_of};
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder};
+use multinode_integration_tests_lib::masq_real_node::{
+    make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
+};
 use node_lib::sub_lib::neighborhood::Hops;
+use std::thread;
+use std::time::Duration;
 
 #[test]
 fn http_end_to_end_routing_test_with_different_min_hops() {
@@ -93,10 +95,13 @@ fn min_hops_can_be_changed_during_runtime() {
         String::from_utf8(response).unwrap()
     );
 
-    ui_client.send_request(UiSetConfigurationRequest {
-        name: "min-hops".to_string(),
-        value: new_min_hops.to_string(),
-    }.tmb(1));
+    ui_client.send_request(
+        UiSetConfigurationRequest {
+            name: "min-hops".to_string(),
+            value: new_min_hops.to_string(),
+        }
+        .tmb(1),
+    );
     let response = ui_client.wait_for_response(1, Duration::from_secs(2));
     assert!(response.payload.is_ok());
 
@@ -104,7 +109,11 @@ fn min_hops_can_be_changed_during_runtime() {
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
     assert_eq!(
-        index_of(&response, &b"<h3>Subtitle: Can't find a route to www.example.com</h3>"[..]).is_some(),
+        index_of(
+            &response,
+            &b"<h3>Subtitle: Can't find a route to www.example.com</h3>"[..]
+        )
+        .is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()

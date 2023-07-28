@@ -696,13 +696,16 @@ impl Configurator {
     ) -> MessageBody {
         let configuration_change_msg_sub_opt = self.configuration_change_msg_sub_opt.clone();
         let logger = &self.logger;
-        debug!(logger, "A request from UI received: {:?} from context id: {}", msg, context_id);
+        debug!(
+            logger,
+            "A request from UI received: {:?} from context id: {}", msg, context_id
+        );
         match Self::unfriendly_handle_set_configuration(
             msg,
             context_id,
             &mut self.persistent_config,
             configuration_change_msg_sub_opt,
-            logger
+            logger,
         ) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
@@ -718,7 +721,7 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
         configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
-        logger: &Logger
+        logger: &Logger,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
@@ -733,7 +736,7 @@ impl Configurator {
                         msg.value,
                         persistent_config,
                         configuration_change_msg_sub_opt,
-                        logger
+                        logger,
                     )?;
                 } else {
                     return Err((
@@ -778,7 +781,11 @@ impl Configurator {
         };
         match config.set_min_hops(min_hops) {
             Ok(_) => {
-                debug!(logger, "The value of min-hops has been changed to {}-hop inside the database", min_hops);
+                debug!(
+                    logger,
+                    "The value of min-hops has been changed to {}-hop inside the database",
+                    min_hops
+                );
                 configuration_change_msg_sub_opt
                     .as_ref()
                     .expect("Configurator is unbound")
@@ -2016,7 +2023,8 @@ mod tests {
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![166666]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: A request from UI received: {:?} from context id: {}", test_name, msg, context_id
+            "DEBUG: {}: A request from UI received: {:?} from context id: {}",
+            test_name, msg, context_id
         ));
     }
 
