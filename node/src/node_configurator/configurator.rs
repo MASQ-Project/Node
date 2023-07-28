@@ -71,6 +71,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        // TODO: I wish if we would log the body and context_id of each request over here. Is there a security risk?
         if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
@@ -694,11 +695,14 @@ impl Configurator {
         context_id: u64,
     ) -> MessageBody {
         let configuration_change_msg_sub_opt = self.configuration_change_msg_sub_opt.clone();
+        let logger = &self.logger;
+        debug!(logger, "A request from UI received: {:?} from context id: {}", msg, context_id);
         match Self::unfriendly_handle_set_configuration(
             msg,
             context_id,
             &mut self.persistent_config,
             configuration_change_msg_sub_opt,
+            logger
         ) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
@@ -714,6 +718,7 @@ impl Configurator {
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
         configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+        logger: &Logger
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
@@ -728,6 +733,7 @@ impl Configurator {
                         msg.value,
                         persistent_config,
                         configuration_change_msg_sub_opt,
+                        logger
                     )?;
                 } else {
                     return Err((
@@ -762,6 +768,7 @@ impl Configurator {
         string_number: String,
         config: &mut Box<dyn PersistentConfiguration>,
         configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+        logger: &Logger,
     ) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&string_number) {
             Ok(min_hops) => min_hops,
@@ -771,6 +778,7 @@ impl Configurator {
         };
         match config.set_min_hops(min_hops) {
             Ok(_) => {
+                debug!(logger, "The value of min-hops has been changed to {}-hop inside the database", min_hops);
                 configuration_change_msg_sub_opt
                     .as_ref()
                     .expect("Configurator is unbound")
@@ -1973,24 +1981,28 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_works() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_works";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
-        let subject = make_subject(Some(persistent_config));
+        let mut subject = make_subject(Some(persistent_config));
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = UiSetConfigurationRequest {
+            name: "start-block".to_string(),
+            value: "166666".to_string(),
+        };
+        let context_id = 4444;
 
         subject_addr
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
-                body: UiSetConfigurationRequest {
-                    name: "start-block".to_string(),
-                    value: "166666".to_string(),
-                }
-                .tmb(4444),
+                body: msg.clone().tmb(context_id),
             })
             .unwrap();
 
@@ -2003,6 +2015,9 @@ mod tests {
         assert_eq!(context_id, 4444);
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![166666]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {}: A request from UI received: {:?} from context id: {}", test_name, msg, context_id
+        ));
     }
 
     #[test]
@@ -2142,6 +2157,8 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_works_for_min_hops() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_works_for_min_hops";
         let new_min_hops = Hops::SixHops;
         let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
@@ -2151,6 +2168,7 @@ mod tests {
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_addr = neighborhood.start();
         let mut subject = make_subject(Some(persistent_config));
+        subject.logger = Logger::new(test_name);
         subject.configuration_change_msg_sub_opt =
             Some(neighborhood_addr.recipient::<ConfigurationChangeMessage>());
 
@@ -2184,6 +2202,9 @@ mod tests {
             }
         );
         assert_eq!(*min_hops_in_db, new_min_hops);
+        TestLogHandler::new().exists_log_containing(&format!(
+           "DEBUG: {test_name}: The value of min-hops has been changed to {new_min_hops}-hop inside the database"
+        ));
     }
 
     #[test]

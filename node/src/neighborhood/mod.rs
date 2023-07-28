@@ -154,6 +154,7 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
+                // TODO: Should we make the stage transition for OverallConnectionStatus from RouteFound to ConnectedToNeighbor before we search for a new route
                 self.search_for_a_new_route();
             }
         }
@@ -836,7 +837,6 @@ impl Neighborhood {
         if !self.overall_connection_status.can_make_routes() {
             self.search_for_a_new_route();
         }
-
     }
 
     fn search_for_a_new_route(&mut self) {
@@ -1561,8 +1561,10 @@ impl Neighborhood {
     }
 
     fn set_min_hops_and_patch_size(&mut self, new_min_hops: Hops) {
+        let (prev_min_hops, prev_db_patch_size) = (self.min_hops, self.db_patch_size);
         self.min_hops = new_min_hops;
         self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
+        debug!(self.logger, "The value of min_hops ({}-hop -> {}-hop) and db_patch_size ({} -> {}) has been changed", prev_min_hops, self.min_hops, prev_db_patch_size, self.db_patch_size);
     }
 }
 
@@ -3032,9 +3034,12 @@ mod tests {
 
     #[test]
     fn can_set_min_hops_and_db_patch_size() {
+        init_test_logging();
+        let test_name = "can_set_min_hops_and_db_patch_size";
         let initial_min_hops = Hops::TwoHops;
         let new_min_hops = Hops::FourHops;
         let mut subject = make_standard_subject();
+        subject.logger = Logger::new(test_name);
         subject.min_hops = initial_min_hops;
 
         subject.set_min_hops_and_patch_size(new_min_hops);
@@ -3042,6 +3047,9 @@ mod tests {
         let expected_db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         assert_eq!(subject.min_hops, new_min_hops);
         assert_eq!(subject.db_patch_size, expected_db_patch_size);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: The value of min_hops (2-hop -> 4-hop) and db_patch_size (3 -> 4) has been changed"
+        ));
     }
 
     #[test]
