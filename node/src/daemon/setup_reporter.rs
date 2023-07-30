@@ -3631,9 +3631,11 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
+        let masqhome = Path::new("/home/booga/masqhome");
+        let expected = &masqhome.join("polygon-mainnet");
         let incoming_setup = vec![UiSetupRequestValue::new(
             "data-directory",
-            "/home/booga/masqhome",
+            masqhome.to_str().unwrap(),
         )];
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
@@ -3641,7 +3643,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
-            "/home/booga/masqhome/polygon-mainnet"
+            expected.to_str().unwrap()
         );
     }
 
@@ -3651,17 +3653,21 @@ mod tests {
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
         let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
+        let home_directory = Path::new("/home/booga");
+        let data_directory = home_directory.join("data");
+        let expected = data_directory.join("MASQ").join("polygon-mumbai");
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
-                .data_dir_result(Some(PathBuf::from("/home/booga/.local/share")))
-                .home_dir_result(Some(PathBuf::from("/home/booga"))),
+                .data_dir_result(Some(data_directory))
+                .home_dir_result(Some(home_directory.to_path_buf())),
         );
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
+
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
-            "/home/booga/.local/share/MASQ/polygon-mumbai"
+            expected.to_str().unwrap()
         );
     }
 }
