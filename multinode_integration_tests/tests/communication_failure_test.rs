@@ -14,17 +14,19 @@ use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType};
-use node_lib::sub_lib::neighborhood::RatePack;
+use node_lib::sub_lib::neighborhood::{Hops, RatePack};
 use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
+use node_lib::sub_lib::proxy_server::ClientRequestPayload_0v1;
 
 #[test]
 #[ignore] // Should be removed by SC-811/GH-158
@@ -126,6 +128,100 @@ fn neighborhood_notified_of_newly_missing_node() {
 }
 
 #[test]
+fn dns_resolution_failure_with_real_nodes_route_error() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let low_rate_pack_1 = RatePack {
+        routing_byte_rate: 6,
+        routing_service_rate: 8,
+        exit_byte_rate: 10,
+        exit_service_rate: 13
+    };
+
+    /* Mock_node_good_exit <-- Originating_node --> Mock_node_bad_exit */
+
+    let (originating_node, bad_exit_node, good_exit_node, bad_exit_node_public_key, good_exit_node_public_key) = {
+        let originating_node: NodeRecord = make_node_record(1234, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
+        let mut bad_exit_node_record = make_node_record(4567, true);
+        let good_exit_node_record = make_node_record(5678, true);
+        bad_exit_node_record.inner.rate_pack = low_rate_pack_1;
+        let bad_exit_node_public_key = db.add_node(bad_exit_node_record).unwrap();
+        let good_exit_node_public_key = db.add_node(good_exit_node_record).unwrap();
+        db.add_arbitrary_full_neighbor(originating_node.public_key(), &bad_exit_node_public_key);
+        db.add_arbitrary_full_neighbor(originating_node.public_key(), &good_exit_node_public_key);
+        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::OneHop);
+        let bad_exit_node = node_map.remove(&bad_exit_node_public_key).unwrap();
+        let good_exit_node = node_map.remove(&good_exit_node_public_key).unwrap();
+        (
+            originating_node,
+            bad_exit_node,
+            good_exit_node,
+            bad_exit_node_public_key,
+            good_exit_node_public_key
+        )
+    };
+    let masquerader = JsonMasquerader::new();
+
+    let good_exit_cryptde = CryptDENull::from(&good_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let key_length = good_exit_node_public_key.len();
+    let mut client = originating_node.make_client(8080, 10000);
+
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    let (_, _, live_cores_package) = good_exit_node
+        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .unwrap();
+    let (_, intended_exit_public_key) =
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    assert_eq!(intended_exit_public_key, good_exit_node_public_key);
+
+    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
+        .to_expired(
+            originating_node.socket_addr(PortSelector::First),
+            &good_exit_cryptde,
+            &good_exit_cryptde,
+        )
+        .unwrap();
+
+    //Loop while waiting from a ClientRequest message type
+    match expired_cores_package.payload {
+        MessageType::ClientRequest(_) => {}
+        MessageType::ClientResponse(_) => {}
+        MessageType::Gossip(_) => {}
+        MessageType::GossipFailure(_) => {}
+        MessageType::DnsResolveFailed(_) => {}
+    }
+    eprintln!("expired_cores_package: {:?}", expired_cores_package);
+
+    // xpiredCoresPackage { immediate_neighbor: 1.2.3.4:5678, paying_wallet: None, remaining_route: Route { hops: [
+    //     CryptData { data: [133, 134, 135, 136, 163, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 64, 101, 112, 97, 121, 101, 114, 246, 105, 99, 111, 109, 112, 111, 110, 101, 110, 116, 0] },
+    //     CryptData { data: [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52] }] },
+    //     payload: Gossip(VersionedData { version: DataVersion { major: 0, minor: 1 },
+    //         bytes: [161, 108, 110, 111, 100, 101, 95, 114, 101, 99, 111, 114, 100, 115, 130, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 228, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 4, 5, 6, 7, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 189, 24, 112, 24, 32, 24, 232, 24, 152, 24, 167, 24, 80, 24, 122, 24, 179, 24, 136, 24, 144, 24, 30, 24, 226, 24, 179, 24, 168, 24, 183, 24, 29, 24, 210, 24, 46, 24, 123, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 6, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 8, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 10, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 13, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 129, 68, 1, 2, 3, 4, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 4, 5, 6, 7, 74, 154, 0, 245, 8, 222, 36, 225, 113, 2, 158, 52, 162, 32, 90, 159, 253, 44, 85, 16, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 246, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 241, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 39, 24, 217, 24, 162, 24, 172, 24, 131, 24, 180, 24, 147, 24, 248, 24, 140, 24, 233, 24, 180, 24, 83, 24, 46, 24, 220, 24, 247, 24, 78, 24, 149, 24, 185, 24, 120, 24, 141, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 5, 154, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 6, 98, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 130, 68, 4, 5, 6, 7, 68, 5, 6, 7, 8, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 1, 2, 3, 4, 236, 8, 200, 207, 211, 245, 186, 249, 72, 214, 217, 155, 207, 244, 90, 32, 52, 146, 218, 108, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 162, 103, 105, 112, 95, 97, 100, 100, 114, 161, 98, 86, 52, 132, 24, 172, 18, 1, 1, 101, 112, 111, 114, 116, 115, 129, 25, 30, 227],
+    //         phantom: PhantomData }), payload_len: 1296 }
+
+
+    // ExpiredCoresPackage {
+    //     immediate_neighbor: 172.18.1.1:5517,
+    //     paying_wallet: None, remaining_route: Route {
+    //     hops: [CryptData { data: [133, 134, 135, 136, 163, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 64, 101, 112, 97, 121, 101, 114, 246, 105, 99, 111, 109, 112, 111, 110, 101, 110, 116, 0] }, CryptData { data: [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52] }] },
+    //     payload: Gossip(VersionedData { version: DataVersion { major: 0, minor: 1 },
+    //         bytes: [161, 108, 110, 111, 100, 101, 95, 114, 101, 99, 111, 114, 100, 115, 130, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 241, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 39, 24, 217, 24, 162, 24, 172, 24, 131, 24, 180, 24, 147, 24, 248, 24, 140, 24, 233, 24, 180, 24, 83, 24, 46, 24, 220, 24, 247, 24, 78, 24, 149, 24, 185, 24, 120, 24, 141, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 5, 154, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 6, 98, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 130, 68, 4, 5, 6, 7, 68, 5, 6, 7, 8, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 1, 2, 3, 4, 236, 8, 200, 207, 211, 245, 186, 249, 72, 214, 217, 155, 207, 244, 90, 32, 52, 146, 218, 108, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 162, 103, 105, 112, 95, 97, 100, 100, 114, 161, 98, 86, 52, 132, 24, 172, 18, 1, 1, 101, 112, 111, 114, 116, 115, 129, 25, 21, 141, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 228, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 4, 5, 6, 7, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 189, 24, 112, 24, 32, 24, 232, 24, 152, 24, 167, 24, 80, 24, 122, 24, 179, 24, 136, 24, 144, 24, 30, 24, 226, 24, 179, 24, 168, 24, 183, 24, 29, 24, 210, 24, 46, 24, 123, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 6, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 8, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 10, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 13, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 129, 68, 1, 2, 3, 4, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 4, 5, 6, 7, 74, 154, 0, 245, 8, 222, 36, 225, 113, 2, 158, 52, 162, 32, 90, 159, 253, 44, 85, 16, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 246],
+    //         phantom: PhantomData }), payload_len: 1295 }
+
+
+    // ExpiredCoresPackage<MessageType>
+    // ExpiredCoresPackage<ClientRequestPayload_0v1>
+
+    // let response = client.wait_for_chunk();
+    // assert_eq!(
+    //     index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+    //     true,
+    //     "Actual response:\n{}",
+    //     String::from_utf8(response).unwrap()
+    // );
+}
+
+#[test]
 fn dns_resolution_failure_with_real_nodes() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
@@ -180,7 +276,7 @@ fn dns_resolution_failure_automatic_retries_works() {
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1_key);
         db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key);
         db.add_arbitrary_full_neighbor(&relay2_key, &cheap_exit_key);
-        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
         let relay1_mock = node_map.remove(&relay1_key).unwrap();
         (
             originating_node,
@@ -279,9 +375,6 @@ fn dns_resolution_failure_automatic_retries_works() {
             "<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address nonexistent.com</p>"
         ),
     );
-
-
-
 }
 
 #[test]
@@ -312,7 +405,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         db.add_arbitrary_full_neighbor(&relay2_key, &third_exit_key);
         db.add_arbitrary_full_neighbor(&relay2_key, &forth_exit_key);
 
-        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
         let relay1_mock = node_map.remove(&relay1_key).unwrap();
         (
             originating_node,

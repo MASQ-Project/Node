@@ -12,6 +12,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::thread;
 use std::time::Duration;
+use node_lib::sub_lib::neighborhood::Hops;
 
 #[test]
 fn graph_connects_but_does_not_over_connect() {
@@ -89,7 +90,7 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
     let full_neighbor_key = &db.add_node(make_node_record(2345, true)).unwrap();
     db.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_key);
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, root_node, _) = construct_neighborhood(&mut cluster, db, vec![]);
+    let (_, root_node, _) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
     let new_node =
         cluster.start_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));
 

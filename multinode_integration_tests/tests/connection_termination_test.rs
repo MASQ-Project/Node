@@ -33,6 +33,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use node_lib::sub_lib::neighborhood::Hops;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -225,7 +226,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
 
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -264,7 +265,7 @@ fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMock
     db.add_node(mock_node.clone()).unwrap();
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![], Hops::ThreeHops);
     let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
         masq_real_node,

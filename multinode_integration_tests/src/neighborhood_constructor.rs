@@ -17,6 +17,7 @@ use node_lib::test_utils::neighborhood_test_utils::db_from_node;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
+use node_lib::sub_lib::neighborhood::Hops;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -55,6 +56,7 @@ pub fn construct_neighborhood(
     cluster: &mut MASQNodeCluster,
     model_db: NeighborhoodDatabase,
     additional_keys_to_mock: Vec<&PublicKey>,
+    min_hops: Hops
 ) -> (
     NeighborhoodDatabase,
     MASQRealNode,
@@ -66,6 +68,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
+            .min_hops_count(min_hops)
             .rate_pack(model_db.root().inner.rate_pack)
             .chain(cluster.chain)
             .build(),
