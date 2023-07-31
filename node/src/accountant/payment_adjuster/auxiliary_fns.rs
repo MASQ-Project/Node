@@ -41,7 +41,7 @@ pub fn cut_back_by_gas_count_limit(
         .collect()
 }
 
-pub fn compute_fractions_preventing_mul_coeff(cw_masq_balance: u128, criteria_sum: u128) -> u128 {
+pub fn compute_fraction_preventing_mul_coeff(cw_masq_balance: u128, criteria_sum: u128) -> u128 {
     let criteria_sum_digits_count = log_10(criteria_sum);
     let cw_balance_digits_count = log_10(cw_masq_balance);
     let positive_difference = criteria_sum_digits_count
@@ -83,7 +83,7 @@ impl ExhaustionStatus {
         }
     }
 
-    fn update(
+    fn update_and_add(
         mut self,
         mut unfinalized_account_info: AdjustedAccountBeforeFinalization,
         adjusted_balance_possible_addition: u128,
@@ -94,20 +94,24 @@ impl ExhaustionStatus {
                 + adjusted_balance_possible_addition;
             unfinalized_account_info
         };
-        let finalized_account = PayableAccount::from((
-            corrected_adjusted_account_before_finalization,
-            DecidedPayableAccountResolution::Finalize,
-        ));
         self.remainder = self
             .remainder
             .checked_sub(adjusted_balance_possible_addition)
             .unwrap_or(0); //TODO wait for overflow
+        self.add(corrected_adjusted_account_before_finalization)
+    }
+
+    fn add(mut self, unfinalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
+        let finalized_account = PayableAccount::from((
+            unfinalized_account_info,
+            DecidedPayableAccountResolution::Finalize,
+        ));
         self.already_finalized_accounts.push(finalized_account);
         self
     }
 }
 
-pub fn exhaust_cw_balance_as_much_as_possible(
+pub fn exhaust_cw_balance_totally(
     verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     unallocated_cw_masq_balance: u128,
 ) -> Vec<PayableAccount> {
@@ -133,12 +137,15 @@ pub fn exhaust_cw_balance_as_much_as_possible(
                 } else {
                     status.remainder
                 };
-                status.update(unfinalized_account_info, adjusted_balance_possible_addition)
+                status.update_and_add(unfinalized_account_info, adjusted_balance_possible_addition)
             } else {
-                status
+                status.add(unfinalized_account_info)
             }
         })
         .already_finalized_accounts
+        .into_iter()
+        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.balance_wei, &account_a.balance_wei))
+        .collect()
 }
 
 pub fn sort_in_descendant_order_by_weights(
@@ -185,7 +192,7 @@ pub fn x_or_1(x: u128) -> u128 {
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::auxiliary_fns::{
-        compute_fractions_preventing_mul_coeff, exhaust_cw_balance_as_much_as_possible,
+        compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
         find_disqualified_account_with_smallest_proposed_balance, log_10, log_2, ExhaustionStatus,
         EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_IN_U128,
     };
@@ -255,9 +262,7 @@ mod tests {
         let result = consuming_wallet_balances
             .clone()
             .into_iter()
-            .map(|cw_balance| {
-                compute_fractions_preventing_mul_coeff(cw_balance, final_criteria_sum)
-            })
+            .map(|cw_balance| compute_fraction_preventing_mul_coeff(cw_balance, final_criteria_sum))
             .collect::<Vec<u128>>();
 
         assert_eq!(
@@ -299,7 +304,7 @@ mod tests {
             .map(|(criteria_sum, account)| {
                 // scenario simplification: we asume there is always just one account in a time
                 let final_criteria_total = criteria_sum;
-                let resulted_coeff = compute_fractions_preventing_mul_coeff(
+                let resulted_coeff = compute_fraction_preventing_mul_coeff(
                     cw_balance_in_minor,
                     final_criteria_total,
                 );
@@ -404,19 +409,20 @@ mod tests {
         actual_accounts: Vec<PayableAccount>,
         expected_parameters: Vec<(Wallet, u128)>,
     ) {
-        let expected_in_map: HashMap<Wallet, u128> =
-            HashMap::from_iter(expected_parameters.into_iter());
-        actual_accounts.into_iter().for_each(|account| {
-            let wallet = &account.wallet;
-            let expected_balance = expected_in_map.get(wallet).unwrap_or_else(|| {
-                panic!("account for wallet {} is missing among the results", wallet)
-            });
-            assert_eq!(
-                account.balance_wei, *expected_balance,
-                "account {} should've had adjusted balance {} but has {}",
-                wallet, expected_balance, account.balance_wei
-            )
-        })
+        let actual_accounts_simplified_and_sorted = actual_accounts
+            .into_iter()
+            .map(|account| (account.wallet.address(), account.balance_wei))
+            .sorted()
+            .collect::<Vec<_>>();
+        let expected_parameters_sorted = expected_parameters
+            .into_iter()
+            .map(|(wallet, expected_balance)| (wallet.address(), expected_balance))
+            .sorted()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual_accounts_simplified_and_sorted,
+            expected_parameters_sorted
+        )
     }
 
     #[test]
@@ -430,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn exhaust_cw_balance_as_much_as_possible_for_three_non_exhaustive_accounts() {
+    fn exhaust_cw_balance_totally_for_three_non_exhaustive_accounts_all_filled() {
         // this can happen because some of the pre-qualified accounts could be
         // eliminated for an insignificant pay and free the means for the other
         // accounts and then we went through adjustment computation with some
@@ -466,10 +472,8 @@ mod tests {
             ),
         ];
 
-        let result = exhaust_cw_balance_as_much_as_possible(
-            unfinalized_adjusted_accounts,
-            unallocated_cw_balance,
-        );
+        let result =
+            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, original_requested_balance_1),
@@ -480,8 +484,63 @@ mod tests {
     }
 
     #[test]
-    fn exhaust_cw_balance_as_much_as_possible_for_three_non_exhaustive_with_not_enough_to_fulfil_them_all(
+    fn exhaust_cw_balance_totally_three_non_exhaustive_accounts_with_some_completely_filled_some_not(
     ) {
+        let wallet_1 = make_wallet("abc");
+        let original_requested_balance_1 = 54_000_000_000;
+        let proposed_adjusted_balance_1 = 53_898_000_000;
+        let wallet_2 = make_wallet("def");
+        let original_requested_balance_2 = 33_500_000_000;
+        let proposed_adjusted_balance_2 = 33_487_999_999;
+        let wallet_3 = make_wallet("ghi");
+        let original_requested_balance_3 = 41_000_000;
+        let proposed_adjusted_balance_3 = 40_980_000;
+        let wallet_3 = make_wallet("ghi");
+        // let original_requested_balance_4 = 41_000_000;
+        // let proposed_adjusted_balance_4 = 40_980_000;
+        let unallocated_cw_balance = original_requested_balance_2
+            + original_requested_balance_3
+            + proposed_adjusted_balance_1
+            - 2_000_000;
+        let unfinalized_adjusted_accounts = vec![
+            make_unfinalized_adjusted_account(
+                &wallet_1,
+                original_requested_balance_1,
+                proposed_adjusted_balance_1,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_2,
+                original_requested_balance_2,
+                proposed_adjusted_balance_2,
+            ),
+            make_unfinalized_adjusted_account(
+                &wallet_3,
+                original_requested_balance_3,
+                proposed_adjusted_balance_3,
+            ),
+        ];
+
+        let result =
+            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
+        eprintln!("{:?}", result);
+
+        let expected_resulted_balances = vec![
+            (wallet_1, proposed_adjusted_balance_1),
+            (wallet_2, 33_498_000_000),
+            (wallet_3, original_requested_balance_3),
+        ];
+        let check_sum: u128 = expected_resulted_balances
+            .iter()
+            .map(|(_, balance)| balance)
+            .sum();
+        let is_equal = check_sum == unallocated_cw_balance;
+        assert_correct_payable_accounts_after_finalization(result, expected_resulted_balances);
+        assert!(is_equal)
+    }
+
+    #[test]
+    fn exhaust_cw_balance_totally_three_non_exhaustive_accounts_with_two_of_them_completely_filled()
+    {
         let wallet_1 = make_wallet("abc");
         let original_requested_balance_1 = 54_000_000_000;
         let proposed_adjusted_balance_1 = 53_898_000_000;
@@ -513,10 +572,8 @@ mod tests {
             ),
         ];
 
-        let result = exhaust_cw_balance_as_much_as_possible(
-            unfinalized_adjusted_accounts,
-            unallocated_cw_balance,
-        );
+        let result =
+            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, 53_900_000_000),
@@ -537,7 +594,7 @@ mod tests {
             .collect();
         let subject = make_initialized_subject(now, None, None);
         // when criteria are applied the collection will get sorted and will not necessarily have to match the initial order
-        let criteria_and_accounts = subject.pair_accounts_with_summed_criteria(accounts);
+        let criteria_and_accounts = subject.calculate_criteria_sums_for_accounts(accounts);
         eprintln!("wallets in order {:?}", wallets_in_order);
         (criteria_and_accounts, wallets_in_order)
     }

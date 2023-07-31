@@ -1,20 +1,21 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::diagnostics::{
-    compute_progressive_characteristics, COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS,
+use crate::accountant::payment_adjuster::auxiliary_fns::{log_2, x_or_1};
+use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
+    compute_progressive_characteristics, DiagnosticsConfig, AGE_DIAGNOSTICS_CONFIG_OPT,
+    BALANCE_DIAGNOSTICS_CONFIG_OPT, COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
 };
-use libc::scanf;
-use std::fmt::Debug;
-use std::time::SystemTime;
-use crate::accountant::payment_adjuster::auxiliary_fns::x_or_1;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use std::fmt::Debug;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
+//caution: always remember to use checked math operations in the formula!
 pub trait CriterionCalculator {
     type Input;
-    fn formula(&self) -> fn(Self::Input) -> u128;
-    fn form_input(&self, account: &PayableAccount) -> Self::Input;
-    fn diagnostics_config_opt(&self) -> Option<DiagnosticsConfig<Self::Input>>;
+    fn formula(&self) -> &dyn Fn(Self::Input) -> u128;
+    fn input_from_account(&self, account: &PayableAccount) -> Self::Input;
 
     fn add_calculated_criterion(
         &self,
@@ -23,31 +24,31 @@ pub trait CriterionCalculator {
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
+        #[cfg(test)]
         self.diagnostics();
-        let updated_criteria_sum = criteria_sum + self.formula()(self.form_input(&account));
-        (
-            updated_criteria_sum,
-            account,
-        )
+
+        let updated_criteria_sum = criteria_sum + self.formula()(self.input_from_account(&account));
+        (updated_criteria_sum, account)
     }
+
+    #[cfg(test)]
+    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>>;
+    #[cfg(test)]
+    fn diagnostics_config_opt(&self) -> Option<DiagnosticsConfig<Self::Input>> {
+        self.diagnostics_config_location()
+            .lock()
+            .expect("diagnostics poisoned")
+            .take()
+    }
+    #[cfg(test)]
     fn diagnostics(&self)
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
-        if COMPUTE_CRITERIA_PROGRESSIVE_CHARACTERISTICS {
+        if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
             compute_progressive_characteristics(self.diagnostics_config_opt(), self.formula())
         }
     }
-}
-
-pub struct DiagnosticsConfig<A> {
-    pub label: &'static str,
-    pub safe_index_at_examples: usize,
-    pub progressive_set_of_args: Vec<A>,
-}
-
-pub struct AgeCriterionCalculator<'a>{
-    payment_adjuster: &'a PaymentAdjusterReal
 }
 
 const AGE_MAIN_EXPONENT: u32 = 3;
@@ -60,9 +61,29 @@ const AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER: u128 = 1_000;
 const AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER: u128 = 10;
 const AGE_DESC_MULTIPLIER_DIVISOR_EXP: u32 = 3;
 
-impl <'a> AgeCriterionCalculator<'a>{
-    pub fn new(payment_adjuster: &'a PaymentAdjusterReal)->Self{
-        todo!()
+pub struct AgeCriterionCalculator {
+    formula: Box<dyn Fn(SystemTime) -> u128>,
+}
+
+impl AgeCriterionCalculator {
+    pub fn new(payment_adjuster: &PaymentAdjusterReal) -> Self {
+        let now = payment_adjuster.inner.now();
+        let formula = Box::new(move |last_paid_timestamp: SystemTime| {
+            let elapsed_secs: u64 = now
+                .duration_since(last_paid_timestamp)
+                .expect("time traveller")
+                .as_secs();
+            let divisor = Self::compute_divisor(elapsed_secs);
+            let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
+            (elapsed_secs as u128)
+                .checked_pow(AGE_MAIN_EXPONENT)
+                .unwrap_or(u128::MAX) //TODO sensible and tested ????
+                .checked_div(divisor)
+                .expect("div overflow")
+                .checked_mul(log_multiplier)
+                .expect("mul overflow")
+        });
+        Self { formula }
     }
 
     fn compute_divisor(elapsed_sec: u64) -> u128 {
@@ -83,112 +104,72 @@ impl <'a> AgeCriterionCalculator<'a>{
     }
 }
 
-impl CriterionCalculator for AgeCriterionCalculator<'_> {
+impl CriterionCalculator for AgeCriterionCalculator {
     type Input = SystemTime;
 
-    fn formula(&self) -> fn(Self::Input) -> u128 {
-        todo!()
+    fn formula(&self) -> &dyn Fn(Self::Input) -> u128 {
+        self.formula.as_ref()
     }
 
-    fn form_input(&self, account: &PayableAccount) -> Self::Input {
-        todo!()
+    fn input_from_account(&self, account: &PayableAccount) -> Self::Input {
+        account.last_paid_timestamp
     }
 
-    fn diagnostics_config_opt(&self) -> Option<DiagnosticsConfig<Self::Input>> {
-        todo!()
-    }
-
-    // let formula = |last_paid_timestamp: SystemTime| {
-    //     let elapsed_secs: u64 = self
-    //         .inner
-    //         .now()
-    //         .duration_since(last_paid_timestamp)
-    //         .expect("time traveller")
-    //         .as_secs();
-    //     let divisor = Self::compute_divisor(elapsed_secs);
-    //     let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
-    //     (elapsed_secs as u128)
-    //         .checked_pow(AGE_MAIN_EXPONENT)
-    //         .unwrap_or(u128::MAX) //TODO sensible and tested ????
-    //         .checked_div(divisor)
-    //         .expect("div overflow")
-    //         .checked_mul(log_multiplier)
-    //         .expect("mul overflow")
-    // };
-    // let criterion = formula(account.last_paid_timestamp);
-    //
-    // CriteriaWithDiagnostics {
-    //     account,
-    //     criterion,
-    //     criteria_sum_so_far,
-    //     diagnostics: DiagnosticsSetting {
-    //         label: "AGE",
-    //         diagnostics_adaptive_formula: |x: u128| {
-    //             let secs_in_the_past = Duration::from_secs(x as u64);
-    //             let approx_time_anchor = SystemTime::now()
-    //                 .checked_sub(secs_in_the_past)
-    //                 .expect("age formula characteristics blew up");
-    //             formula(approx_time_anchor)
-    //         },
-    //         singleton_ref: &AGE_SINGLETON,
-    //         bonds_safe_count_to_print: 10,
-    //     },
-    // }
-    //     .diagnose_and_sum()
-}
-
-pub struct BalanceCriterionCalculator<'a>{
-    payment_adjuster:&'a PaymentAdjusterReal
-}
-
-impl <'a> BalanceCriterionCalculator<'a>{
-    pub fn new(payment_adjuster: &'a PaymentAdjusterReal)->Self{
-        todo!()
+    #[cfg(test)]
+    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>> {
+        &AGE_DIAGNOSTICS_CONFIG_OPT
     }
 }
 
-impl CriterionCalculator for BalanceCriterionCalculator<'_> {
+// this parameter affects the steepness (sensitivity on increase in balance)
+const BALANCE_LOG_2_ARG_DIVISOR: u128 = 33;
+
+pub struct BalanceCriterionCalculator {
+    formula: Box<dyn Fn(u128) -> u128>,
+}
+
+impl BalanceCriterionCalculator {
+    pub fn new() -> Self {
+        let formula = Box::new(|balance_wei: u128| {
+            let binary_weight = log_2(Self::compute_binary_argument(balance_wei));
+            balance_wei
+                .checked_mul(binary_weight as u128)
+                .expect("mul overflow")
+        });
+        Self { formula }
+    }
+
+    fn compute_binary_argument(balance_wei: u128) -> u128 {
+        x_or_1(balance_wei / BALANCE_LOG_2_ARG_DIVISOR)
+    }
+}
+
+impl CriterionCalculator for BalanceCriterionCalculator {
     type Input = u128;
 
-    fn formula(&self) -> fn(Self::Input) -> u128 {
-        todo!()
+    fn formula(&self) -> &dyn Fn(Self::Input) -> u128 {
+        self.formula.as_ref()
     }
 
-    fn form_input(&self, account: &PayableAccount) -> Self::Input {
-        todo!()
+    fn input_from_account(&self, account: &PayableAccount) -> Self::Input {
+        account.balance_wei
     }
 
-    fn diagnostics_config_opt(&self) -> Option<DiagnosticsConfig<Self::Input>> {
-        todo!()
+    #[cfg(test)]
+    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>> {
+        &BALANCE_DIAGNOSTICS_CONFIG_OPT
     }
-
-    // // constants used to keep the weights of balance and time balanced
-    // let formula = |balance_wei: u128| {
-    //     let binary_weight = log_2(Self::compute_binary_argument(balance_wei));
-    //     let multiplied = balance_wei
-    //         .checked_mul(binary_weight as u128)
-    //         .expect("mul overflow");
-    //     multiplied
-    // };
-    // let criterion = formula(account.balance_wei);
-    //
-    // CriteriaWithDiagnostics {
-    //     account,
-    //     criterion,
-    //     criteria_sum_so_far,
-    //     diagnostics: DiagnosticsSetting {
-    //         label: "BALANCE",
-    //         diagnostics_adaptive_formula: |x: u128| formula(x),
-    //         singleton_ref: &BALANCE_SINGLETON,
-    //         bonds_safe_count_to_print: EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS.len(),
-    //     },
-    // }
-    //     .diagnose_and_sum()
 }
 
 pub(in crate::accountant::payment_adjuster) struct CriteriaIterator<I, C> {
     iter: I,
     calculator: C,
+}
+
+impl<I, C> CriteriaIterator<I, C> {
+    fn new(iter: I, calculator: C) -> Self {
+        Self { iter, calculator }
+    }
 }
 
 impl<I, C> Iterator for CriteriaIterator<I, C>
@@ -207,30 +188,36 @@ where
 }
 
 pub(in crate::accountant::payment_adjuster) trait CriteriaIteratorAdaptor<C: CriterionCalculator> {
-    fn map_criteria(self, calculator: C) -> CriteriaIterator<Self, C>
+    fn iterate_for_criteria(self, calculator: C) -> CriteriaIterator<Self, C>
     where
         Self: Sized;
 }
 
 impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
-    fn map_criteria(self, calculator: C) -> CriteriaIterator<Self, C> {
-        todo!()
+    fn iterate_for_criteria(self, calculator: C) -> CriteriaIterator<Self, C> {
+        CriteriaIterator::new(self, calculator)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::criteria_calculators::{AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP, AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_DIVISOR_EXP_IN_NUMERATOR, AGE_MAIN_EXPONENT, AGE_MULTIPLIER, AgeCriterionCalculator, CriterionCalculator};
-    use crate::accountant::payment_adjuster::diagnostics::EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS;
-    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+    use crate::accountant::payment_adjuster::auxiliary_fns::log_2;
+    use crate::accountant::payment_adjuster::criteria_calculators::{
+        AgeCriterionCalculator, BalanceCriterionCalculator, CriterionCalculator,
+        AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP,
+        AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, AGE_DESC_MULTIPLIER_LOG_STRESS_EXP,
+        AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_DIVISOR_EXP_IN_NUMERATOR, AGE_MAIN_EXPONENT,
+        AGE_MULTIPLIER, BALANCE_LOG_2_ARG_DIVISOR,
+    };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
+    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
     use crate::test_utils::make_wallet;
+    use std::time::{Duration, SystemTime};
 
     #[test]
-    fn constants_are_correct(){
-        assert_eq!(AGE_MAIN_EXPONENT, 4);
+    fn constants_are_correct() {
+        assert_eq!(AGE_MAIN_EXPONENT, 3);
         assert_eq!(AGE_DIVISOR_EXP_IN_NUMERATOR, 3);
         assert_eq!(AGE_MULTIPLIER, 10);
         assert_eq!(AGE_DESC_MULTIPLIER_ARG_EXP, 2);
@@ -239,24 +226,6 @@ mod tests {
         assert_eq!(AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, 10);
         assert_eq!(AGE_DESC_MULTIPLIER_DIVISOR_EXP, 3);
     }
-
-    // let formula = |last_paid_timestamp: SystemTime| {
-    //     let elapsed_secs: u64 = self
-    //         .inner
-    //         .now()
-    //         .duration_since(last_paid_timestamp)
-    //         .expect("time traveller")
-    //         .as_secs();
-    //     let divisor = Self::compute_divisor(elapsed_secs);
-    //     let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
-    //     (elapsed_secs as u128)
-    //         .checked_pow(AGE_MAIN_EXPONENT)
-    //         .unwrap_or(u128::MAX) //TODO sensible and tested ????
-    //         .checked_div(divisor)
-    //         .expect("div overflow")
-    //         .checked_mul(log_multiplier)
-    //         .expect("mul overflow")
-    // };
 
     #[test]
     fn compute_divisor_works() {
@@ -270,7 +239,7 @@ mod tests {
 
     #[test]
     fn compute_descending_multiplier_works() {
-        let result: Vec<_> = EXPONENTS_OF_10_AS_VALUES_FOR_X_AXIS
+        let result: Vec<_> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18]
             .into_iter()
             .take(12)
             .map(|exp| 10_u64.pow(exp))
@@ -289,27 +258,25 @@ mod tests {
         )
     }
 
-
     #[test]
-    fn age_criteria_calculation_works(){
+    fn age_criteria_calculation_works() {
         let now = SystemTime::now();
         let payment_adjuster = make_initialized_subject(now, None, None);
         let subject = AgeCriterionCalculator::new(&payment_adjuster);
-        let input = SystemTime::now().checked_sub(Duration::from_secs(1500)).unwrap();
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(1500))
+            .unwrap();
 
-        let result = subject.formula()(input);
+        let result = subject.formula()(last_paid_timestamp);
 
         let expected_criterion = {
-            let elapsed_secs: u64 = subject.payment_adjuster.inner
-                .now()
-                .duration_since(input)
-                .unwrap()
-                .as_secs();
+            let elapsed_secs: u64 = now.duration_since(last_paid_timestamp).unwrap().as_secs();
             let divisor = AgeCriterionCalculator::compute_divisor(elapsed_secs);
-            let log_multiplier = AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);
+            let log_multiplier =
+                AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);
             (elapsed_secs as u128)
                 .checked_pow(AGE_MAIN_EXPONENT)
-                .unwrap_or(u128::MAX) //TODO sensible and tested ????
+                .unwrap()
                 .checked_div(divisor)
                 .unwrap()
                 .checked_mul(log_multiplier)
@@ -319,8 +286,47 @@ mod tests {
     }
 
     #[test]
-    fn balance_criteria_calculation_works(){
-        todo!()
+    fn compute_binary_argument_works() {
+        let inputs = [
+            1,
+            BALANCE_LOG_2_ARG_DIVISOR - 1,
+            BALANCE_LOG_2_ARG_DIVISOR,
+            BALANCE_LOG_2_ARG_DIVISOR + 1,
+            BALANCE_LOG_2_ARG_DIVISOR + 1000,
+        ];
+
+        let result: Vec<_> = inputs
+            .into_iter()
+            .map(|arg| BalanceCriterionCalculator::compute_binary_argument(arg))
+            .collect();
+
+        assert_eq!(
+            result,
+            vec![
+                1,
+                1,
+                1,
+                1,
+                (BALANCE_LOG_2_ARG_DIVISOR + 1000) / BALANCE_LOG_2_ARG_DIVISOR
+            ]
+        )
     }
 
+    #[test]
+    fn balance_criteria_calculation_works() {
+        let subject = BalanceCriterionCalculator::new();
+        let balance_wei = 111_333_555_777;
+
+        let result = subject.formula()(balance_wei);
+
+        let expected_result = {
+            let binary_weight = log_2(BalanceCriterionCalculator::compute_binary_argument(
+                balance_wei,
+            ));
+            balance_wei
+                .checked_mul(binary_weight as u128)
+                .expect("mul overflow")
+        };
+        assert_eq!(result, expected_result)
+    }
 }
