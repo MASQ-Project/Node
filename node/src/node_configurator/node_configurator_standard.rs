@@ -315,7 +315,7 @@ mod tests {
     use std::convert::TryFrom;
     use std::fs::File;
     use std::io::Write;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
 
@@ -1068,12 +1068,15 @@ mod tests {
     fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory(
     ) {
         running_test();
+        let home_dir = Path::new("/home/cooga");
+        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
+        let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
         vec![
-            (None, None, Some("/home/cooga/.local/MASQ/polygon-mainnet")),
+            (None, None, Some(home_dir_poly_main.to_str().unwrap())),
             (
                 Some("polygon-mumbai"),
                 None,
-                Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+                Some(home_dir_poly_mumbai.to_str().unwrap()),
             ),
             (None, Some("/cooga"), Some("/cooga")),
             (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
