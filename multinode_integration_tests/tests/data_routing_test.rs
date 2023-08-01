@@ -13,7 +13,6 @@ use native_tls::TlsConnector;
 use native_tls::TlsStream;
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
-use node_lib::sub_lib::neighborhood::Hops;
 use node_lib::test_utils::{handle_connection_error, read_until_timeout};
 use std::io::Write;
 use std::net::{IpAddr, SocketAddr, TcpStream};
@@ -58,7 +57,7 @@ fn http_end_to_end_routing_test() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let mut client = last_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
+    let mut client = last_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
