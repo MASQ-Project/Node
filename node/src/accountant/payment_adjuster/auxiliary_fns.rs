@@ -121,10 +121,19 @@ pub fn exhaust_cw_balance_totally(
                 &info_b.proposed_adjusted_balance,
             )
         })
+        .inspect(|account_info|eprintln!("{:?}", account_info))
         .fold(init, |status, unfinalized_account_info| {
             if status.remainder != 0 {
-                let balance_gap = unfinalized_account_info.original_account.balance_wei
-                    - unfinalized_account_info.proposed_adjusted_balance;
+                let balance_gap = unfinalized_account_info
+                    .original_account
+                    .balance_wei
+                    .checked_sub(unfinalized_account_info.proposed_adjusted_balance)
+                    .unwrap_or_else(||panic!(
+                        "proposed balance should never bigger than the original but proposed: {} \
+                        and original: {}",
+                        unfinalized_account_info.proposed_adjusted_balance,
+                        unfinalized_account_info.original_account.balance_wei
+                    ));
                 let possible_extra_addition = if balance_gap < status.remainder {
                     balance_gap
                 } else {

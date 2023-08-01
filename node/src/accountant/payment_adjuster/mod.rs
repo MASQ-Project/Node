@@ -130,7 +130,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .collect::<HashMap<Wallet, u128>>()
         });
 
-        let adjusted_accounts = self.run_full_adjustment_procedure(qualified_payables, vec![]);
+        let adjusted_accounts = self.run_adjustment_procedure(qualified_payables, vec![]);
 
         debug!(
             self.logger,
@@ -260,7 +260,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn run_full_adjustment_procedure(
+    fn run_adjustment_procedure(
         &mut self,
         unresolved_qualified_accounts: Vec<PayableAccount>,
         previously_resolved_qualified_accounts: Vec<PayableAccount>,
@@ -289,7 +289,7 @@ impl PaymentAdjusterReal {
         self.apply_criteria(zero_criteria_accounts)
     }
 
-    //TODO if it turns out I don't need this next fn alone it should be merged back with the outer envelope run_full_adjustment_procedure
+    //TODO if it turns out I don't need this next fn alone it should be merged back with the outer envelope run_adjustment_procedure
     fn perform_adjustment_recursively(
         &mut self,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
@@ -309,8 +309,11 @@ impl PaymentAdjusterReal {
         let adjusted_accounts = if adjustment_result.remaining_accounts.is_empty() {
             adjustment_result.decided_accounts
         } else {
-            self.adjust_cw_balance_down_for_next_round(&adjustment_result.decided_accounts);
-            return self.run_full_adjustment_procedure(
+            if adjustment_result.disqualified_account_opt.is_none() {
+                // meaning we found some outweighed accounts in the previous iteration
+                self.adjust_cw_balance_down_for_next_round(&adjustment_result.decided_accounts)
+            }
+            return self.run_adjustment_procedure(
                 adjustment_result.remaining_accounts,
                 adjustment_result.decided_accounts,
             );
@@ -675,7 +678,8 @@ impl PaymentAdjusterReal {
                 vec![PayableAccount {
                     balance_wei: cw_masq_balance,
                     ..only_account
-                }]
+                }];
+                todo!("untested!!!!")
             } else {
                 vec![only_account]
             }
@@ -1165,7 +1169,7 @@ mod tests {
         };
         let qualified_payables = vec![account_1, account_2.clone()];
 
-        let result = subject.run_full_adjustment_procedure(qualified_payables.clone(), vec![]);
+        let result = subject.run_adjustment_procedure(qualified_payables.clone(), vec![]);
 
         //first a presentation of why this test is important
         let criteria_and_accounts =
@@ -1477,9 +1481,10 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_only_masq_token_limits_the_final_transaction_count() {
+    fn adjust_payments_when_only_masq_token_limits_the_final_transaction_count_through_outweighed_accounts(
+    ) {
         init_test_logging();
-        let test_name = "adjust_payments_when_only_masq_token_limits_the_final_transaction_count";
+        let test_name = "adjust_payments_when_only_masq_token_limits_the_final_transaction_count_through_outweighed_accounts";
         let now = SystemTime::now();
         let wallet_1 = make_wallet("def");
         let account_1 = PayableAccount {
@@ -1488,6 +1493,7 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(12000)).unwrap(),
             pending_payable_opt: None,
         };
+        // 1. account to be outweighed
         let wallet_2 = make_wallet("abc");
         let account_2 = PayableAccount {
             wallet: wallet_2.clone(),
@@ -1495,8 +1501,9 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(8000)).unwrap(),
             pending_payable_opt: None,
         };
+        // 2. account to be outweighed
         let wallet_3 = make_wallet("ghk");
-        let balance_3 = 600_000_000;
+        let balance_3 = 600_000_000_000;
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
             balance_wei: balance_3,
