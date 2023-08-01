@@ -69,15 +69,14 @@ fn min_hops_can_be_changed_during_runtime() {
         .build();
     let first_node = cluster.start_real_node(first_node_config);
     let ui_client = first_node.make_ui(ui_port);
-    let mut prev_node_reference = first_node.node_reference();
 
     for _ in 0..initial_min_hops as u8 {
-        let new_node_config = NodeStartupConfigBuilder::standard()
-            .neighbor(prev_node_reference)
-            .chain(cluster.chain)
-            .build();
-        let new_node = cluster.start_real_node(new_node_config);
-        prev_node_reference = new_node.node_reference();
+        cluster.start_real_node(
+            NodeStartupConfigBuilder::standard()
+                .neighbor(first_node.node_reference())
+                .chain(cluster.chain)
+                .build(),
+        );
     }
     thread::sleep(Duration::from_millis(1000));
 
