@@ -1684,12 +1684,15 @@ mod tests {
 
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::match_every_type_id;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::test_utils::recorder_stop_conditions::StopCondition;
+    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -3070,12 +3073,13 @@ mod tests {
         let test_name = "can_update_min_hops_with_configuration_change_msg";
         let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
+        let (ui_gateway, _, ui_gateway_recording) = make_recorder();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         subject.logger = Logger::new(test_name);
         subject.overall_connection_status.stage = OverallConnectionStage::RouteFound;
         let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
@@ -3100,6 +3104,18 @@ mod tests {
             .unwrap();
         System::current().stop();
         system.run();
+        let recording = ui_gateway_recording.lock().unwrap();
+        let message: &NodeToUiMessage = recording.get_record(0);
+        assert_eq!(
+            message,
+            &NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: UiConnectionStage::ConnectedToNeighbor
+                }
+                .tmb(0),
+            }
+        );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
                 "DEBUG: {test_name}: The stage of OverallConnectionStatus has been changed \
