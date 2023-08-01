@@ -1684,15 +1684,12 @@ mod tests {
 
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
-    use crate::match_every_type_id;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
-    use crate::test_utils::recorder_stop_conditions::StopCondition;
-    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
