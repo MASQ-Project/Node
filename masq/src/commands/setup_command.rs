@@ -206,6 +206,7 @@ mod tests {
                 running: false,
                 values: vec![
                     UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                    UiSetupResponseValue::new("data-directory", "/home/booga", Default),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
                     UiSetupResponseValue::new(
                         "neighbors",
@@ -262,11 +263,12 @@ mod tests {
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
 "NAME                          VALUE                                                            STATUS\n\
 chain                         eth-ropsten                                                      Configured\n\
+data-directory                /home/booga                                                      Default\n\
 neighborhood-mode             zero-hop                                                         Set\n\
 neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
 scan-intervals                123|111|228                                                      Set\n\
 scans                         off                                                              Set\n\
-\n");
+\nNOTE: your data directory was modified to match the chain parameter.\n\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -279,6 +281,7 @@ scans                         off                                               
                 running: true,
                 values: vec![
                     UiSetupResponseValue::new("chain", ETH_ROPSTEN_FULL_IDENTIFIER, Set),
+                    UiSetupResponseValue::new("data-directory", "/home/booga", Set),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                     UiSetupResponseValue::new("clandestine-port", "8534", Default),
                 ],
@@ -324,13 +327,14 @@ scans                         off                                               
 "NAME                          VALUE                                                            STATUS\n\
 chain                         eth-ropsten                                                      Set\n\
 clandestine-port              8534                                                             Default\n\
+data-directory                /home/booga                                                      Set\n\
 neighborhood-mode             zero-hop                                                         Configured\n\
 \n\
 ERRORS:
 ip                            Nosir, I don't like it.\n\
 \n\
 NOTE: no changes were made to the setup because the Node is currently running.\n\
-\n");
+\nNOTE: your data directory was modified to match the chain parameter.\n\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -342,6 +346,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
                 UiSetupResponseValue::new("chain", "eth-ropsten", Set),
                 UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                 UiSetupResponseValue::new("clandestine-port", "8534", Default),
+                UiSetupResponseValue::new("data-directory", "/home/booga", Set),
             ],
             errors: vec![("ip".to_string(), "No sir, I don't like it.".to_string())],
         };
@@ -358,11 +363,12 @@ Daemon setup has changed:\n\
 NAME                          VALUE                                                            STATUS\n\
 chain                         eth-ropsten                                                      Set\n\
 clandestine-port              8534                                                             Default\n\
+data-directory                /home/booga                                                      Set\n\
 neighborhood-mode             zero-hop                                                         Configured\n\
 \n\
 ERRORS:
 ip                            No sir, I don't like it.\n\
-\n");
+\nNOTE: your data directory was modified to match the chain parameter.\n\n");
     }
 
     #[derive(Debug, PartialEq, Eq)]
