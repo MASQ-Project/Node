@@ -15,7 +15,7 @@ use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::{Hops, RatePack};
-use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
+use node_lib::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::assert_string_contains;
@@ -27,6 +27,7 @@ use std::thread;
 use std::time::Duration;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload_0v1;
+use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 
 #[test]
 #[ignore] // Should be removed by SC-811/GH-158
@@ -136,9 +137,7 @@ fn dns_resolution_failure_with_real_nodes_route_error() {
         exit_byte_rate: 10,
         exit_service_rate: 13
     };
-
     /* Mock_node_good_exit <-- Originating_node --> Mock_node_bad_exit */
-
     let (originating_node, bad_exit_node, good_exit_node, bad_exit_node_public_key, good_exit_node_public_key) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
@@ -161,64 +160,100 @@ fn dns_resolution_failure_with_real_nodes_route_error() {
         )
     };
     let masquerader = JsonMasquerader::new();
-
     let good_exit_cryptde = CryptDENull::from(&good_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
-    let key_length = good_exit_node_public_key.len();
+    let bad_exit_cryptde = CryptDENull::from(&bad_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let originating_node_alias_cryptde = CryptDENull::from(originating_node.alias_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
+    let key_length = bad_exit_node_public_key.len();
     let mut client = originating_node.make_client(8080, 10000);
-
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    let (_, _, live_cores_package) = good_exit_node
-        .wait_for_package(&masquerader, Duration::from_secs(2))
-        .unwrap();
-    let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    assert_eq!(intended_exit_public_key, good_exit_node_public_key);
-
-    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
-        .to_expired(
+    let mut expired_cores_package_opt = None;
+    loop {
+        let (_, _, live_cores_package) = bad_exit_node
+            .wait_for_package(&masquerader, Duration::from_secs(2))
+            .unwrap();
+        let (_, intended_exit_public_key) =
+            CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+        assert_eq!(intended_exit_public_key, bad_exit_node_public_key);
+        let expired_cores_package = live_cores_package
+            .to_expired(
+                originating_node.socket_addr(PortSelector::First),
+                &bad_exit_cryptde,
+                &bad_exit_cryptde,
+            )
+            .unwrap();
+        if let MessageType::ClientRequest(_) = expired_cores_package.payload {
+            eprintln!("ClientRequest Received");
+            expired_cores_package_opt = Some(expired_cores_package);
+            break;
+        }
+    };
+    // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
+    let dns_fail_pkg =
+        make_dns_fail_package(expired_cores_package_opt.unwrap(), &originating_node_alias_cryptde);
+    bad_exit_node
+        .transmit_package(
+            bad_exit_node.port_list()[0],
+            dns_fail_pkg,
+            &masquerader,
+            originating_node.main_public_key(),
             originating_node.socket_addr(PortSelector::First),
-            &good_exit_cryptde,
-            &good_exit_cryptde,
+        )
+        .unwrap();
+    let mut expired_cores_package_opt = None;
+    loop {
+        let (_, _, live_cores_package) = good_exit_node
+            .wait_for_package(&masquerader, Duration::from_secs(2))
+            .unwrap();
+        let (_, intended_exit_public_key) =
+            CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+        assert_eq!(intended_exit_public_key, good_exit_node_public_key);
+        let expired_cores_package = live_cores_package
+            .to_expired(
+                originating_node.socket_addr(PortSelector::First),
+                &good_exit_cryptde,
+                &good_exit_cryptde,
+            )
+            .unwrap();
+        if let MessageType::ClientRequest(_) = expired_cores_package.payload {
+            eprintln!("ClientRequest Received by good exit node");
+            expired_cores_package_opt = Some(expired_cores_package);
+            break;
+        }
+    };
+    let example_com_responce = "<!doctype html>
+    <html>
+        <head>
+            <title>Example Domain</title>
+        </head>
+        <body>
+            <div>
+               <h1>Example Domain</h1>
+               <p>This domain is for use in illustrative examples in documents. You may use this
+               domain in literature without prior coordination or asking for permission.</p>
+            </div>
+        </body>
+    </html>";
+    let client_response_pkg = make_client_response_package(
+        expired_cores_package_opt.unwrap(), &originating_node_alias_cryptde,
+        example_com_responce);
+
+    good_exit_node
+        .transmit_package(
+            good_exit_node.port_list()[0],
+            client_response_pkg,
+            &masquerader,
+            originating_node.main_public_key(),
+            originating_node.socket_addr(PortSelector::First),
         )
         .unwrap();
 
-    //Loop while waiting from a ClientRequest message type
-    match expired_cores_package.payload {
-        MessageType::ClientRequest(_) => {}
-        MessageType::ClientResponse(_) => {}
-        MessageType::Gossip(_) => {}
-        MessageType::GossipFailure(_) => {}
-        MessageType::DnsResolveFailed(_) => {}
-    }
-    eprintln!("expired_cores_package: {:?}", expired_cores_package);
-
-    // xpiredCoresPackage { immediate_neighbor: 1.2.3.4:5678, paying_wallet: None, remaining_route: Route { hops: [
-    //     CryptData { data: [133, 134, 135, 136, 163, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 64, 101, 112, 97, 121, 101, 114, 246, 105, 99, 111, 109, 112, 111, 110, 101, 110, 116, 0] },
-    //     CryptData { data: [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52] }] },
-    //     payload: Gossip(VersionedData { version: DataVersion { major: 0, minor: 1 },
-    //         bytes: [161, 108, 110, 111, 100, 101, 95, 114, 101, 99, 111, 114, 100, 115, 130, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 228, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 4, 5, 6, 7, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 189, 24, 112, 24, 32, 24, 232, 24, 152, 24, 167, 24, 80, 24, 122, 24, 179, 24, 136, 24, 144, 24, 30, 24, 226, 24, 179, 24, 168, 24, 183, 24, 29, 24, 210, 24, 46, 24, 123, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 6, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 8, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 10, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 13, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 129, 68, 1, 2, 3, 4, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 4, 5, 6, 7, 74, 154, 0, 245, 8, 222, 36, 225, 113, 2, 158, 52, 162, 32, 90, 159, 253, 44, 85, 16, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 246, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 241, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 39, 24, 217, 24, 162, 24, 172, 24, 131, 24, 180, 24, 147, 24, 248, 24, 140, 24, 233, 24, 180, 24, 83, 24, 46, 24, 220, 24, 247, 24, 78, 24, 149, 24, 185, 24, 120, 24, 141, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 5, 154, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 6, 98, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 130, 68, 4, 5, 6, 7, 68, 5, 6, 7, 8, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 1, 2, 3, 4, 236, 8, 200, 207, 211, 245, 186, 249, 72, 214, 217, 155, 207, 244, 90, 32, 52, 146, 218, 108, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 162, 103, 105, 112, 95, 97, 100, 100, 114, 161, 98, 86, 52, 132, 24, 172, 18, 1, 1, 101, 112, 111, 114, 116, 115, 129, 25, 30, 227],
-    //         phantom: PhantomData }), payload_len: 1296 }
-
-
-    // ExpiredCoresPackage {
-    //     immediate_neighbor: 172.18.1.1:5517,
-    //     paying_wallet: None, remaining_route: Route {
-    //     hops: [CryptData { data: [133, 134, 135, 136, 163, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 64, 101, 112, 97, 121, 101, 114, 246, 105, 99, 111, 109, 112, 111, 110, 101, 110, 116, 0] }, CryptData { data: [52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52, 52] }] },
-    //     payload: Gossip(VersionedData { version: DataVersion { major: 0, minor: 1 },
-    //         bytes: [161, 108, 110, 111, 100, 101, 95, 114, 101, 99, 111, 114, 100, 115, 130, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 241, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 1, 2, 3, 4, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 39, 24, 217, 24, 162, 24, 172, 24, 131, 24, 180, 24, 147, 24, 248, 24, 140, 24, 233, 24, 180, 24, 83, 24, 46, 24, 220, 24, 247, 24, 78, 24, 149, 24, 185, 24, 120, 24, 141, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 211, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 5, 154, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 25, 4, 213, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 25, 6, 98, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 130, 68, 4, 5, 6, 7, 68, 5, 6, 7, 8, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 1, 2, 3, 4, 236, 8, 200, 207, 211, 245, 186, 249, 72, 214, 217, 155, 207, 244, 90, 32, 52, 146, 218, 108, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 162, 103, 105, 112, 95, 97, 100, 100, 114, 161, 98, 86, 52, 132, 24, 172, 18, 1, 1, 101, 112, 111, 114, 116, 115, 129, 25, 21, 141, 163, 107, 115, 105, 103, 110, 101, 100, 95, 100, 97, 116, 97, 88, 228, 167, 106, 112, 117, 98, 108, 105, 99, 95, 107, 101, 121, 68, 4, 5, 6, 7, 110, 101, 97, 114, 110, 105, 110, 103, 95, 119, 97, 108, 108, 101, 116, 161, 103, 97, 100, 100, 114, 101, 115, 115, 148, 24, 189, 24, 112, 24, 32, 24, 232, 24, 152, 24, 167, 24, 80, 24, 122, 24, 179, 24, 136, 24, 144, 24, 30, 24, 226, 24, 179, 24, 168, 24, 183, 24, 29, 24, 210, 24, 46, 24, 123, 105, 114, 97, 116, 101, 95, 112, 97, 99, 107, 164, 113, 114, 111, 117, 116, 105, 110, 103, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 6, 116, 114, 111, 117, 116, 105, 110, 103, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 8, 110, 101, 120, 105, 116, 95, 98, 121, 116, 101, 95, 114, 97, 116, 101, 10, 113, 101, 120, 105, 116, 95, 115, 101, 114, 118, 105, 99, 101, 95, 114, 97, 116, 101, 13, 105, 110, 101, 105, 103, 104, 98, 111, 114, 115, 129, 68, 1, 2, 3, 4, 115, 97, 99, 99, 101, 112, 116, 115, 95, 99, 111, 110, 110, 101, 99, 116, 105, 111, 110, 115, 245, 107, 114, 111, 117, 116, 101, 115, 95, 100, 97, 116, 97, 245, 103, 118, 101, 114, 115, 105, 111, 110, 2, 105, 115, 105, 103, 110, 97, 116, 117, 114, 101, 88, 24, 4, 5, 6, 7, 74, 154, 0, 245, 8, 222, 36, 225, 113, 2, 158, 52, 162, 32, 90, 159, 253, 44, 85, 16, 109, 110, 111, 100, 101, 95, 97, 100, 100, 114, 95, 111, 112, 116, 246],
-    //         phantom: PhantomData }), payload_len: 1295 }
-
-
-    // ExpiredCoresPackage<MessageType>
-    // ExpiredCoresPackage<ClientRequestPayload_0v1>
-
-    // let response = client.wait_for_chunk();
-    // assert_eq!(
-    //     index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-    //     true,
-    //     "Actual response:\n{}",
-    //     String::from_utf8(response).unwrap()
-    // );
+    let response = client.wait_for_chunk();
+    assert_eq!(
+        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
+    );
 }
 
 #[test]
@@ -541,16 +576,34 @@ fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
     result
 }
 
+// DNS failure package is generated from the neighboring node on behalf of the exit node
 fn make_dns_fail_package(
     expired_cores_package: ExpiredCoresPackage<MessageType>,
     destination_alias_cryptde: &dyn CryptDE,
 ) -> IncipientCoresPackage {
-    let route = Route {
-        hops: vec![
-            expired_cores_package.remaining_route.hops[4].clone(),
-            expired_cores_package.remaining_route.hops[5].clone(),
-            expired_cores_package.remaining_route.hops[6].clone(),
-        ],
+    let length = expired_cores_package.remaining_route.hops.len();
+    let min_hops:Hops = Hops::from_str(&((length / 2) - 1).to_string()).unwrap();
+    let route = match min_hops {
+        Hops::OneHop => {
+            Route {
+                hops:vec![
+                    expired_cores_package.remaining_route.hops[0].clone(),
+                    expired_cores_package.remaining_route.hops[1].clone(),
+                    expired_cores_package.remaining_route.hops[2].clone(),
+                    expired_cores_package.remaining_route.hops[3].clone(),
+                ]
+            }
+        }
+        Hops::ThreeHops => {
+            Route {
+                hops: vec![
+                    expired_cores_package.remaining_route.hops[4].clone(),
+                    expired_cores_package.remaining_route.hops[5].clone(),
+                    expired_cores_package.remaining_route.hops[6].clone(),
+                ],
+            }
+        }
+        _ => { panic!("Not implemented"); }
     };
     let client_request_vdata = match expired_cores_package.payload {
         MessageType::ClientRequest(vdata) => vdata,
@@ -571,4 +624,60 @@ fn make_dns_fail_package(
         destination_alias_cryptde.public_key(),
     )
     .unwrap()
+}
+
+// DNS failure package is generated from the neighboring node on behalf of the exit node
+fn make_client_response_package(
+    expired_cores_package: ExpiredCoresPackage<MessageType>,
+    destination_alias_cryptde: &dyn CryptDE,
+    html_data: &str
+) -> IncipientCoresPackage {
+    let length = expired_cores_package.remaining_route.hops.len();
+    let min_hops:Hops = Hops::from_str(&((length / 2) - 1).to_string()).unwrap();
+    let route = match min_hops {
+        Hops::OneHop => {
+            Route {
+                hops:vec![
+                    expired_cores_package.remaining_route.hops[0].clone(),
+                    expired_cores_package.remaining_route.hops[1].clone(),
+                    expired_cores_package.remaining_route.hops[2].clone(),
+                    expired_cores_package.remaining_route.hops[3].clone(),
+                ]
+            }
+        }
+        Hops::ThreeHops => {
+            Route {
+                hops: vec![
+                    expired_cores_package.remaining_route.hops[4].clone(),
+                    expired_cores_package.remaining_route.hops[5].clone(),
+                    expired_cores_package.remaining_route.hops[6].clone(),
+                ],
+            }
+        }
+        _ => { panic!("Not implemented"); }
+    };
+    let client_request_vdata = match expired_cores_package.payload {
+        MessageType::ClientRequest(vdata) => vdata,
+        x => panic!("Expected ClientRequest, got {:?}", x),
+    };
+    let stream_key = client_request_vdata
+        .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
+        .unwrap()
+        .stream_key;
+    let sequenced_packet = SequencedPacket::new(
+        html_data.as_bytes().to_vec(),
+        0,
+        true,
+    );
+    let client_response_vdata = VersionedData::new(
+        &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
+        &ClientResponsePayload_0v1 { stream_key, sequenced_packet },
+    );
+    IncipientCoresPackage::new(
+        destination_alias_cryptde,
+        route,
+        MessageType::ClientResponse(client_response_vdata),
+        destination_alias_cryptde.public_key(),
+    )
+        .unwrap()
 }
