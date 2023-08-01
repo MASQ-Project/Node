@@ -4030,9 +4030,12 @@ mod tests {
         let ui_recording = ui_gateway_arc.lock().unwrap();
         assert_eq!(ui_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The connectivity check still can't find a good route.",
-            test_name
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: The connectivity check still can't find a good route.",
+        ));
+        tlh.exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: The connectivity check has found a 5-hop route."
         ));
     }
 
