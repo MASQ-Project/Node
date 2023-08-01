@@ -250,7 +250,6 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .help(DATA_DIRECTORY_HELP)
 }
 
-// TODO: Not an arg fn, move somewhere else
 pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,

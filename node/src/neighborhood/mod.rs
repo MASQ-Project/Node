@@ -154,7 +154,6 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
-                // TODO: Should we make the stage transition for OverallConnectionStatus from RouteFound to ConnectedToNeighbor before we search for a new route
                 self.search_for_a_new_route();
             }
         }
