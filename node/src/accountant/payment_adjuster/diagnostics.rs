@@ -1,14 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
 use crate::accountant::payment_adjuster::PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use std::fmt::Debug;
-use std::sync::{Mutex, Once};
-use std::time::{Duration, SystemTime};
-use thousands::Separable;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -62,6 +55,7 @@ pub mod formulas_progressive_characteristics {
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use std::fmt::Debug;
+    use std::iter::once;
     use std::sync::{Mutex, Once};
     use std::time::Duration;
     use std::time::SystemTime;
@@ -97,13 +91,10 @@ pub mod formulas_progressive_characteristics {
             }))
         };
         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<u128>>> = {
-            let x_axis_supply = {
-                let now = SystemTime::now();
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
-                    .into_iter()
-                    .map(|exp| 10_u128.pow(exp))
-                    .collect()
-            };
+            let x_axis_supply = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
+                .into_iter()
+                .map(|exp| 10_u128.pow(exp))
+                .collect();
             Mutex::new(Some(DiagnosticsConfig {
                 label: "BALANCE",
                 progressive_x_axis_supply_non_native: x_axis_supply,
@@ -132,23 +123,28 @@ pub mod formulas_progressive_characteristics {
     {
         config_opt.map(|config| {
             let config_x_axis_type_formatter = config.x_axis_native_type_formatter;
-            let characteristics = config
-                .progressive_x_axis_supply_non_native
-                .into_iter()
-                .map(|input| {
-                    let correctly_formatted_input = config_x_axis_type_formatter(input);
-                    format!(
-                        "x: {:<length$} y: {}",
-                        input,
-                        formula(correctly_formatted_input).separate_with_commas(),
-                        length = 40
-                    )
-                })
-                .join("\n");
+            let characteristics =
+                config
+                    .progressive_x_axis_supply_non_native
+                    .into_iter()
+                    .map(|input| {
+                        let correctly_formatted_input = config_x_axis_type_formatter(input);
+                        format!(
+                            "x: {:<length$} y: {}",
+                            input,
+                            formula(correctly_formatted_input).separate_with_commas(),
+                            length = 40
+                        )
+                    });
+            let head = once(format!(
+                "CHARACTERISTICS OF THE FORMULA FOR {}",
+                config.label
+            ));
+            let full_text = head.into_iter().chain(characteristics).join("\n");
             STRINGS_WITH_FORMULAS_CHARACTERISTICS
                 .lock()
                 .expect("diagnostics poisoned")
-                .push(characteristics);
+                .push(full_text);
         });
     }
 }

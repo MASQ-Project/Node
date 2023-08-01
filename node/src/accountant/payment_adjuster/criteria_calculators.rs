@@ -201,7 +201,6 @@ impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::auxiliary_fns::log_2;
     use crate::accountant::payment_adjuster::criteria_calculators::{
         AgeCriterionCalculator, BalanceCriterionCalculator, CriterionCalculator,
@@ -211,8 +210,6 @@ mod tests {
         AGE_MULTIPLIER, BALANCE_LOG_2_ARG_DIVISOR,
     };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
-    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-    use crate::test_utils::make_wallet;
     use std::time::{Duration, SystemTime};
 
     #[test]

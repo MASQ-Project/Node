@@ -258,12 +258,11 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     fn try_softly(
         &self,
         msg: PayablePaymentSetup,
-        logger: &Logger,
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
             .payment_adjuster
             .borrow()
-            .search_for_indispensable_adjustment(&msg, logger)
+            .search_for_indispensable_adjustment(&msg)
         {
             Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
                 accounts: msg.qualified_payables,
@@ -277,12 +276,11 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     fn exacting_payments_instructions(
         &self,
         setup: AwaitedAdjustment,
-        logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         let now = SystemTime::now();
         self.payment_adjuster
             .borrow_mut()
-            .adjust_payments(setup, now, logger)
+            .adjust_payments(setup, now)
     }
 }
 

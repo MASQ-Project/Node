@@ -646,13 +646,13 @@ impl Accountant {
     }
 
     fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup) {
-        let bb_instructions = match self.scanners.payable.try_softly(msg, &self.logger) {
+        let bb_instructions = match self.scanners.payable.try_softly(msg) {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 self.scanners
                     .payable
-                    .exacting_payments_instructions(unaccepted_msg, &self.logger)
+                    .exacting_payments_instructions(unaccepted_msg)
             }
             Err(_e) => todo!("be completed by GH-711"),
         };
@@ -1427,8 +1427,7 @@ mod tests {
             search_for_indispensable_adjustment_params_arc
                 .lock()
                 .unwrap();
-        let (payable_payment_setup_msg, logger_clone) =
-            search_for_indispensable_adjustment_params.remove(0);
+        let payable_payment_setup_msg = search_for_indispensable_adjustment_params.remove(0);
         assert!(search_for_indispensable_adjustment_params.is_empty());
         assert_eq!(
             payable_payment_setup_msg,
@@ -1445,17 +1444,6 @@ mod tests {
                 })
             }
         );
-        test_use_of_the_same_logger(&logger_clone, test_name)
-        // adjust_payments() did not need a prepared result which means it wasn't reached
-        // because otherwise this test would've panicked
-    }
-
-    fn test_use_of_the_same_logger(logger_clone: &Logger, test_name: &str) {
-        let experiment_msg = format!("DEBUG: {test_name}: hello world");
-        let log_handler = TestLogHandler::default();
-        log_handler.exists_no_log_containing(&experiment_msg);
-        debug!(logger_clone, "hello world");
-        log_handler.exists_log_containing(&experiment_msg);
     }
 
     #[test]
@@ -1528,7 +1516,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (cwbqp_msg, captured_now, logger_clone) = adjust_payments_params.remove(0);
+        let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
         assert_eq!(
             cwbqp_msg,
             AwaitedAdjustment {
@@ -1546,7 +1534,6 @@ mod tests {
                 response_skeleton_opt: Some(response_skeleton)
             }
         );
-        test_use_of_the_same_logger(&logger_clone, test_name)
     }
 
     #[test]

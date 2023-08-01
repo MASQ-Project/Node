@@ -11,8 +11,8 @@ mod test_utils;
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::auxiliary_fns::{
     compute_fraction_preventing_mul_coeff, criteria_total, cut_back_by_gas_count_limit,
-    exhaust_cw_balance_totally, find_disqualified_account_with_smallest_proposed_balance, log_2,
-    rebuild_accounts, sort_in_descendant_order_by_weights, sum_as, x_or_1,
+    exhaust_cw_balance_totally, find_disqualified_account_with_smallest_proposed_balance,
+    rebuild_accounts, sort_in_descendant_order_by_weights, sum_as,
 };
 use crate::accountant::payment_adjuster::criteria_calculators::{
     AgeCriterionCalculator, BalanceCriterionCalculator, CriteriaIteratorAdaptor,
@@ -43,7 +43,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::iter::once;
 use std::ops::Not;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 
@@ -51,14 +51,12 @@ pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-        logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError>;
 
     fn adjust_payments(
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-        logger: &Logger,
     ) -> OutcomingPaymentsInstructions;
 
     declare_as_any!();
@@ -73,7 +71,6 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-        logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         let qualified_payables = msg.qualified_payables.as_slice();
         let this_stage_data = match msg
@@ -87,7 +84,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         match Self::determine_transactions_count_limit_by_gas(
             &this_stage_data,
             qualified_payables.len(),
-            logger,
+            &self.logger,
         ) {
             Ok(None) => (),
             Ok(Some(limited_count_from_gas)) => {
@@ -99,7 +96,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         };
 
         match Self::check_need_of_masq_balances_adjustment(
-            logger,
+            &self.logger,
             Either::Left(qualified_payables),
             this_stage_data
                 .consuming_wallet_balances
@@ -115,7 +112,6 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-        logger: &Logger, //TODO fix this later
     ) -> OutcomingPaymentsInstructions {
         let msg = setup.original_setup_msg;
         let qualified_payables: Vec<PayableAccount> = msg.qualified_payables;
@@ -169,8 +165,6 @@ struct PercentageAccountInsignificance {
     multiplier: u128,
     divisor: u128,
 }
-
-type CriterionFormula<'a> = Box<dyn FnMut((u128, PayableAccount)) -> (u128, PayableAccount) + 'a>;
 
 impl Default for PaymentAdjusterReal {
     fn default() -> Self {
@@ -237,6 +231,7 @@ impl PaymentAdjusterReal {
         }
     }
 
+    //TODO we should check there is at least one half of the smallest payment
     fn check_need_of_masq_balances_adjustment(
         logger: &Logger,
         qualified_payables: Either<&[PayableAccount], &[(u128, PayableAccount)]>,
@@ -446,7 +441,6 @@ impl PaymentAdjusterReal {
                 Right(with_some_outweighed) => return with_some_outweighed,
             };
 
-        //TODO this need to return the wider type used during the polishing
         let verified_accounts =
             match Self::consider_account_disqualification_from_percentage_insignificance(
                 unchecked_for_disqualified,
@@ -835,10 +829,7 @@ pub enum AnalysisError {
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::auxiliary_fns::{
-        compute_fraction_preventing_mul_coeff, criteria_total, exhaust_cw_balance_totally, log_2,
-    };
-    use crate::accountant::payment_adjuster::criteria_calculators::{
-        AgeCriterionCalculator, BalanceCriterionCalculator, CriterionCalculator,
+        compute_fraction_preventing_mul_coeff, criteria_total, exhaust_cw_balance_totally,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
@@ -860,7 +851,7 @@ mod tests {
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use itertools::{Either, Itertools};
+    use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
@@ -894,8 +885,9 @@ mod tests {
     fn search_for_indispensable_adjustment_negative_answer() {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_negative_answer";
-        let subject = PaymentAdjusterReal::new();
+        let mut subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
+        subject.logger = logger;
         //masq balance > payments
         let msg_1 =
             make_payable_setup_msg_coming_from_blockchain_bridge(Some((vec![85, 14], 100)), None);
@@ -925,7 +917,7 @@ mod tests {
 
         [msg_1, msg_2, msg_3, msg_4].into_iter().for_each(|msg| {
             assert_eq!(
-                subject.search_for_indispensable_adjustment(&msg, &logger),
+                subject.search_for_indispensable_adjustment(&msg),
                 Ok(None),
                 "failed for msg {:?}",
                 msg
@@ -940,11 +932,12 @@ mod tests {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_positive_for_masq_token";
         let logger = Logger::new(test_name);
-        let subject = PaymentAdjusterReal::new();
+        let mut subject = PaymentAdjusterReal::new();
+        subject.logger = logger;
         let msg =
             make_payable_setup_msg_coming_from_blockchain_bridge(Some((vec![85, 16], 100)), None);
 
-        let result = subject.search_for_indispensable_adjustment(&msg, &logger);
+        let result = subject.search_for_indispensable_adjustment(&msg);
 
         assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
         let log_handler = TestLogHandler::new();
@@ -960,7 +953,8 @@ mod tests {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_positive_for_gas";
         let logger = Logger::new(test_name);
-        let subject = PaymentAdjusterReal::new();
+        let mut subject = PaymentAdjusterReal::new();
+        subject.logger = logger;
         let number_of_payments = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
@@ -972,7 +966,7 @@ mod tests {
             }),
         );
 
-        let result = subject.search_for_indispensable_adjustment(&msg, &logger);
+        let result = subject.search_for_indispensable_adjustment(&msg);
 
         let expected_limiting_count = number_of_payments as u16 - 1;
         assert_eq!(
@@ -1006,7 +1000,7 @@ mod tests {
             }),
         );
 
-        let result = subject.search_for_indispensable_adjustment(&msg, &Logger::new("test"));
+        let result = subject.search_for_indispensable_adjustment(&msg);
 
         assert_eq!(
             result,
@@ -1019,7 +1013,6 @@ mod tests {
 
     #[test]
     fn list_accounts_under_the_disqualification_limit_employs_manifest_consts_of_insignificance() {
-        let cw_masq_balance = 1_000_000;
         let account_balance = 1_000_000;
         let prepare_account = |n: u64| {
             let mut account = make_payable_account(n);
@@ -1027,11 +1020,8 @@ mod tests {
             account
         };
         let payable_account_1 = prepare_account(1);
-        let wallet_1 = payable_account_1.wallet.clone();
         let payable_account_2 = prepare_account(2);
-        let wallet_2 = payable_account_2.wallet.clone();
         let payable_account_3 = prepare_account(3);
-        let wallet_3 = payable_account_3.wallet.clone();
         const IRRELEVANT_CRITERIA_SUM: u128 = 1111;
         let edge = account_balance / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
             * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
@@ -1135,8 +1125,8 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
             pending_payable_opt: None,
         };
-        let accounts_with_individual_criteria =
-            subject.calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3]);
+        let accounts_with_individual_criteria = subject
+            .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
         let criteria_total = criteria_total(&accounts_with_individual_criteria);
         let unfinalized_adjusted_accounts = subject.compute_unfinalized_adjusted_accounts(
             accounts_with_individual_criteria,
@@ -1173,7 +1163,6 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(20_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let logger = Logger::new("test");
         let qualified_payables = vec![account_1, account_2.clone()];
 
         let result = subject.run_full_adjustment_procedure(qualified_payables.clone(), vec![]);
@@ -1303,7 +1292,7 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+        let result = subject.adjust_payments(adjustment_setup, now);
 
         //because the proposed final balances all all way lower than (at least) the half of the original balances
         assert_eq!(result.accounts, vec![]);
@@ -1378,7 +1367,7 @@ mod tests {
             adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual gas balance limitations
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+        let result = subject.adjust_payments(adjustment_setup, now);
 
         let expected_criteria_computation_output =
             simplified_emulation_of_real_adjustment_algorithm(
@@ -1459,7 +1448,7 @@ mod tests {
             },
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+        let result = subject.adjust_payments(adjustment_setup, now);
 
         assert_eq!(
             result,
@@ -1541,7 +1530,7 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+        let result = subject.adjust_payments(adjustment_setup, now);
 
         let expected_accounts_first_iteration = simplified_emulation_of_real_adjustment_algorithm(
             vec![account_1.clone(), account_2.clone(), account_3],
@@ -1641,9 +1630,7 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let mut result = subject
-            .adjust_payments(adjustment_setup, now, &Logger::new(test_scenario_name))
-            .accounts;
+        let mut result = subject.adjust_payments(adjustment_setup, now).accounts;
 
         let winning_account = result.remove(0);
         assert_eq!(
@@ -1917,7 +1904,7 @@ mod tests {
             },
         };
 
-        let mut result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
+        let mut result = subject.adjust_payments(adjustment_setup, now);
 
         let only_account = result.accounts.remove(0);
         assert_eq!(
@@ -1948,10 +1935,6 @@ mod tests {
         );
         //TODO we shouldn't call them "minor payables"...they sometimes are huge but disqualified
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
-    }
-
-    fn secs_elapsed(timestamp: SystemTime, now: SystemTime) -> u128 {
-        now.duration_since(timestamp).unwrap().as_secs() as u128
     }
 
     struct GasTestConditions {

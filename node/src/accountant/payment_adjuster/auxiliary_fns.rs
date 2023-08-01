@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::{
     AdjustedAccountBeforeFinalization, DecidedPayableAccountResolution,
 };
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use std::iter::successors;
-
 const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
 
@@ -17,12 +17,6 @@ where
     F: Fn(&T) -> u128,
 {
     collection.iter().map(arranger).sum::<u128>().into()
-}
-
-pub fn balance_total(accounts_with_individual_criteria: &[(u128, PayableAccount)]) -> u128 {
-    sum_as(&accounts_with_individual_criteria, |(_, account)| {
-        account.balance_wei
-    })
 }
 
 pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount)]) -> u128 {
@@ -86,17 +80,16 @@ impl ExhaustionStatus {
     fn update_and_add(
         mut self,
         mut unfinalized_account_info: AdjustedAccountBeforeFinalization,
-        adjusted_balance_possible_addition: u128,
+        possible_extra_addition: u128,
     ) -> Self {
         let corrected_adjusted_account_before_finalization = {
-            unfinalized_account_info.proposed_adjusted_balance = unfinalized_account_info
-                .proposed_adjusted_balance
-                + adjusted_balance_possible_addition;
+            unfinalized_account_info.proposed_adjusted_balance =
+                unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition;
             unfinalized_account_info
         };
         self.remainder = self
             .remainder
-            .checked_sub(adjusted_balance_possible_addition)
+            .checked_sub(possible_extra_addition)
             .unwrap_or(0); //TODO wait for overflow
         self.add(corrected_adjusted_account_before_finalization)
     }
@@ -132,12 +125,21 @@ pub fn exhaust_cw_balance_totally(
             if status.remainder != 0 {
                 let balance_gap = unfinalized_account_info.original_account.balance_wei
                     - unfinalized_account_info.proposed_adjusted_balance;
-                let adjusted_balance_possible_addition = if balance_gap < status.remainder {
+                let possible_extra_addition = if balance_gap < status.remainder {
                     balance_gap
                 } else {
                     status.remainder
                 };
-                status.update_and_add(unfinalized_account_info, adjusted_balance_possible_addition)
+
+                diagnostics!(
+                    "EXHAUSTING CW ON PAYMENT",
+                    "For account {} from proposed {} to the possible maximum of {}",
+                    unfinalized_account_info.original_account.wallet,
+                    unfinalized_account_info.proposed_adjusted_balance,
+                    unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition
+                );
+
+                status.update_and_add(unfinalized_account_info, possible_extra_addition)
             } else {
                 status.add(unfinalized_account_info)
             }
@@ -204,7 +206,6 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use std::collections::HashMap;
     use std::time::SystemTime;
 
     #[test]
@@ -495,9 +496,6 @@ mod tests {
         let wallet_3 = make_wallet("ghi");
         let original_requested_balance_3 = 41_000_000;
         let proposed_adjusted_balance_3 = 40_980_000;
-        let wallet_3 = make_wallet("ghi");
-        // let original_requested_balance_4 = 41_000_000;
-        // let proposed_adjusted_balance_4 = 40_980_000;
         let unallocated_cw_balance = original_requested_balance_2
             + original_requested_balance_3
             + proposed_adjusted_balance_1

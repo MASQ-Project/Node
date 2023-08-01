@@ -1391,10 +1391,10 @@ impl PayableThresholdsGaugeMock {
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    search_for_indispensable_adjustment_params: Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
+    search_for_indispensable_adjustment_params: Arc<Mutex<Vec<PayablePaymentSetup>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
 }
 
@@ -1402,12 +1402,11 @@ impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-        logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
-            .push((msg.clone(), logger.clone()));
+            .push(msg.clone());
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .remove(0)
@@ -1417,12 +1416,11 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-        logger: &Logger,
     ) -> OutcomingPaymentsInstructions {
         self.adjust_payments_params
             .lock()
             .unwrap()
-            .push((setup, now, logger.clone()));
+            .push((setup, now));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1430,7 +1428,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn search_for_indispensable_adjustment_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PayablePaymentSetup, Logger)>>>,
+        params: &Arc<Mutex<Vec<PayablePaymentSetup>>>,
     ) -> Self {
         self.search_for_indispensable_adjustment_params = params.clone();
         self
@@ -1448,7 +1446,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime, Logger)>>>,
+        params: &Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
