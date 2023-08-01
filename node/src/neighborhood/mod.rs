@@ -154,6 +154,16 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
+                let node_to_ui_recipient = self
+                    .node_to_ui_recipient_opt
+                    .as_ref()
+                    .expect("UI gateway is dead");
+                self.overall_connection_status
+                    .update_ocs_stage_and_send_message_to_ui(
+                        OverallConnectionStage::ConnectedToNeighbor,
+                        node_to_ui_recipient,
+                        &self.logger,
+                    );
                 self.search_for_a_new_route();
             }
         }
@@ -3058,12 +3068,12 @@ mod tests {
     fn can_update_min_hops_with_configuration_change_msg() {
         init_test_logging();
         let test_name = "can_update_min_hops_with_configuration_change_msg";
+        let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         subject.logger = Logger::new(test_name);
         subject.overall_connection_status.stage = OverallConnectionStage::RouteFound;
-        let new_min_hops = Hops::FourHops;
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3076,19 +3086,27 @@ mod tests {
 
         subject_addr
             .try_send(AssertionsMessage {
-                assertions: Box::new(move |actor: &mut Neighborhood| {
+                assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                     let expected_db_patch_size =
                         Neighborhood::calculate_db_patch_size(new_min_hops);
-                    assert_eq!(actor.min_hops, new_min_hops);
-                    assert_eq!(actor.db_patch_size, expected_db_patch_size);
+                    assert_eq!(neighborhood.min_hops, new_min_hops);
+                    assert_eq!(neighborhood.db_patch_size, expected_db_patch_size);
+                    assert_eq!(
+                        neighborhood.overall_connection_status.stage,
+                        OverallConnectionStage::ConnectedToNeighbor
+                    );
                 }),
             })
             .unwrap();
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Searching for a {new_min_hops}-hop route..."
-        ));
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!(
+                "DEBUG: {test_name}: The stage of OverallConnectionStatus has been changed \
+                from RouteFound to ConnectedToNeighbor. A message to the UI was also sent."
+            ),
+            &format!("DEBUG: {test_name}: Searching for a 4-hop route..."),
+        ]);
     }
 
     #[test]
