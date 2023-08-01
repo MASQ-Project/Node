@@ -12,15 +12,15 @@ use std::thread;
 use std::time::Duration;
 
 #[test]
-fn http_end_to_end_routing_test_with_different_min_hops() {
+fn data_can_be_routed_using_different_min_hops() {
     // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
     // You may fix it by increasing the timeout for the client.
-    assert_http_end_to_end_routing_test(Hops::OneHop);
-    assert_http_end_to_end_routing_test(Hops::TwoHops);
-    assert_http_end_to_end_routing_test(Hops::SixHops);
+    assert_http_end_to_end_routing(Hops::OneHop);
+    assert_http_end_to_end_routing(Hops::TwoHops);
+    assert_http_end_to_end_routing(Hops::SixHops);
 }
 
-fn assert_http_end_to_end_routing_test(min_hops: Hops) {
+fn assert_http_end_to_end_routing(min_hops: Hops) {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let config = NodeStartupConfigBuilder::standard()
         .min_hops(min_hops)
