@@ -394,6 +394,11 @@ impl MASQMockNode {
         Ok((socket_from, socket_to, live_cores_package))
     }
 
+    pub fn wait_for_specific_package (&self, message_type: MessageType) {
+
+
+    }
+
     pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip_0v1, IpAddr)> {
         let masquerader = JsonMasquerader::new();
         match self.wait_for_package(&masquerader, timeout) {

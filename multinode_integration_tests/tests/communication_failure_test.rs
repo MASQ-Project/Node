@@ -129,21 +129,21 @@ fn neighborhood_notified_of_newly_missing_node() {
 }
 
 #[test]
-fn dns_resolution_failure_with_real_nodes_route_error() {
+fn dns_resolution_failure_first_automatic_retry_succeeds() {
+    /* Mock_node_good_exit <-- Originating_node --> Mock_node_bad_exit */
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let low_rate_pack_1 = RatePack {
+    let low_rate_pack = RatePack {
         routing_byte_rate: 6,
         routing_service_rate: 8,
         exit_byte_rate: 10,
         exit_service_rate: 13
     };
-    /* Mock_node_good_exit <-- Originating_node --> Mock_node_bad_exit */
     let (originating_node, bad_exit_node, good_exit_node, bad_exit_node_public_key, good_exit_node_public_key) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
         let mut bad_exit_node_record = make_node_record(4567, true);
         let good_exit_node_record = make_node_record(5678, true);
-        bad_exit_node_record.inner.rate_pack = low_rate_pack_1;
+        bad_exit_node_record.inner.rate_pack = low_rate_pack;
         let bad_exit_node_public_key = db.add_node(bad_exit_node_record).unwrap();
         let good_exit_node_public_key = db.add_node(good_exit_node_record).unwrap();
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &bad_exit_node_public_key);
@@ -159,14 +159,16 @@ fn dns_resolution_failure_with_real_nodes_route_error() {
             good_exit_node_public_key
         )
     };
-    let masquerader = JsonMasquerader::new();
-    let good_exit_cryptde = CryptDENull::from(&good_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
-    let bad_exit_cryptde = CryptDENull::from(&bad_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
-    let originating_node_alias_cryptde = CryptDENull::from(originating_node.alias_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let key_length = bad_exit_node_public_key.len();
+    let masquerader = JsonMasquerader::new();
+    let bad_exit_cryptde = CryptDENull::from(&bad_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let good_exit_cryptde = CryptDENull::from(&good_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let originating_node_alias_cryptde = CryptDENull::from(originating_node.alias_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let mut client = originating_node.make_client(8080, 10000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let mut expired_cores_package_opt = None;
+
+
     loop {
         let (_, _, live_cores_package) = bad_exit_node
             .wait_for_package(&masquerader, Duration::from_secs(2))
