@@ -344,7 +344,7 @@ where
             )
             .build();
 
-        let fallback_end_block_number = match end_block {
+        let fallback_start_block_number = match end_block {
             BlockNumber::Number(eb) => eb.as_u64(),
             _ => {
                 if let BlockNumber::Number(start_block_number) = start_block {
@@ -368,9 +368,9 @@ where
                     Err(_) => {
                         debug!(
                             logger,
-                            "Using fallback block number: {}", fallback_end_block_number
+                            "Using fallback block number: {}", fallback_start_block_number
                         );
-                        fallback_end_block_number
+                        fallback_start_block_number
                     }
                 };
 
@@ -420,8 +420,12 @@ where
                     }
                     Err(e) => {
                         error!(self.logger, "Retrieving transactions: {:?}", e);
+
                         Ok(RetrievedBlockchainTransactions {
-                            new_start_block: fallback_end_block_number,
+                            new_start_block: match start_block {
+                                BlockNumber::Number(block_number) => block_number.as_u64(),
+                                _ => fallback_start_block_number - 1u64,
+                            },
                             transactions: vec![],
                         })
                     }
