@@ -167,7 +167,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
     let expired_cores_package = bad_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg =
-        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde, None, MessageTypeLite::DnsResolveFailed);
     bad_exit_node
         .transmit_package(
             bad_exit_node.port_list()[0],
@@ -315,13 +315,13 @@ fn dns_resolution_failure_automatic_retries_works() {
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg_1 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_2 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_3 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_4 =
-        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
 
     relay1_mock
         .transmit_package(
@@ -447,13 +447,13 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg_1 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_2 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_3 =
-        make_dns_fail_package(expired_cores_package.clone(), &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_4 =
-        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
+        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
 
     relay1_mock
         .transmit_package(
@@ -542,113 +542,6 @@ fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
     result
 }
 
-// DNS failure package is generated from the neighboring node on behalf of the exit node
-fn make_dns_fail_package(
-    expired_cores_package: ExpiredCoresPackage<MessageType>,
-    destination_alias_cryptde: &dyn CryptDE,
-) -> IncipientCoresPackage {
-    let length = expired_cores_package.remaining_route.hops.len();
-    let min_hops:Hops = Hops::from_str(&((length / 2) - 1).to_string()).unwrap();
-    let route = match min_hops {
-        Hops::OneHop => {
-            Route {
-                hops:vec![
-                    expired_cores_package.remaining_route.hops[0].clone(),
-                    expired_cores_package.remaining_route.hops[1].clone(),
-                    expired_cores_package.remaining_route.hops[2].clone(),
-                    expired_cores_package.remaining_route.hops[3].clone(),
-                ]
-            }
-        }
-        Hops::ThreeHops => {
-            Route {
-                hops: vec![
-                    expired_cores_package.remaining_route.hops[4].clone(),
-                    expired_cores_package.remaining_route.hops[5].clone(),
-                    expired_cores_package.remaining_route.hops[6].clone(),
-                ],
-            }
-        }
-        _ => { panic!("Not implemented"); }
-    };
-    let client_request_vdata = match expired_cores_package.payload {
-        MessageType::ClientRequest(vdata) => vdata,
-        x => panic!("Expected ClientRequest, got {:?}", x),
-    };
-    let stream_key = client_request_vdata
-        .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
-        .unwrap()
-        .stream_key;
-    let dns_fail_vdata = VersionedData::new(
-        &node_lib::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
-        &DnsResolveFailure_0v1 { stream_key },
-    );
-    IncipientCoresPackage::new(
-        destination_alias_cryptde,
-        route,
-        MessageType::DnsResolveFailed(dns_fail_vdata),
-        destination_alias_cryptde.public_key(),
-    )
-    .unwrap()
-}
-
-// DNS failure package is generated from the neighboring node on behalf of the exit node
-// fn make_client_response_package(
-//     expired_cores_package: ExpiredCoresPackage<MessageType>,
-//     destination_alias_cryptde: &dyn CryptDE,
-//     html_data: &str
-// ) -> IncipientCoresPackage {
-//     let length = expired_cores_package.remaining_route.hops.len();
-//     let min_hops:Hops = Hops::from_str(&((length / 2) - 1).to_string()).unwrap();
-//     let route = match min_hops {
-//         Hops::OneHop => {
-//             Route {
-//                 hops:vec![
-//                     expired_cores_package.remaining_route.hops[0].clone(),
-//                     expired_cores_package.remaining_route.hops[1].clone(),
-//                     expired_cores_package.remaining_route.hops[2].clone(),
-//                     expired_cores_package.remaining_route.hops[3].clone(),
-//                 ]
-//             }
-//         }
-//         Hops::ThreeHops => {
-//             Route {
-//                 hops: vec![
-//                     expired_cores_package.remaining_route.hops[4].clone(),
-//                     expired_cores_package.remaining_route.hops[5].clone(),
-//                     expired_cores_package.remaining_route.hops[6].clone(),
-//                 ],
-//             }
-//         }
-//         _ => { panic!("Not implemented"); }
-//     };
-//     let client_request_vdata = match expired_cores_package.payload {
-//         MessageType::ClientRequest(vdata) => vdata,
-//         x => panic!("Expected ClientRequest, got {:?}", x),
-//     };
-//     let stream_key = client_request_vdata
-//         .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
-//         .unwrap()
-//         .stream_key;
-//     let sequenced_packet = SequencedPacket::new(
-//         html_data.as_bytes().to_vec(),
-//         0,
-//         true,
-//     );
-//     let client_response_vdata = VersionedData::new(
-//         &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
-//         &ClientResponsePayload_0v1 { stream_key, sequenced_packet },
-//     );
-//     IncipientCoresPackage::new(
-//         destination_alias_cryptde,
-//         route,
-//         MessageType::ClientResponse(client_response_vdata),
-//         destination_alias_cryptde.public_key(),
-//     )
-//         .unwrap()
-// }
-
-
 fn make_package_for_client(
     expired_cores_package: ExpiredCoresPackage<MessageType>,
     destination_alias_cryptde: &dyn CryptDE,
@@ -679,15 +572,15 @@ fn make_package_for_client(
         }
         _ => { panic!("Not implemented"); }
     };
-    let client_request_vdata = match expired_cores_package.payload {
-        MessageType::ClientRequest(vdata) => vdata,
+    let stream_key = match expired_cores_package.payload {
+        MessageType::ClientRequest(vdata) => {
+            vdata
+                .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                .unwrap()
+                .stream_key
+        },
         x => panic!("Expected ClientRequest, got {:?}", x),
     };
-    let stream_key = client_request_vdata
-        .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
-        .unwrap()
-        .stream_key;
-
      let payload = match message_type_lite {
          MessageTypeLite::ClientResponse => {
              let client_response_vdata = VersionedData::new(
