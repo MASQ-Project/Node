@@ -13,7 +13,7 @@ use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType};
+use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType, MessageTypeLite};
 use node_lib::sub_lib::neighborhood::{Hops, RatePack};
 use node_lib::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use node_lib::sub_lib::route::Route;
@@ -26,6 +26,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
+use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 
@@ -161,37 +162,39 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
     };
     let key_length = bad_exit_node_public_key.len();
     let masquerader = JsonMasquerader::new();
-    let bad_exit_cryptde = CryptDENull::from(&bad_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    // let bad_exit_cryptde = CryptDENull::from(&bad_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
     let good_exit_cryptde = CryptDENull::from(&good_exit_node_public_key, TEST_DEFAULT_MULTINODE_CHAIN);
     let originating_node_alias_cryptde = CryptDENull::from(originating_node.alias_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let mut client = originating_node.make_client(8080, 10000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    let mut expired_cores_package_opt = None;
 
+    let expired_cores_package = bad_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
 
-    loop {
-        let (_, _, live_cores_package) = bad_exit_node
-            .wait_for_package(&masquerader, Duration::from_secs(2))
-            .unwrap();
-        let (_, intended_exit_public_key) =
-            CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-        assert_eq!(intended_exit_public_key, bad_exit_node_public_key);
-        let expired_cores_package = live_cores_package
-            .to_expired(
-                originating_node.socket_addr(PortSelector::First),
-                &bad_exit_cryptde,
-                &bad_exit_cryptde,
-            )
-            .unwrap();
-        if let MessageType::ClientRequest(_) = expired_cores_package.payload {
-            eprintln!("ClientRequest Received");
-            expired_cores_package_opt = Some(expired_cores_package);
-            break;
-        }
-    };
+    // let mut expired_cores_package_opt = None;
+    // loop {
+    //     let (_, _, live_cores_package) = bad_exit_node
+    //         .wait_for_package(&masquerader, Duration::from_secs(2))
+    //         .unwrap();
+    //     let (_, intended_exit_public_key) =
+    //         CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    //     assert_eq!(intended_exit_public_key, bad_exit_node_public_key);
+    //
+    //     let expired_cores_package = live_cores_package
+    //         .to_expired(
+    //             originating_node.socket_addr(PortSelector::First),
+    //             &bad_exit_cryptde,
+    //             &bad_exit_cryptde,
+    //         )
+    //         .unwrap();
+    //     if let MessageType::ClientRequest(_) = expired_cores_package.payload {
+    //         eprintln!("ClientRequest Received");
+    //         expired_cores_package_opt = Some(expired_cores_package);
+    //         break;
+    //     }
+    // };
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg =
-        make_dns_fail_package(expired_cores_package_opt.unwrap(), &originating_node_alias_cryptde);
+        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
     bad_exit_node
         .transmit_package(
             bad_exit_node.port_list()[0],
