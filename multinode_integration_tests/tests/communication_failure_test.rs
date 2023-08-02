@@ -165,9 +165,8 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
     let mut client = originating_node.make_client(8080, 10000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let expired_cores_package = bad_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
-    // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg =
-        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde, None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(expired_cores_package.remaining_route.clone(),expired_cores_package, &originating_node_alias_cryptde, None, MessageTypeLite::DnsResolveFailed);
     bad_exit_node
         .transmit_package(
             bad_exit_node.port_list()[0],
@@ -197,6 +196,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         true,
     );
     let client_response_pkg = make_package_for_client(
+        expired_cores_package.remaining_route.clone(),
         expired_cores_package,
         &originating_node_alias_cryptde,
         Some(sequenced_packet),
@@ -312,16 +312,29 @@ fn dns_resolution_failure_automatic_retries_works() {
             &cheap_exit_cryptde,
         )
         .unwrap();
-
+    /*
+    The removed hops were:
+    relay1 -> relay2
+    relay2 -> cheap_exit
+    cheap_exit -> relay2
+    relay2 -> relay1
+    */
+    let route = Route {
+        hops: vec![
+            expired_cores_package.remaining_route.hops[4].clone(),
+            expired_cores_package.remaining_route.hops[5].clone(),
+            expired_cores_package.remaining_route.hops[6].clone(),
+        ],
+    };
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg_1 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_2 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_3 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_4 =
-        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route,expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
 
     relay1_mock
         .transmit_package(
@@ -444,16 +457,29 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             &cheap_exit_cryptde,
         )
         .unwrap();
-
+    /*
+     The removed hops were:
+     relay1 -> relay2
+     relay2 -> cheap_exit
+     cheap_exit -> relay2
+     relay2 -> relay1
+     */
+    let route = Route {
+        hops: vec![
+            expired_cores_package.remaining_route.hops[4].clone(),
+            expired_cores_package.remaining_route.hops[5].clone(),
+            expired_cores_package.remaining_route.hops[6].clone(),
+        ],
+    };
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg_1 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_2 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_3 =
-        make_package_for_client(expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
     let dns_fail_pkg_4 =
-        make_package_for_client(expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        make_package_for_client(route, expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
 
     relay1_mock
         .transmit_package(
@@ -543,35 +569,12 @@ fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
 }
 
 fn make_package_for_client(
+    route: Route,
     expired_cores_package: ExpiredCoresPackage<MessageType>,
     destination_alias_cryptde: &dyn CryptDE,
     sequenced_packet_opt: Option<SequencedPacket>,
     message_type_lite: MessageTypeLite
 ) -> IncipientCoresPackage {
-    let length = expired_cores_package.remaining_route.hops.len();
-    let min_hops:Hops = Hops::from_str(&((length / 2) - 1).to_string()).unwrap();
-    let route = match min_hops {
-        Hops::OneHop => {
-            Route {
-                hops:vec![
-                    expired_cores_package.remaining_route.hops[0].clone(),
-                    expired_cores_package.remaining_route.hops[1].clone(),
-                    expired_cores_package.remaining_route.hops[2].clone(),
-                    expired_cores_package.remaining_route.hops[3].clone(),
-                ]
-            }
-        }
-        Hops::ThreeHops => {
-            Route {
-                hops: vec![
-                    expired_cores_package.remaining_route.hops[4].clone(),
-                    expired_cores_package.remaining_route.hops[5].clone(),
-                    expired_cores_package.remaining_route.hops[6].clone(),
-                ],
-            }
-        }
-        _ => { panic!("Not implemented"); }
-    };
     let stream_key = match expired_cores_package.payload {
         MessageType::ClientRequest(vdata) => {
             vdata
