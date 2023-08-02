@@ -154,16 +154,18 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
-                let node_to_ui_recipient = self
-                    .node_to_ui_recipient_opt
-                    .as_ref()
-                    .expect("UI gateway is dead");
-                self.overall_connection_status
-                    .update_ocs_stage_and_send_message_to_ui(
-                        OverallConnectionStage::ConnectedToNeighbor,
-                        node_to_ui_recipient,
-                        &self.logger,
-                    );
+                if self.overall_connection_status.can_make_routes() {
+                    let node_to_ui_recipient = self
+                        .node_to_ui_recipient_opt
+                        .as_ref()
+                        .expect("UI gateway is dead");
+                    self.overall_connection_status
+                        .update_ocs_stage_and_send_message_to_ui(
+                            OverallConnectionStage::ConnectedToNeighbor,
+                            node_to_ui_recipient,
+                            &self.logger,
+                        );
+                }
                 self.search_for_a_new_route();
             }
         }
@@ -3065,9 +3067,9 @@ mod tests {
     }
 
     #[test]
-    fn can_update_min_hops_with_configuration_change_msg() {
+    fn min_hops_can_be_changed_during_runtime_using_configuration_change_msg() {
         init_test_logging();
-        let test_name = "can_update_min_hops_with_configuration_change_msg";
+        let test_name = "min_hops_can_be_changed_during_runtime_using_configuration_change_msg";
         let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
@@ -3102,16 +3104,16 @@ mod tests {
         System::current().stop();
         system.run();
         let recording = ui_gateway_recording.lock().unwrap();
-        let message: &NodeToUiMessage = recording.get_record(0);
+        let message_opt = recording.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(
-            message,
-            &NodeToUiMessage {
+            message_opt,
+            Some(&NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::ConnectedToNeighbor
                 }
                 .tmb(0),
-            }
+            })
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
@@ -3120,6 +3122,57 @@ mod tests {
             ),
             &format!("DEBUG: {test_name}: Searching for a 4-hop route..."),
         ]);
+    }
+
+    #[test]
+    fn ocs_stage_is_not_changed_in_case_routes_can_not_be_found_before_min_hops_change() {
+        init_test_logging();
+        let test_name =
+            "ocs_stage_is_not_regressed_in_case_routes_can_not_be_found_before_min_hops_change";
+        let new_min_hops = Hops::FourHops;
+        let system = System::new(test_name);
+        let (ui_gateway, _, ui_gateway_recording) = make_recorder();
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::TwoHops;
+        subject.logger = Logger::new(test_name);
+        subject.overall_connection_status.stage = OverallConnectionStage::NotConnected;
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: ConfigurationChange::UpdateMinHops(new_min_hops),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                    let expected_db_patch_size =
+                        Neighborhood::calculate_db_patch_size(new_min_hops);
+                    assert_eq!(neighborhood.min_hops, new_min_hops);
+                    assert_eq!(neighborhood.db_patch_size, expected_db_patch_size);
+                    assert_eq!(
+                        neighborhood.overall_connection_status.stage,
+                        OverallConnectionStage::NotConnected
+                    );
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        system.run();
+        let recording = ui_gateway_recording.lock().unwrap();
+        let message_opt = recording.get_record_opt::<NodeToUiMessage>(0);
+        assert_eq!(message_opt, None);
+        let tlh = TestLogHandler::new();
+        tlh.exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: The stage of OverallConnectionStatus has been changed \
+                from RouteFound to ConnectedToNeighbor. A message to the UI was also sent."
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Searching for a 4-hop route..."
+        ));
     }
 
     #[test]
