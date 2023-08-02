@@ -5,6 +5,7 @@ pub mod node_configurator_initialization;
 pub mod node_configurator_standard;
 pub mod unprivileged_parse_args_configuration;
 
+use std::iter::Map;
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -23,6 +24,7 @@ use masq_lib::shared_schema::{
 use masq_lib::utils::{localhost, ExpectValue};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
+use std::slice::Iter;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
@@ -156,6 +158,24 @@ impl DirsWrapper for DirsWrapperReal {
     }
 }
 
+pub fn replace_tilde_with_directory(args: &[std::string::String]) {
+    let data_dir = "--data-directory".to_string();
+    let mut arg;
+    for s in args {
+        arg = match &s {
+            data_dir => s,
+            _ => s
+        };
+        println!("arg: {}", s)
+    };
+    // let fixedargs = args.into_iter()
+    //     .filter(|a| a == data_dir {
+    //         iterargs.next()
+    // }).map(|a| {
+    //     println!("a: {}", a)
+    // }).collect();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +189,34 @@ mod tests {
         App::new("test")
             .arg(data_directory_arg())
             .arg(config_file_arg())
+    }
+
+    #[test]
+    fn test_replacing_tilde_in_path() {
+        let args = vec![
+            "MASQNode",
+            "--clandestine-port",
+            "8290",
+            "--data-directory",
+            "~/masqhome",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--ui-port",
+            "32768",
+        ];
+        let expected_args = vec![
+            "MASQNode",
+            "--clandestine-port",
+            "8290",
+            "--data-directory",
+            "/home/user/masqhome",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--ui-port",
+            "32768",
+        ];
+        let fixed_args = replace_tilde_with_directory(args);
+        assert_eq!(fixed_args, expected_args);
     }
 
     #[test]
