@@ -31,7 +31,22 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      hexadecimal digits.";
 pub const DATA_DIRECTORY_HELP: &str =
     "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well.";
+     least its database and by default its configuration file as well. By default, if you start the Node with Daemon via \
+     command-line UI, your data-directory is located in you application directory, under your home directory \
+     e.g.: '/home/username/.local/share/MASQ/polygon-mainnet' for Default chain you are going to use. \
+     In case you change your Chain to different one, the data-directory is automatically change to chain specific name:\
+     e.g.: you choose polygon-mumbai as your Chain, then data-directory is automatically changed to: \
+     '/home/username/.local/share/MASQ/polygon-mumbai'.\
+     In case, you specify your own data-directory via command-line UI, without providing chain name on the end \
+     Daemon is automatically setting your data-directory to correspond with the Chain. For example, you are going \
+     to set your data-directory to specific masq directory in your home directory e.g. '/home/username/masq_home' \
+     without specifying chain directory on the end, Daemon will automatically set your data-directory as:\
+     '/home/username/masq_home/polygon-mainnet'. You can provide your data directory with corresponding chain name \
+     on the end. In that case, your data-directory will stay as you set it up, until you change the Chain paremeter.\
+     In that case, your data directory will be changed to correspond last part to chain name. If you starting \
+     Node without the Daemon, from command line, your data directory is taken as it is. So be carefull, because \
+     if you specify data-directory to path, where is located database of different Chain, you will be facing \
+     panic and Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \

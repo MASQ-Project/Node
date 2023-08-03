@@ -3632,15 +3632,16 @@ mod tests {
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
         let masqhome = Path::new("/home/booga/masqhome");
-        let expected = &masqhome.join("polygon-mainnet");
         let incoming_setup = vec![UiSetupRequestValue::new(
             "data-directory",
-            masqhome.to_str().unwrap(),
+            &masqhome.to_str().unwrap(),
         )];
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
+        let expected = masqhome.join("polygon-mainnet");
+
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
             expected.to_str().unwrap()

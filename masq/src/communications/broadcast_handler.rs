@@ -475,11 +475,6 @@ mod tests {
                     value: "error".to_string(),
                     status: UiSetupResponseValueStatus::Set,
                 },
-                UiSetupResponseValue {
-                    name: "data-directory".to_string(),
-                    value: "/home/booga".to_string(),
-                    status: UiSetupResponseValueStatus::Default,
-                },
             ],
             errors: vec![],
         };
@@ -490,7 +485,6 @@ mod tests {
 
 NAME                          VALUE                                                            STATUS
 chain                         ropsten                                                          Configured
-data-directory                /home/booga                                                      Default
 ip                            4.4.4.4                                                          Set
 log-level                     error                                                            Set
 neighborhood-mode             standard                                                         Default
