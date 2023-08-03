@@ -10,7 +10,6 @@ extern crate masq_lib;
 pub mod accountant;
 mod actor_system_factory;
 pub mod apps;
-mod banned_dao;
 pub mod blockchain;
 mod bootstrapper;
 mod crash_test_dummy;

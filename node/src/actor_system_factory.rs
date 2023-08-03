@@ -10,7 +10,9 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
+use crate::accountant::database_access_objects::banned_dao::{
+    BannedCacheLoader, BannedCacheLoaderReal,
+};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -46,6 +48,7 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -461,11 +464,7 @@ impl ActorFactory for ActorFactoryReal {
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
-        banned_cache_loader.load(connection_or_panic(
-            db_initializer,
-            data_directory,
-            DbInitializationConfig::panic_on_migration(),
-        ));
+        Self::load_banned_cache(db_initializer, banned_cache_loader, data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -524,7 +523,6 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
                 blockchain_service_url_opt,
-                &DbInitializerReal::default(),
                 data_directory,
                 chain_id,
             );
@@ -548,6 +546,20 @@ impl ActorFactory for ActorFactoryReal {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
         }
+    }
+}
+
+impl ActorFactoryReal {
+    fn load_banned_cache(
+        db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
+        data_directory: &Path,
+    ) {
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            DbInitializationConfig::panic_on_migration(),
+        ));
     }
 }
 
@@ -638,6 +650,8 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -647,9 +661,10 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{alias_cryptde_null, main_cryptde_null, make_wallet};
+    use crate::test_utils::{alias_cryptde_null, main_cryptde_null};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
@@ -1082,12 +1097,14 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
-        let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("polygon-mumbai".to_string());
+        let persistent_config = PersistentConfigurationMock::default()
+            .chain_name_result("polygon-mumbai".to_string())
+            .set_min_hops_result(Ok(()));
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             Some(main_cryptde_null()),
             Some(alias_cryptde_null()),
@@ -1157,6 +1174,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1277,8 +1295,49 @@ mod tests {
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![]),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let subject = ActorSystemFactoryToolsReal::new();
+
+        let _ = subject.prepare_initial_messages(
+            make_cryptde_pair(),
+            config,
+            Box::new(PersistentConfigurationMock::new()),
+            Box::new(actor_factory),
+        );
+
+        assert!(LOG_RECIPIENT_OPT.lock().unwrap().is_some());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
+    )]
+    fn change_handler_panics_when_receiving_ip_change_from_isp() {
+        running_test();
+        let actor_factory = ActorFactoryMock::new();
+        let mut config = BootstrapperConfig::default();
+        config.automap_config.usual_protocol_opt = Some(AutomapProtocol::Pcp);
+        config.neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
+                vec![],
+                rate_pack(100),
+            ),
+            min_hops: MIN_HOPS_FOR_TEST,
+        };
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = make_subject_with_null_setter();
+        subject.automap_control_factory = Box::new(
+            AutomapControlFactoryMock::new()
+                .make_params(&make_params_arc)
+                .make_result(Box::new(
+                    AutomapControlMock::new()
+                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
+                        .get_mapping_protocol_result(Some(AutomapProtocol::Pcp))
+                        .add_mapping_result(Ok(())),
+                )),
+        );
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1411,6 +1470,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1422,7 +1482,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config,
-            Box::new(PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new().set_min_hops_result(Ok(()))),
             Box::new(actor_factory),
         );
 
@@ -1726,6 +1786,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops: MIN_HOPS_FOR_TEST,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),
@@ -1737,7 +1798,7 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config,
-            Box::new(PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new().set_min_hops_result(Ok(()))),
             Box::new(actor_factory),
         );
 
@@ -1979,22 +2040,21 @@ mod tests {
         }
 
         let current_dir = current_dir().unwrap();
-        let file_path = current_dir
-            .join("src")
-            .join("accountant")
-            .join("receivable_dao.rs");
+        let file_path = current_dir.join(PathBuf::from_iter([
+            "src",
+            "accountant",
+            "database_access_objects",
+            "receivable_dao.rs",
+        ]));
         let file = match File::open(file_path) {
             Ok(file) => file,
-            Err(_) => {
-                if Skip == check_if_source_code_is_attached(&current_dir) {
-                    return Skip;
-                } else {
-                    panic!(
-                        "if panics, the file receivable_dao.rs probably doesn't exist or \
+            Err(_) => match check_if_source_code_is_attached(&current_dir) {
+                Skip => return Skip,
+                _ => panic!(
+                    "if panics, the file receivable_dao.rs probably doesn't exist or \
                 has been moved to an unexpected location"
-                    )
-                }
-            }
+                ),
+            },
         };
         let reader = BufReader::new(file);
         let lines_without_fn_trait_definition =
@@ -2080,8 +2140,10 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_before_raw_address = addr_of!(*actor_factory);
-        let persistent_config = Box::new(PersistentConfigurationMock::default());
-        let persistent_config_id = persistent_config.set_arbitrary_id_stamp();
+        let persistent_config_id = ArbitraryIdStamp::new();
+        let persistent_config = Box::new(
+            PersistentConfigurationMock::default().set_arbitrary_id_stamp(persistent_config_id),
+        );
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
             .cryptdes_result(CryptDEPair {
@@ -2153,6 +2215,24 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         let msg = recording.get_record::<NodeFromUiMessage>(0);
         assert_eq!(msg, &msg_of_irrelevant_choice);
+    }
+
+    #[test]
+    fn load_banned_cache_implements_panic_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "actor_system_factory",
+            "load_banned_cache_implements_panic_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            ActorFactoryReal::load_banned_cache(
+                &DbInitializerReal::default(),
+                &BannedCacheLoaderMock::default(),
+                &data_dir,
+            );
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {

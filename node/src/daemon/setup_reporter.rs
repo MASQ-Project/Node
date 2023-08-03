@@ -11,6 +11,7 @@ use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::privileged_parse_args;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoNull,
@@ -29,7 +30,7 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
-use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
+use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
@@ -37,7 +38,6 @@ use masq_lib::multi_config::{
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::ExpectValue;
 use std::collections::HashMap;
-use std::default::Default;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
@@ -45,7 +45,10 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
+    blanked_arg: "chain",
+    linked_arg: "data-directory",
+}];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -86,8 +89,11 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let err_conflicts_for_blanked_out =
-            Self::get_err_conflicts_for_blanked_out(&blanked_out_former_values, &existing_setup);
+        let prevention_to_err_induced_setup_impairments =
+            Self::prevent_err_induced_setup_impairments(
+                &blanked_out_former_values,
+                &existing_setup,
+            );
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -168,7 +174,7 @@ impl SetupReporter for SetupReporterReal {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
                 &blanked_out_former_values,
-                &err_conflicts_for_blanked_out,
+                &prevention_to_err_induced_setup_impairments,
             ]);
             Err((setup, error_so_far))
         }
@@ -230,23 +236,26 @@ impl SetupReporterReal {
         }
     }
 
-    fn get_err_conflicts_for_blanked_out(
-        blanked_out_former_values: &SetupCluster,
+    fn prevent_err_induced_setup_impairments(
+        blanked_out_former_setup: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
-        ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS.iter().fold(
-            HashMap::new(),
-            |mut acc, (blanked_out_arg, err_persistent_linked_arg)| {
-                if blanked_out_former_values.contains_key(&blanked_out_arg.to_string()) {
-                    if let Some(former_value) =
-                        existing_setup.get(&err_persistent_linked_arg.to_string())
+        // this function arose as an unconvincing patch for a corner case where a blanked-out parameter registers
+        // while it heads off to an (unrelated) error which will make another parameter get out of sync with
+        // the restored value for the blanked-out parameter; this special SetupCluster should remember the initial
+        // state and help to restore both params the way they used to be
+        ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS
+            .iter()
+            .fold(HashMap::new(), |mut acc, pair| {
+                if blanked_out_former_setup.contains_key(&pair.blanked_arg.to_string()) {
+                    if let Some(existing_linked_value) =
+                        existing_setup.get(&pair.linked_arg.to_string())
                     {
-                        acc.insert(err_persistent_linked_arg.to_string(), former_value.clone());
+                        acc.insert(pair.linked_arg.to_string(), existing_linked_value.clone());
                     }
                 };
                 acc
-            },
-        )
+            })
     }
 
     fn calculate_fundamentals(
@@ -468,7 +477,9 @@ impl SetupReporterReal {
             }
             Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
-                // created. If the database is old, it should not be used by the Daemon.
+                // created. If the database is old, it should not be used by the Daemon (see more
+                // details at ConfigDaoNull).
+
                 let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
@@ -492,6 +503,11 @@ impl SetupReporterReal {
             Err(e) => panic!("Couldn't initialize database: {:?}", e),
         }
     }
+}
+
+struct ErrorSensitiveArgPair<'arg_names> {
+    blanked_arg: &'arg_names str,
+    linked_arg: &'arg_names str,
 }
 
 trait ValueRetriever {
@@ -643,7 +659,7 @@ impl ValueRetriever for DataDirectory {
         true
     }
 }
-impl Default for DataDirectory {
+impl std::default::Default for DataDirectory {
     fn default() -> Self {
         Self::new(&DirsWrapperReal)
     }
@@ -827,6 +843,46 @@ impl ValueRetriever for MappingProtocol {
     }
 }
 
+struct MinHops {
+    logger: Logger,
+}
+
+impl MinHops {
+    pub fn new() -> Self {
+        Self {
+            logger: Logger::new("MinHops"),
+        }
+    }
+}
+
+impl ValueRetriever for MinHops {
+    fn value_name(&self) -> &'static str {
+        "min-hops"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        match persistent_config.min_hops() {
+            Ok(min_hops) => Some(if min_hops == DEFAULT_MIN_HOPS {
+                (DEFAULT_MIN_HOPS.to_string(), Default)
+            } else {
+                (min_hops.to_string(), Configured)
+            }),
+            Err(e) => {
+                error!(
+                    self.logger,
+                    "No value for min hops found in database; database is corrupt: {:?}", e
+                );
+                None
+            }
+        }
+    }
+}
+
 struct NeighborhoodMode {}
 impl ValueRetriever for NeighborhoodMode {
     fn value_name(&self) -> &'static str {
@@ -1004,7 +1060,7 @@ impl ValueRetriever for RealUser {
         }
     }
 }
-impl Default for RealUser {
+impl std::default::Default for RealUser {
     fn default() -> Self {
         Self::new(&DirsWrapperReal {})
     }
@@ -1053,6 +1109,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(Ip {}),
         Box::new(LogLevel {}),
         Box::new(MappingProtocol {}),
+        Box::new(MinHops::new()),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
         Box::new(PaymentThresholds {}),
@@ -1083,6 +1140,7 @@ mod tests {
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::neighborhood::Hops;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1279,6 +1337,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "warn", UiSetupResponseValueStatus::Default),
             ("mapping-protocol", "", Blank),
+            ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Default),
             ("neighborhood-mode", "standard", UiSetupResponseValueStatus::Default),
             (
                 "neighbors",
@@ -1343,6 +1402,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
@@ -1372,6 +1432,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
@@ -1411,6 +1472,7 @@ mod tests {
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
             ("mapping-protocol", "igdp"),
+            ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
@@ -1444,6 +1506,7 @@ mod tests {
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "igdp", Set),
+            ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
@@ -1484,6 +1547,7 @@ mod tests {
             ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
+            ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
@@ -1515,6 +1579,7 @@ mod tests {
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pmp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
@@ -1570,6 +1635,7 @@ mod tests {
             config_file
                 .write_all(b"mapping-protocol = \"pcp\"\n")
                 .unwrap();
+            config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
@@ -1612,6 +1678,7 @@ mod tests {
             config_file
                 .write_all(b"mapping-protocol = \"pmp\"\n")
                 .unwrap();
+            config_file.write_all(b"min-hops = \"2\"\n").unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
@@ -1678,6 +1745,7 @@ mod tests {
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
             ("mapping-protocol", "pmp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
             (
@@ -1730,6 +1798,7 @@ mod tests {
             ("MASQ_GAS_PRICE", "50"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
+            ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
@@ -1754,6 +1823,7 @@ mod tests {
             "ip",
             "log-level",
             "mapping-protocol",
+            "min-hops",
             "neighborhood-mode",
             "neighbors",
             "payment-thresholds",
@@ -1788,6 +1858,7 @@ mod tests {
             ("ip", "1.2.3.4", Set),
             ("log-level", "error", Set),
             ("mapping-protocol", "pcp", Set),
+            ("min-hops", "4", Set),
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
@@ -1825,6 +1896,7 @@ mod tests {
             ("ip","", Blank),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pcp", Configured),
+            ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
@@ -3004,6 +3076,36 @@ mod tests {
     }
 
     #[test]
+    fn min_hops_computes_default_from_value_in_database() {
+        let subject = MinHops::new();
+        let value_in_db = Hops::TwoHops;
+        let persistent_config =
+            PersistentConfigurationMock::default().min_hops_result(Ok(value_in_db));
+        let bootstrapper_config = BootstrapperConfig::new();
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, Some((value_in_db.to_string(), Configured)))
+    }
+
+    #[test]
+    fn min_hops_will_log_an_error_if_no_value_is_found_in_db() {
+        init_test_logging();
+        let subject = MinHops::new();
+        let persistent_config = PersistentConfigurationMock::default()
+            .min_hops_result(Err(PersistentConfigError::NotPresent));
+        let bootstrapper_config = BootstrapperConfig::new();
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: MinHops: No value for min hops found in database; \
+            database is corrupt: NotPresent",
+        );
+    }
+
+    #[test]
     fn neighborhood_mode_computed_default() {
         let subject = NeighborhoodMode {};
 
@@ -3463,6 +3565,7 @@ mod tests {
         assert_eq!(Ip {}.is_required(&params), false);
         assert_eq!(LogLevel {}.is_required(&params), true);
         assert_eq!(MappingProtocol {}.is_required(&params), false);
+        assert_eq!(MinHops::new().is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(PaymentThresholds {}.is_required(&params), true);
@@ -3492,6 +3595,7 @@ mod tests {
         assert_eq!(Ip {}.value_name(), "ip");
         assert_eq!(LogLevel {}.value_name(), "log-level");
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
+        assert_eq!(MinHops::new().value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
         assert_eq!(PaymentThresholds {}.value_name(), "payment-thresholds");

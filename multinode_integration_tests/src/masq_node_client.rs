@@ -11,7 +11,7 @@ pub struct MASQNodeClient {
 }
 
 impl MASQNodeClient {
-    pub fn new(socket_addr: SocketAddr) -> MASQNodeClient {
+    pub fn new(socket_addr: SocketAddr, timeout_millis: u64) -> MASQNodeClient {
         let stream = TcpStream::connect(&socket_addr)
             .unwrap_or_else(|error| panic!("Connecting to {}: {:?}", socket_addr, error));
         stream
@@ -20,7 +20,7 @@ impl MASQNodeClient {
 
         MASQNodeClient {
             stream,
-            timeout: Duration::from_secs(1),
+            timeout: Duration::from_millis(timeout_millis),
         }
     }
 

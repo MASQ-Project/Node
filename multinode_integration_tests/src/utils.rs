@@ -5,8 +5,10 @@ use crate::masq_node::{DataProbeUtils, MASQNode};
 use crate::masq_real_node::MASQRealNode;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
-use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::database_access_objects::receivable_dao::{
+    ReceivableDao, ReceivableDaoReal,
+};
 use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,

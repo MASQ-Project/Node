@@ -9,6 +9,7 @@ use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4
 use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5;
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
+use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
@@ -75,6 +76,7 @@ impl DbMigratorReal {
             &Migrate_4_to_5,
             &Migrate_5_to_6,
             &Migrate_6_to_7,
+            &Migrate_7_to_8,
         ]
     }
 
@@ -181,7 +183,7 @@ impl DbMigratorReal {
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+    use crate::database::db_initializer::ExternalData;
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
     };
@@ -193,6 +195,7 @@ mod tests {
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};

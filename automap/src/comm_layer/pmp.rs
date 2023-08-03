@@ -1947,7 +1947,7 @@ mod tests {
             next_lifetime: Duration::from_secs(600),
             remap_interval: Duration::from_secs(0),
         };
-        let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
+        let mut last_remapped = Instant::now().sub(Duration::from_secs(60));
         let logger = Logger::new(test_name);
         let transactor = PmpTransactor::new(&AutomapConfig::default());
         let mut subject = ThreadGuts::new(

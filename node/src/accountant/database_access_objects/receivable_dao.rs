@@ -9,12 +9,13 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::dao_utils::{
+use crate::accountant::database_access_objects::dao_utils;
+use crate::accountant::database_access_objects::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::{dao_utils, gwei_to_wei};
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
+use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
@@ -24,7 +25,7 @@ use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
 use itertools::Either::Left;
-use masq_lib::constants::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::OptionalExtension;
@@ -82,7 +83,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    //test only intended method but because of share with multi-node tests conditional compilation is disallowed
+    //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     declare_as_any!();
@@ -120,16 +121,27 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
-               "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do \
-               update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
-            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
-            SQLParamsBuilder::default()
-                        .key(  WalletAddress(wallet))
-                        .wei_change(Addition("balance",amount))
-                        .other(vec![Param::new((":last_received",&to_time_t(timestamp)),false)])
-                        .build()
-        ))?)
+        let main_sql = "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values \
+        (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do update set \
+        balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b";
+        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
+        where wallet_address = :wallet";
+
+        Ok(self.big_int_db_processor.execute(
+            Left(self.conn.as_ref()),
+            BigIntSqlConfig::new(
+                main_sql,
+                overflow_update_clause,
+                SQLParamsBuilder::default()
+                    .key(WalletAddress(wallet))
+                    .wei_change(Addition("balance", amount))
+                    .other_params(vec![Param::new(
+                        (":last_received", &to_time_t(timestamp)),
+                        false,
+                    )])
+                    .build(),
+            ),
+        )?)
     }
 
     fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
@@ -188,7 +200,7 @@ impl ReceivableDao for ReceivableDaoReal {
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
         let (unban_balance_high_b, unban_balance_low_b) = BigIntDivider::deconstruct(
-            (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI,
+            (payment_thresholds.unban_below_gwei as i128) * WEIS_IN_GWEI,
         );
         stmt.query_map(
             named_params! {
@@ -277,16 +289,28 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
-                    //the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair with the high bytes integer being negative
-                    "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    SQLParamsBuilder::default()
-                                .key( WalletAddress(&transaction.from))
-                                .wei_change(Subtraction("balance",transaction.wei_amount))
-                                .other(vec![Param::new((":last_received", &to_time_t(timestamp)),true)])
-                                .build()
-                    ))?
+                // the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair
+                // with the high bytes integer being negative
+                let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet";
+                let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
+                last_received_timestamp = :last_received where wallet_address = :wallet";
+
+                self.big_int_db_processor.execute(
+                    Either::Right(&xactn),
+                    BigIntSqlConfig::new(
+                        main_sql,
+                        overflow_update_clause,
+                        SQLParamsBuilder::default()
+                            .key(WalletAddress(&transaction.from))
+                            .wei_change(Subtraction("balance", transaction.wei_amount))
+                            .other_params(vec![Param::new(
+                                (":last_received", &to_time_t(timestamp)),
+                                true,
+                            )])
+                            .build(),
+                    ),
+                )?
             }
         }
         match xactn.commit() {
@@ -389,7 +413,9 @@ impl TableNameDAO for ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::database_access_objects::dao_utils::{
+        from_time_t, now_time_t, to_time_t,
+    };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,

@@ -3,12 +3,12 @@ use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperRe
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{
-    DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
-};
+use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT, TEST_DEFAULT_CHAIN};
 use masq_lib::logger::Logger;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -21,8 +21,6 @@ use std::{fs, vec};
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
-pub const CURRENT_SCHEMA_VERSION: usize = 7;
-pub const ENCRYPTED_ROWS: &[&str] = &[EXAMPLE_ENCRYPTED, "seed", "past_neighbors"];
 
 #[derive(Debug, PartialEq)]
 pub enum InitializationError {
@@ -230,6 +228,13 @@ impl DbInitializerReal {
             None,
             false,
             "last successful protocol for port mapping on the router",
+        );
+        Self::set_config_value(
+            conn,
+            "min_hops",
+            Some(&DEFAULT_MIN_HOPS.to_string()),
+            false,
+            "min hops",
         );
         Self::set_config_value(
             conn,
@@ -487,12 +492,7 @@ pub fn connection_or_panic(
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
         .initialize(path, init_config)
-        .unwrap_or_else(|_| {
-            panic!(
-                "Failed to connect to database at {:?}",
-                path.join(DATABASE_FILE)
-            )
-        })
+        .unwrap_or_else(|err| db_connection_launch_panic(err, path))
 }
 
 #[derive(Clone)]
@@ -606,6 +606,76 @@ impl Debug for DbInitializationConfig {
 }
 
 #[cfg(test)]
+pub mod test_utils {
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::db_initializer::DbInitializationConfig;
+    use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
+    use rusqlite::Transaction;
+    use rusqlite::{Error, Statement};
+    use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    pub struct DbInitializerMock {
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
+        pub initialize_results:
+            RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
+    }
+
+    impl DbInitializer for DbInitializerMock {
+        fn initialize(
+            &self,
+            path: &Path,
+            init_config: DbInitializationConfig,
+        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+            self.initialize_params
+                .lock()
+                .unwrap()
+                .push((path.to_path_buf(), init_config));
+            self.initialize_results.borrow_mut().remove(0)
+        }
+
+        #[allow(unused_variables)]
+        fn initialize_to_version(
+            &self,
+            path: &Path,
+            target_version: usize,
+            init_config: DbInitializationConfig,
+        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+            intentionally_blank!()
+            /* all existing test calls only initialize() in the mocked version,
+            but we need to call initialize_to_version() for the real object
+            in order to carry out some important tests too */
+        }
+    }
+
+    impl DbInitializerMock {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn initialize_parameters(
+            mut self,
+            parameters: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
+        ) -> DbInitializerMock {
+            self.initialize_params = parameters;
+            self
+        }
+
+        pub fn initialize_result(
+            self,
+            result: Result<Box<dyn ConnectionWrapper>, InitializationError>,
+        ) -> DbInitializerMock {
+            self.initialize_results.borrow_mut().push(result);
+            self
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
@@ -640,7 +710,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
     }
 
     #[test]
@@ -915,6 +985,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,
             "neighborhood_mode",
@@ -1118,7 +1189,7 @@ mod tests {
 
         assert_eq!(
             error,
-            InitializationError::SqliteError(Error::GetAuxWrongType)
+            SqliteError(Error::GetAuxWrongType)
         )
     }
 
@@ -1429,7 +1500,7 @@ mod tests {
     #[test]
     fn partial_eq_is_implemented_for_db_initialization_config() {
         let fn_one = |_: &_| Ok(());
-        let fn_two = |_: &_| Err(rusqlite::Error::GetAuxWrongType);
+        let fn_two = |_: &_| Err(Error::GetAuxWrongType);
         let config_one = make_default_config_with_different_pointers(vec![fn_one]);
         //Rust doesn't allow differentiate between fn pointers
         let config_two = make_default_config_with_different_pointers(vec![fn_two]);
@@ -1453,15 +1524,15 @@ mod tests {
     #[test]
     fn debug_is_implemented_for_db_initialization_config() {
         let fn_one = |_: &_| Ok(());
-        let fn_two = |_: &_| Err(rusqlite::Error::GetAuxWrongType);
+        let fn_two = |_: &_| Err(Error::GetAuxWrongType);
         let config_one = make_config_filled_with_external_data();
         let config_two = make_default_config_with_different_pointers(vec![fn_one, fn_two]);
 
         let config_one_debug = format!("{:?}", config_one);
         let config_two_debug = format!("{:?}", config_two);
 
-        let regex_one = Regex::new("special_conn_setup: Addresses\\[\\d+\\]").unwrap();
-        let regex_two = Regex::new("special_conn_setup: Addresses\\[\\d+(, \\d+)*\\]").unwrap();
+        let regex_one = Regex::new("special_conn_setup: Addresses\\[\\d+]").unwrap();
+        let regex_two = Regex::new("special_conn_setup: Addresses\\[\\d+(, \\d+)*]").unwrap();
         assert!(
             config_one_debug.contains(
                     "DbInitializationConfig{init_config: CreationAndMigration { external_data: \

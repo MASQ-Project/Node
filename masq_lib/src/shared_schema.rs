@@ -126,6 +126,26 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
     you specify a different protocol on the command line.";
+pub const MIN_HOPS_HELP: &str =
+    "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+    However, the level of anonymity and security provided depends on the number of hops specified \
+    by the user. By default, the system allows the user to customize the number of hops within a \
+    range of 1 to 6.\n\n\
+    It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+    cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+    1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+    Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+    and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+    2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+    same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+    knows both IP addresses.\n\
+    3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+    from knowing the IP addresses of all the Nodes in the route.\n\
+    4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+    increase the cost and latency of the route.\n\
+    If you want to specify a minimum hops count, you can do so by entering a number after the \
+    '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+    to provide this argument, the system will default to a minimum hops count of 3.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -442,6 +462,16 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .possible_values(&["pcp", "pmp", "igdp"])
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
+    )
+    .arg(
+        Arg::with_name("min-hops")
+            .long("min-hops")
+            .value_name("MIN_HOPS")
+            .required(false)
+            .min_values(0)
+            .max_values(1)
+            .possible_values(&["1", "2", "3", "4", "5", "6"])
+            .help(MIN_HOPS_HELP),
     )
     .arg(
         Arg::with_name("neighborhood-mode")
@@ -798,6 +828,28 @@ mod tests {
              public IP address with the --ip parameter. If the Node communicates successfully with your router, \
              it will remember the protocol it used, and on its next run it will try that protocol first, unless \
              you specify a different protocol on the command line."
+        );
+        assert_eq!(
+            MIN_HOPS_HELP,
+            "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+             However, the level of anonymity and security provided depends on the number of hops specified \
+             by the user. By default, the system allows the user to customize the number of hops within a \
+             range of 1 to 6.\n\n\
+             It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+             cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+             1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+             Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+             and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+             2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+             same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+             knows both IP addresses.\n\
+             3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+             from knowing the IP addresses of all the Nodes in the route.\n\
+             4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+             increase the cost and latency of the route.\n\
+             If you want to specify a minimum hops count, you can do so by entering a number after the \
+             '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+             to provide this argument, the system will default to a minimum hops count of 3."
         );
         assert_eq!(
             REAL_USER_HELP,

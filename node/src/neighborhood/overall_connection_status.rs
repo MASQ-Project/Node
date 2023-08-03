@@ -118,7 +118,7 @@ impl ConnectionProgress {
 pub enum OverallConnectionStage {
     NotConnected = 0,
     ConnectedToNeighbor = 1, // When an Introduction or Standard Gossip (acceptance) is received
-    ThreeHopsRouteFound = 2, // Data can be relayed once this stage is reached
+    RouteFound = 2,          // Data can be relayed once this stage is reached
 }
 
 impl From<OverallConnectionStage> for UiConnectionStage {
@@ -126,7 +126,7 @@ impl From<OverallConnectionStage> for UiConnectionStage {
         match stage {
             OverallConnectionStage::NotConnected => UiConnectionStage::NotConnected,
             OverallConnectionStage::ConnectedToNeighbor => UiConnectionStage::ConnectedToNeighbor,
-            OverallConnectionStage::ThreeHopsRouteFound => UiConnectionStage::ThreeHopsRouteFound,
+            OverallConnectionStage::RouteFound => UiConnectionStage::RouteFound,
         }
     }
 }
@@ -313,7 +313,7 @@ impl OverallConnectionStatus {
     }
 
     pub fn can_make_routes(&self) -> bool {
-        self.stage() == OverallConnectionStage::ThreeHopsRouteFound
+        self.stage() == OverallConnectionStage::RouteFound
     }
 
     pub fn stage(&self) -> OverallConnectionStage {
@@ -408,7 +408,7 @@ mod tests {
                 > OverallConnectionStage::NotConnected as usize
         );
         assert!(
-            OverallConnectionStage::ThreeHopsRouteFound as usize
+            OverallConnectionStage::RouteFound as usize
                 > OverallConnectionStage::ConnectedToNeighbor as usize
         );
     }
@@ -823,14 +823,11 @@ mod tests {
 
     #[test]
     fn converts_three_hops_route_found_stage_into_ui_connection_change_stage() {
-        let three_hops_route_found = OverallConnectionStage::ThreeHopsRouteFound;
+        let route_found = OverallConnectionStage::RouteFound;
 
-        let three_hops_route_found_converted: UiConnectionStage = three_hops_route_found.into();
+        let route_found_converted: UiConnectionStage = route_found.into();
 
-        assert_eq!(
-            three_hops_route_found_converted,
-            UiConnectionStage::ThreeHopsRouteFound
-        );
+        assert_eq!(route_found_converted, UiConnectionStage::RouteFound);
     }
 
     #[test]
@@ -848,7 +845,7 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
 
         let initial_flag = subject.can_make_routes();
-        subject.stage = OverallConnectionStage::ThreeHopsRouteFound;
+        subject.stage = OverallConnectionStage::RouteFound;
         let final_flag = subject.can_make_routes();
 
         assert_eq!(initial_flag, false);
@@ -860,7 +857,7 @@ mod tests {
         init_test_logging();
         let test_name = "updates_the_ocs_stage_to_three_hops_route_found";
         let initial_stage = OverallConnectionStage::NotConnected;
-        let new_stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let new_stage = OverallConnectionStage::RouteFound;
 
         let (stage, message_opt) =
             assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
@@ -935,7 +932,7 @@ mod tests {
     ) {
         init_test_logging();
         let test_name = "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
-        let initial_stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let initial_stage = OverallConnectionStage::RouteFound;
         let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =

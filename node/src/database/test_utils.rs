@@ -3,7 +3,6 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{DbInitializationConfig, ExternalData, InitializationMode};
 use crate::database::db_initializer::{DbInitializer, InitializationError};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 use masq_lib::constants::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rusqlite::Transaction;
@@ -11,6 +10,7 @@ use rusqlite::{Error, Statement};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 
 impl DbInitializationConfig {
     pub fn test_default() -> Self {
@@ -52,7 +52,7 @@ impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
         self
     }
 
-    set_arbitrary_id_stamp!();
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
@@ -68,7 +68,7 @@ impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
         self.transaction_results.borrow_mut().remove(0)
     }
 
-    arbitrary_id_stamp!();
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
 #[derive(Default)]

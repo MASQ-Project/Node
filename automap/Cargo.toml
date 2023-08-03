@@ -1,9 +1,8 @@
 [package]
 name = "automap"
-version = "0.7.2"
+version = "0.7.3"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
-copyright = "Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
 description = "Library full of code to make routers map ports through firewalls"
 edition = "2021"
 #workspace = "../node"
@@ -21,6 +20,10 @@ port_scanner = "0.1.5"
 pretty-hex = "0.1.0"
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
 socket2 = {version = "0.4.7", features = ["all"]}
+
+
+[dev-dependencies]
+regex = "1.5.4"
 
 [[bin]]
 name = "automap"

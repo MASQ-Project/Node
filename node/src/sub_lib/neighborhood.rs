@@ -88,6 +88,18 @@ impl Display for NeighborhoodMode {
     }
 }
 
+#[allow(clippy::from_over_into)]
+impl Into<NeighborhoodModeLight> for &NeighborhoodMode {
+    fn into(self) -> NeighborhoodModeLight {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
+            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
+            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
+            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
+        }
+    }
+}
+
 impl NeighborhoodMode {
     pub fn is_decentralized(&self) -> bool {
         self != &NeighborhoodMode::ZeroHop
@@ -142,15 +154,6 @@ impl NeighborhoodMode {
 
     pub fn is_zero_hop(&self) -> bool {
         matches!(self, NeighborhoodMode::ZeroHop)
-    }
-
-    pub fn make_light(&self) -> NeighborhoodModeLight {
-        match self {
-            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
-            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
-            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
-            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
-        }
     }
 }
 
@@ -368,9 +371,42 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Hops {
+    OneHop = 1,
+    TwoHops = 2,
+    ThreeHops = 3, // minimum for anonymity
+    FourHops = 4,
+    FiveHops = 5,
+    SixHops = 6,
+}
+
+impl FromStr for Hops {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "1" => Ok(Hops::OneHop),
+            "2" => Ok(Hops::TwoHops),
+            "3" => Ok(Hops::ThreeHops),
+            "4" => Ok(Hops::FourHops),
+            "5" => Ok(Hops::FiveHops),
+            "6" => Ok(Hops::SixHops),
+            _ => Err("Invalid value for min hops provided".to_string()),
+        }
+    }
+}
+
+impl Display for Hops {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as usize)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
+    pub min_hops: Hops,
 }
 
 lazy_static! {
@@ -383,7 +419,6 @@ pub struct NeighborhoodSubs {
     pub pool_bind: Recipient<PoolBindMessage>,
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
-    pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
     pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
@@ -424,14 +459,10 @@ impl NodeQueryResponseMetadata {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
     PublicKey(PublicKey),
-}
-
-impl Message for NodeQueryMessage {
-    type Result = Option<NodeQueryResponseMetadata>;
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
@@ -445,7 +476,6 @@ pub struct DispatcherNodeQueryMessage {
 pub struct RouteQueryMessage {
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
-    pub minimum_hop_count: usize,
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
     pub hostname_opt: Option<String>,
@@ -458,13 +488,11 @@ impl Message for RouteQueryMessage {
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
         hostname_opt: Option<String>,
-        minimum_hop_count: usize,
         payload_size: usize,
     ) -> RouteQueryMessage {
         RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
             hostname_opt,
@@ -552,6 +580,13 @@ impl fmt::Display for GossipFailure_0v1 {
     }
 }
 
+// This metadata is only passed from Neighborhood to GossipHandler
+pub struct NeighborhoodMetadata {
+    pub connection_progress_peers: Vec<IpAddr>,
+    pub cpm_recipient: Recipient<ConnectionProgressMessage>,
+    pub min_hops: Hops,
+}
+
 pub struct NeighborhoodTools {
     pub notify_later_ask_about_gossip:
         Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,
@@ -621,7 +656,6 @@ mod tests {
             pool_bind: recipient!(recorder, PoolBindMessage),
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
-            node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
             update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
@@ -997,14 +1031,13 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 2, 7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
 
         assert_eq!(
             result,
             RouteQueryMessage {
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
-                minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
                 hostname_opt: None
@@ -1180,7 +1213,7 @@ mod tests {
     #[test]
     fn neighborhood_mode_light_can_be_made_from_neighborhood_mode() {
         assert_make_light(
-            NeighborhoodMode::Standard(
+            &NeighborhoodMode::Standard(
                 NodeAddr::new(&localhost(), &[1234, 2345]),
                 vec![],
                 rate_pack(100),
@@ -1188,18 +1221,19 @@ mod tests {
             NeighborhoodModeLight::Standard,
         );
         assert_make_light(
-            NeighborhoodMode::ConsumeOnly(vec![]),
+            &NeighborhoodMode::ConsumeOnly(vec![]),
             NeighborhoodModeLight::ConsumeOnly,
         );
         assert_make_light(
-            NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
+            &NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
             NeighborhoodModeLight::OriginateOnly,
         );
-        assert_make_light(NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
+        assert_make_light(&NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
     }
 
-    fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
-        assert_eq!(heavy.make_light(), expected_value)
+    fn assert_make_light(heavy: &NeighborhoodMode, expected_value: NeighborhoodModeLight) {
+        let result: NeighborhoodModeLight = heavy.into();
+        assert_eq!(result, expected_value)
     }
 
     #[test]
@@ -1211,5 +1245,35 @@ mod tests {
             .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipMessage>>()
             .unwrap();
         assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn valid_hops_can_be_converted_from_str() {
+        assert_eq!(Hops::from_str("1").unwrap(), Hops::OneHop);
+        assert_eq!(Hops::from_str("2").unwrap(), Hops::TwoHops);
+        assert_eq!(Hops::from_str("3").unwrap(), Hops::ThreeHops);
+        assert_eq!(Hops::from_str("4").unwrap(), Hops::FourHops);
+        assert_eq!(Hops::from_str("5").unwrap(), Hops::FiveHops);
+        assert_eq!(Hops::from_str("6").unwrap(), Hops::SixHops);
+    }
+
+    #[test]
+    fn invalid_hops_conversion_from_str_returns_error() {
+        let result = Hops::from_str("100");
+
+        assert_eq!(
+            result,
+            Err("Invalid value for min hops provided".to_string())
+        )
+    }
+
+    #[test]
+    fn display_is_implemented_for_hops() {
+        assert_eq!(Hops::OneHop.to_string(), "1");
+        assert_eq!(Hops::TwoHops.to_string(), "2");
+        assert_eq!(Hops::ThreeHops.to_string(), "3");
+        assert_eq!(Hops::FourHops.to_string(), "4");
+        assert_eq!(Hops::FiveHops.to_string(), "5");
+        assert_eq!(Hops::SixHops.to_string(), "6");
     }
 }

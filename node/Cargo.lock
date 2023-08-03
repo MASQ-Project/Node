@@ -182,7 +182,7 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "automap"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "crossbeam-channel 0.5.1",
  "flexi_logger 0.17.1",
@@ -329,12 +329,6 @@ checksum = "fa79dedbb091f449f1f39e53edf88d5dbe95f895dae6135a8d7b881fb5af73f5"
 dependencies = [
  "byte-tools",
 ]
-
-[[package]]
-name = "boxfnonce"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5988cb1d626264ac94100be357308f29ff7cbdd3b36bda27f450a4ee3f713426"
 
 [[package]]
 name = "bumpalo"
@@ -679,16 +673,6 @@ checksum = "1631ca6e3c59112501a9d87fd86f21591ff77acd31331e8a73f8d80a65bbdd71"
 dependencies = [
  "nix 0.26.1",
  "windows-sys",
-]
-
-[[package]]
-name = "daemonize"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70c24513e34f53b640819f0ac9f705b673fcf4006d7aab8778bee72ebfc89815"
-dependencies = [
- "boxfnonce",
- "libc",
 ]
 
 [[package]]
@@ -1867,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "masq"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "atty",
  "clap",
@@ -1887,7 +1871,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "actix",
  "clap",
@@ -2063,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "base64 0.13.0",
  "crossbeam-channel 0.5.1",
@@ -2156,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "actix",
  "automap",
@@ -2167,7 +2151,6 @@ dependencies = [
  "clap",
  "core-foundation 0.7.0",
  "crossbeam-channel 0.5.1",
- "daemonize",
  "dirs 4.0.0",
  "ethabi",
  "ethereum-types",
@@ -2222,6 +2205,7 @@ dependencies = [
  "trust-dns-proto 0.8.0",
  "trust-dns-resolver 0.12.0",
  "unindent",
+ "variant_count",
  "web3",
  "websocket",
  "winreg 0.10.1",
@@ -4410,6 +4394,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90dbc611eb48397705a6b0f6e917da23ae517e4d127123d2cf7674206627d32a"
 dependencies = [
  "rand 0.6.5",
+]
+
+[[package]]
+name = "variant_count"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aae2faf80ac463422992abf4de234731279c058aaf33171ca70277c98406b124"
+dependencies = [
+ "quote 1.0.28",
+ "syn 1.0.85",
 ]
 
 [[package]]

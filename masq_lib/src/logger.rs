@@ -1,5 +1,11 @@
 use std::fmt::{Debug, Formatter};
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::constants::{
+    CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION, CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
+    CURRENT_SCHEMA_VERSION, DNS_RESOLVER_FAILURE_CURRENT_VERSION, GOSSIP_CURRENT_VERSION,
+    GOSSIP_FAILURE_CURRENT_VERSION, NODE_RECORD_INNER_CURRENT_VERSION,
+};
+use crate::data_version::DataVersion;
 use crate::messages::SerializableLogLevel;
 use crate::messages::{ToMessageBody, UiLogBroadcast};
 use crate::ui_gateway::MessageTarget;
@@ -18,6 +24,11 @@ use std::{io, thread};
 use time::format_description::parse;
 use time::OffsetDateTime;
 
+pub static mut POINTER_TO_FORMAT_FUNCTION: fn(
+    &mut dyn io::Write,
+    OffsetDateTime,
+    &Record,
+) -> Result<(), io::Error> = heading_format_function;
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 pub const TIME_FORMATTING_STRING: &str =
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
@@ -192,6 +203,35 @@ impl Logger {
         );
     }
 
+    pub fn log_file_heading() -> String {
+        format!(
+            "
+          _____ ______  ________   ________   _______          Node Version: {}
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: {}
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS {}
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS {}
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS {}
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS {}
+                                             |__|/             gossip_failure::MIGRATIONS {}
+                                                               node_record_inner::MIGRATIONS {}\n",
+            env!("CARGO_PKG_VERSION"),
+            CURRENT_SCHEMA_VERSION,
+            std::env::consts::OS,
+            Logger::data_version_pretty_print(CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION),
+            Logger::data_version_pretty_print(CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION),
+            Logger::data_version_pretty_print(DNS_RESOLVER_FAILURE_CURRENT_VERSION),
+            Logger::data_version_pretty_print(GOSSIP_CURRENT_VERSION),
+            Logger::data_version_pretty_print(GOSSIP_FAILURE_CURRENT_VERSION),
+            Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
+        )
+    }
+
+    fn data_version_pretty_print(dv: DataVersion) -> String {
+        format!("({}.{})", dv.major, dv.minor)
+    }
+
+    #[cfg(not(feature = "log_recipient_test"))]
     fn transmit(msg: String, log_level: SerializableLogLevel) {
         if let Some(recipient) = LOG_RECIPIENT_OPT
             .lock()
@@ -229,6 +269,14 @@ impl From<Level> for SerializableLogLevel {
     }
 }
 
+pub fn heading_format_function(
+    write: &mut dyn io::Write,
+    _timestamp: OffsetDateTime,
+    record: &Record,
+) -> Result<(), io::Error> {
+    write.write_fmt(*record.args())
+}
+
 pub fn real_format_function(
     write: &mut dyn io::Write,
     timestamp: OffsetDateTime,
@@ -247,6 +295,22 @@ pub fn real_format_function(
     ))?;
     write.write_fmt(*record.args())
 }
+
+// #[cfg(feature = "log_recipient_test")]
+// lazy_static! {
+//     pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
+//         Mutex::new(MutexIncrementInset(0));
+// }
+//
+// #[cfg(feature = "log_recipient_test")]
+// impl Logger {
+//     pub fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
+// }
+//
+// #[cfg(feature = "log_recipient_test")]
+// pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+//     INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
+// }
 
 #[cfg(not(feature = "no_test_share"))]
 impl Logger {
@@ -267,12 +331,18 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::{
+        CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION, CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
+        DNS_RESOLVER_FAILURE_CURRENT_VERSION, GOSSIP_CURRENT_VERSION,
+        GOSSIP_FAILURE_CURRENT_VERSION, NODE_RECORD_INNER_CURRENT_VERSION,
+    };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
     use crossbeam_channel::{unbounded, Sender};
     use lazy_static::lazy_static;
+    use regex::Regex;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
@@ -590,6 +660,53 @@ mod tests {
         system.run(); //shut down after receiving the expected count of messages
         assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
         TestLogHandler::new().exists_log_containing("WARN: test: This is a warn log.");
+    }
+
+    #[test]
+    fn log_file_heading_print_right_format() {
+        let heading_result = Logger::log_file_heading();
+
+        let mut expected_heading_regex = format!(
+            r#"^
+          _____ ______  ________   ________   _______          Node Version: \d\.\d\.\d
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS {}
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS {}
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS {}
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS {}
+                                             |__|/             gossip_failure::MIGRATIONS {}
+                                                               node_record_inner::MIGRATIONS {}\n"#,
+            std::env::consts::OS,
+            Logger::data_version_pretty_print(CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION),
+            Logger::data_version_pretty_print(CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION),
+            Logger::data_version_pretty_print(DNS_RESOLVER_FAILURE_CURRENT_VERSION),
+            Logger::data_version_pretty_print(GOSSIP_CURRENT_VERSION),
+            Logger::data_version_pretty_print(GOSSIP_FAILURE_CURRENT_VERSION),
+            Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
+        );
+
+        let replace_rules = vec![("(", "\\("), (")", "\\)"), ("|", "\\|")];
+        replace_rules.into_iter().for_each(|x| {
+            expected_heading_regex = expected_heading_regex.replace(x.0, x.1);
+        });
+
+        let regex = Regex::new(&expected_heading_regex).unwrap();
+        assert!(
+            regex.is_match(&heading_result),
+            "We expected this regex to match: {} but we got this text output {}",
+            expected_heading_regex,
+            heading_result
+        );
+    }
+
+    #[test]
+    fn data_version_pretty_print_preductise_right_format() {
+        let data_version = DataVersion { major: 0, minor: 1 };
+
+        let result = Logger::data_version_pretty_print(data_version);
+
+        assert_eq!(result, "(0.1)".to_string());
     }
 
     #[test]
