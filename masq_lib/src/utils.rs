@@ -378,9 +378,29 @@ macro_rules! implement_as_any {
     };
 }
 
+#[macro_export(local_inner_macros)]
+macro_rules! hashmap {
+    () => {
+        ::std::collections::HashMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        hashmap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _hm = ::std::collections::HashMap::new();
+            $(
+                let _ = _hm.insert($key, $value);
+            )*
+            _hm
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
@@ -701,5 +721,38 @@ mod tests {
     fn type_name_of_works() {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
+    }
+
+    #[test]
+    fn hashmap_macro_works() {
+        let empty_hashmap: HashMap<i32, i32> = hashmap!();
+        let hashmap_with_one_element = hashmap!(1 => 2);
+        let hashmap_with_multiple_elements = hashmap!(1 => 2, 10 => 20, 12 => 42);
+        let hashmap_with_trailing_comma = hashmap!(1 => 2, 10 => 20,);
+        let hashmap_of_string = hashmap!("key" => "val");
+
+        let expected_empty_hashmap: HashMap<i32, i32> = HashMap::new();
+        let mut expected_hashmap_with_one_element = HashMap::new();
+        expected_hashmap_with_one_element.insert(1, 2);
+        let mut expected_hashmap_with_multiple_elements = HashMap::new();
+        expected_hashmap_with_multiple_elements.insert(1, 2);
+        expected_hashmap_with_multiple_elements.insert(10, 20);
+        expected_hashmap_with_multiple_elements.insert(12, 42);
+        let mut expected_hashmap_with_trailing_comma = HashMap::new();
+        expected_hashmap_with_trailing_comma.insert(1, 2);
+        expected_hashmap_with_trailing_comma.insert(10, 20);
+        let mut expected_hashmap_of_string = HashMap::new();
+        expected_hashmap_of_string.insert("key", "val");
+        assert_eq!(empty_hashmap, expected_empty_hashmap);
+        assert_eq!(hashmap_with_one_element, expected_hashmap_with_one_element);
+        assert_eq!(
+            hashmap_with_multiple_elements,
+            expected_hashmap_with_multiple_elements
+        );
+        assert_eq!(
+            hashmap_with_trailing_comma,
+            expected_hashmap_with_trailing_comma
+        );
+        assert_eq!(hashmap_of_string, expected_hashmap_of_string);
     }
 }
