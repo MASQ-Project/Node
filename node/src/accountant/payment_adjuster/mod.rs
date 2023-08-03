@@ -266,7 +266,7 @@ impl PaymentAdjusterReal {
     fn run_adjustment(&mut self, qualified_accounts: Vec<PayableAccount>) -> Vec<PayableAccount> {
         match self.calculate_criteria_and_propose_adjustment_recursively(
             qualified_accounts,
-            vec![],
+    //        vec![],
             MasqAndTransactionFeeAdjuster {},
         ) {
             Either::Left(non_exhausted_accounts) => exhaust_cw_balance_totally(
@@ -280,18 +280,13 @@ impl PaymentAdjusterReal {
     fn calculate_criteria_and_propose_adjustment_recursively<A, R>(
         &mut self,
         unresolved_qualified_accounts: Vec<PayableAccount>,
-        previously_resolved_qualified_accounts: Vec<AdjustedAccountBeforeFinalization>,
         purpose_specific_adjuster: A,
     ) -> R
     where
         A: PurposeSpecificAdjuster<ReturnType = R>,
     {
         diagnostics_for_collections(
-            "\nRESOLVED QUALIFIED ACCOUNTS:",
-            &previously_resolved_qualified_accounts,
-        );
-        diagnostics_for_collections(
-            "UNRESOLVED QUALIFIED ACCOUNTS:",
+            "\nUNRESOLVED QUALIFIED ACCOUNTS:",
             &unresolved_qualified_accounts,
         );
         //TODO find the place where else we need to use this when diving in recursion
@@ -300,8 +295,7 @@ impl PaymentAdjusterReal {
 
         purpose_specific_adjuster.adjust(
             self,
-            accounts_with_individual_criteria_sorted,
-            previously_resolved_qualified_accounts,
+            accounts_with_individual_criteria_sorted
         )
     }
 
@@ -319,7 +313,7 @@ impl PaymentAdjusterReal {
         ) {
             true => {
                 let result_awaiting_verification =
-                    self.propose_adjustment_recursively(weighted_accounts_cut_by_gas, vec![]);
+                    self.propose_adjustment_recursively(weighted_accounts_cut_by_gas);
                 Either::Left(result_awaiting_verification)
             }
             false => {
@@ -341,7 +335,6 @@ impl PaymentAdjusterReal {
     fn propose_adjustment_recursively(
         &mut self,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-        previously_resolved_qualified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
         let adjustment_result: AdjustmentIterationSummary =
             self.handle_masq_token_adjustment(accounts_with_individual_criteria_sorted);
@@ -351,27 +344,26 @@ impl PaymentAdjusterReal {
             adjustment_result.disqualified_account_opt.as_ref(),
         );
 
-        let adjusted_accounts = if adjustment_result.remaining_accounts.is_empty() {
-            adjustment_result.decided_accounts
+        let (here_decided_accounts, downstream_decided_accounts)  = if adjustment_result.remaining_accounts.is_empty() {
+            (adjustment_result.decided_accounts, vec![])
         } else {
             if adjustment_result.disqualified_account_opt.is_none() {
                 // meaning we found some outweighed accounts in the previous iteration
                 self.adjust_cw_balance_down_for_next_round(&adjustment_result.decided_accounts)
             }
+            (adjustment_result.decided_accounts,
             self.calculate_criteria_and_propose_adjustment_recursively(
                 adjustment_result.remaining_accounts,
-                adjustment_result.decided_accounts,
                 MasqOnlyAdjuster {},
-            )
+            ))
         };
-
-        let adjusted_accounts_iter = adjusted_accounts.into_iter();
-        let result: Vec<AdjustedAccountBeforeFinalization> = previously_resolved_qualified_accounts
-            .into_iter()
-            .chain(adjusted_accounts_iter)
+        let here_decided_iter = here_decided_accounts.into_iter();
+        let downstream_decided_iter = downstream_decided_accounts.into_iter();
+        let merged: Vec<AdjustedAccountBeforeFinalization> = here_decided_iter
+            .chain(downstream_decided_iter)
             .collect();
-        diagnostics_for_collections("\nFINAL ADJUSTED ACCOUNTS:", &result);
-        result
+        diagnostics_for_collections("\nFINAL ADJUSTED ACCOUNTS:", &merged);
+        merged
     }
 
     fn initialize_zero_criteria(
@@ -464,11 +456,6 @@ impl PaymentAdjusterReal {
                 Left(verified_accounts) => verified_accounts,
                 Right(with_some_disqualified) => return with_some_disqualified,
             };
-
-        //TODO decide what about this
-        //let unallocated_cw_masq_balance = self.inner.unallocated_cw_masq_balance();
-        // let verified_and_exhaustive =
-        //     exhaust_cw_balance_totally(verified_accounts, unallocated_cw_masq_balance);
 
         AccountsRecreationResult::AllAccountsCleanlyProcessed(verified_accounts)
     }
@@ -735,7 +722,6 @@ trait PurposeSpecificAdjuster {
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-        previously_resolved_qualified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Self::ReturnType;
 }
 
@@ -748,7 +734,6 @@ impl PurposeSpecificAdjuster for MasqAndTransactionFeeAdjuster {
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-        previously_resolved_qualified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Self::ReturnType {
         match payment_adjuster.inner.gas_limitation_opt() {
             Some(limit) => {
@@ -760,7 +745,6 @@ impl PurposeSpecificAdjuster for MasqAndTransactionFeeAdjuster {
 
         Either::Left(payment_adjuster.propose_adjustment_recursively(
             accounts_with_individual_criteria_sorted,
-            previously_resolved_qualified_accounts,
         ))
     }
 }
@@ -774,11 +758,9 @@ impl PurposeSpecificAdjuster for MasqOnlyAdjuster {
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-        previously_resolved_qualified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Self::ReturnType {
         payment_adjuster.propose_adjustment_recursively(
             accounts_with_individual_criteria_sorted,
-            previously_resolved_qualified_accounts,
         )
     }
 }
@@ -1085,7 +1067,7 @@ mod tests {
         let seeds = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
         let purpose_specific_adjuster = MasqOnlyAdjuster {};
 
-        let result = purpose_specific_adjuster.adjust(&mut payment_adjuster, seeds, vec![]);
+        let result = purpose_specific_adjuster.adjust(&mut payment_adjuster, seeds);
 
         let returned_accounts_accounts = result
             .into_iter()
@@ -1122,7 +1104,6 @@ mod tests {
         let mut result = subject
             .calculate_criteria_and_propose_adjustment_recursively(
                 qualified_payables.clone(),
-                vec![],
                 MasqAndTransactionFeeAdjuster {},
             )
             .left()
@@ -1476,7 +1457,7 @@ mod tests {
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
             balance_wei: balance_3,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(6000)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
@@ -1509,10 +1490,11 @@ mod tests {
         let result = subject.adjust_payments(adjustment_setup, now);
 
         let expected_accounts_first_iteration = simplified_emulation_of_real_adjustment_algorithm(
-            vec![account_1.clone(), account_2.clone(), account_3],
+            vec![account_1.clone(), account_2.clone(), account_3.clone()],
             consuming_wallet_masq_balance_wei.as_u128(),
             now,
         );
+        eprintln!("expected: {:?}", expected_accounts_first_iteration);
         let account_3_adjusted_balance = expected_accounts_first_iteration
             .iter()
             .find(|account| account.wallet == wallet_3)
@@ -1529,8 +1511,8 @@ mod tests {
             minimum_allowed.separate_with_commas()
         );
         let expected_accounts = simplified_emulation_of_real_adjustment_algorithm(
-            vec![account_1, account_2],
-            consuming_wallet_masq_balance_wei.as_u128(),
+            vec![account_1, account_3],
+            consuming_wallet_masq_balance_wei.as_u128() - account_2.balance_wei,
             now,
         );
         assert_eq!(result.accounts, expected_accounts);

@@ -162,6 +162,7 @@ pub fn exhaust_cw_balance_totally(
         }
     }
 
+    eprintln!("accounts before exhaustion {:?}", verified_accounts);
     let adjusted_balances_total: u128 = sum_as(&verified_accounts, |account_info| {
         account_info.proposed_adjusted_balance
     });
@@ -184,7 +185,7 @@ pub fn exhaust_cw_balance_totally(
                 &info_b.proposed_adjusted_balance,
             )
         })
-        .inspect(|account_info| eprintln!("{:?}", account_info)) //TODO delete me
+        .inspect(|account_info| eprintln!("\n\n{:?}", account_info)) //TODO delete me
         .fold(init, fold_guts)
         .already_finalized_accounts
         .into_iter()
@@ -199,9 +200,9 @@ pub fn list_accounts_under_the_disqualification_limit(
         .iter()
         .flat_map(|account_info| {
             let original_balance = account_info.original_account.balance_wei;
-            let balance_at_the_edge = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance * 10) //TODO what about these 10s?
+            let balance_at_the_edge = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance)
                 / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor;
-            let proposed_adjusted_balance = account_info.proposed_adjusted_balance * 10;
+            let proposed_adjusted_balance = account_info.proposed_adjusted_balance;
             if proposed_adjusted_balance <= balance_at_the_edge {
                 diagnostics!(
                     &account_info.original_account.wallet,
