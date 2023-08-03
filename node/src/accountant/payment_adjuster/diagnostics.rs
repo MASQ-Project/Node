@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS;
+use std::fmt::Debug;
+
+const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -41,7 +42,7 @@ where
     }
 }
 
-pub fn diagnostics_collective(label: &str, accounts: &[PayableAccount]) {
+pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
     if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
         eprintln!("{}", label);
         accounts
@@ -60,7 +61,6 @@ pub mod formulas_progressive_characteristics {
     use std::time::Duration;
     use std::time::SystemTime;
     use thousands::Separable;
-
     pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = false;
     //mutex should be fine for debugging, no need for mut static
     static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
@@ -146,5 +146,17 @@ pub mod formulas_progressive_characteristics {
                 .expect("diagnostics poisoned")
                 .push(full_text);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS;
+    use crate::accountant::payment_adjuster::diagnostics::PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS;
+
+    #[test]
+    fn constants_are_correct() {
+        assert_eq!(PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS, false);
+        assert_eq!(COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS, false)
     }
 }

@@ -9,10 +9,12 @@ pub trait PaymentAdjusterInner {
     fn gas_limitation_opt(&self) -> Option<u16> {
         PaymentAdjusterInnerNull::panicking_operation("gas_limitation_opt()")
     }
+    fn original_cw_masq_balance(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("original_cw_masq_balance()")
+    }
     fn unallocated_cw_masq_balance(&self) -> u128 {
         PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance()")
     }
-
     //TODO this method should use RefCell internally...and we could have PaymentAdjuster with &self instead of &mut self
     fn lower_unallocated_cw_balance(&mut self, _subtrahend: u128) {
         PaymentAdjusterInnerNull::panicking_operation("lower_unallocated_cw_balance()")
@@ -22,6 +24,7 @@ pub trait PaymentAdjusterInner {
 pub struct PaymentAdjusterInnerReal {
     now: SystemTime,
     gas_limitation_opt: Option<u16>,
+    original_cw_masq_balance: u128,
     unallocated_cw_masq_balance: u128,
 }
 
@@ -30,6 +33,7 @@ impl PaymentAdjusterInnerReal {
         Self {
             now,
             gas_limitation_opt,
+            original_cw_masq_balance: cw_masq_balance,
             unallocated_cw_masq_balance: cw_masq_balance,
         }
     }
@@ -42,16 +46,18 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn gas_limitation_opt(&self) -> Option<u16> {
         self.gas_limitation_opt
     }
+    fn original_cw_masq_balance(&self) -> u128 {
+        self.original_cw_masq_balance
+    }
     fn unallocated_cw_masq_balance(&self) -> u128 {
         self.unallocated_cw_masq_balance
     }
-
     fn lower_unallocated_cw_balance(&mut self, subtrahend: u128) {
-        let lowered_theoretical_cw_balance = self
+        let updated_thought_cw_balance = self
             .unallocated_cw_masq_balance
             .checked_sub(subtrahend)
-            .expect("should always subtract a small enough amount");
-        self.unallocated_cw_masq_balance = lowered_theoretical_cw_balance
+            .expect("subtracting a small enough number");
+        self.unallocated_cw_masq_balance = updated_thought_cw_balance
     }
 }
 
@@ -84,6 +90,7 @@ mod tests {
 
         assert_eq!(result.now, now);
         assert_eq!(result.gas_limitation_opt, gas_limitation_opt);
+        assert_eq!(result.original_cw_masq_balance, cw_masq_balance);
         assert_eq!(result.unallocated_cw_masq_balance, cw_masq_balance)
     }
 
@@ -105,6 +112,16 @@ mod tests {
         let subject = PaymentAdjusterInnerNull {};
 
         let _ = subject.gas_limitation_opt();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Called the null implementation of the original_cw_masq_balance() method in PaymentAdjusterInner"
+    )]
+    fn inner_null_calling_original_cw_masq_balance() {
+        let subject = PaymentAdjusterInnerNull {};
+
+        let _ = subject.original_cw_masq_balance();
     }
 
     #[test]

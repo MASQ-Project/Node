@@ -1,13 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::diagnostics;
-use crate::accountant::payment_adjuster::{
-    AdjustedAccountBeforeFinalization, DecidedPayableAccountResolution,
+use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
+    AdjustedAccountBeforeFinalization, ResolutionAfterFullyDetermined,
 };
+use crate::accountant::payment_adjuster::{diagnostics, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use std::iter::successors;
+use thousands::Separable;
+
 const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
 
@@ -97,66 +99,11 @@ impl ExhaustionStatus {
     fn add(mut self, unfinalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
         let finalized_account = PayableAccount::from((
             unfinalized_account_info,
-            DecidedPayableAccountResolution::Finalize,
+            ResolutionAfterFullyDetermined::Finalize,
         ));
         self.already_finalized_accounts.push(finalized_account);
         self
     }
-}
-
-pub fn exhaust_cw_balance_totally(
-    verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    unallocated_cw_masq_balance: u128,
-) -> Vec<PayableAccount> {
-    let adjusted_balances_total: u128 = sum_as(&verified_accounts, |account_info| {
-        account_info.proposed_adjusted_balance
-    });
-    let remainder = unallocated_cw_masq_balance - adjusted_balances_total;
-    let init = ExhaustionStatus::new(remainder);
-    verified_accounts
-        .into_iter()
-        .sorted_by(|info_a, info_b| {
-            Ord::cmp(
-                &info_a.proposed_adjusted_balance,
-                &info_b.proposed_adjusted_balance,
-            )
-        })
-        .inspect(|account_info|eprintln!("{:?}", account_info))
-        .fold(init, |status, unfinalized_account_info| {
-            if status.remainder != 0 {
-                let balance_gap = unfinalized_account_info
-                    .original_account
-                    .balance_wei
-                    .checked_sub(unfinalized_account_info.proposed_adjusted_balance)
-                    .unwrap_or_else(||panic!(
-                        "proposed balance should never bigger than the original but proposed: {} \
-                        and original: {}",
-                        unfinalized_account_info.proposed_adjusted_balance,
-                        unfinalized_account_info.original_account.balance_wei
-                    ));
-                let possible_extra_addition = if balance_gap < status.remainder {
-                    balance_gap
-                } else {
-                    status.remainder
-                };
-
-                diagnostics!(
-                    "EXHAUSTING CW ON PAYMENT",
-                    "For account {} from proposed {} to the possible maximum of {}",
-                    unfinalized_account_info.original_account.wallet,
-                    unfinalized_account_info.proposed_adjusted_balance,
-                    unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition
-                );
-
-                status.update_and_add(unfinalized_account_info, possible_extra_addition)
-            } else {
-                status.add(unfinalized_account_info)
-            }
-        })
-        .already_finalized_accounts
-        .into_iter()
-        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.balance_wei, &account_a.balance_wei))
-        .collect()
 }
 
 pub fn sort_in_descendant_order_by_weights(
@@ -171,6 +118,104 @@ pub fn rebuild_accounts(criteria_and_accounts: Vec<(u128, PayableAccount)>) -> V
     criteria_and_accounts
         .into_iter()
         .map(|(_, account)| account)
+        .collect()
+}
+
+pub fn exhaust_cw_balance_totally(
+    verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
+    original_cw_masq_balance: u128,
+) -> Vec<PayableAccount> {
+    fn fold_guts(
+        status: ExhaustionStatus,
+        unfinalized_account_info: AdjustedAccountBeforeFinalization,
+    ) -> ExhaustionStatus {
+        if status.remainder != 0 {
+            let balance_gap = unfinalized_account_info
+                .original_account
+                .balance_wei
+                .checked_sub(unfinalized_account_info.proposed_adjusted_balance)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "proposed balance should never bigger than the original but proposed: {} \
+                        and original: {}",
+                        unfinalized_account_info.proposed_adjusted_balance,
+                        unfinalized_account_info.original_account.balance_wei
+                    )
+                });
+            let possible_extra_addition = if balance_gap < status.remainder {
+                balance_gap
+            } else {
+                status.remainder
+            };
+
+            diagnostics!(
+                "EXHAUSTING CW ON PAYMENT",
+                "For account {} from proposed {} to the possible maximum of {}",
+                unfinalized_account_info.original_account.wallet,
+                unfinalized_account_info.proposed_adjusted_balance,
+                unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition
+            );
+
+            status.update_and_add(unfinalized_account_info, possible_extra_addition)
+        } else {
+            status.add(unfinalized_account_info)
+        }
+    }
+
+    let adjusted_balances_total: u128 = sum_as(&verified_accounts, |account_info| {
+        account_info.proposed_adjusted_balance
+    });
+
+    let cw_reminder = original_cw_masq_balance
+        .checked_sub(adjusted_balances_total)
+        .unwrap_or_else(|| {
+            panic!(
+                "remainder should've been a positive number but was not after {} - {}",
+                original_cw_masq_balance, adjusted_balances_total
+            )
+        });
+
+    let init = ExhaustionStatus::new(cw_reminder);
+    verified_accounts
+        .into_iter()
+        .sorted_by(|info_a, info_b| {
+            Ord::cmp(
+                &info_a.proposed_adjusted_balance,
+                &info_b.proposed_adjusted_balance,
+            )
+        })
+        .inspect(|account_info| eprintln!("{:?}", account_info)) //TODO delete me
+        .fold(init, fold_guts)
+        .already_finalized_accounts
+        .into_iter()
+        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.balance_wei, &account_a.balance_wei))
+        .collect()
+}
+
+pub fn list_accounts_under_the_disqualification_limit(
+    unfinalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
+) -> Vec<&AdjustedAccountBeforeFinalization> {
+    unfinalized_adjusted_accounts
+        .iter()
+        .flat_map(|account_info| {
+            let original_balance = account_info.original_account.balance_wei;
+            let balance_at_the_edge = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance * 10) //TODO what about these 10s?
+                / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor;
+            let proposed_adjusted_balance = account_info.proposed_adjusted_balance * 10;
+            if proposed_adjusted_balance <= balance_at_the_edge {
+                diagnostics!(
+                    &account_info.original_account.wallet,
+                    "ACCOUNT DISQUALIFIED FOR INSIGNIFICANCE AFTER ADJUSTMENT",
+                    "Proposed: {}, qualification limit: {}",
+                    proposed_adjusted_balance.separate_with_commas(),
+                    balance_at_the_edge.separate_with_commas()
+                );
+
+                Some(&*account_info)
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
@@ -199,18 +244,42 @@ pub fn x_or_1(x: u128) -> u128 {
     }
 }
 
+impl
+    From<(
+        AdjustedAccountBeforeFinalization,
+        ResolutionAfterFullyDetermined,
+    )> for PayableAccount
+{
+    fn from(
+        (account_info, resolution): (
+            AdjustedAccountBeforeFinalization,
+            ResolutionAfterFullyDetermined,
+        ),
+    ) -> Self {
+        match resolution {
+            ResolutionAfterFullyDetermined::Finalize => PayableAccount {
+                balance_wei: account_info.proposed_adjusted_balance,
+                ..account_info.original_account
+            },
+            ResolutionAfterFullyDetermined::Revert => account_info.original_account,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::auxiliary_fns::{
+    use crate::accountant::payment_adjuster::miscellaneous::bare_functions::{
         compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
-        find_disqualified_account_with_smallest_proposed_balance, log_10, log_2, ExhaustionStatus,
+        find_disqualified_account_with_smallest_proposed_balance,
+        list_accounts_under_the_disqualification_limit, log_10, log_2, ExhaustionStatus,
         EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_IN_U128,
     };
+    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE;
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -588,6 +657,51 @@ mod tests {
             (wallet_3, original_requested_balance_3),
         ];
         assert_correct_payable_accounts_after_finalization(result, expected_resulted_balances)
+    }
+
+    #[test]
+    fn list_accounts_under_the_disqualification_limit_employs_manifest_consts_of_insignificance() {
+        let account_balance = 1_000_000;
+        let prepare_account = |n: u64| {
+            let mut account = make_payable_account(n);
+            account.balance_wei = account_balance;
+            account
+        };
+        let payable_account_1 = prepare_account(1);
+        let payable_account_2 = prepare_account(2);
+        let payable_account_3 = prepare_account(3);
+        const IRRELEVANT_CRITERIA_SUM: u128 = 1111;
+        let edge = account_balance / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
+            * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
+        let proposed_ok_balance = edge + 1;
+        let account_info_1 = AdjustedAccountBeforeFinalization::new(
+            payable_account_1,
+            proposed_ok_balance,
+            IRRELEVANT_CRITERIA_SUM,
+        );
+        let proposed_bad_balance_because_equal = edge;
+        let account_info_2 = AdjustedAccountBeforeFinalization::new(
+            payable_account_2,
+            proposed_bad_balance_because_equal,
+            IRRELEVANT_CRITERIA_SUM,
+        );
+        let proposed_bad_balance_because_smaller = edge - 1;
+        let account_info_3 = AdjustedAccountBeforeFinalization::new(
+            payable_account_3,
+            proposed_bad_balance_because_smaller,
+            IRRELEVANT_CRITERIA_SUM,
+        );
+        let accounts_with_unchecked_adjustment = vec![
+            account_info_1,
+            account_info_2.clone(),
+            account_info_3.clone(),
+        ];
+
+        let result =
+            list_accounts_under_the_disqualification_limit(&accounts_with_unchecked_adjustment);
+
+        let expected_disqualified_accounts = vec![&account_info_2, &account_info_3];
+        assert_eq!(result, expected_disqualified_accounts)
     }
 
     fn get_extreme_criteria_and_initial_accounts_order(

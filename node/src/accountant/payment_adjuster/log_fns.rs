@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::DisqualifiedPayableAccount;
+use crate::accountant::payment_adjuster::miscellaneous::data_sructures::DisqualifiedPayableAccount;
 use crate::accountant::scanners::payable_scan_setup_msgs::FinancialAndTechDetails;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;

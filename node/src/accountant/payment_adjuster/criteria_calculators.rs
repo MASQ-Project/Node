@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::auxiliary_fns::{log_2, x_or_1};
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     compute_progressive_characteristics, DiagnosticsConfig, AGE_DIAGNOSTICS_CONFIG_OPT,
     BALANCE_DIAGNOSTICS_CONFIG_OPT, COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
 };
+use crate::accountant::payment_adjuster::miscellaneous::bare_functions::{log_2, x_or_1};
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
 use std::sync::Mutex;
@@ -201,7 +201,6 @@ impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::auxiliary_fns::log_2;
     use crate::accountant::payment_adjuster::criteria_calculators::{
         AgeCriterionCalculator, BalanceCriterionCalculator, CriterionCalculator,
         AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP,
@@ -209,6 +208,7 @@ mod tests {
         AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_DIVISOR_EXP_IN_NUMERATOR, AGE_MAIN_EXPONENT,
         AGE_MULTIPLIER, BALANCE_LOG_2_ARG_DIVISOR,
     };
+    use crate::accountant::payment_adjuster::miscellaneous::bare_functions::log_2;
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use std::time::{Duration, SystemTime};
 
