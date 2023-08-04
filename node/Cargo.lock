@@ -1828,6 +1828,7 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.1",
+ "dirs 4.0.0",
  "ethereum-types",
  "itertools 0.10.3",
  "lazy_static",
