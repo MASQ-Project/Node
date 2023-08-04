@@ -23,16 +23,6 @@ pub struct AdjustmentIterationSummary {
     pub disqualified_account_opt: Option<DisqualifiedPayableAccount>,
 }
 
-pub enum IterationCompletion {
-    Finished(Vec<PayableAccount>),
-    Continue(AdjustmentIterationSummary),
-}
-
-pub enum AccountsFromEntireRecursion {
-    NeediningToExhaustCW(Vec<AdjustedAccountBeforeFinalization>),
-    Finalized(Vec<PayableAccount>),
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AdjustedAccountBeforeFinalization {
     pub original_account: PayableAccount,

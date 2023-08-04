@@ -200,7 +200,8 @@ pub fn list_accounts_under_the_disqualification_limit(
         .iter()
         .flat_map(|account_info| {
             let original_balance = account_info.original_account.balance_wei;
-            let balance_at_the_edge = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * original_balance)
+            let balance_at_the_edge = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier
+                * original_balance)
                 / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor;
             let proposed_adjusted_balance = account_info.proposed_adjusted_balance;
             if proposed_adjusted_balance <= balance_at_the_edge {
