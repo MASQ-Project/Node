@@ -14,7 +14,7 @@ use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType, MessageTypeLite};
-use node_lib::sub_lib::neighborhood::{Hops, RatePack};
+use node_lib::sub_lib::neighborhood::{DEFAULT_RATE_PACK, Hops, RatePack};
 use node_lib::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
@@ -257,41 +257,31 @@ fn dns_resolution_failure_with_real_nodes() {
 fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     // Make network:
-    // originating_node --> relay1 --> relay2 --> cheap_exit
-    //                                   |
-    //                                   +--> normal_exit
-    let (originating_node, relay1_mock, cheap_exit_key, normal_exit_key, third_exit_key, forth_exit_key) = {
+    //  +--> node_4  +--> node_3
+    //  |            |
+    // originating_node --> node_1
+    //               |
+    //               +--> node_2
+    let (originating_node, node_pub_key_list, node_list) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
-        let relay1_key = db.add_node(make_node_record(2345, true)).unwrap();
-        let relay2_key = db.add_node(make_node_record(3456, false)).unwrap();
-        let mut cheap_exit_node = make_node_record(4567, false);
-        let normal_exit_node = make_node_record(5678, false);
-        let mut third_exit_node = make_node_record(6789, false);
-        let mut forth_exit_node = make_node_record(7890, false);
-        cheap_exit_node.inner.rate_pack = cheaper_rate_pack(normal_exit_node.rate_pack(), 3000);
-        third_exit_node.inner.rate_pack = cheaper_rate_pack(normal_exit_node.rate_pack(), 2000);
-        forth_exit_node.inner.rate_pack = cheaper_rate_pack(normal_exit_node.rate_pack(), 1000);
-        let cheap_exit_key = db.add_node(cheap_exit_node).unwrap();
-        let normal_exit_key = db.add_node(normal_exit_node).unwrap();
-        let third_exit_key = db.add_node(third_exit_node).unwrap();
-        let forth_exit_key = db.add_node(forth_exit_node).unwrap();
-        db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1_key);
-        db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key);
-        db.add_arbitrary_full_neighbor(&relay2_key, &cheap_exit_key);
-        db.add_arbitrary_full_neighbor(&relay2_key, &normal_exit_key);
-        db.add_arbitrary_full_neighbor(&relay2_key, &third_exit_key);
-        db.add_arbitrary_full_neighbor(&relay2_key, &forth_exit_key);
-
-        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
-        let relay1_mock = node_map.remove(&relay1_key).unwrap();
+        let node_pub_key_list = (1..=4).into_iter().map(|i| {
+            let nonce= (i+1)*1000 + (i+2) * 100 + (i + 3) * 10 + (i+4);
+            let decrement = (5000 - (i * 1000));
+            let mut exit_node = make_node_record(nonce, true);
+            exit_node.inner.rate_pack = cheaper_rate_pack(&DEFAULT_RATE_PACK, decrement);
+            let exit_node_key = db.add_node(exit_node).unwrap();
+            db.add_arbitrary_full_neighbor(originating_node.public_key(), &exit_node_key);
+            exit_node_key
+        }).collect::<Vec<PublicKey>>();
+        let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::OneHop);
+        let node_list = node_pub_key_list.iter().map(|pub_key| {
+            node_map.remove(pub_key).unwrap()
+        }).collect::<Vec<MASQMockNode>>();
         (
             originating_node,
-            relay1_mock,
-            cheap_exit_key,
-            normal_exit_key,
-            third_exit_key,
-            forth_exit_key,
+            node_pub_key_list,
+            node_list
         )
     };
     let mut client: MASQNodeClient =
@@ -301,13 +291,17 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         &originating_node.alias_public_key(),
         TEST_DEFAULT_MULTINODE_CHAIN,
     );
-    let relay1_cryptde =
-        CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
-    let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
-    let key_length = normal_exit_key.len();
+    // let relay1_cryptde =
+    //     CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
+    // let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    // let key_length = normal_exit_key.len();
+
 
     // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
+
+
+
     let (_, _, live_cores_package) = relay1_mock
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
@@ -385,6 +379,10 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         )
         .unwrap();
 
+
+
+
+
     let dns_error_response: Vec<u8> = client.wait_for_chunk();
     let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
     assert_string_contains(&dns_error_response_str, "<h1>Error 503</h1>");
@@ -429,7 +427,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     assert_eq!(intended_exit_public_key, normal_exit_key);
 }
 
-fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
+fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u16) -> RatePack {
     let mut result = *base_rate_pack;
     result.exit_byte_rate -= decrement;
     result.exit_service_rate -= decrement;
