@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 //keep these modules private
+mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
 mod inner;
@@ -9,6 +10,9 @@ mod miscellaneous;
 mod test_utils;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::adjustment_runners::{
+    AdjustmentRunner, MasqAndTransactionFeeRunner, MasqOnlyRunner,
+};
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::CriteriaIteratorAdaptor;
@@ -272,7 +276,7 @@ impl PaymentAdjusterReal {
     fn run_adjustment(&mut self, qualified_accounts: Vec<PayableAccount>) -> Vec<PayableAccount> {
         match self.calculate_criteria_and_propose_adjustment_recursively(
             qualified_accounts,
-            MasqAndTransactionFeeAdjuster {},
+            MasqAndTransactionFeeRunner {},
         ) {
             Either::Left(non_exhausted_accounts) => exhaust_cw_balance_totally(
                 non_exhausted_accounts,
@@ -288,7 +292,7 @@ impl PaymentAdjusterReal {
         purpose_specific_adjuster: A,
     ) -> R
     where
-        A: PurposeSpecificAdjuster<ReturnType = R>,
+        A: AdjustmentRunner<ReturnType = R>,
     {
         diagnostics_for_collections(
             "\nUNRESOLVED QUALIFIED ACCOUNTS:",
@@ -397,7 +401,7 @@ impl PaymentAdjusterReal {
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustment_recursively(
                         remaining,
-                        MasqOnlyAdjuster {},
+                        MasqOnlyRunner {},
                     );
 
                 (here_decided_accounts, down_stream_decided_accounts)
@@ -452,7 +456,7 @@ impl PaymentAdjusterReal {
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
     ) -> AdjustmentIterationResult {
-        let non_finalized_adjusted_accounts = self.compute_non_finalized_adjusted_accounts(
+        let non_finalized_adjusted_accounts = self.compute_non_finalized_already_adjusted_accounts(
             accounts_with_individual_criteria,
             criteria_total,
         );
@@ -463,19 +467,18 @@ impl PaymentAdjusterReal {
                 Right(with_some_outweighed) => return with_some_outweighed,
             };
 
-        let verified_accounts =
-            match Self::consider_account_disqualification_from_percentage_insignificance(
-                unchecked_for_disqualified,
-                &self.logger,
-            ) {
-                Left(verified_accounts) => verified_accounts,
-                Right(with_some_disqualified) => return with_some_disqualified,
-            };
+        let verified_accounts = match Self::consider_accounts_disqualification(
+            unchecked_for_disqualified,
+            &self.logger,
+        ) {
+            Left(verified_accounts) => verified_accounts,
+            Right(with_some_disqualified) => return with_some_disqualified,
+        };
 
         AdjustmentIterationResult::AllAccountsProcessedSmoothly(verified_accounts)
     }
 
-    fn compute_non_finalized_adjusted_accounts(
+    fn compute_non_finalized_already_adjusted_accounts(
         &self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
@@ -520,7 +523,7 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn consider_account_disqualification_from_percentage_insignificance(
+    fn consider_accounts_disqualification(
         non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
         logger: &Logger,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
@@ -664,60 +667,10 @@ pub enum AnalysisError {
     },
 }
 
-trait PurposeSpecificAdjuster {
-    type ReturnType;
-
-    fn adjust(
-        &self,
-        payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-    ) -> Self::ReturnType;
-}
-
-struct MasqAndTransactionFeeAdjuster {}
-
-impl PurposeSpecificAdjuster for MasqAndTransactionFeeAdjuster {
-    type ReturnType = Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>;
-
-    fn adjust(
-        &self,
-        payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-    ) -> Self::ReturnType {
-        match payment_adjuster.inner.transaction_fee_count_limit_opt() {
-            Some(limit) => {
-                return payment_adjuster.begin_with_adjustment_by_transaction_fees(
-                    accounts_with_individual_criteria_sorted,
-                    limit,
-                )
-            }
-            None => (),
-        };
-
-        Either::Left(
-            payment_adjuster
-                .propose_adjustment_recursively(accounts_with_individual_criteria_sorted),
-        )
-    }
-}
-
-struct MasqOnlyAdjuster {}
-
-impl PurposeSpecificAdjuster for MasqOnlyAdjuster {
-    type ReturnType = Vec<AdjustedAccountBeforeFinalization>;
-
-    fn adjust(
-        &self,
-        payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
-    ) -> Self::ReturnType {
-        payment_adjuster.propose_adjustment_recursively(accounts_with_individual_criteria_sorted)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::payment_adjuster::adjustment_runners::MasqAndTransactionFeeRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::SpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
         AdjustmentIterationResult, DisqualifiedPayableAccount,
@@ -727,9 +680,8 @@ mod tests {
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AnalysisError, MasqAndTransactionFeeAdjuster, MasqOnlyAdjuster,
-        PaymentAdjuster, PaymentAdjusterReal, PercentageAccountInsignificance,
-        PurposeSpecificAdjuster, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+        Adjustment, AnalysisError, PaymentAdjuster, PaymentAdjusterReal,
+        PercentageAccountInsignificance, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
     };
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -972,10 +924,11 @@ mod tests {
         let accounts_with_individual_criteria = subject
             .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
         let criteria_total = criteria_total(&accounts_with_individual_criteria);
-        let non_finalized_adjusted_accounts = subject.compute_non_finalized_adjusted_accounts(
-            accounts_with_individual_criteria,
-            criteria_total,
-        );
+        let non_finalized_adjusted_accounts = subject
+            .compute_non_finalized_already_adjusted_accounts(
+                accounts_with_individual_criteria,
+                criteria_total,
+            );
 
         let result = PaymentAdjusterReal::maybe_find_an_account_to_disqualify_in_this_iteration(
             &non_finalized_adjusted_accounts,
@@ -983,47 +936,6 @@ mod tests {
         );
 
         assert_eq!(result, Some(wallet_3));
-    }
-
-    #[test]
-    fn masq_only_adjuster_is_not_meant_to_adjust_also_by_transaction_fee() {
-        let now = SystemTime::now();
-        let cw_balance = 9_000_000;
-        let details = FinancialAndTechDetails {
-            consuming_wallet_balances: ConsumingWalletBalances {
-                gas_currency_wei: U256::from(0),
-                masq_tokens_wei: U256::from(cw_balance),
-            },
-            desired_gas_price_gwei: 30,
-            estimated_gas_limit_per_transaction: 100,
-        };
-        let wallet_1 = make_wallet("abc");
-        let account_1 = PayableAccount {
-            wallet: wallet_1.clone(),
-            balance_wei: 5_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let wallet_2 = make_wallet("def");
-        let mut account_2 = account_1.clone();
-        account_2.wallet = wallet_2.clone();
-        let accounts = vec![account_1, account_2];
-        let adjustment = Adjustment::PriorityTransactionFee {
-            affordable_transaction_count: 1,
-        };
-        let mut payment_adjuster = PaymentAdjusterReal::new();
-        payment_adjuster.initialize_inner(details, adjustment, now);
-        let seeds = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
-        let purpose_specific_adjuster = MasqOnlyAdjuster {};
-
-        let result = purpose_specific_adjuster.adjust(&mut payment_adjuster, seeds);
-
-        let returned_accounts_accounts = result
-            .into_iter()
-            .map(|account| account.original_account.wallet)
-            .collect::<Vec<Wallet>>();
-        assert_eq!(returned_accounts_accounts, vec![wallet_1, wallet_2])
-        //if the transaction_fee adjustment had been available, only one account would've been returned, the test passes
     }
 
     #[test]
@@ -1054,7 +966,7 @@ mod tests {
         let mut result = subject
             .calculate_criteria_and_propose_adjustment_recursively(
                 qualified_payables.clone(),
-                MasqAndTransactionFeeAdjuster {},
+                MasqAndTransactionFeeRunner {},
             )
             .left()
             .unwrap();
