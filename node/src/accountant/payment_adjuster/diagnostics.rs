@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
 use std::fmt::Debug;
 
 const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = true;
@@ -53,6 +54,8 @@ pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
 
 #[cfg(test)]
 pub mod formulas_progressive_characteristics {
+    use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
+    use crate::accountant::payment_adjuster::diagnostics::AgeInput;
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use std::fmt::Debug;
@@ -61,6 +64,7 @@ pub mod formulas_progressive_characteristics {
     use std::time::Duration;
     use std::time::SystemTime;
     use thousands::Separable;
+
     pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = false;
     //mutex should be fine for debugging, no need for mut static
     static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
@@ -73,7 +77,7 @@ pub mod formulas_progressive_characteristics {
     }
 
     lazy_static! {
-        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<SystemTime>>> = {
+        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<AgeInput>>> = {
             let now = SystemTime::now();
             let x_axis_supply = {
                 [1, 2, 3, 4, 5, 6, 7, 8, 9, 12]
@@ -85,12 +89,14 @@ pub mod formulas_progressive_characteristics {
                 label: "AGE",
                 progressive_x_axis_supply_non_native: x_axis_supply,
                 x_axis_native_type_formatter: Box::new(move |secs_since_last_paid_payable| {
-                    now.checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-                        .expect("time travelling")
+                    let native_time = now
+                        .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
+                        .expect("time travelling");
+                    AgeInput(native_time)
                 }),
             }))
         };
-        pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<u128>>> = {
+        pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<BalanceInput>>> = {
             let x_axis_supply = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
                 .into_iter()
                 .map(|exp| 10_u128.pow(exp))
@@ -98,7 +104,7 @@ pub mod formulas_progressive_characteristics {
             Mutex::new(Some(DiagnosticsConfig {
                 label: "BALANCE",
                 progressive_x_axis_supply_non_native: x_axis_supply,
-                x_axis_native_type_formatter: Box::new(|balance_wei| balance_wei),
+                x_axis_native_type_formatter: Box::new(|balance_wei| BalanceInput(balance_wei)),
             }))
         };
     }

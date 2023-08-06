@@ -102,61 +102,6 @@ pub fn find_disqualified_account_with_smallest_proposed_balance(
         .clone()
 }
 
-struct ExhaustionStatus {
-    remainder: u128,
-    already_finalized_accounts: Vec<PayableAccount>,
-}
-
-impl ExhaustionStatus {
-    fn new(remainder: u128) -> Self {
-        Self {
-            remainder,
-            already_finalized_accounts: vec![],
-        }
-    }
-
-    fn update_and_add(
-        mut self,
-        mut non_finalized_account_info: AdjustedAccountBeforeFinalization,
-        possible_extra_addition: u128,
-    ) -> Self {
-        let corrected_adjusted_account_before_finalization = {
-            non_finalized_account_info.proposed_adjusted_balance =
-                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition;
-            non_finalized_account_info
-        };
-        self.remainder = self
-            .remainder
-            .checked_sub(possible_extra_addition)
-            .unwrap_or(0); //TODO wait for overflow!!!!!!!!!!!!!!!!
-        self.add(corrected_adjusted_account_before_finalization)
-    }
-
-    fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
-        let finalized_account = PayableAccount::from((
-            non_finalized_account_info,
-            ResolutionAfterFullyDetermined::Finalize,
-        ));
-        self.already_finalized_accounts.push(finalized_account);
-        self
-    }
-}
-
-pub fn sort_in_descendant_order_by_weights(
-    unsorted: impl Iterator<Item = (u128, PayableAccount)>,
-) -> Vec<(u128, PayableAccount)> {
-    unsorted
-        .sorted_by(|(weight_a, _), (weight_b, _)| Ord::cmp(weight_b, weight_a))
-        .collect()
-}
-
-pub fn rebuild_accounts(criteria_and_accounts: Vec<(u128, PayableAccount)>) -> Vec<PayableAccount> {
-    criteria_and_accounts
-        .into_iter()
-        .map(|(_, account)| account)
-        .collect()
-}
-
 pub fn exhaust_cw_balance_totally(
     verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
     original_cw_masq_balance: u128,
@@ -220,6 +165,61 @@ pub fn exhaust_cw_balance_totally(
         .already_finalized_accounts
         .into_iter()
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.balance_wei, &account_a.balance_wei))
+        .collect()
+}
+
+struct ExhaustionStatus {
+    remainder: u128,
+    already_finalized_accounts: Vec<PayableAccount>,
+}
+
+impl ExhaustionStatus {
+    fn new(remainder: u128) -> Self {
+        Self {
+            remainder,
+            already_finalized_accounts: vec![],
+        }
+    }
+
+    fn update_and_add(
+        mut self,
+        mut non_finalized_account_info: AdjustedAccountBeforeFinalization,
+        possible_extra_addition: u128,
+    ) -> Self {
+        let corrected_adjusted_account_before_finalization = {
+            non_finalized_account_info.proposed_adjusted_balance =
+                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition;
+            non_finalized_account_info
+        };
+        self.remainder = self
+            .remainder
+            .checked_sub(possible_extra_addition)
+            .expect("we hit zero");
+        self.add(corrected_adjusted_account_before_finalization)
+    }
+
+    fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
+        let finalized_account = PayableAccount::from((
+            non_finalized_account_info,
+            ResolutionAfterFullyDetermined::Finalize,
+        ));
+        self.already_finalized_accounts.push(finalized_account);
+        self
+    }
+}
+
+pub fn sort_in_descendant_order_by_weights(
+    unsorted: impl Iterator<Item = (u128, PayableAccount)>,
+) -> Vec<(u128, PayableAccount)> {
+    unsorted
+        .sorted_by(|(weight_a, _), (weight_b, _)| Ord::cmp(weight_b, weight_a))
+        .collect()
+}
+
+pub fn rebuild_accounts(criteria_and_accounts: Vec<(u128, PayableAccount)>) -> Vec<PayableAccount> {
+    criteria_and_accounts
+        .into_iter()
+        .map(|(_, account)| account)
         .collect()
 }
 

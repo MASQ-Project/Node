@@ -9,9 +9,9 @@ mod miscellaneous;
 mod test_utils;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::{
-    AgeCriterionCalculator, BalanceCriterionCalculator, CriteriaIteratorAdaptor,
-};
+use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::CriteriaIteratorAdaptor;
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::print_formulas_characteristics_for_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
     maybe_find_account_to_disqualify_diagnostics, non_finalized_adjusted_accounts_diagnostics,
@@ -426,6 +426,7 @@ impl PaymentAdjusterReal {
         let weights_and_accounts = accounts_with_zero_criteria
             .iterate_for_criteria(AgeCriterionCalculator::new(self))
             .iterate_for_criteria(BalanceCriterionCalculator::new());
+
         let collected_accounts_with_criteria =
             sort_in_descendant_order_by_weights(weights_and_accounts);
 
