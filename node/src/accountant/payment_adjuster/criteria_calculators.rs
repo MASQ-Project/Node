@@ -5,7 +5,7 @@ use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_chara
     compute_progressive_characteristics, DiagnosticsConfig, AGE_DIAGNOSTICS_CONFIG_OPT,
     BALANCE_DIAGNOSTICS_CONFIG_OPT, COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
 };
-use crate::accountant::payment_adjuster::miscellaneous::bare_functions::{log_2, x_or_1};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{log_2, x_or_1};
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
 use std::sync::Mutex;
@@ -208,7 +208,7 @@ mod tests {
         AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_DIVISOR_EXP_IN_NUMERATOR, AGE_MAIN_EXPONENT,
         AGE_MULTIPLIER, BALANCE_LOG_2_ARG_DIVISOR,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::bare_functions::log_2;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use std::time::{Duration, SystemTime};
 

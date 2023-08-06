@@ -17,7 +17,7 @@ const REFILL_RECOMMENDATION: &str = "\
 In order to continue using services of other Nodes and avoid delinquency \
 bans you will need to put more funds into your consuming wallet.";
 
-const NO_CHARS: &str = "";
+const BLANK_SPACE: &str = "";
 
 pub fn format_brief_adjustment_summary(
     original_account_balances_mapped: HashMap<Wallet, u128>,
@@ -39,7 +39,7 @@ pub fn format_brief_adjustment_summary(
                     original_account_balances_mapped
                         .get(&account.wallet)
                         .expectv("initial balance"),
-                    NO_CHARS,
+                    BLANK_SPACE,
                     account.balance_wei,
                     length = WALLET_ADDRESS_LENGTH
                 )
@@ -49,7 +49,7 @@ pub fn format_brief_adjustment_summary(
     fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
         let title = once(format!(
             "\n{:<length$} Original\n",
-            "Ignored minor payables",
+            "Ruled Out in Favor of the Others",
             length = WALLET_ADDRESS_LENGTH
         ));
         let list = excluded
@@ -89,6 +89,8 @@ pub fn format_brief_adjustment_summary(
     .join("\n")
 }
 
+const UNDERLINING_LENGTH: usize = 58;
+
 pub fn before_and_after_debug_msg(
     original_account_balances_mapped: HashMap<Wallet, u128>,
     adjusted_accounts: &[PayableAccount],
@@ -96,28 +98,25 @@ pub fn before_and_after_debug_msg(
     format!(
         "\n\
             {:<length$} {}\n\
-            \n\
+            {}\n\
             {:<length$} {}\n\
             {:<length$} {}\n\
             \n\
             {}",
-        "Account wallet",
-        "Balance wei",
-        "Adjusted payables",
+        "Payable Account",
+        "Balance Wei",
+        "-".repeat(UNDERLINING_LENGTH),
+        "Successfully Adjusted",
         "Original",
-        NO_CHARS,
+        BLANK_SPACE,
         "Adjusted",
         format_brief_adjustment_summary(original_account_balances_mapped, adjusted_accounts),
         length = WALLET_ADDRESS_LENGTH
     )
 }
 
-pub fn log_info_for_disqualified_account(
-    logger: &Logger,
-    disqualified_account_opt: Option<&DisqualifiedPayableAccount>,
-) {
-    disqualified_account_opt.map(|account| {
-        info!(
+pub fn log_info_for_disqualified_account(logger: &Logger, account: &DisqualifiedPayableAccount) {
+    info!(
                 logger,
             "Consuming wallet low in MASQ balance. Recently qualified \
             payable for wallet {} will not be paid as the consuming wallet handles to provide only {} wei \
@@ -126,7 +125,6 @@ pub fn log_info_for_disqualified_account(
                 account.proposed_adjusted_balance.separate_with_commas(),
                 account.original_balance.separate_with_commas()
             )
-    });
 }
 
 pub fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: u128, cw_masq_balance: u128) {

@@ -4,23 +4,18 @@ use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::sub_lib::wallet::Wallet;
 
 #[derive(Debug)]
-pub enum AccountsRecreationResult {
-    AllAccountsCleanlyProcessed(Vec<AdjustedAccountBeforeFinalization>),
-    InsignificantAccounts {
-        disqualified: DisqualifiedPayableAccount,
-        remaining: Vec<PayableAccount>,
-    },
-    OutweighedAccounts {
-        outweighed: Vec<AdjustedAccountBeforeFinalization>,
+pub enum AdjustmentIterationResult {
+    AllAccountsProcessedSmoothly(Vec<AdjustedAccountBeforeFinalization>),
+    SpecialTreatmentNeeded {
+        special_case: SpecialTreatment,
         remaining: Vec<PayableAccount>,
     },
 }
 
 #[derive(Debug)]
-pub struct AdjustmentIterationSummary {
-    pub decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    pub remaining_accounts: Vec<PayableAccount>,
-    pub disqualified_account_opt: Option<DisqualifiedPayableAccount>,
+pub enum SpecialTreatment {
+    TreatInsignificantAccount(DisqualifiedPayableAccount),
+    TreatOutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -49,6 +49,43 @@ pub fn compute_fraction_preventing_mul_coeff(cw_masq_balance: u128, criteria_sum
         .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
 }
 
+pub fn possibly_outweighed_accounts_fold_guts(
+    (mut outweighed, mut passing_through): (
+        Vec<AdjustedAccountBeforeFinalization>,
+        Vec<AdjustedAccountBeforeFinalization>,
+    ),
+    account_info: AdjustedAccountBeforeFinalization,
+) -> (
+    Vec<AdjustedAccountBeforeFinalization>,
+    Vec<AdjustedAccountBeforeFinalization>,
+) {
+    if account_info.proposed_adjusted_balance > account_info.original_account.balance_wei {
+        diagnostics!(
+            &account_info.original_account.wallet,
+            "OUTWEIGHED ACCOUNT FOUND",
+            "Original balance: {}, proposed balance: {}",
+            account_info
+                .original_account
+                .balance_wei
+                .separate_with_commas(),
+            account_info
+                .proposed_adjusted_balance
+                .separate_with_commas()
+        );
+
+        let new_account_info = AdjustedAccountBeforeFinalization {
+            proposed_adjusted_balance: account_info.original_account.balance_wei,
+            ..account_info
+        };
+
+        outweighed.push(new_account_info);
+        (outweighed, passing_through)
+    } else {
+        passing_through.push(account_info);
+        (outweighed, passing_through)
+    }
+}
+
 pub fn find_disqualified_account_with_smallest_proposed_balance(
     accounts: &[&AdjustedAccountBeforeFinalization],
 ) -> Wallet {
@@ -271,13 +308,14 @@ impl
 #[cfg(test)]
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::bare_functions::{
+    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
         find_disqualified_account_with_smallest_proposed_balance,
-        list_accounts_under_the_disqualification_limit, log_10, log_2, ExhaustionStatus,
-        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_IN_U128,
+        list_accounts_under_the_disqualification_limit, log_10, log_2,
+        possibly_outweighed_accounts_fold_guts, ExhaustionStatus, EMPIRIC_PRECISION_COEFFICIENT,
+        MAX_EXPONENT_FOR_10_IN_U128,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::test_utils::{
         get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
@@ -467,6 +505,26 @@ mod tests {
         let result = find_disqualified_account_with_smallest_proposed_balance(&accounts);
 
         assert_eq!(result, wallet_2)
+    }
+
+    #[test]
+    fn algorithm_is_left_cold_by_accounts_with_original_balance_equal_to_proposed_one() {
+        let account_info = AdjustedAccountBeforeFinalization {
+            original_account: PayableAccount {
+                wallet: make_wallet("blah"),
+                balance_wei: 9_000_000_000,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            },
+            proposed_adjusted_balance: 9_000_000_000,
+            criteria_sum: 123456789,
+        };
+
+        let (outweighed, ok) =
+            possibly_outweighed_accounts_fold_guts((vec![], vec![]), account_info.clone());
+
+        assert_eq!(outweighed, vec![]);
+        assert_eq!(ok, vec![account_info])
     }
 
     fn make_unfinalized_adjusted_account(
