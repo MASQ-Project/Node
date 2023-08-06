@@ -13,6 +13,9 @@ use crate::accountant::payment_adjuster::criteria_calculators::{
     AgeCriterionCalculator, BalanceCriterionCalculator, CriteriaIteratorAdaptor,
 };
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::print_formulas_characteristics_for_diagnostics;
+use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
+    maybe_find_account_to_disqualify_diagnostics, non_finalized_adjusted_accounts_diagnostics,
+};
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, diagnostics_for_collections};
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
@@ -52,7 +55,6 @@ use std::collections::HashMap;
 use std::iter::once;
 use std::ops::Not;
 use std::time::SystemTime;
-use thousands::Separable;
 use web3::types::U256;
 
 pub trait PaymentAdjuster {
@@ -498,12 +500,7 @@ impl PaymentAdjusterReal {
                     / multiplication_coeff_u256)
                     .as_u128();
 
-                diagnostics!(
-                    &account.wallet,
-                    "PROPOSED ADJUSTED BALANCE",
-                    "{}",
-                    proposed_adjusted_balance.separate_with_commas()
-                );
+                non_finalized_adjusted_accounts_diagnostics(&account, proposed_adjusted_balance);
 
                 AdjustedAccountBeforeFinalization::new(
                     account,
@@ -590,12 +587,12 @@ impl PaymentAdjusterReal {
                 let wallet = find_disqualified_account_with_smallest_proposed_balance(
                     &disqualification_suspected_accounts,
                 );
-                diagnostics!(
-                    "PICKED DISQUALIFIED ACCOUNT",
-                    "From {:?} picked {}",
-                    disqualification_suspected_accounts,
-                    wallet
+
+                maybe_find_account_to_disqualify_diagnostics(
+                    &disqualification_suspected_accounts,
+                    &wallet,
                 );
+
                 trace!(
                     logger,
                     "Found accounts {:?} whose proposed new, adjusted balances laid under \
@@ -1388,6 +1385,79 @@ mod tests {
     }
 
     #[test]
+    fn both_balances_are_insufficient_but_adjustment_by_masq_cuts_down_no_accounts_it_just_adjusts_their_balances(
+    ) {
+        init_test_logging();
+        let test_name = "both_balances_are_insufficient_but_adjustment_by_masq_cuts_down_no_accounts_it_just_adjusts_their_balances";
+        let now = SystemTime::now();
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 111_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_2 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: 333_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_3 = PayableAccount {
+            wallet: make_wallet("ghk"),
+            balance_wei: 222_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let mut subject = PaymentAdjusterReal::new();
+        let consuming_wallet_masq_balance = 111_000_000_000_000_u128 + 333_000_000_000_000;
+        let response_skeleton_opt = Some(ResponseSkeleton {
+            client_id: 123,
+            context_id: 321,
+        }); //just hardening, not so important
+        let setup_msg = PayablePaymentSetup {
+            qualified_payables,
+            this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
+                FinancialAndTechDetails {
+                    consuming_wallet_balances: ConsumingWalletBalances {
+                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+                    },
+                    estimated_gas_limit_per_transaction: 77_000,
+                    desired_gas_price_gwei: 24,
+                },
+            )),
+            response_skeleton_opt,
+        };
+        let adjustment_setup = AwaitedAdjustment {
+            original_setup_msg: setup_msg,
+            adjustment: Adjustment::PriorityTransactionFee {
+                limited_count_from_gas: 2,
+            },
+        };
+
+        let result = subject.adjust_payments(adjustment_setup, now);
+
+        // account_1, being the least important one, was eliminated as there wouldn't be enough
+        // the transaction fee balance for all of them
+        let expected_accounts = {
+            let account_2_adjusted = PayableAccount {
+                balance_wei: 222_000_000_000_000,
+                ..account_2
+            };
+            vec![account_2_adjusted, account_3]
+        };
+        assert_eq!(
+            result,
+            OutcomingPaymentsInstructions {
+                accounts: expected_accounts,
+                response_skeleton_opt
+            }
+        );
+    }
+
+    #[test]
     fn adjust_payments_when_only_masq_token_limits_the_final_transaction_count_through_outweighed_accounts(
     ) {
         init_test_logging();
@@ -1618,135 +1688,6 @@ mod tests {
             expected_winning_account,
         )
     }
-
-    //TODO do I really want to delete this test? Why? I probably don't
-    // #[test]
-    // fn adjust_payments_when_both_parameters_must_be_treated_but_masq_doesnt_cut_down_any_account_it_just_adjusts_the_balances(
-    // ) {
-    //     init_test_logging();
-    //     let test_name = "adjust_payments_when_gas_limits_the_final_transaction_count";
-    //     let now = SystemTime::now();
-    //     let account_1 = PayableAccount {
-    //         wallet: make_wallet("abc"),
-    //         balance_wei: 111_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let account_2 = PayableAccount {
-    //         wallet: make_wallet("def"),
-    //         balance_wei: 333_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let account_3 = PayableAccount {
-    //         wallet: make_wallet("ghk"),
-    //         balance_wei: 222_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
-    //     let subject = PaymentAdjusterReal::new();
-    //     let consuming_wallet_masq_balance = 111_000_000_000_000_u128 + 333_000_000_000_000;
-    //     let setup_msg = PayablePaymentSetup {
-    //         qualified_payables,
-    //         this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
-    //             FinancialAndTechDetails {
-    //                 consuming_wallet_balances: ConsumingWalletBalances {
-    //                     gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
-    //                     //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-    //                     masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
-    //                 },
-    //                 estimated_gas_limit_per_transaction: 77_000,
-    //                 desired_gas_price_gwei: 24,
-    //             },
-    //         )),
-    //         response_skeleton_opt: None,
-    //     };
-    //     let adjustment_setup = AwaitedAdjustment {
-    //         original_setup_msg: setup_msg,
-    //         adjustment: Adjustment::Both {
-    //             limited_count_from_gas: 2,
-    //         },
-    //     };
-    //
-    //     let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
-    //
-    //     let expected_accounts = emulation_of_the_actual_adjustment_algorithm(
-    //         account_2,
-    //         account_3,
-    //         None,
-    //         consuming_wallet_masq_balance,
-    //         now,
-    //     );
-    //     assert_eq!(
-    //         result,
-    //         OutcomingPaymentsInstructions {
-    //             accounts: expected_accounts,
-    //             response_skeleton_opt: None
-    //         }
-    //     );
-    // }
-
-    //TODO do I really want to delete this test? Why?
-    // #[test]
-    // fn adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut(
-    // ) {
-    //     init_test_logging();
-    //     let test_name = "adjust_payments_when_both_parameters_are_supposed_to_be_treated_but_masq_will_do_after_the_gas_cut";
-    //     let now = SystemTime::now();
-    //     let account_1 = PayableAccount {
-    //         wallet: make_wallet("abc"),
-    //         balance_wei: 111_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let account_2 = PayableAccount {
-    //         wallet: make_wallet("def"),
-    //         balance_wei: 333_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let account_3 = PayableAccount {
-    //         wallet: make_wallet("ghk"),
-    //         balance_wei: 222_000_000_000_000,
-    //         last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-    //         pending_payable_opt: None,
-    //     };
-    //     let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
-    //     let subject = PaymentAdjusterReal::new();
-    //     let consuming_wallet_masq_balance = 333_000_000_000_000_u128 + 222_000_000_000_000 + 1;
-    //     let setup_msg = PayablePaymentSetup {
-    //         qualified_payables,
-    //         this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
-    //             FinancialAndTechDetails {
-    //                 consuming_wallet_balances: ConsumingWalletBalances {
-    //                     gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
-    //                     //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-    //                     masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
-    //                 },
-    //                 estimated_gas_limit_per_transaction: 77_000,
-    //                 desired_gas_price_gwei: 24,
-    //             },
-    //         )),
-    //         response_skeleton_opt: None,
-    //     };
-    //     let adjustment_setup = AwaitedAdjustment {
-    //         original_setup_msg: setup_msg,
-    //         adjustment: Adjustment::Both {
-    //             limited_count_from_gas: 2,
-    //         },
-    //     };
-    //
-    //     let result = subject.adjust_payments(adjustment_setup, now, &Logger::new(test_name));
-    //
-    //     assert_eq!(
-    //         result,
-    //         OutcomingPaymentsInstructions {
-    //             accounts: vec![account_2, account_3],
-    //             response_skeleton_opt: None
-    //         }
-    //     );
-    // }
 
     #[test]
     fn adjust_payments_when_masq_as_well_as_gas_will_limit_the_count() {

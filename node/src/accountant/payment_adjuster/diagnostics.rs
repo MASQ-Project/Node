@@ -149,6 +149,80 @@ pub mod formulas_progressive_characteristics {
     }
 }
 
+pub mod separately_defined_diagnostic_functions {
+    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::payment_adjuster::diagnostics;
+    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
+    use crate::sub_lib::wallet::Wallet;
+    use thousands::Separable;
+
+    pub fn possibly_outweighed_accounts_diagnostics(
+        account_info: &AdjustedAccountBeforeFinalization,
+    ) {
+        diagnostics!(
+            &account_info.original_account.wallet,
+            "OUTWEIGHED ACCOUNT FOUND",
+            "Original balance: {}, proposed balance: {}",
+            account_info
+                .original_account
+                .balance_wei
+                .separate_with_commas(),
+            account_info
+                .proposed_adjusted_balance
+                .separate_with_commas()
+        );
+    }
+
+    pub fn exhausting_cw_balance_diagnostics(
+        non_finalized_account_info: &AdjustedAccountBeforeFinalization,
+        possible_extra_addition: u128,
+    ) {
+        diagnostics!(
+            "EXHAUSTING CW ON PAYMENT",
+            "For account {} from proposed {} to the possible maximum of {}",
+            non_finalized_account_info.original_account.wallet,
+            non_finalized_account_info.proposed_adjusted_balance,
+            non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition
+        );
+    }
+
+    pub fn not_exhausting_cw_balance_diagnostics(
+        non_finalized_account_info: &AdjustedAccountBeforeFinalization,
+    ) {
+        diagnostics!(
+            "FULLY EXHAUSTED CW, PASSING ACCOUNT OVER",
+            "Account {} with original balance {} must be finalized with proposed {}",
+            non_finalized_account_info.original_account.wallet,
+            non_finalized_account_info.original_account.balance_wei,
+            non_finalized_account_info.proposed_adjusted_balance
+        );
+    }
+
+    pub fn non_finalized_adjusted_accounts_diagnostics(
+        account: &PayableAccount,
+        proposed_adjusted_balance: u128,
+    ) {
+        diagnostics!(
+            &account.wallet,
+            "PROPOSED ADJUSTED BALANCE",
+            "{}",
+            proposed_adjusted_balance.separate_with_commas()
+        );
+    }
+
+    pub fn maybe_find_account_to_disqualify_diagnostics(
+        disqualification_suspected_accounts: &[&AdjustedAccountBeforeFinalization],
+        wallet: &Wallet,
+    ) {
+        diagnostics!(
+            "PICKED DISQUALIFIED ACCOUNT",
+            "From {:?} picked {}",
+            disqualification_suspected_accounts,
+            wallet
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS;

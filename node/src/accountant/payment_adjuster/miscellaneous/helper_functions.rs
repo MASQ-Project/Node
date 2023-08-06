@@ -1,6 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
+    exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
+    possibly_outweighed_accounts_diagnostics,
+};
 use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     AdjustedAccountBeforeFinalization, ResolutionAfterFullyDetermined,
 };
@@ -31,6 +35,12 @@ pub fn cut_back_by_gas_count_limit(
     weights_and_accounts: Vec<(u128, PayableAccount)>,
     limit: u16,
 ) -> Vec<(u128, PayableAccount)> {
+    diagnostics!(
+        "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
+        "keeping {} out of {} accounts",
+        limit,
+        weights_and_accounts.len()
+    );
     weights_and_accounts
         .into_iter()
         .take(limit as usize)
@@ -60,18 +70,7 @@ pub fn possibly_outweighed_accounts_fold_guts(
     Vec<AdjustedAccountBeforeFinalization>,
 ) {
     if account_info.proposed_adjusted_balance > account_info.original_account.balance_wei {
-        diagnostics!(
-            &account_info.original_account.wallet,
-            "OUTWEIGHED ACCOUNT FOUND",
-            "Original balance: {}, proposed balance: {}",
-            account_info
-                .original_account
-                .balance_wei
-                .separate_with_commas(),
-            account_info
-                .proposed_adjusted_balance
-                .separate_with_commas()
-        );
+        possibly_outweighed_accounts_diagnostics(&account_info);
 
         let new_account_info = AdjustedAccountBeforeFinalization {
             proposed_adjusted_balance: account_info.original_account.balance_wei,
@@ -129,7 +128,7 @@ impl ExhaustionStatus {
         self.remainder = self
             .remainder
             .checked_sub(possible_extra_addition)
-            .unwrap_or(0); //TODO wait for overflow
+            .unwrap_or(0); //TODO wait for overflow!!!!!!!!!!!!!!!!
         self.add(corrected_adjusted_account_before_finalization)
     }
 
@@ -185,21 +184,16 @@ pub fn exhaust_cw_balance_totally(
                 status.remainder
             };
 
-            diagnostics!(
-                "EXHAUSTING CW ON PAYMENT",
-                "For account {} from proposed {} to the possible maximum of {}",
-                non_finalized_account_info.original_account.wallet,
-                non_finalized_account_info.proposed_adjusted_balance,
-                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition
-            );
+            exhausting_cw_balance_diagnostics(&non_finalized_account_info, possible_extra_addition);
 
             status.update_and_add(non_finalized_account_info, possible_extra_addition)
         } else {
+            not_exhausting_cw_balance_diagnostics(&non_finalized_account_info);
+
             status.add(non_finalized_account_info)
         }
     }
 
-    eprintln!("accounts before exhaustion {:?}", verified_accounts);
     let adjusted_balances_total: u128 = sum_as(&verified_accounts, |account_info| {
         account_info.proposed_adjusted_balance
     });
@@ -222,7 +216,6 @@ pub fn exhaust_cw_balance_totally(
                 &info_b.proposed_adjusted_balance,
             )
         })
-        .inspect(|account_info| eprintln!("\n\n{:?}", account_info)) //TODO delete me
         .fold(init, fold_guts)
         .already_finalized_accounts
         .into_iter()
