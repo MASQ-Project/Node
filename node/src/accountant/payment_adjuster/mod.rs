@@ -129,7 +129,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         };
         let required_adjustment = setup.adjustment;
 
-        self.set_up_new_inner(current_stage_data, required_adjustment, now);
+        self.initialize_inner(current_stage_data, required_adjustment, now);
 
         let debug_info_opt = self.logger.debug_enabled().then(|| {
             qualified_payables
@@ -186,7 +186,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn set_up_new_inner(
+    fn initialize_inner(
         &mut self,
         setup: FinancialAndTechDetails,
         required_adjustment: Adjustment,
@@ -430,7 +430,7 @@ impl PaymentAdjusterReal {
     }
 
     fn perform_masq_token_adjustment(
-        &mut self,
+        &self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
     ) -> AdjustmentIterationResult {
         let criteria_total = criteria_total(&accounts_with_individual_criteria);
@@ -441,7 +441,7 @@ impl PaymentAdjusterReal {
     }
 
     fn recreate_accounts_with_proportioned_balances(
-        &mut self,
+        &self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
     ) -> AdjustmentIterationResult {
@@ -469,7 +469,7 @@ impl PaymentAdjusterReal {
     }
 
     fn compute_non_finalized_adjusted_accounts(
-        &mut self,
+        &self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
@@ -609,7 +609,7 @@ impl PaymentAdjusterReal {
     }
 
     fn handle_possibly_outweighed_account(
-        &mut self,
+        &self,
         non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
         let (outweighed, passing_through) = non_finalized_adjusted_accounts
@@ -936,7 +936,7 @@ mod tests {
         let now = SystemTime::now();
         let cw_masq_balance = 1_000_000_000_000_000_000;
         let logger = Logger::new(test_name);
-        let mut subject = make_initialized_subject(now, Some(cw_masq_balance), None);
+        let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
         let wallet_1 = make_wallet("abc");
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
@@ -1008,7 +1008,7 @@ mod tests {
             limited_count_from_gas: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
-        payment_adjuster.set_up_new_inner(details, adjustment, now);
+        payment_adjuster.initialize_inner(details, adjustment, now);
         let seeds = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
         let purpose_specific_adjuster = MasqOnlyAdjuster {};
 
@@ -1110,7 +1110,7 @@ mod tests {
             "an_account_never_becomes_outweighed_and_balance_full_while_cw_balance_smaller_than_that_because_disqualified_accounts_will_be_eliminated_first";
         let now = SystemTime::now();
         let consuming_wallet_balance = 1_000_000_000_000_u128 - 1;
-        let mut subject = make_initialized_subject(
+        let subject = make_initialized_subject(
             now,
             Some(consuming_wallet_balance),
             Some(Logger::new(test_name)),

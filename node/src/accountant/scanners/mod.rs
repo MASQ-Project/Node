@@ -180,7 +180,7 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
-    pub payment_adjuster: RefCell<Box<dyn PaymentAdjuster>>,
+    pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
 impl Scanner<PayablePaymentSetup, SentPayables> for PayableScanner {
@@ -261,7 +261,6 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
         match self
             .payment_adjuster
-            .borrow()
             .search_for_indispensable_adjustment(&msg)
         {
             Ok(None) => Ok(Either::Left(OutcomingPaymentsInstructions {
@@ -274,13 +273,11 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     }
 
     fn exacting_payments_instructions(
-        &self,
+        &mut self,
         setup: AwaitedAdjustment,
     ) -> OutcomingPaymentsInstructions {
         let now = SystemTime::now();
-        self.payment_adjuster
-            .borrow_mut()
-            .adjust_payments(setup, now)
+        self.payment_adjuster.adjust_payments(setup, now)
     }
 }
 
@@ -298,7 +295,7 @@ impl PayableScanner {
             payable_dao,
             pending_payable_dao,
             payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
-            payment_adjuster: RefCell::new(payment_adjuster),
+            payment_adjuster,
         }
     }
 

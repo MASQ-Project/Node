@@ -23,7 +23,7 @@ pub trait PayableScannerMiddleProcedures {
         intentionally_blank!()
     }
     fn exacting_payments_instructions(
-        &self,
+        &mut self,
         _setup: AwaitedAdjustment,
     ) -> OutcomingPaymentsInstructions {
         intentionally_blank!()
