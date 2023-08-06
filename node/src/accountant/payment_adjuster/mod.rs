@@ -32,7 +32,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     ResolutionAfterFullyDetermined,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    compute_fraction_preventing_mul_coeff, criteria_total, cut_back_by_gas_count_limit,
+    compute_fraction_preventing_mul_coeff, criteria_total, cut_back_by_excessive_transaction_fee,
     exhaust_cw_balance_totally, find_disqualified_account_with_smallest_proposed_balance,
     list_accounts_under_the_disqualification_limit, possibly_outweighed_accounts_fold_guts,
     rebuild_accounts, sort_in_descendant_order_by_weights, sum_as,
@@ -91,15 +91,15 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             StageData::FinancialAndTechDetails(details) => details,
         };
 
-        match Self::determine_transactions_count_limit_by_gas(
+        match Self::determine_transactions_count_limit_by_transaction_fee(
             &this_stage_data,
             qualified_payables.len(),
             &self.logger,
         ) {
             Ok(None) => (),
-            Ok(Some(limited_count_from_gas)) => {
+            Ok(Some(affordable_transaction_count)) => {
                 return Ok(Some(Adjustment::PriorityTransactionFee {
-                    limited_count_from_gas,
+                    affordable_transaction_count,
                 }))
             }
             Err(e) => return Err(e),
@@ -194,27 +194,28 @@ impl PaymentAdjusterReal {
         required_adjustment: Adjustment,
         now: SystemTime,
     ) {
-        let gas_limitation_opt = match required_adjustment {
+        let transaction_fee_limitation_opt = match required_adjustment {
             Adjustment::PriorityTransactionFee {
-                limited_count_from_gas,
-            } => Some(limited_count_from_gas),
+                affordable_transaction_count,
+            } => Some(affordable_transaction_count),
             Adjustment::MasqToken => None,
         };
         let cw_masq_balance = setup.consuming_wallet_balances.masq_tokens_wei.as_u128();
-        let inner = PaymentAdjusterInnerReal::new(now, gas_limitation_opt, cw_masq_balance);
+        let inner =
+            PaymentAdjusterInnerReal::new(now, transaction_fee_limitation_opt, cw_masq_balance);
         self.inner = Box::new(inner);
     }
 
-    fn determine_transactions_count_limit_by_gas(
+    fn determine_transactions_count_limit_by_transaction_fee(
         tech_info: &FinancialAndTechDetails,
         required_transactions_count: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, AnalysisError> {
         let transaction_fee_required_per_transaction_in_major =
             u128::try_from(tech_info.estimated_gas_limit_per_transaction)
-                .expectv("small number for gas limit")
+                .expectv("small number for transaction fee limit")
                 * u128::try_from(tech_info.desired_gas_price_gwei)
-                    .expectv("small number for gas price");
+                    .expectv("small number for transaction fee price");
         let tfrpt_in_minor: U256 = gwei_to_wei(transaction_fee_required_per_transaction_in_major);
         let available_balance_in_minor = tech_info.consuming_wallet_balances.gas_currency_wei;
         let limiting_max_possible_count = (available_balance_in_minor / tfrpt_in_minor).as_u128();
@@ -300,25 +301,28 @@ impl PaymentAdjusterReal {
         purpose_specific_adjuster.adjust(self, accounts_with_individual_criteria_sorted)
     }
 
-    fn begin_with_adjustment_by_gas(
+    fn begin_with_adjustment_by_transaction_fees(
         &mut self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-        count_limit_by_gas: u16,
+        already_known_count_limit: u16,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>> {
-        let weighted_accounts_cut_by_gas =
-            cut_back_by_gas_count_limit(accounts_with_individual_criteria, count_limit_by_gas);
+        let transaction_fee_affordable_weighted_accounts = cut_back_by_excessive_transaction_fee(
+            accounts_with_individual_criteria,
+            already_known_count_limit,
+        );
         match Self::check_need_of_masq_balances_adjustment(
             &self.logger,
-            Either::Right(&weighted_accounts_cut_by_gas),
+            Either::Right(&transaction_fee_affordable_weighted_accounts),
             self.inner.unallocated_cw_masq_balance(),
         ) {
             true => {
-                let result_awaiting_verification =
-                    self.propose_adjustment_recursively(weighted_accounts_cut_by_gas);
+                let result_awaiting_verification = self
+                    .propose_adjustment_recursively(transaction_fee_affordable_weighted_accounts);
                 Either::Left(result_awaiting_verification)
             }
             false => {
-                let finalized_accounts = rebuild_accounts(weighted_accounts_cut_by_gas);
+                let finalized_accounts =
+                    rebuild_accounts(transaction_fee_affordable_weighted_accounts);
                 Either::Right(finalized_accounts)
             }
         }
@@ -648,7 +652,7 @@ impl PaymentAdjusterReal {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Adjustment {
     MasqToken,
-    PriorityTransactionFee { limited_count_from_gas: u16 },
+    PriorityTransactionFee { affordable_transaction_count: u16 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -679,10 +683,12 @@ impl PurposeSpecificAdjuster for MasqAndTransactionFeeAdjuster {
         payment_adjuster: &mut PaymentAdjusterReal,
         accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
-        match payment_adjuster.inner.gas_limitation_opt() {
+        match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
-                return payment_adjuster
-                    .begin_with_adjustment_by_gas(accounts_with_individual_criteria_sorted, limit)
+                return payment_adjuster.begin_with_adjustment_by_transaction_fees(
+                    accounts_with_individual_criteria_sorted,
+                    limit,
+                )
             }
             None => (),
         };
@@ -717,7 +723,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::criteria_total;
     use crate::accountant::payment_adjuster::test_utils::{
-        get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
+        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AnalysisError, MasqAndTransactionFeeAdjuster, MasqOnlyAdjuster,
@@ -777,24 +783,24 @@ mod tests {
         //masq balance = payments
         let msg_2 =
             make_payable_setup_msg_coming_from_blockchain_bridge(Some((vec![85, 15], 100)), None);
-        //gas balance > payments
+        //transaction_fee balance > payments
         let msg_3 = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(GasTestConditions {
-                desired_gas_price_gwei: 111,
+            Some(TransactionFeeTestConditions {
+                desired_transaction_fee_price_per_major: 111,
                 number_of_payments: 5,
-                estimated_gas_limit_per_transaction: 53_000,
-                consuming_wallet_gas_gwei: (111 * 5 * 53_000) + 1,
+                estimated_fee_limit_per_transaction: 53_000,
+                consuming_wallet_transaction_fee_major: (111 * 5 * 53_000) + 1,
             }),
         );
-        //gas balance = payments
+        //transaction_fee balance = payments
         let msg_4 = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(GasTestConditions {
-                desired_gas_price_gwei: 100,
+            Some(TransactionFeeTestConditions {
+                desired_transaction_fee_price_per_major: 100,
                 number_of_payments: 6,
-                estimated_gas_limit_per_transaction: 53_000,
-                consuming_wallet_gas_gwei: 100 * 6 * 53_000,
+                estimated_fee_limit_per_transaction: 53_000,
+                consuming_wallet_transaction_fee_major: 100 * 6 * 53_000,
             }),
         );
 
@@ -832,20 +838,20 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_positive_for_gas() {
+    fn search_for_indispensable_adjustment_positive_for_transaction_fee() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_positive_for_gas";
+        let test_name = "search_for_indispensable_adjustment_positive_for_transaction_fee";
         let logger = Logger::new(test_name);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
         let number_of_payments = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(GasTestConditions {
-                desired_gas_price_gwei: 100,
+            Some(TransactionFeeTestConditions {
+                desired_transaction_fee_price_per_major: 100,
                 number_of_payments,
-                estimated_gas_limit_per_transaction: 55_000,
-                consuming_wallet_gas_gwei: 100 * 3 * 55_000 - 1,
+                estimated_fee_limit_per_transaction: 55_000,
+                consuming_wallet_transaction_fee_major: 100 * 3 * 55_000 - 1,
             }),
         );
 
@@ -855,7 +861,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(Some(Adjustment::PriorityTransactionFee {
-                limited_count_from_gas: expected_limiting_count
+                affordable_transaction_count: expected_limiting_count
             }))
         );
         let log_handler = TestLogHandler::new();
@@ -869,17 +875,17 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_unable_to_pay_even_for_a_single_transaction_because_of_gas(
+    fn search_for_indispensable_adjustment_unable_to_pay_even_for_a_single_transaction_because_of_transaction_fee(
     ) {
         let subject = PaymentAdjusterReal::new();
         let number_of_payments = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(GasTestConditions {
-                desired_gas_price_gwei: 100,
+            Some(TransactionFeeTestConditions {
+                desired_transaction_fee_price_per_major: 100,
                 number_of_payments,
-                estimated_gas_limit_per_transaction: 55_000,
-                consuming_wallet_gas_gwei: 54_000 * 100,
+                estimated_fee_limit_per_transaction: 55_000,
+                consuming_wallet_transaction_fee_major: 54_000 * 100,
             }),
         );
 
@@ -979,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    fn masq_only_adjuster_is_not_meant_to_adjust_by_gas() {
+    fn masq_only_adjuster_is_not_meant_to_adjust_also_by_transaction_fee() {
         let now = SystemTime::now();
         let cw_balance = 9_000_000;
         let details = FinancialAndTechDetails {
@@ -1002,7 +1008,7 @@ mod tests {
         account_2.wallet = wallet_2.clone();
         let accounts = vec![account_1, account_2];
         let adjustment = Adjustment::PriorityTransactionFee {
-            limited_count_from_gas: 1,
+            affordable_transaction_count: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
         payment_adjuster.initialize_inner(details, adjustment, now);
@@ -1016,7 +1022,7 @@ mod tests {
             .map(|account| account.original_account.wallet)
             .collect::<Vec<Wallet>>();
         assert_eq!(returned_accounts_accounts, vec![wallet_1, wallet_2])
-        //if the gas adjustment had been available, only one account would've been returned, the test passes
+        //if the transaction_fee adjustment had been available, only one account would've been returned, the test passes
     }
 
     #[test]
@@ -1163,7 +1169,7 @@ mod tests {
         //each of 3 accounts contains the full token supply and a 10-years-old debt which generates extremely big numbers in the criteria
         let qualified_payables = {
             let debt_age_in_months = vec![120, 120, 120];
-            get_extreme_accounts(
+            make_extreme_accounts(
                 Either::Left((debt_age_in_months, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR)),
                 now,
             )
@@ -1263,7 +1269,7 @@ mod tests {
         };
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
-            adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual gas balance limitations
+            adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual transaction_fee balance limitations
         };
 
         let result = subject.adjust_payments(adjustment_setup, now);
@@ -1308,10 +1314,10 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_only_gas_limits_the_final_transaction_count_and_masq_will_do_after_the_gas_cut(
+    fn adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_masq_will_do_after_the_transaction_fee_cut(
     ) {
         init_test_logging();
-        let test_name = "adjust_payments_when_only_gas_limits_the_final_transaction_count_and_masq_will_do_after_the_gas_cut";
+        let test_name = "adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_masq_will_do_after_the_transaction_fee_cut";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -1352,7 +1358,7 @@ mod tests {
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
-                limited_count_from_gas: 2,
+                affordable_transaction_count: 2,
             },
         };
 
@@ -1388,7 +1394,6 @@ mod tests {
     fn both_balances_are_insufficient_but_adjustment_by_masq_cuts_down_no_accounts_it_just_adjusts_their_balances(
     ) {
         init_test_logging();
-        let test_name = "both_balances_are_insufficient_but_adjustment_by_masq_cuts_down_no_accounts_it_just_adjusts_their_balances";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -1433,7 +1438,7 @@ mod tests {
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
-                limited_count_from_gas: 2,
+                affordable_transaction_count: 2,
             },
         };
 
@@ -1690,9 +1695,9 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_masq_as_well_as_gas_will_limit_the_count() {
+    fn adjust_payments_when_masq_as_well_as_transaction_fee_will_limit_the_count() {
         init_test_logging();
-        let test_name = "adjust_payments_when_masq_as_well_as_gas_will_limit_the_count";
+        let test_name = "adjust_payments_when_masq_as_well_as_transaction_fee_will_limit_the_count";
         let now = SystemTime::now();
         //thrown away as the second one because of its insignificance (proposed adjusted balance is smaller than half the original)
         let account_1 = PayableAccount {
@@ -1701,7 +1706,7 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
             pending_payable_opt: None,
         };
-        //thrown away as the first one because of gas
+        //thrown away as the first one for insufficient transaction_fee
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
             balance_wei: 55_000_000_000,
@@ -1738,7 +1743,7 @@ mod tests {
         let adjustment_setup = AwaitedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
-                limited_count_from_gas: 2,
+                affordable_transaction_count: 2,
             },
         };
 
@@ -1779,31 +1784,31 @@ mod tests {
         todo!("write this occasional test")
     }
 
-    struct GasTestConditions {
-        desired_gas_price_gwei: u64,
+    struct TransactionFeeTestConditions {
+        desired_transaction_fee_price_per_major: u64,
         number_of_payments: usize,
-        estimated_gas_limit_per_transaction: u64,
-        consuming_wallet_gas_gwei: u64,
+        estimated_fee_limit_per_transaction: u64,
+        consuming_wallet_transaction_fee_major: u64,
     }
 
     fn make_payable_setup_msg_coming_from_blockchain_bridge(
         q_payables_gwei_and_cw_balance_gwei_opt: Option<(Vec<u64>, u64)>,
-        gas_price_opt: Option<GasTestConditions>,
+        transaction_fee_price_opt: Option<TransactionFeeTestConditions>,
     ) -> PayablePaymentSetup {
         let (qualified_payables_gwei, consuming_wallet_masq_gwei) =
             q_payables_gwei_and_cw_balance_gwei_opt.unwrap_or((vec![1, 1], u64::MAX));
 
         let (
-            desired_gas_price,
+            desired_transaction_fee_price,
             number_of_payments,
-            estimated_gas_limit_per_tx,
-            cw_balance_gas_gwei,
-        ) = match gas_price_opt {
+            estimated_transaction_fee_limit_per_tx,
+            cw_balance_transaction_fee_major,
+        ) = match transaction_fee_price_opt {
             Some(conditions) => (
-                conditions.desired_gas_price_gwei,
+                conditions.desired_transaction_fee_price_per_major,
                 conditions.number_of_payments,
-                conditions.estimated_gas_limit_per_transaction,
-                conditions.consuming_wallet_gas_gwei,
+                conditions.estimated_fee_limit_per_transaction,
+                conditions.consuming_wallet_transaction_fee_major,
             ),
             None => (120, qualified_payables_gwei.len(), 55_000, u64::MAX),
         };
@@ -1823,11 +1828,11 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: gwei_to_wei(cw_balance_gas_gwei),
+                        gas_currency_wei: gwei_to_wei(cw_balance_transaction_fee_major),
                         masq_tokens_wei: gwei_to_wei(consuming_wallet_masq_gwei),
                     },
-                    estimated_gas_limit_per_transaction: estimated_gas_limit_per_tx,
-                    desired_gas_price_gwei: desired_gas_price,
+                    estimated_gas_limit_per_transaction: estimated_transaction_fee_limit_per_tx,
+                    desired_gas_price_gwei: desired_transaction_fee_price,
                 },
             )),
             response_skeleton_opt: None,

@@ -31,7 +31,7 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     })
 }
 
-pub fn cut_back_by_gas_count_limit(
+pub fn cut_back_by_excessive_transaction_fee(
     weights_and_accounts: Vec<(u128, PayableAccount)>,
     limit: u16,
 ) -> Vec<(u128, PayableAccount)> {
@@ -310,7 +310,7 @@ mod tests {
         MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
-        get_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
+        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE;
     use crate::accountant::test_utils::make_payable_account;
@@ -761,7 +761,8 @@ mod tests {
         months_of_debt_and_balances_matrix: Vec<(usize, u128)>,
     ) -> (Vec<(u128, PayableAccount)>, Vec<Wallet>) {
         let now = SystemTime::now();
-        let accounts = get_extreme_accounts(Either::Right(months_of_debt_and_balances_matrix), now);
+        let accounts =
+            make_extreme_accounts(Either::Right(months_of_debt_and_balances_matrix), now);
         let wallets_in_order = accounts
             .iter()
             .map(|account| account.wallet.clone())

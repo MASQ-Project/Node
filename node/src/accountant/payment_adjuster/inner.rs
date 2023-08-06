@@ -6,8 +6,8 @@ pub trait PaymentAdjusterInner {
     fn now(&self) -> SystemTime {
         PaymentAdjusterInnerNull::panicking_operation("now()")
     }
-    fn gas_limitation_opt(&self) -> Option<u16> {
-        PaymentAdjusterInnerNull::panicking_operation("gas_limitation_opt()")
+    fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
+        PaymentAdjusterInnerNull::panicking_operation("transaction_fee_count_limit_opt()")
     }
     fn original_cw_masq_balance(&self) -> u128 {
         PaymentAdjusterInnerNull::panicking_operation("original_cw_masq_balance()")
@@ -23,16 +23,20 @@ pub trait PaymentAdjusterInner {
 
 pub struct PaymentAdjusterInnerReal {
     now: SystemTime,
-    gas_limitation_opt: Option<u16>,
+    transaction_fee_count_limit_opt: Option<u16>,
     original_cw_masq_balance: u128,
     unallocated_cw_masq_balance: u128,
 }
 
 impl PaymentAdjusterInnerReal {
-    pub fn new(now: SystemTime, gas_limitation_opt: Option<u16>, cw_masq_balance: u128) -> Self {
+    pub fn new(
+        now: SystemTime,
+        transaction_fee_count_limit_opt: Option<u16>,
+        cw_masq_balance: u128,
+    ) -> Self {
         Self {
             now,
-            gas_limitation_opt,
+            transaction_fee_count_limit_opt,
             original_cw_masq_balance: cw_masq_balance,
             unallocated_cw_masq_balance: cw_masq_balance,
         }
@@ -43,8 +47,8 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn now(&self) -> SystemTime {
         self.now
     }
-    fn gas_limitation_opt(&self) -> Option<u16> {
-        self.gas_limitation_opt
+    fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
+        self.transaction_fee_count_limit_opt
     }
     fn original_cw_masq_balance(&self) -> u128 {
         self.original_cw_masq_balance
@@ -84,12 +88,16 @@ mod tests {
     #[test]
     fn inner_real_is_constructed_correctly() {
         let now = SystemTime::now();
-        let gas_limitation_opt = Some(3);
+        let transaction_fee_count_limit_opt = Some(3);
         let cw_masq_balance = 123_456_789;
-        let result = PaymentAdjusterInnerReal::new(now, gas_limitation_opt, cw_masq_balance);
+        let result =
+            PaymentAdjusterInnerReal::new(now, transaction_fee_count_limit_opt, cw_masq_balance);
 
         assert_eq!(result.now, now);
-        assert_eq!(result.gas_limitation_opt, gas_limitation_opt);
+        assert_eq!(
+            result.transaction_fee_count_limit_opt,
+            transaction_fee_count_limit_opt
+        );
         assert_eq!(result.original_cw_masq_balance, cw_masq_balance);
         assert_eq!(result.unallocated_cw_masq_balance, cw_masq_balance)
     }
@@ -106,12 +114,12 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the gas_limitation_opt() method in PaymentAdjusterInner"
+        expected = "Called the null implementation of the transaction_fee_count_limit_opt() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_gas_limitation_opt() {
+    fn inner_null_calling_transaction_fee_count_limit_opt() {
         let subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.gas_limitation_opt();
+        let _ = subject.transaction_fee_count_limit_opt();
     }
 
     #[test]
