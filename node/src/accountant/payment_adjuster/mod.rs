@@ -445,13 +445,13 @@ impl PaymentAdjusterReal {
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
     ) -> AdjustmentIterationResult {
-        let unfinalized_adjusted_accounts = self.compute_unfinalized_adjusted_accounts(
+        let non_finalized_adjusted_accounts = self.compute_non_finalized_adjusted_accounts(
             accounts_with_individual_criteria,
             criteria_total,
         );
 
         let unchecked_for_disqualified =
-            match self.handle_possibly_outweighed_account(unfinalized_adjusted_accounts) {
+            match self.handle_possibly_outweighed_account(non_finalized_adjusted_accounts) {
                 Left(still_not_fully_checked) => still_not_fully_checked,
                 Right(with_some_outweighed) => return with_some_outweighed,
             };
@@ -468,7 +468,7 @@ impl PaymentAdjusterReal {
         AdjustmentIterationResult::AllAccountsProcessedSmoothly(verified_accounts)
     }
 
-    fn compute_unfinalized_adjusted_accounts(
+    fn compute_non_finalized_adjusted_accounts(
         &mut self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
@@ -479,18 +479,22 @@ impl PaymentAdjusterReal {
         let cw_masq_balance_u256 = U256::from(cw_masq_balance);
         let criteria_total_u256 = U256::from(criteria_total);
         let multiplication_coeff_u256 = U256::from(multiplication_coeff);
-        let proportional_piece_of_cw_balance = cw_masq_balance_u256
+
+        let proportional_fragment_of_cw_balance = cw_masq_balance_u256
             .checked_mul(multiplication_coeff_u256)
-            .unwrap() //TODO try killing this unwrap() in a test
-            // TODO how to give the criteria some kind of ceiling? We don't want to exceed certain dangerous limit
+            .unwrap_or_else(|| {
+                panic!(
+                    "mul overflow from {} * {}",
+                    criteria_total_u256, multiplication_coeff_u256
+                )
+            })
             .checked_div(criteria_total_u256)
             .expect("div overflow");
 
-        accounts_with_individual_criteria
-            .into_iter()
-            .map(|(criteria_sum, account)| {
+        let turn_account_into_adjusted_account_before_finalization =
+            |(criteria_sum, account): (u128, PayableAccount)| {
                 let proposed_adjusted_balance = (U256::from(criteria_sum)
-                    * proportional_piece_of_cw_balance
+                    * proportional_fragment_of_cw_balance
                     / multiplication_coeff_u256)
                     .as_u128();
 
@@ -506,23 +510,27 @@ impl PaymentAdjusterReal {
                     proposed_adjusted_balance,
                     criteria_sum,
                 )
-            })
+            };
+
+        accounts_with_individual_criteria
+            .into_iter()
+            .map(turn_account_into_adjusted_account_before_finalization)
             .collect()
     }
 
     fn consider_account_disqualification_from_percentage_insignificance(
-        unfinalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
+        non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
         logger: &Logger,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
         if let Some(disq_account_wallet) =
             Self::maybe_find_an_account_to_disqualify_in_this_iteration(
-                &unfinalized_adjusted_accounts,
+                &non_finalized_adjusted_accounts,
                 logger,
             )
         {
             let init = (
                 None,
-                Vec::with_capacity(unfinalized_adjusted_accounts.len() - 1),
+                Vec::with_capacity(non_finalized_adjusted_accounts.len() - 1),
             );
 
             type FoldAccumulator = (
@@ -540,7 +548,7 @@ impl PaymentAdjusterReal {
                 }
             };
 
-            let (single_disqualified, remaining) = unfinalized_adjusted_accounts
+            let (single_disqualified, remaining) = non_finalized_adjusted_accounts
                 .into_iter()
                 .fold(init, fold_guts);
 
@@ -565,16 +573,16 @@ impl PaymentAdjusterReal {
                 remaining: remaining_reverted,
             })
         } else {
-            Left(unfinalized_adjusted_accounts)
+            Left(non_finalized_adjusted_accounts)
         }
     }
 
     fn maybe_find_an_account_to_disqualify_in_this_iteration(
-        unfinalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
+        non_finalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
         logger: &Logger,
     ) -> Option<Wallet> {
         let disqualification_suspected_accounts =
-            list_accounts_under_the_disqualification_limit(unfinalized_adjusted_accounts);
+            list_accounts_under_the_disqualification_limit(non_finalized_adjusted_accounts);
         disqualification_suspected_accounts
             .is_empty()
             .not()
@@ -602,9 +610,9 @@ impl PaymentAdjusterReal {
 
     fn handle_possibly_outweighed_account(
         &mut self,
-        unfinalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
+        non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
-        let (outweighed, passing_through) = unfinalized_adjusted_accounts
+        let (outweighed, passing_through) = non_finalized_adjusted_accounts
             .into_iter()
             .fold((vec![], vec![]), possibly_outweighed_accounts_fold_guts);
 
@@ -960,13 +968,13 @@ mod tests {
         let accounts_with_individual_criteria = subject
             .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
         let criteria_total = criteria_total(&accounts_with_individual_criteria);
-        let unfinalized_adjusted_accounts = subject.compute_unfinalized_adjusted_accounts(
+        let non_finalized_adjusted_accounts = subject.compute_non_finalized_adjusted_accounts(
             accounts_with_individual_criteria,
             criteria_total,
         );
 
         let result = PaymentAdjusterReal::maybe_find_an_account_to_disqualify_in_this_iteration(
-            &unfinalized_adjusted_accounts,
+            &non_finalized_adjusted_accounts,
             &logger,
         );
 
@@ -1053,9 +1061,9 @@ mod tests {
         let criteria_total = criteria_total(&criteria_and_accounts);
         let account_2_criterion = criteria_and_accounts[1].0;
         let cw_balance_fractional_safe = cw_masq_balance * SAFETY_MULTIPLIER;
-        let proportional_piece_of_cw_balance = cw_balance_fractional_safe / criteria_total;
+        let proportional_fragment_of_cw_balance = cw_balance_fractional_safe / criteria_total;
         let proposed_adjusted_balance_2 =
-            (account_2_criterion * proportional_piece_of_cw_balance) / SAFETY_MULTIPLIER;
+            (account_2_criterion * proportional_fragment_of_cw_balance) / SAFETY_MULTIPLIER;
         //the weight of the second account grew very progressively due to the effect of the long age;
         //consequences are that redistributing the new balances according to the computed weights would've attributed
         //the second account with more tokens to pay than it'd had before the test started;
@@ -1155,16 +1163,13 @@ mod tests {
         init_test_logging();
         let test_name = "loading_the_complete_process_with_exaggerated_debt_conditions_without_blowing_up_on_math_operations";
         let now = SystemTime::now();
-        //each of 3 accounts contains half of the full supply and a 10-years-old debt which generates extremely big numbers in the criteria
+        //each of 3 accounts contains the full token supply and a 10-years-old debt which generates extremely big numbers in the criteria
         let qualified_payables = {
-            let mut accounts = get_extreme_accounts(
-                Either::Left((vec![120, 120, 120], *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR)),
+            let debt_age_in_months = vec![120, 120, 120];
+            get_extreme_accounts(
+                Either::Left((debt_age_in_months, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR)),
                 now,
-            );
-            accounts
-                .iter_mut()
-                .for_each(|account| account.balance_wei = account.balance_wei / 2);
-            accounts
+            )
         };
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);

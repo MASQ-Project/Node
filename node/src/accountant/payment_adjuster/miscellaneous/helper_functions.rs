@@ -118,13 +118,13 @@ impl ExhaustionStatus {
 
     fn update_and_add(
         mut self,
-        mut unfinalized_account_info: AdjustedAccountBeforeFinalization,
+        mut non_finalized_account_info: AdjustedAccountBeforeFinalization,
         possible_extra_addition: u128,
     ) -> Self {
         let corrected_adjusted_account_before_finalization = {
-            unfinalized_account_info.proposed_adjusted_balance =
-                unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition;
-            unfinalized_account_info
+            non_finalized_account_info.proposed_adjusted_balance =
+                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition;
+            non_finalized_account_info
         };
         self.remainder = self
             .remainder
@@ -133,9 +133,9 @@ impl ExhaustionStatus {
         self.add(corrected_adjusted_account_before_finalization)
     }
 
-    fn add(mut self, unfinalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
+    fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
         let finalized_account = PayableAccount::from((
-            unfinalized_account_info,
+            non_finalized_account_info,
             ResolutionAfterFullyDetermined::Finalize,
         ));
         self.already_finalized_accounts.push(finalized_account);
@@ -164,19 +164,19 @@ pub fn exhaust_cw_balance_totally(
 ) -> Vec<PayableAccount> {
     fn fold_guts(
         status: ExhaustionStatus,
-        unfinalized_account_info: AdjustedAccountBeforeFinalization,
+        non_finalized_account_info: AdjustedAccountBeforeFinalization,
     ) -> ExhaustionStatus {
         if status.remainder != 0 {
-            let balance_gap = unfinalized_account_info
+            let balance_gap = non_finalized_account_info
                 .original_account
                 .balance_wei
-                .checked_sub(unfinalized_account_info.proposed_adjusted_balance)
+                .checked_sub(non_finalized_account_info.proposed_adjusted_balance)
                 .unwrap_or_else(|| {
                     panic!(
                         "proposed balance should never bigger than the original but proposed: {} \
                         and original: {}",
-                        unfinalized_account_info.proposed_adjusted_balance,
-                        unfinalized_account_info.original_account.balance_wei
+                        non_finalized_account_info.proposed_adjusted_balance,
+                        non_finalized_account_info.original_account.balance_wei
                     )
                 });
             let possible_extra_addition = if balance_gap < status.remainder {
@@ -188,14 +188,14 @@ pub fn exhaust_cw_balance_totally(
             diagnostics!(
                 "EXHAUSTING CW ON PAYMENT",
                 "For account {} from proposed {} to the possible maximum of {}",
-                unfinalized_account_info.original_account.wallet,
-                unfinalized_account_info.proposed_adjusted_balance,
-                unfinalized_account_info.proposed_adjusted_balance + possible_extra_addition
+                non_finalized_account_info.original_account.wallet,
+                non_finalized_account_info.proposed_adjusted_balance,
+                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition
             );
 
-            status.update_and_add(unfinalized_account_info, possible_extra_addition)
+            status.update_and_add(non_finalized_account_info, possible_extra_addition)
         } else {
-            status.add(unfinalized_account_info)
+            status.add(non_finalized_account_info)
         }
     }
 
@@ -231,9 +231,9 @@ pub fn exhaust_cw_balance_totally(
 }
 
 pub fn list_accounts_under_the_disqualification_limit(
-    unfinalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
+    non_finalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
 ) -> Vec<&AdjustedAccountBeforeFinalization> {
-    unfinalized_adjusted_accounts
+    non_finalized_adjusted_accounts
         .iter()
         .flat_map(|account_info| {
             let original_balance = account_info.original_account.balance_wei;
@@ -399,12 +399,12 @@ mod tests {
 
     #[test]
     fn multiplication_coeff_showing_extreme_feeding_and_safety_ceiling() {
-        // the coeff is how many multiples of 10 we need to use to multiply the cw balance
-        // in order to get at a number bigger than the criteria sum (and the bigger the more
-        // accurate numbers calculated afterwards, so we add some for better precision)
+        // the coeff is multiples of 10 we need to multiply the cw balance with
+        // in order to get at a number bigger than the total criteria sum (and the more extra 10s we add, the more
+        // accurate numbers we can expect at the results of the entire payment adjuster machinery)
         //
-        // we cannot say by heart what the criteria sum of a debt of these parameters evaluates to,
-        // so we also can hardly put them in an order
+        // we cannot say by heart which of the criteria sums of these parameters evaluates to is for sure bigger than another,
+        // therefore we could hardly put them into an order
         let accounts_as_months_and_balances = vec![
             (1, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
             (5, 10_u128.pow(18)),
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(ok, vec![account_info])
     }
 
-    fn make_unfinalized_adjusted_account(
+    fn make_non_finalized_adjusted_account(
         wallet: &Wallet,
         original_balance: u128,
         proposed_adjusted_balance: u128,
@@ -593,18 +593,18 @@ mod tests {
             + original_requested_balance_2
             + original_requested_balance_3
             + 5000;
-        let unfinalized_adjusted_accounts = vec![
-            make_unfinalized_adjusted_account(
+        let non_finalized_adjusted_accounts = vec![
+            make_non_finalized_adjusted_account(
                 &wallet_1,
                 original_requested_balance_1,
                 proposed_adjusted_balance_1,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_2,
                 original_requested_balance_2,
                 proposed_adjusted_balance_2,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_3,
                 original_requested_balance_3,
                 proposed_adjusted_balance_3,
@@ -612,7 +612,7 @@ mod tests {
         ];
 
         let result =
-            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
+            exhaust_cw_balance_totally(non_finalized_adjusted_accounts, unallocated_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, original_requested_balance_1),
@@ -638,18 +638,18 @@ mod tests {
             + original_requested_balance_3
             + proposed_adjusted_balance_1
             - 2_000_000;
-        let unfinalized_adjusted_accounts = vec![
-            make_unfinalized_adjusted_account(
+        let non_finalized_adjusted_accounts = vec![
+            make_non_finalized_adjusted_account(
                 &wallet_1,
                 original_requested_balance_1,
                 proposed_adjusted_balance_1,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_2,
                 original_requested_balance_2,
                 proposed_adjusted_balance_2,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_3,
                 original_requested_balance_3,
                 proposed_adjusted_balance_3,
@@ -657,7 +657,7 @@ mod tests {
         ];
 
         let result =
-            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
+            exhaust_cw_balance_totally(non_finalized_adjusted_accounts, unallocated_cw_balance);
         eprintln!("{:?}", result);
 
         let expected_resulted_balances = vec![
@@ -690,18 +690,18 @@ mod tests {
             + original_requested_balance_3
             + proposed_adjusted_balance_1
             + 2_000_000;
-        let unfinalized_adjusted_accounts = vec![
-            make_unfinalized_adjusted_account(
+        let non_finalized_adjusted_accounts = vec![
+            make_non_finalized_adjusted_account(
                 &wallet_1,
                 original_requested_balance_1,
                 proposed_adjusted_balance_1,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_2,
                 original_requested_balance_2,
                 proposed_adjusted_balance_2,
             ),
-            make_unfinalized_adjusted_account(
+            make_non_finalized_adjusted_account(
                 &wallet_3,
                 original_requested_balance_3,
                 proposed_adjusted_balance_3,
@@ -709,7 +709,7 @@ mod tests {
         ];
 
         let result =
-            exhaust_cw_balance_totally(unfinalized_adjusted_accounts, unallocated_cw_balance);
+            exhaust_cw_balance_totally(non_finalized_adjusted_accounts, unallocated_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, 53_900_000_000),
