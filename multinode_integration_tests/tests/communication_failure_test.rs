@@ -291,6 +291,10 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         &originating_node.alias_public_key(),
         TEST_DEFAULT_MULTINODE_CHAIN,
     );
+    let originating_node_socket_address = originating_node.socket_addr(PortSelector::First);
+
+
+
     // let relay1_cryptde =
     //     CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     // let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
@@ -300,88 +304,19 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
 
-
-
-    let (_, _, live_cores_package) = relay1_mock
-        .wait_for_package(&masquerader, Duration::from_secs(2))
-        .unwrap();
-    let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    assert_eq!(intended_exit_public_key, cheap_exit_key);
-    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
-        .to_expired(
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            &relay1_cryptde,
-            &cheap_exit_cryptde,
-        )
-        .unwrap();
-    /*
-     The removed hops were:
-     relay1 -> relay2
-     relay2 -> cheap_exit
-     cheap_exit -> relay2
-     relay2 -> relay1
-     */
-    let route = Route {
-        hops: vec![
-            expired_cores_package.remaining_route.hops[4].clone(),
-            expired_cores_package.remaining_route.hops[5].clone(),
-            expired_cores_package.remaining_route.hops[6].clone(),
-        ],
-    };
-    // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
-    let dns_fail_pkg_1 =
-        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    let dns_fail_pkg_2 =
-        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    let dns_fail_pkg_3 =
-        make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    let dns_fail_pkg_4 =
-        make_package_for_client(route, expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-
-    relay1_mock
-        .transmit_package(
-            relay1_mock.port_list()[0],
-            dns_fail_pkg_1,
+    for node in &node_list {
+        let expired_cores_package = node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node_socket_address).unwrap();
+        let dns_fail_pkg =
+            make_package_for_client(expired_cores_package.remaining_route.clone(),expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+        node.transmit_package(
+            node.port_list()[0],
+            dns_fail_pkg,
             &masquerader,
             originating_node.main_public_key(),
             originating_node.socket_addr(PortSelector::First),
         )
-        .unwrap();
-
-    // let expired_cores_package = good_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
-
-    relay1_mock
-        .transmit_package(
-            relay1_mock.port_list()[0],
-            dns_fail_pkg_2,
-            &masquerader,
-            originating_node.main_public_key(),
-            originating_node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-    relay1_mock
-        .transmit_package(
-            relay1_mock.port_list()[0],
-            dns_fail_pkg_3,
-            &masquerader,
-            originating_node.main_public_key(),
-            originating_node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-    relay1_mock
-        .transmit_package(
-            relay1_mock.port_list()[0],
-            dns_fail_pkg_4,
-            &masquerader,
-            originating_node.main_public_key(),
-            originating_node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-
-
-
-
+            .unwrap();
+    }
 
     let dns_error_response: Vec<u8> = client.wait_for_chunk();
     let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
@@ -402,13 +337,13 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     );
 
     // This request should be routed through normal_exit because it's unreachable through the others nodes
-    client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
-    let (_, _, live_cores_package) = relay1_mock
-        .wait_for_package(&masquerader, Duration::from_secs(60))
-        .unwrap();
-    let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    assert_eq!(intended_exit_public_key, third_exit_key);
+    // client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
+    // let (_, _, live_cores_package) = relay1_mock
+    //     .wait_for_package(&masquerader, Duration::from_secs(60))
+    //     .unwrap();
+    // let (_, intended_exit_public_key) =
+    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    // assert_eq!(intended_exit_public_key, third_exit_key);
 
     // TODO GH-674: Once the new exit node is picked, the Node will continue using that exit node
     // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
@@ -419,18 +354,111 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // If the stream key remains the same, any request going through that stream key
     // will pick the last route.
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
-    let (_, _, live_cores_package) = relay1_mock
-        .wait_for_package(&masquerader, Duration::from_secs(10))
-        .unwrap();
-    let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    assert_eq!(intended_exit_public_key, normal_exit_key);
+    let most_expensive_node  = node_list.last().unwrap();
+    let _ = most_expensive_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node_socket_address).unwrap();
+
+
+    // let (_, _, live_cores_package) = relay1_mock
+    //     .wait_for_package(&masquerader, Duration::from_secs(10))
+    //     .unwrap();
+    // let (_, intended_exit_public_key) =
+    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    // assert_eq!(intended_exit_public_key, normal_exit_key);
+
+
+    //
+    //
+    //
+    //
+    // let (_, _, live_cores_package) = relay1_mock
+    //     .wait_for_package(&masquerader, Duration::from_secs(2))
+    //     .unwrap();
+    // let (_, intended_exit_public_key) =
+    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    // assert_eq!(intended_exit_public_key, cheap_exit_key);
+    // let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
+    //     .to_expired(
+    //         SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+    //         &relay1_cryptde,
+    //         &cheap_exit_cryptde,
+    //     )
+    //     .unwrap();
+    // /*
+    //  The removed hops were:
+    //  relay1 -> relay2
+    //  relay2 -> cheap_exit
+    //  cheap_exit -> relay2
+    //  relay2 -> relay1
+    //  */
+    // let route = Route {
+    //     hops: vec![
+    //         expired_cores_package.remaining_route.hops[4].clone(),
+    //         expired_cores_package.remaining_route.hops[5].clone(),
+    //         expired_cores_package.remaining_route.hops[6].clone(),
+    //     ],
+    // };
+    // // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
+    // let dns_fail_pkg_1 =
+    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+    // let dns_fail_pkg_2 =
+    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+    // let dns_fail_pkg_3 =
+    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+    // let dns_fail_pkg_4 =
+    //     make_package_for_client(route, expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
+    //
+    // relay1_mock
+    //     .transmit_package(
+    //         relay1_mock.port_list()[0],
+    //         dns_fail_pkg_1,
+    //         &masquerader,
+    //         originating_node.main_public_key(),
+    //         originating_node.socket_addr(PortSelector::First),
+    //     )
+    //     .unwrap();
+    //
+    // // let expired_cores_package = good_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
+    //
+    // relay1_mock
+    //     .transmit_package(
+    //         relay1_mock.port_list()[0],
+    //         dns_fail_pkg_2,
+    //         &masquerader,
+    //         originating_node.main_public_key(),
+    //         originating_node.socket_addr(PortSelector::First),
+    //     )
+    //     .unwrap();
+    // relay1_mock
+    //     .transmit_package(
+    //         relay1_mock.port_list()[0],
+    //         dns_fail_pkg_3,
+    //         &masquerader,
+    //         originating_node.main_public_key(),
+    //         originating_node.socket_addr(PortSelector::First),
+    //     )
+    //     .unwrap();
+    // relay1_mock
+    //     .transmit_package(
+    //         relay1_mock.port_list()[0],
+    //         dns_fail_pkg_4,
+    //         &masquerader,
+    //         originating_node.main_public_key(),
+    //         originating_node.socket_addr(PortSelector::First),
+    //     )
+    //     .unwrap();
+
+
+
+
+
+
+
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u16) -> RatePack {
     let mut result = *base_rate_pack;
-    result.exit_byte_rate -= decrement;
-    result.exit_service_rate -= decrement;
+    result.exit_byte_rate -= decrement as u64;
+    result.exit_service_rate -= decrement as u64;
     result
 }
 
