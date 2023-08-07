@@ -260,27 +260,31 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     //  +--> node_4  +--> node_3
     //  |            |
     // originating_node --> node_1
-    //               |
-    //               +--> node_2
-    let (originating_node, node_pub_key_list, node_list) = {
+    //  |            |
+    //  +--> node_2  +--> most_expensive_node
+    let (originating_node, node_list) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
         let node_pub_key_list = (1..=4).into_iter().map(|i| {
             let nonce= (i+1)*1000 + (i+2) * 100 + (i + 3) * 10 + (i+4);
-            let decrement = (5000 - (i * 1000));
+            let decrement = 5000 - (i * 1000);
             let mut exit_node = make_node_record(nonce, true);
             exit_node.inner.rate_pack = cheaper_rate_pack(&DEFAULT_RATE_PACK, decrement);
             let exit_node_key = db.add_node(exit_node).unwrap();
             db.add_arbitrary_full_neighbor(originating_node.public_key(), &exit_node_key);
             exit_node_key
         }).collect::<Vec<PublicKey>>();
+        // The most expensive node should be untouched
+        let mut most_expensive_exit_node = make_node_record(6969, true);
+        most_expensive_exit_node.inner.rate_pack = DEFAULT_RATE_PACK;
+        let most_expensive_exit_node_key = db.add_node(most_expensive_exit_node).unwrap();
+        db.add_arbitrary_full_neighbor(originating_node.public_key(), &most_expensive_exit_node_key);
         let (_, originating_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::OneHop);
         let node_list = node_pub_key_list.iter().map(|pub_key| {
             node_map.remove(pub_key).unwrap()
         }).collect::<Vec<MASQMockNode>>();
         (
             originating_node,
-            node_pub_key_list,
             node_list
         )
     };
@@ -292,18 +296,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         TEST_DEFAULT_MULTINODE_CHAIN,
     );
     let originating_node_socket_address = originating_node.socket_addr(PortSelector::First);
-
-
-
-    // let relay1_cryptde =
-    //     CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
-    // let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
-    // let key_length = normal_exit_key.len();
-
-
-    // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
-
     for node in &node_list {
         let expired_cores_package = node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node_socket_address).unwrap();
         let dns_fail_pkg =
@@ -317,7 +310,6 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         )
             .unwrap();
     }
-
     let dns_error_response: Vec<u8> = client.wait_for_chunk();
     let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
     assert_string_contains(&dns_error_response_str, "<h1>Error 503</h1>");
@@ -336,15 +328,6 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         ),
     );
 
-    // This request should be routed through normal_exit because it's unreachable through the others nodes
-    // client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
-    // let (_, _, live_cores_package) = relay1_mock
-    //     .wait_for_package(&masquerader, Duration::from_secs(60))
-    //     .unwrap();
-    // let (_, intended_exit_public_key) =
-    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    // assert_eq!(intended_exit_public_key, third_exit_key);
-
     // TODO GH-674: Once the new exit node is picked, the Node will continue using that exit node
     // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
     // most economical solution. For example, in the assertion below, we may prefer to use
@@ -354,105 +337,8 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     // If the stream key remains the same, any request going through that stream key
     // will pick the last route.
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
-    let most_expensive_node  = node_list.last().unwrap();
-    let _ = most_expensive_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node_socket_address).unwrap();
-
-
-    // let (_, _, live_cores_package) = relay1_mock
-    //     .wait_for_package(&masquerader, Duration::from_secs(10))
-    //     .unwrap();
-    // let (_, intended_exit_public_key) =
-    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    // assert_eq!(intended_exit_public_key, normal_exit_key);
-
-
-    //
-    //
-    //
-    //
-    // let (_, _, live_cores_package) = relay1_mock
-    //     .wait_for_package(&masquerader, Duration::from_secs(2))
-    //     .unwrap();
-    // let (_, intended_exit_public_key) =
-    //     CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
-    // assert_eq!(intended_exit_public_key, cheap_exit_key);
-    // let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
-    //     .to_expired(
-    //         SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-    //         &relay1_cryptde,
-    //         &cheap_exit_cryptde,
-    //     )
-    //     .unwrap();
-    // /*
-    //  The removed hops were:
-    //  relay1 -> relay2
-    //  relay2 -> cheap_exit
-    //  cheap_exit -> relay2
-    //  relay2 -> relay1
-    //  */
-    // let route = Route {
-    //     hops: vec![
-    //         expired_cores_package.remaining_route.hops[4].clone(),
-    //         expired_cores_package.remaining_route.hops[5].clone(),
-    //         expired_cores_package.remaining_route.hops[6].clone(),
-    //     ],
-    // };
-    // // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
-    // let dns_fail_pkg_1 =
-    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    // let dns_fail_pkg_2 =
-    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    // let dns_fail_pkg_3 =
-    //     make_package_for_client(route.clone(),expired_cores_package.clone(), &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    // let dns_fail_pkg_4 =
-    //     make_package_for_client(route, expired_cores_package, &originating_node_alias_cryptde,None, MessageTypeLite::DnsResolveFailed);
-    //
-    // relay1_mock
-    //     .transmit_package(
-    //         relay1_mock.port_list()[0],
-    //         dns_fail_pkg_1,
-    //         &masquerader,
-    //         originating_node.main_public_key(),
-    //         originating_node.socket_addr(PortSelector::First),
-    //     )
-    //     .unwrap();
-    //
-    // // let expired_cores_package = good_exit_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node.socket_addr(PortSelector::First)).unwrap();
-    //
-    // relay1_mock
-    //     .transmit_package(
-    //         relay1_mock.port_list()[0],
-    //         dns_fail_pkg_2,
-    //         &masquerader,
-    //         originating_node.main_public_key(),
-    //         originating_node.socket_addr(PortSelector::First),
-    //     )
-    //     .unwrap();
-    // relay1_mock
-    //     .transmit_package(
-    //         relay1_mock.port_list()[0],
-    //         dns_fail_pkg_3,
-    //         &masquerader,
-    //         originating_node.main_public_key(),
-    //         originating_node.socket_addr(PortSelector::First),
-    //     )
-    //     .unwrap();
-    // relay1_mock
-    //     .transmit_package(
-    //         relay1_mock.port_list()[0],
-    //         dns_fail_pkg_4,
-    //         &masquerader,
-    //         originating_node.main_public_key(),
-    //         originating_node.socket_addr(PortSelector::First),
-    //     )
-    //     .unwrap();
-
-
-
-
-
-
-
+    let cheapest_node  = node_list.first().unwrap();
+    let _ = cheapest_node.wait_for_specific_package(MessageTypeLite::ClientRequest, originating_node_socket_address).unwrap();
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u16) -> RatePack {
