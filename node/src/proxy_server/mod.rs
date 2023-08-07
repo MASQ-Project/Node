@@ -169,20 +169,18 @@ impl Handler<RouteResultMessage> for ProxyServer {
 
     fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
         debug!(self.logger, "Establishing stream key {}", msg.stream_key);
-        let dns_failure = self.dns_failure_retries.get(&msg.stream_key);
+        let dns_failure = self.dns_failure_retries.get(&msg.stream_key).unwrap_or_else(|| { todo!("Write Me");  });
 
         match msg.result {
             Ok(route_query_response) => {
-                debug!(Logger::new("DNS_MULTI_NODE_TEST_DEBUG"), "RouteResultMessage Ok: {:?} - dns_failure: {:?}", route_query_response, dns_failure); // TODO: DELETE ME
+                trace!(self.logger, "Found a new route for hostname: {:?} - retries left: {}", dns_failure.unsuccessful_request.target_hostname, dns_failure.retries_left);
                 self.stream_key_routes
                     .insert(msg.stream_key, route_query_response);
                 // TODO Preserve all the previously know routes and halt the retry process if the new route is already present.
                 // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
-                debug!(Logger::new("DNS_MULTI_NODE_TEST_DEBUG"), "RouteResultMessage Triggered Error {:?}", dns_failure); // TODO: DELETE ME
-                error!(self.logger, "RouteResultMessage Error: {}", e);
-
+                error!(self.logger, "No route found for hostname: {:?} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, dns_failure.retries_left, e);
             }
         }
     }
