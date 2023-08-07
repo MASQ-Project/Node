@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
 use std::fmt::Debug;
 
-const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = true;
+const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = false;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -52,111 +51,9 @@ pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
     }
 }
 
-#[cfg(test)]
-pub mod formulas_progressive_characteristics {
-    use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
-    use crate::accountant::payment_adjuster::diagnostics::AgeInput;
-    use itertools::Itertools;
-    use lazy_static::lazy_static;
-    use std::fmt::Debug;
-    use std::iter::once;
-    use std::sync::{Mutex, Once};
-    use std::time::Duration;
-    use std::time::SystemTime;
-    use thousands::Separable;
-
-    pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = false;
-    //mutex should be fine for debugging, no need for mut static
-    static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
-    static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
-
-    pub struct DiagnosticsConfig<A> {
-        label: &'static str,
-        progressive_x_axis_supply_non_native: Vec<u128>,
-        x_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
-    }
-
-    lazy_static! {
-        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<AgeInput>>> = {
-            let now = SystemTime::now();
-            let x_axis_supply = {
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 12]
-                    .into_iter()
-                    .map(|exp| 10_u128.pow(exp))
-                    .collect()
-            };
-            Mutex::new(Some(DiagnosticsConfig {
-                label: "AGE",
-                progressive_x_axis_supply_non_native: x_axis_supply,
-                x_axis_native_type_formatter: Box::new(move |secs_since_last_paid_payable| {
-                    let native_time = now
-                        .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-                        .expect("time travelling");
-                    AgeInput(native_time)
-                }),
-            }))
-        };
-        pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<BalanceInput>>> = {
-            let x_axis_supply = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
-                .into_iter()
-                .map(|exp| 10_u128.pow(exp))
-                .collect();
-            Mutex::new(Some(DiagnosticsConfig {
-                label: "BALANCE",
-                progressive_x_axis_supply_non_native: x_axis_supply,
-                x_axis_native_type_formatter: Box::new(|balance_wei| BalanceInput(balance_wei)),
-            }))
-        };
-    }
-
-    pub fn print_formulas_characteristics_for_diagnostics() {
-        if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
-            FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
-                let report = STRINGS_WITH_FORMULAS_CHARACTERISTICS
-                    .lock()
-                    .expect("diagnostics poisoned")
-                    .join("\n\n");
-                eprintln!("{}", report)
-            })
-        }
-    }
-
-    pub fn compute_progressive_characteristics<A>(
-        config_opt: Option<DiagnosticsConfig<A>>,
-        formula: &dyn Fn(A) -> u128,
-    ) where
-        A: Debug,
-    {
-        config_opt.map(|config| {
-            let config_x_axis_type_formatter = config.x_axis_native_type_formatter;
-            let characteristics =
-                config
-                    .progressive_x_axis_supply_non_native
-                    .into_iter()
-                    .map(|input| {
-                        let correctly_formatted_input = config_x_axis_type_formatter(input);
-                        format!(
-                            "x: {:<length$} y: {}",
-                            input,
-                            formula(correctly_formatted_input).separate_with_commas(),
-                            length = 40
-                        )
-                    });
-            let head = once(format!(
-                "CHARACTERISTICS OF THE FORMULA FOR {}",
-                config.label
-            ));
-            let full_text = head.into_iter().chain(characteristics).join("\n");
-            STRINGS_WITH_FORMULAS_CHARACTERISTICS
-                .lock()
-                .expect("diagnostics poisoned")
-                .push(full_text);
-        });
-    }
-}
-
 pub mod separately_defined_diagnostic_functions {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::payment_adjuster::criteria_calculators::NamedCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::sub_lib::wallet::Wallet;
@@ -216,7 +113,7 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn maybe_find_account_to_disqualify_diagnostics(
+    pub fn maybe_find_an_account_to_disqualify_diagnostics(
         disqualification_suspected_accounts: &[&AdjustedAccountBeforeFinalization],
         wallet: &Wallet,
     ) {
@@ -226,6 +123,85 @@ pub mod separately_defined_diagnostic_functions {
             disqualification_suspected_accounts,
             wallet
         );
+    }
+
+    pub fn calculator_local_diagnostics<N: NamedCalculator + ?Sized>(
+        wallet_ref: &Wallet,
+        calculator: &N,
+        criterion: u128,
+        added_in_the_sum: u128,
+    ) {
+        const FIRST_COLUMN_WIDTH: usize = 30;
+        diagnostics!(
+            wallet_ref,
+            "PARTIAL CRITERION CALCULATED",
+            "{:<width$} {} and summed up as {}",
+            calculator.parameter_name(),
+            criterion.separate_with_commas(),
+            added_in_the_sum.separate_with_commas(),
+            width = FIRST_COLUMN_WIDTH
+        );
+    }
+}
+
+#[cfg(test)]
+pub mod formulas_progressive_characteristics {
+    use itertools::Itertools;
+    use std::fmt::Debug;
+    use std::iter::once;
+    use std::sync::{Mutex, Once};
+    use thousands::Separable;
+
+    pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
+    //mutex should be fine for debugging, no need for mut static
+    static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
+    static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
+
+    pub struct DiagnosticsConfig<A> {
+        pub label: &'static str,
+        pub x_axis_progressive_supply: Vec<u128>,
+        pub x_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
+    }
+
+    pub fn print_formulas_characteristics_for_diagnostics() {
+        if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
+            FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
+                let report = STRINGS_WITH_FORMULAS_CHARACTERISTICS
+                    .lock()
+                    .expect("diagnostics poisoned")
+                    .join("\n\n");
+                eprintln!("{}", report)
+            })
+        }
+    }
+
+    pub fn compute_progressive_characteristics<A>(
+        config_opt: Option<DiagnosticsConfig<A>>,
+        formula: &dyn Fn(A) -> u128,
+    ) where
+        A: Debug,
+    {
+        config_opt.map(|config| {
+            let config_x_axis_type_formatter = config.x_axis_native_type_formatter;
+            let characteristics = config.x_axis_progressive_supply.into_iter().map(|input| {
+                let correctly_formatted_input = config_x_axis_type_formatter(input);
+                format!(
+                    "x: {:<length$} y: {}",
+                    input,
+                    formula(correctly_formatted_input).separate_with_commas(),
+                    length = 40
+                )
+            });
+            let head = once(format!(
+                "CHARACTERISTICS OF THE FORMULA FOR {}",
+                config.label
+            ));
+            let full_text = head.into_iter().chain(characteristics).join("\n");
+            STRINGS_WITH_FORMULAS_CHARACTERISTICS
+                .lock()
+                .expect("diagnostics poisoned")
+                .push(full_text);
+        });
     }
 }
 

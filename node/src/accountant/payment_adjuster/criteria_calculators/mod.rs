@@ -8,20 +8,24 @@ use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_chara
     compute_progressive_characteristics, DiagnosticsConfig,
     COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
 };
+use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::calculator_local_diagnostics;
 use std::fmt::Debug;
 use std::sync::Mutex;
 
 // Caution: always remember to use checked math operations in the formula!
-pub trait CriterionCalculator {
+pub trait CriterionCalculator: NamedCalculator {
     // The additional trait constrain comes from efforts convert write the API more Rust-like.
     // This implementation has its own pros and cons; the little cons for you are that whenever
     // you must see the pattern of defining a wrapper for the input of your calculator. Refrain
     // from writing a From implementation for third part types to satisfy the requirement.
     type Input: for<'a> From<&'a PayableAccount>;
 
+    // This is the only function you are supposed to implement for your calculator.
+    // All it does is linking the formula from inside of your calculator (see implementations),
+    // and exposes it to outside
     fn formula(&self) -> &dyn Fn(Self::Input) -> u128;
 
-    fn add_calculated_criterion(
+    fn calculate_and_add_to_criteria_sum(
         &self,
         (criteria_sum, account): (u128, PayableAccount),
     ) -> (u128, PayableAccount)
@@ -29,10 +33,14 @@ pub trait CriterionCalculator {
         <Self as CriterionCalculator>::Input: Debug,
     {
         #[cfg(test)]
-        self.diagnostics();
+        self.formula_characteristics_diagnostics();
 
-        let updated_criteria_sum = criteria_sum + self.formula()((&account).into());
-        (updated_criteria_sum, account)
+        let criterion: u128 = self.formula()((&account).into());
+        let new_sum = criteria_sum + criterion;
+
+        calculator_local_diagnostics(&account.wallet, self, criterion, new_sum);
+
+        (criteria_sum + criterion, account)
     }
 
     #[cfg(test)]
@@ -45,7 +53,7 @@ pub trait CriterionCalculator {
             .take()
     }
     #[cfg(test)]
-    fn diagnostics(&self)
+    fn formula_characteristics_diagnostics(&self)
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
@@ -77,7 +85,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()
-            .map(|item| self.calculator.add_calculated_criterion(item))
+            .map(|item| self.calculator.calculate_and_add_to_criteria_sum(item))
     }
 }
 
@@ -91,4 +99,8 @@ impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
     fn iterate_for_criteria(self, calculator: C) -> CriteriaIterator<Self, C> {
         CriteriaIterator::new(self, calculator)
     }
+}
+
+pub trait NamedCalculator {
+    fn parameter_name(&self) -> &'static str;
 }

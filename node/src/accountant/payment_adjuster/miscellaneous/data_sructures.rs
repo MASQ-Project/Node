@@ -38,7 +38,7 @@ impl AdjustedAccountBeforeFinalization {
         }
     }
 
-    pub fn finalize_collection_of_self(
+    pub fn finalize_collection(
         account_infos: Vec<Self>,
         resolution: ResolutionAfterFullyDetermined,
     ) -> Vec<PayableAccount> {
@@ -70,4 +70,14 @@ impl DisqualifiedPayableAccount {
             original_balance,
         }
     }
+}
+
+// sets the minimal percentage of the original balance that must be
+// proposed after the adjustment or the account will be eliminated for insignificance
+#[derive(Debug, PartialEq, Eq)]
+pub struct PercentageAccountInsignificance {
+    // using integers means we have to represent accurate percentage
+    // as set of two constants
+    pub multiplier: u128,
+    pub divisor: u128,
 }

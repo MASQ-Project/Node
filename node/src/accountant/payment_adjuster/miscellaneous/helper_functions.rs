@@ -6,16 +6,22 @@ use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnos
     possibly_outweighed_accounts_diagnostics,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
-    AdjustedAccountBeforeFinalization, ResolutionAfterFullyDetermined,
+    AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
+    ResolutionAfterFullyDetermined,
 };
-use crate::accountant::payment_adjuster::{diagnostics, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE};
-use crate::sub_lib::wallet::Wallet;
+use crate::accountant::payment_adjuster::{diagnostics, AnalysisError};
 use itertools::Itertools;
 use std::iter::successors;
 use thousands::Separable;
 
 const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
+// represents 50%
+pub const ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE: PercentageAccountInsignificance =
+    PercentageAccountInsignificance {
+        multiplier: 1,
+        divisor: 2,
+    };
 
 pub fn sum_as<N, T, F>(collection: &[T], arranger: F) -> N
 where
@@ -29,6 +35,29 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     sum_as(&accounts_with_individual_criteria, |(criteria, _)| {
         *criteria
     })
+}
+
+pub fn analyze_potential_adjustment_feasibility(
+    accounts: &[&PayableAccount],
+    cw_masq_balance_minor: u128,
+) -> Result<(), AnalysisError> {
+    let largest_account =
+        find_largest_debt_account_generic(accounts, |account| account.balance_wei);
+    eprintln!(
+        "largest: {:?}, cw balance {}",
+        largest_account, cw_masq_balance_minor
+    );
+    if (largest_account.balance_wei * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
+        / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
+        <= cw_masq_balance_minor
+    {
+        Ok(())
+    } else {
+        Err(AnalysisError::RiskOfAdjustmentWithTooLowBalances {
+            cw_masq_balance_minor,
+            number_of_accounts: accounts.len(),
+        }) //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
+    }
 }
 
 pub fn cut_back_by_excessive_transaction_fee(
@@ -85,21 +114,31 @@ pub fn possibly_outweighed_accounts_fold_guts(
     }
 }
 
-pub fn find_disqualified_account_with_smallest_proposed_balance(
-    accounts: &[&AdjustedAccountBeforeFinalization],
-) -> Wallet {
-    let account_ref = accounts.iter().reduce(|smallest_so_far, current| {
-        if current.proposed_adjusted_balance > smallest_so_far.proposed_adjusted_balance {
-            smallest_so_far
-        } else {
-            current
-        }
-    });
-    account_ref
-        .expect("the iterator was empty but we had checked it")
-        .original_account
-        .wallet
-        .clone()
+pub fn find_largest_debt_account_generic<A>(accounts: &[A], balance_fetcher: fn(&A) -> u128) -> &A {
+    struct Largest<'a, A> {
+        account: &'a A,
+        balance: u128,
+    }
+
+    let first_account = accounts.first().expect("collection was empty");
+    let init = Largest {
+        account: first_account,
+        balance: balance_fetcher(first_account),
+    };
+    accounts
+        .iter()
+        .fold(init, |largest_so_far, current| {
+            let balance = balance_fetcher(current);
+            if balance <= largest_so_far.balance {
+                largest_so_far
+            } else {
+                Largest {
+                    account: current,
+                    balance,
+                }
+            }
+        })
+        .account
 }
 
 pub fn exhaust_cw_balance_totally(
@@ -263,7 +302,7 @@ const fn num_bits<T>() -> usize {
 
 pub fn log_2(x: u128) -> u32 {
     if x < 1 {
-        panic!("log2 of 0 not supported")
+        return 0;
     }
     num_bits::<i128>() as u32 - x.leading_zeros() - 1
 }
@@ -303,16 +342,17 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
-        find_disqualified_account_with_smallest_proposed_balance,
+        analyze_potential_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
+        exhaust_cw_balance_totally, find_largest_debt_account_generic,
         list_accounts_under_the_disqualification_limit, log_10, log_2,
-        possibly_outweighed_accounts_fold_guts, ExhaustionStatus, EMPIRIC_PRECISION_COEFFICIENT,
+        possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
+        ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
         MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE;
+    use crate::accountant::payment_adjuster::AnalysisError;
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -322,7 +362,76 @@ mod tests {
     #[test]
     fn constants_are_correct() {
         assert_eq!(MAX_EXPONENT_FOR_10_IN_U128, 38);
-        assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8)
+        assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
+        assert_eq!(ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier, 1);
+        assert_eq!(ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor, 2)
+    }
+
+    fn test_body_for_adjustment_feasibility_nearly_insufficient(
+        original_accounts: Vec<PayableAccount>,
+        cw_masq_balance: u128,
+    ) {
+        let accounts_in_expected_format =
+            original_accounts.iter().collect::<Vec<&PayableAccount>>();
+
+        let result =
+            analyze_potential_adjustment_feasibility(&accounts_in_expected_format, cw_masq_balance);
+
+        assert_eq!(result, Ok(()))
+    }
+
+    fn calculate_border_line(account_balance: u128) -> u128 {
+        (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
+            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
+    }
+
+    #[test]
+    fn adjustment_feasibility_nearly_insufficient_when_1_less() {
+        let mut account_1 = make_payable_account(111);
+        account_1.balance_wei = 2_000_000_000;
+        let mut account_2 = make_payable_account(333);
+        account_2.balance_wei = 1_000_000_000;
+        let cw_masq_balance = calculate_border_line(account_1.balance_wei) + 1;
+        let original_accounts = vec![account_1, account_2];
+
+        test_body_for_adjustment_feasibility_nearly_insufficient(original_accounts, cw_masq_balance)
+    }
+
+    #[test]
+    fn adjustment_feasibility_nearly_insufficient_when_equal() {
+        let mut account_1 = make_payable_account(111);
+        account_1.balance_wei = 2_000_000_000;
+        let mut account_2 = make_payable_account(333);
+        account_2.balance_wei = 1_000_000_000;
+        let cw_masq_balance = calculate_border_line(account_1.balance_wei);
+        let original_accounts = vec![account_1, account_2];
+
+        test_body_for_adjustment_feasibility_nearly_insufficient(original_accounts, cw_masq_balance)
+    }
+
+    #[test]
+    fn adjustment_feasibility_err_from_insufficient_balance() {
+        let mut account_1 = make_payable_account(111);
+        account_1.balance_wei = 2_000_000_000;
+        let mut account_2 = make_payable_account(222);
+        account_2.balance_wei = 2_000_000_002;
+        let mut account_3 = make_payable_account(333);
+        account_3.balance_wei = 1_000_000_000;
+        let cw_masq_balance = calculate_border_line(account_2.balance_wei) - 1;
+        let original_accounts = vec![account_1, account_2, account_3];
+        let accounts_in_expected_format =
+            original_accounts.iter().collect::<Vec<&PayableAccount>>();
+
+        let result =
+            analyze_potential_adjustment_feasibility(&accounts_in_expected_format, cw_masq_balance);
+
+        assert_eq!(
+            result,
+            Err(AnalysisError::RiskOfAdjustmentWithTooLowBalances {
+                cw_masq_balance_minor: cw_masq_balance,
+                number_of_accounts: 3
+            })
+        )
     }
 
     #[test]
@@ -354,9 +463,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "log2 of 0 not supported")]
-    fn log_2_dislikes_0() {
-        let _ = log_2(0);
+    fn log_2_for_0() {
+        let result = log_2(0);
+
+        assert_eq!(result, 0)
     }
 
     #[test]
@@ -480,24 +590,32 @@ mod tests {
     }
 
     #[test]
-    fn find_disqualified_account_with_smallest_proposed_balance_when_accounts_with_equal_balances()
-    {
-        let account_info = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(111),
-            proposed_adjusted_balance: 1_234_567_890,
-            criteria_sum: 400_000_000,
-        };
+    fn find_largest_debt_account_generic_works() {
+        let account_1 = make_payable_account(111);
+        let account_2 = make_payable_account(333);
+        let account_3 = make_payable_account(222);
+        let account_4 = make_payable_account(332);
+        let accounts = vec![account_1, account_2.clone(), account_3, account_4];
+
+        let result = find_largest_debt_account_generic(&accounts, |account| account.balance_wei);
+
+        assert_eq!(result, &account_2)
+    }
+
+    #[test]
+    fn find_largest_debt_account_generic_when_accounts_with_equal_balances() {
+        let account = make_payable_account(111);
         let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");
-        let mut account_info_1 = account_info.clone();
-        account_info_1.original_account.wallet = wallet_1;
-        let mut account_info_2 = account_info;
-        account_info_2.original_account.wallet = wallet_2.clone();
-        let accounts = vec![&account_info_1, &account_info_2];
+        let mut account_1 = account.clone();
+        account_1.wallet = wallet_1.clone();
+        let mut account_2 = account;
+        account_2.wallet = wallet_2;
+        let accounts = vec![account_1.clone(), account_2];
 
-        let result = find_disqualified_account_with_smallest_proposed_balance(&accounts);
+        let result = find_largest_debt_account_generic(&accounts, |account| account.balance_wei);
 
-        assert_eq!(result, wallet_2)
+        assert_eq!(result, &account_1)
     }
 
     #[test]

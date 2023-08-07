@@ -140,7 +140,7 @@ pub fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: u128, cw_m
 
 pub fn log_insufficient_transaction_fee_balance(
     logger: &Logger,
-    required_transactions_count: usize,
+    required_transactions_count: u16,
     this_stage_data: &FinancialAndTechDetails,
     limiting_count: u16,
 ) {
