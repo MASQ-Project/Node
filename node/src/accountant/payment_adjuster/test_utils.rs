@@ -20,14 +20,14 @@ lazy_static! {
 
 pub fn make_initialized_subject(
     now: SystemTime,
-    cw_masq_balance_opt: Option<u128>,
+    cw_masq_balance_minor_opt: Option<u128>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
     PaymentAdjusterReal {
         inner: Box::new(PaymentAdjusterInnerReal::new(
             now,
             None,
-            cw_masq_balance_opt.unwrap_or(0),
+            cw_masq_balance_minor_opt.unwrap_or(0),
         )),
         logger: logger_opt.unwrap_or(Logger::new("test")),
     }

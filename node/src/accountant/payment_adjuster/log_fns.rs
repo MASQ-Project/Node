@@ -117,10 +117,10 @@ pub fn before_and_after_debug_msg(
 
 pub fn log_info_for_disqualified_account(logger: &Logger, account: &DisqualifiedPayableAccount) {
     info!(
-                logger,
-            "Consuming wallet low in MASQ balance. Recently qualified \
-            payable for wallet {} will not be paid as the consuming wallet handles to provide only {} wei \
-            which is not at least more than a half of the original debt {}",
+          logger,
+            "Consuming wallet is short of MASQ. Seems unavoidable to disregard payable {} \
+            at the moment. Reason is the computed possible payment of {} wei would not be at least half of \
+            the original debt {}.",
                 account.wallet,
                 account.proposed_adjusted_balance.separate_with_commas(),
                 account.original_balance.separate_with_commas()

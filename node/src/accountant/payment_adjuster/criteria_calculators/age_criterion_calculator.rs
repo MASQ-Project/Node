@@ -72,6 +72,13 @@ impl AgeCriterionCalculator {
         }
     }
 
+    // This multiplier is meant to push against the growth of the age criterion,
+    // slowing it down more and more as the time parameter increases.
+    // The reason is that balance numbers soon get huge but yet are not so unrealistic.
+    // For a balanced solution, the age criterion formula is designed to progress
+    // more steeply in the area of rather smaller amounts of seconds, while if
+    // we move on towards a couple of days, weeks, months and so on, the impact of the parameter
+    // diminishes
     fn compute_descending_multiplier(elapsed_secs: u64, divisor: u128) -> u128 {
         let fast_growing_argument = (elapsed_secs as u128)
             .checked_pow(AGE_DESC_MULTIPLIER_ARG_EXP)
@@ -79,12 +86,13 @@ impl AgeCriterionCalculator {
 
         let log_value = Self::nonzero_log_value(fast_growing_argument);
 
-        let log_stressed = (log_value).pow(AGE_DESC_MULTIPLIER_LOG_STRESS_EXP)
+        let log_stressed = log_value.pow(AGE_DESC_MULTIPLIER_LOG_STRESS_EXP)
             * AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER;
 
-        let final_log_multiplier = (log_stressed
-            / (divisor * AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER))
-            .pow(AGE_DESC_MULTIPLIER_DIVISOR_EXP);
+        let divisor_stressed = divisor * AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER;
+
+        let final_log_multiplier =
+            (log_stressed / divisor_stressed).pow(AGE_DESC_MULTIPLIER_DIVISOR_EXP);
 
         x_or_1(final_log_multiplier)
     }
@@ -191,7 +199,7 @@ mod tests {
     #[test]
     fn constants_are_correct() {
         assert_eq!(AGE_MAIN_EXPONENT, 3);
-        assert_eq!(AGE_MULTIPLIER, 10);
+        assert_eq!(AGE_MULTIPLIER, 150);
         assert_eq!(AGE_DESC_MULTIPLIER_ARG_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, 1_000);
@@ -239,8 +247,8 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                64000000, 531441000, 147197952, 34012224, 4574296, 373248, 32768, 1728, 125, 1, 1,
-                1
+                729000000, 4826809000, 1435249152, 308915776, 40353607, 3511808, 287496, 21952,
+                1331, 1, 1, 1
             ]
         )
     }

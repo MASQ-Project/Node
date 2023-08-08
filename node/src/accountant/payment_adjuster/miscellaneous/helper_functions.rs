@@ -534,7 +534,6 @@ mod tests {
             })
             .collect::<Vec<(u128, Wallet, u128)>>();
 
-        eprintln!("results {:?}", results);
         let initial_accounts_order_from_the_seeds_iter =
             initial_accounts_order_from_the_seeds.iter().enumerate();
         let coeffs_and_criteria_sums_matching_the_order_of_the_original_inputs = results
@@ -549,37 +548,37 @@ mod tests {
             .sorted_by(|(a_idx, _, _), (b_idx, _, _)| Ord::cmp(&b_idx, &a_idx))
             .map(|(_, coeff, criteria_sum)| (coeff, criteria_sum))
             .collect::<Vec<(u128, u128)>>();
-        //to preserve easy visual checks
+        //to enable an easy visual check
         #[rustfmt::skip]
         fn expected_result() -> Vec<(u128, u128)> {
             vec![
                 (
                     100000000000000000000000000000000000000,
-                    3337514568138519074931415968855
+                    3337685069315260840795395456195
                 ),
                 (
                     100000000000000000000000000000000000,
-                    2977068138519074931415968855
+                    3147569315260840795395456195
                 ),
                 (
                     100000000000000000000000000000000000,
-                    2968604285622712478129675136
+                    3032031628421209321195830846
+                ),
+                (
+                    100000000000000000000000000000000,
+                    8388546281691944888584197
                 ),
                 (
                     10000000000000000000000000000000,
-                    879662486510538526960128
+                    428973298027210119732866
                 ),
                 (
-                    1000000000000000000000000000000,
-                    43211890301705270704000
-                ),
-                (
-                    1000000000000000000000000000000,
-                    13327534955520000000000
+                    10000000000000000000000000000000,
+                    137300730946560000000000
                 ),
                 (
                     100000000000000000000000000000000000,
-                    2962501520859680498325341824
+                    2962514007434791591273391962
                 )
             ]
         }
@@ -888,7 +887,7 @@ mod tests {
         let subject = make_initialized_subject(now, None, None);
         // when criteria are applied the collection will get sorted and will not necessarily have to match the initial order
         let criteria_and_accounts = subject.calculate_criteria_sums_for_accounts(accounts);
-        eprintln!("wallets in order {:?}", wallets_in_order);
+
         (criteria_and_accounts, wallets_in_order)
     }
 }
