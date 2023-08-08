@@ -3,10 +3,12 @@
 use clap::{crate_description, crate_version, App, AppSettings, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
-use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::constants::{
+    DATA_DIRECTORY_DAEMON_HELP, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+};
 use masq_lib::shared_schema::{
     chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
-    DB_PASSWORD_HELP,
+    DATA_DIRECTORY_HELP, DB_PASSWORD_HELP,
 };
 
 pub fn app_head() -> App<'static, 'static> {
@@ -31,10 +33,13 @@ pub fn app_daemon() -> App<'static, 'static> {
                 .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
         .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
 pub fn app_node() -> App<'static, 'static> {
-    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+    shared_app(app_head().after_help(NODE_HELP_TEXT))
+        .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
 }
 
 pub fn app_config_dumper() -> App<'static, 'static> {
@@ -47,7 +52,7 @@ pub fn app_config_dumper() -> App<'static, 'static> {
                 .help(DUMP_CONFIG_HELP),
         )
         .arg(chain_arg())
-        .arg(data_directory_arg())
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
         .arg(real_user_arg())
         .arg(db_password_arg(DB_PASSWORD_HELP))
 }
@@ -95,9 +100,41 @@ const NODE_HELP_TEXT: &str = indoc!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dirs::{data_local_dir, home_dir};
+    use std::path::Path;
 
     #[test]
     fn constants_have_correct_values() {
+        let data_dir = data_local_dir().unwrap();
+        let home_dir = home_dir().unwrap();
+        let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
+            .join("MASQ")
+            .join("polygon-mainnet");
+        let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+            .join("MASQ")
+            .join("polygon-mumbai");
+
+        assert_eq!(
+            DATA_DIRECTORY_DAEMON_HELP.as_str(),
+            format!("Directory in which the Node will store its persistent state, including at least its database \
+            and by default its configuration file as well. By default, your data-directory is located in \
+            your application directory, under your home directory e.g.: e.g.: '{}'.\n\n\
+            In case you change your chain to a different one, the data-directory path is automatically changed \
+            to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+            automatically changed to: '{}'.\n\n\
+            You can specify your own data-directory to the Daemon in two different ways: \n\n\
+            1. If you provide a path without the chain name on the end, the Daemon will automatically change \
+            your data-directory to correspond with the chain. For example: {}/masq_home will be automatically \
+            changed to: '{}/masq_home/polygon-mainnet'.\n\n\
+            2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
+            there will be no change until you set the chain parameter to a different value.",
+            polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
+            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            home_dir.to_string_lossy().to_string().as_str()
+            )
+        );
         assert_eq!(
             DUMP_CONFIG_HELP,
             "Dump the configuration of MASQ Node to stdout in JSON. Used chiefly by UIs."

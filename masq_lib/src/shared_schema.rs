@@ -1,13 +1,11 @@
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    DATA_DIRECTORY_DAEMON_HELP, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER,
+    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
+    LOWEST_USABLE_INSECURE_PORT, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
 use lazy_static::lazy_static;
-use dirs::{data_local_dir, home_dir};
-use std::sync::Mutex;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -17,6 +15,10 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
+pub const DATA_DIRECTORY_HELP: &str =
+    "Directory in which the Node will store its persistent state, including at least its database \
+    and by default its configuration file as well.\nNote: any existing database in the data directory \
+    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const CONFIG_FILE_HELP: &str =
     "Optional TOML file containing configuration that doesn't often change. Should contain only \
      scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
@@ -31,10 +33,6 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
-pub const DATA_DIRECTORY_NODE_HELP: &str =
-    "Directory in which the Node will store its persistent state, including at least its database \
-    and by default its configuration file as well.\nNote: any existing database in the data directory \
-    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
@@ -198,24 +196,6 @@ pub const SCAN_INTERVALS_HELP:&str = "\
      provided.";
 
 lazy_static! {
-    pub static ref DATA_DIRECTORY_HELP: String = format!("Directory in which the Node will store its persistent state, including at least its database and \
-    by default its configuration file as well. By default, if you start the Node with Daemon via command-line UI, \
-    your data-directory is located in your application directory, under your home directory \
-    e.g.: '{}' for Default chain you are going to use.\n\n\\
-    In case you change your Chain to a different one, the data-directory is automatically changed to chain \
-    specific name: e.g.: if you choose polygon-mumbai as your Chain, then data-directory is automatically \
-    changed to: '{}'.\n\
-    In case, you specify your own data-directory via command-line UI, without providing a chain name \
-    on the end Daemon is automatically setting your data-directory to correspond with the Chain. For example, \
-    you are going to set your data-directory to a specific masq directory in your home directory \
-    e.g. '/home/username/masq_home' without specifying the chain directory on the end, Daemon will automatically \
-    set your data-directory as: '/home/username/masq_home/polygon-mainnet'. You can provide your data directory \
-    with the corresponding chain name on the end. In that case, your data-directory will stay as you \
-    set it up until you change the Chain parameter. In that case, your data directory will be changed \
-    to correspond last part with the chain name.",
-        data_local_dir().join("MASQ").join("polygon-mainnet"),
-        data_local_dir().join("MASQ").join("polygon-mumbai")
-    );
     pub static ref DEFAULT_UI_PORT_VALUE: String = DEFAULT_UI_PORT.to_string();
     pub static ref UI_PORT_HELP: String = format!(
         "The port at which user interfaces will connect to the Node. Best to accept the default unless \
@@ -250,141 +230,7 @@ pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
         .help(CONFIG_FILE_HELP)
 }
 
-lazy_static!(
-    static ref STANDARD_ARG_LIST: Vec<Arg<'static, 'static>> = Mutex::new(vec![
-        Arg::with_name("blockchain-service-url")
-            .long("blockchain-service-url")
-            .value_name("URL")
-            .min_values(0)
-            .max_values(1)
-            .help(BLOCKCHAIN_SERVICE_HELP),
-        chain_arg(),
-        Arg::with_name("clandestine-port")
-            .long("clandestine-port")
-            .value_name("CLANDESTINE-PORT")
-            .min_values(0)
-            .validator(common_validators::validate_clandestine_port)
-            .help(&CLANDESTINE_PORT_HELP),
-        config_file_arg(),
-        Arg::with_name("consuming-private-key")
-            .long("consuming-private-key")
-            .value_name("PRIVATE-KEY")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_private_key)
-            .help(CONSUMING_PRIVATE_KEY_HELP),
-        Arg::with_name("crash-point")
-            .long("crash-point")
-            .value_name("CRASH-POINT")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&CrashPoint::variants())
-            .case_insensitive(true)
-            .hidden(true),
-        data_directory_arg(),
-        db_password_arg(DB_PASSWORD_HELP),
-        Arg::with_name("dns-servers")
-            .long("dns-servers")
-            .value_name("DNS-SERVERS")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_ip_addresses)
-            .help(DNS_SERVERS_HELP),
-        earning_wallet_arg(
-            EARNING_WALLET_HELP,
-            common_validators::validate_ethereum_address,
-        ),
-        Arg::with_name("fake-public-key")
-            .long("fake-public-key")
-            .value_name("FAKE-PUBLIC-KEY")
-            .min_values(0)
-            .max_values(1)
-            .hidden(true),
-        Arg::with_name("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
-        Arg::with_name("ip")
-            .long("ip")
-            .value_name("IP")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_ip_address)
-            .help(IP_ADDRESS_HELP),
-        Arg::with_name("log-level")
-            .long("log-level")
-            .value_name("FILTER")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["off", "error", "warn", "info", "debug", "trace"])
-            .case_insensitive(true)
-            .help(LOG_LEVEL_HELP),
-        Arg::with_name("mapping-protocol")
-            .long("mapping-protocol")
-            .value_name("MAPPING-PROTOCOL")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["pcp", "pmp", "igdp"])
-            .case_insensitive(true)
-            .help(MAPPING_PROTOCOL_HELP),
-        Arg::with_name("min-hops")
-            .long("min-hops")
-            .value_name("MIN_HOPS")
-            .required(false)
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["1", "2", "3", "4", "5", "6"])
-            .help(MIN_HOPS_HELP),
-        Arg::with_name("neighborhood-mode")
-            .long("neighborhood-mode")
-            .value_name("NEIGHBORHOOD-MODE")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["zero-hop", "originate-only", "consume-only", "standard"])
-            .case_insensitive(true)
-            .help(NEIGHBORHOOD_MODE_HELP),
-        Arg::with_name("neighbors")
-            .long("neighbors")
-            .value_name("NODE-DESCRIPTORS")
-            .min_values(0)
-            .help(NEIGHBORS_HELP),
-        real_user_arg(),
-        Arg::with_name("scans")
-            .long("scans")
-            .value_name("SCANS")
-            .takes_value(true)
-            .possible_values(&["on", "off"])
-            .help(SCANS_HELP),
-        common_parameter_with_separate_u64_values(
-            "scan-intervals",
-            SCAN_INTERVALS_HELP,
-        ),
-        common_parameter_with_separate_u64_values(
-            "rate-pack",
-            RATE_PACK_HELP,
-        ),
-        common_parameter_with_separate_u64_values(
-            "payment-thresholds",
-            PAYMENT_THRESHOLDS_HELP,
-        )
-    ]);
-
-    static ref SETUP_ARG_LIST: Vec<Arg<'static, 'static>> = Mutex::new(STANDARD_ARG_LIST.clone().into_iter()
-        .map (|element| match element.value_name {
-            "data-directory" => Arg::with_name("data-directory").help(DATA_DIRECTORY_NODE_HELP),
-            x => x
-        })
-        .collect_vec());
-);
-
-pub fn shared_app_node(head: App<'static, 'static>, arg_list: Vec<Arg>) -> App<'static, 'static> {
-    arg_list.into_iter().fold(head, |so_far, arg| so_far.arg(arg))
-}
-
-pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
+pub fn data_directory_arg(help: &str) -> Arg {
     Arg::with_name("data-directory")
         .long("data-directory")
         .value_name("DATA-DIRECTORY")
@@ -392,7 +238,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .min_values(0)
         .max_values(1)
         .empty_values(false)
-        .help(&DATA_DIRECTORY_HELP)
+        .help(help)
 }
 
 pub fn chain_arg<'a>() -> Arg<'a, 'a> {
@@ -502,6 +348,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(&CLANDESTINE_PORT_HELP),
     )
     .arg(config_file_arg())
+    .arg(data_directory_arg(&DATA_DIRECTORY_DAEMON_HELP))
     .arg(
         Arg::with_name("consuming-private-key")
             .long("consuming-private-key")
@@ -521,7 +368,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg())
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -841,6 +687,13 @@ mod tests {
              Ethereum client specified by --blockchain-service-url communicates with the same blockchain network."
         );
         assert_eq!(
+            DATA_DIRECTORY_HELP,
+            "Directory in which the Node will store its persistent state, including at \
+             least its database and by default its configuration file as well.\nNote: any existing \
+             database in the data directory must have been created from the same chain this run is using, \
+             or the Node will be terminated."
+        );
+        assert_eq!(
             CONFIG_FILE_HELP,
             "Optional TOML file containing configuration that doesn't often change. Should contain only \
              scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
@@ -858,11 +711,6 @@ mod tests {
              make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
-        );
-        assert_eq!(
-            DATA_DIRECTORY_HELP,
-            "Directory in which the Node will store its persistent state, including at \
-             least its database and by default its configuration file as well."
         );
         assert_eq!(
             DB_PASSWORD_HELP,

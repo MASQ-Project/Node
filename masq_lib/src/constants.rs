@@ -3,6 +3,9 @@
 use crate::blockchains::chains::Chain;
 use crate::data_version::DataVersion;
 use const_format::concatcp;
+use dirs::{data_local_dir, home_dir};
+use lazy_static::lazy_static;
+use std::path::Path;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
 pub const CURRENT_SCHEMA_VERSION: usize = 8;
@@ -96,6 +99,40 @@ pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK,
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
 pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
+
+//data-directory help
+lazy_static! {
+    pub static ref DATA_DIRECTORY_DAEMON_HELP: String = compute_data_directory_help();
+}
+
+fn compute_data_directory_help() -> String {
+    let data_dir = data_local_dir().unwrap();
+    let home_dir = home_dir().unwrap();
+    let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
+        .join("MASQ")
+        .join("polygon-mainnet");
+    let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+        .join("MASQ")
+        .join("polygon-mumbai");
+    format!("Directory in which the Node will store its persistent state, including at least its database \
+        and by default its configuration file as well. By default, your data-directory is located in \
+        your application directory, under your home directory e.g.: e.g.: '{}'.\n\n\
+        In case you change your chain to a different one, the data-directory path is automatically changed \
+        to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+        automatically changed to: '{}'.\n\n\
+        You can specify your own data-directory to the Daemon in two different ways: \n\n\
+        1. If you provide a path without the chain name on the end, the Daemon will automatically change \
+        your data-directory to correspond with the chain. For example: {}/masq_home will be automatically \
+        changed to: '{}/masq_home/polygon-mainnet'.\n\n\
+        2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
+        there will be no change until you set the chain parameter to a different value.",
+            polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
+            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            home_dir.to_string_lossy().to_string().as_str()
+    )
+}
 
 #[cfg(test)]
 mod tests {

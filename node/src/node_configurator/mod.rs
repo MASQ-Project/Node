@@ -19,6 +19,7 @@ use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
+    DATA_DIRECTORY_HELP,
 };
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
@@ -36,7 +37,7 @@ pub fn determine_fundamentals(
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
-        .arg(data_directory_arg())
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
         .arg(config_file_arg());
     let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
@@ -165,7 +166,7 @@ mod tests {
 
     fn determine_config_file_path_app() -> App<'static, 'static> {
         App::new("test")
-            .arg(data_directory_arg())
+            .arg(data_directory_arg(DATA_DIRECTORY_HELP))
             .arg(config_file_arg())
     }
 
