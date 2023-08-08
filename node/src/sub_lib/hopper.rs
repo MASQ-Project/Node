@@ -83,14 +83,15 @@ pub enum MessageTypeLite {
     DnsResolveFailed,
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<MessageTypeLite> for MessageType {
     fn into(self) -> MessageTypeLite {
         match self {
-            MessageType::ClientRequest(_) => { MessageTypeLite::ClientRequest }
-            MessageType::ClientResponse(_) => { MessageTypeLite::ClientResponse }
-            MessageType::Gossip(_) => { MessageTypeLite::Gossip }
-            MessageType::GossipFailure(_) => { MessageTypeLite::GossipFailure }
-            MessageType::DnsResolveFailed(_) => { MessageTypeLite::DnsResolveFailed }
+            MessageType::ClientRequest(_) => MessageTypeLite::ClientRequest,
+            MessageType::ClientResponse(_) => MessageTypeLite::ClientResponse,
+            MessageType::Gossip(_) => MessageTypeLite::Gossip,
+            MessageType::GossipFailure(_) => MessageTypeLite::GossipFailure,
+            MessageType::DnsResolveFailed(_) => MessageTypeLite::DnsResolveFailed,
         }
     }
 }
@@ -173,15 +174,11 @@ mod tests {
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde, make_cryptde_pair, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use crate::sub_lib::migrations;
-    use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::sub_lib::sequence_buffer::SequencedPacket;
-    use crate::sub_lib::stream_key::StreamKey;
 
     #[test]
     fn hopper_subs_debug() {
@@ -321,8 +318,10 @@ mod tests {
 
     #[test]
     fn message_type_can_be_converted_in_to_message_type_lite() {
-        let dns_resolve_failed = MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![]));
-        let client_response = MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![]));
+        let dns_resolve_failed =
+            MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_response =
+            MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![]));
         let client_request = MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![]));
         let gossip_failure = MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![]));
         let gossip = MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![]));

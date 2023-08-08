@@ -9,10 +9,10 @@ use multinode_integration_tests_lib::multinode_gossip::{
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::neighborhood::gossip_acceptor::MAX_DEGREE;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::neighborhood::Hops;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::thread;
 use std::time::Duration;
-use node_lib::sub_lib::neighborhood::Hops;
 
 #[test]
 fn graph_connects_but_does_not_over_connect() {

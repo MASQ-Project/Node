@@ -21,6 +21,7 @@ use node_lib::sub_lib::cryptde::{decodex, CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+use node_lib::sub_lib::neighborhood::Hops;
 use node_lib::sub_lib::proxy_client::ClientResponsePayload_0v1;
 use node_lib::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use node_lib::sub_lib::route::{Route, RouteSegment};
@@ -33,7 +34,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use node_lib::sub_lib::neighborhood::Hops;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -226,7 +226,8 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
 
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(&mut cluster, db, vec![], Hops::ThreeHops);
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -265,7 +266,8 @@ fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMock
     db.add_node(mock_node.clone()).unwrap();
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![], Hops::ThreeHops);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(cluster, db, vec![], Hops::ThreeHops);
     let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
         masq_real_node,

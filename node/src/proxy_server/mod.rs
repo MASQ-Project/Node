@@ -2984,7 +2984,7 @@ mod tests {
     )]
     fn route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key() {
         let system = System::new("route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key");
-        let mut subject = ProxyServer::new(
+        let subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
             true,

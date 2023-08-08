@@ -12,12 +12,12 @@ use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::neighborhood::Hops;
 use node_lib::sub_lib::utils::time_t_timestamp;
 use node_lib::test_utils::neighborhood_test_utils::db_from_node;
 use std::collections::{BTreeSet, HashMap};
 use std::convert::TryInto;
 use std::time::Duration;
-use node_lib::sub_lib::neighborhood::Hops;
 
 /// Construct a neighborhood for testing that corresponds to a provided NeighborhoodDatabase, with a MASQRealNode
 /// corresponding to the root of the database, MASQMockNodes corresponding to all the root's immediate neighbors,
@@ -56,7 +56,7 @@ pub fn construct_neighborhood(
     cluster: &mut MASQNodeCluster,
     model_db: NeighborhoodDatabase,
     additional_keys_to_mock: Vec<&PublicKey>,
-    min_hops: Hops
+    min_hops: Hops,
 ) -> (
     NeighborhoodDatabase,
     MASQRealNode,
