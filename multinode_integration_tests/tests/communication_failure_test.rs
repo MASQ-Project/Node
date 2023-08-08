@@ -11,7 +11,6 @@ use multinode_integration_tests_lib::masq_real_node::{
     STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
-use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
@@ -23,15 +22,12 @@ use node_lib::sub_lib::hopper::{
 };
 use node_lib::sub_lib::neighborhood::{Hops, RatePack, DEFAULT_RATE_PACK};
 use node_lib::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use node_lib::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
