@@ -168,19 +168,29 @@ impl Handler<RouteResultMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
-        debug!(self.logger, "Establishing stream key {}", msg.stream_key);
-        let dns_failure = self.dns_failure_retries.get(&msg.stream_key).unwrap_or_else(|| { todo!("Write Me");  });
+        let dns_failure = self
+            .dns_failure_retries
+            .get(&msg.stream_key)
+            .unwrap_or_else(|| {
+                panic!("RouteResultMessage Handler: stream key: {} not found within dns_failure_retries", msg.stream_key);
+            });
 
         match msg.result {
             Ok(route_query_response) => {
-                trace!(self.logger, "Found a new route for hostname: {:?} - retries left: {}", dns_failure.unsuccessful_request.target_hostname, dns_failure.retries_left);
+                debug!(
+                    self.logger,
+                    "Found a new route for hostname: {:?} - stream key: {}  retries left: {}",
+                    dns_failure.unsuccessful_request.target_hostname,
+                    msg.stream_key,
+                    dns_failure.retries_left
+                );
                 self.stream_key_routes
                     .insert(msg.stream_key, route_query_response);
                 // TODO Preserve all the previously know routes and halt the retry process if the new route is already present.
                 // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
-                error!(self.logger, "No route found for hostname: {:?} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, dns_failure.retries_left, e);
+                error!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
             }
         }
     }
@@ -1478,6 +1488,8 @@ mod tests {
     #[test]
     fn proxy_server_receives_http_request_with_new_stream_key_from_dispatcher_then_sends_cores_package_to_hopper(
     ) {
+        init_test_logging();
+        let test_name = "proxy_server_receives_http_request_with_new_stream_key_from_dispatcher_then_sends_cores_package_to_hopper";
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
@@ -1532,7 +1544,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&make_parameters_arc)
                 .make_result(stream_key);
-            let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
+            let system = System::new("test_name");
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
@@ -1540,6 +1552,7 @@ mod tests {
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.logger = Logger::new(test_name);
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -1572,6 +1585,10 @@ mod tests {
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
+
+        TestLogHandler::new().exists_log_containing(
+            &format!("DEBUG: {test_name}: Found a new route for hostname: Some(\"nowhere.com\") - stream key: {stream_key}  retries left: 3")
+        );
     }
 
     #[test]
@@ -2963,6 +2980,34 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "RouteResultMessage Handler: stream key: +dKB2Lsh3ET2TS/J/cexaanFQz4 not found within dns_failure_retries"
+    )]
+    fn route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key() {
+        let system = System::new("route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key");
+        let mut subject = ProxyServer::new(
+            main_cryptde(),
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let mut peer_actors = peer_actors_builder().build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(RouteResultMessage {
+                stream_key: make_meaningless_stream_key(),
+                result: Err("Some Error".to_string()),
+            })
+            .unwrap();
+
+        system.run();
+    }
+
+    #[test]
+    #[should_panic(
         expected = "Each route must demand an exit service, but this route has no such demand: [Routing(0x726F7574696E675F6B65795F31, \
     Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
     routing_service_rate: 208, exit_byte_rate: 11, exit_service_rate: 408 })]"
@@ -3016,6 +3061,7 @@ mod tests {
         let dispatcher_recording_arc = dispatcher.get_recording();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
+        let stream_key = make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
@@ -3034,6 +3080,8 @@ mod tests {
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.stream_key_factory =
+                Box::new(StreamKeyFactoryMock::new().make_result(stream_key));
             subject.logger = Logger::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -3065,7 +3113,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: RouteResultMessage Error: Failed to find route to nowhere.com"
+            "ERROR: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3198,6 +3246,7 @@ mod tests {
             data: expected_data.clone(),
             is_clandestine: false,
         };
+        let stream_key = make_meaningless_stream_key();
         thread::spawn(move || {
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
@@ -3208,6 +3257,8 @@ mod tests {
                 false,
             );
             subject.logger = Logger::new(test_name);
+            subject.stream_key_factory =
+                Box::new(StreamKeyFactoryMock::new().make_result(stream_key));
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -3238,7 +3289,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: RouteResultMessage Error: Failed to find route to nowhere.com"
+            "ERROR: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3534,11 +3585,13 @@ mod tests {
             b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c', b'o', b'm', // server_name
         ]
         .to_vec();
+        let test_name = "proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route";
         let dispatcher = Recorder::new();
         let dispatcher_awaiter = dispatcher.get_awaiter();
         let dispatcher_recording_arc = dispatcher.get_recording();
         let neighborhood = Recorder::new().route_query_response(None);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
@@ -3549,14 +3602,17 @@ mod tests {
             is_clandestine: false,
         };
         thread::spawn(move || {
-            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route");
-            let subject = ProxyServer::new(
+            let system = System::new(test_name);
+            let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.logger = Logger::new(test_name);
+            subject.stream_key_factory =
+                Box::new(StreamKeyFactoryMock::new().make_result(stream_key));
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -3581,7 +3637,7 @@ mod tests {
         assert_eq!(record, &expected_msg);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: ProxyServer: RouteResultMessage Error: Failed to find route to server.com",
+            &format!("ERROR: {test_name}: No route found for hostname: Some(\"server.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to server.com")
         );
     }
 
