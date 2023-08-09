@@ -36,10 +36,11 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     ResolutionAfterFullyDetermined,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    compute_fraction_preventing_mul_coeff, criteria_total, cut_back_by_excessive_transaction_fee,
-    exhaust_cw_balance_totally, find_largest_debt_account_generic,
-    list_accounts_under_the_disqualification_limit, possibly_outweighed_accounts_fold_guts,
-    rebuild_accounts, sort_in_descendant_order_by_weights, sum_as,
+    assess_potential_masq_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
+    criteria_total, cut_back_by_excessive_transaction_fee, exhaust_cw_balance_totally,
+    find_largest_debt_account_generic, list_accounts_under_the_disqualification_limit,
+    possibly_outweighed_accounts_fold_guts, rebuild_accounts, sort_in_descendant_order_by_weights,
+    sum_as,
 };
 use crate::accountant::scanners::payable_scan_setup_msgs::{
     FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -65,13 +66,13 @@ pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-    ) -> Result<Option<Adjustment>, AnalysisError>;
+    ) -> Result<Option<Adjustment>, PaymentAdjusterError>;
 
     fn adjust_payments(
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-    ) -> OutcomingPaymentsInstructions;
+    ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError>;
 
     declare_as_any!();
 }
@@ -85,7 +86,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-    ) -> Result<Option<Adjustment>, AnalysisError> {
+    ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         let qualified_payables = msg.qualified_payables.as_slice();
         let this_stage_data = match msg
             .this_stage_data_opt
@@ -117,8 +118,9 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .masq_tokens_wei
                 .as_u128(),
         ) {
-            true => Ok(Some(Adjustment::MasqToken)),
-            false => Ok(None),
+            Ok(true) => Ok(Some(Adjustment::MasqToken)),
+            Ok(false) => Ok(None),
+            Err(e) => todo!(),
         }
     }
 
@@ -126,7 +128,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-    ) -> OutcomingPaymentsInstructions {
+    ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError> {
         let msg = setup.original_setup_msg;
         let qualified_payables: Vec<PayableAccount> = msg.qualified_payables;
         let response_skeleton_opt = msg.response_skeleton_opt;
@@ -144,7 +146,10 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .collect::<HashMap<Wallet, u128>>()
         });
 
-        let adjusted_accounts = self.run_adjustment(qualified_payables);
+        let adjusted_accounts = match self.run_adjustment(qualified_payables) {
+            Ok(adjusted_accounts) => adjusted_accounts,
+            Err(e) => todo!(),
+        };
 
         debug!(
             self.logger,
@@ -152,10 +157,10 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             before_and_after_debug_msg(debug_info_opt.expectv("debug info"), &adjusted_accounts)
         );
 
-        OutcomingPaymentsInstructions {
+        Ok(OutcomingPaymentsInstructions {
             accounts: adjusted_accounts,
             response_skeleton_opt,
-        }
+        })
     }
 
     implement_as_any!();
@@ -179,7 +184,7 @@ impl PaymentAdjusterReal {
         tech_info: &FinancialAndTechDetails,
         required_tx_count: usize,
         logger: &Logger,
-    ) -> Result<Option<u16>, AnalysisError> {
+    ) -> Result<Option<u16>, PaymentAdjusterError> {
         let transaction_fee_required_per_transaction_major =
             tech_info.estimated_gas_limit_per_transaction as u128
                 * tech_info.desired_gas_price_gwei as u128;
@@ -197,10 +202,12 @@ impl PaymentAdjusterReal {
         if max_doable_tx_count_u16 == 0 {
             let cw_balance = wei_to_gwei(available_balance_minor);
             let per_transaction_requirement = transaction_fee_required_per_transaction_major as u64;
-            Err(AnalysisError::BalanceBelowSingleTxFee {
-                per_transaction_requirement,
-                cw_balance_major: cw_balance,
-            })
+            Err(PaymentAdjusterError::AnalysisError(
+                AnalysisError::BalanceBelowSingleTxFee {
+                    per_transaction_requirement,
+                    cw_balance_major: cw_balance,
+                },
+            ))
         } else if max_doable_tx_count_u16 >= required_tx_count_u16 {
             Ok(None)
         } else {
@@ -224,12 +231,11 @@ impl PaymentAdjusterReal {
         )
     }
 
-    //TODO we should check there is at least one half of the smallest payment
     fn check_need_of_masq_balances_adjustment(
         logger: &Logger,
         payables: Either<&[PayableAccount], &[(u128, PayableAccount)]>,
-        consuming_wallet_balance_minor: u128,
-    ) -> bool {
+        cw_masq_balance_minor: u128,
+    ) -> Result<bool, PaymentAdjusterError> {
         let qualified_payables: Vec<&PayableAccount> = match payables {
             Either::Left(accounts) => accounts.iter().collect(),
             Either::Right(criteria_and_accounts) => criteria_and_accounts
@@ -242,15 +248,23 @@ impl PaymentAdjusterReal {
             account.balance_wei
         });
 
-        if consuming_wallet_balance_minor >= required_masq_sum {
-            false
+        if cw_masq_balance_minor >= required_masq_sum {
+            Ok(false)
         } else {
-            log_adjustment_by_masq_required(
-                logger,
-                required_masq_sum,
-                consuming_wallet_balance_minor,
-            );
-            true
+            match assess_potential_masq_adjustment_feasibility(
+                &qualified_payables,
+                cw_masq_balance_minor,
+            ) {
+                Ok(()) => {
+                    log_adjustment_by_masq_required(
+                        logger,
+                        required_masq_sum,
+                        cw_masq_balance_minor,
+                    );
+                    Ok(true)
+                }
+                Err(e) => todo!(),
+            }
         }
     }
 
@@ -272,16 +286,20 @@ impl PaymentAdjusterReal {
         self.inner = Box::new(inner);
     }
 
-    fn run_adjustment(&mut self, qualified_accounts: Vec<PayableAccount>) -> Vec<PayableAccount> {
+    fn run_adjustment(
+        &mut self,
+        qualified_accounts: Vec<PayableAccount>,
+    ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
         match self.calculate_criteria_and_propose_adjustment_recursively(
             qualified_accounts,
             MasqAndTransactionFeeRunner {},
         ) {
-            Either::Left(non_exhausted_accounts) => exhaust_cw_balance_totally(
+            Ok(Either::Left(non_exhausted_accounts)) => Ok(exhaust_cw_balance_totally(
                 non_exhausted_accounts,
                 self.inner.original_cw_masq_balance(),
-            ),
-            Either::Right(finalized_accounts) => finalized_accounts,
+            )),
+            Ok(Either::Right(finalized_accounts)) => Ok(finalized_accounts),
+            Err(e) => todo!(), //TODO think about a question mark
         }
     }
 
@@ -308,7 +326,10 @@ impl PaymentAdjusterReal {
         &mut self,
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         already_known_count_limit: u16,
-    ) -> Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>> {
+    ) -> Result<
+        Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
+        PaymentAdjusterError,
+    > {
         let transaction_fee_affordable_weighted_accounts = cut_back_by_excessive_transaction_fee(
             accounts_with_individual_criteria,
             already_known_count_limit,
@@ -318,16 +339,20 @@ impl PaymentAdjusterReal {
             Either::Right(&transaction_fee_affordable_weighted_accounts),
             self.inner.unallocated_cw_masq_balance(),
         ) {
-            true => {
-                let result_awaiting_verification = self
-                    .propose_adjustment_recursively(transaction_fee_affordable_weighted_accounts);
-                Either::Left(result_awaiting_verification)
-            }
-            false => {
-                let finalized_accounts =
-                    rebuild_accounts(transaction_fee_affordable_weighted_accounts);
-                Either::Right(finalized_accounts)
-            }
+            Ok(definite_answer) => match definite_answer {
+                true => {
+                    let result_awaiting_verification = self.propose_adjustment_recursively(
+                        transaction_fee_affordable_weighted_accounts,
+                    );
+                    Ok(Either::Left(result_awaiting_verification))
+                }
+                false => {
+                    let finalized_accounts =
+                        rebuild_accounts(transaction_fee_affordable_weighted_accounts);
+                    Ok(Either::Right(finalized_accounts))
+                }
+            },
+            Err(e) => todo!(),
         }
     }
 
@@ -666,6 +691,11 @@ pub enum Adjustment {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum PaymentAdjusterError {
+    AnalysisError(AnalysisError),
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum AnalysisError {
     BalanceBelowSingleTxFee {
         per_transaction_requirement: u64,
@@ -690,7 +720,7 @@ mod tests {
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AnalysisError, PaymentAdjuster, PaymentAdjusterReal,
+        Adjustment, AnalysisError, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
     };
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -864,10 +894,12 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(AnalysisError::BalanceBelowSingleTxFee {
-                per_transaction_requirement: 55_000 * 100,
-                cw_balance_major: 54_000 * 100
-            })
+            Err(PaymentAdjusterError::AnalysisError(
+                AnalysisError::BalanceBelowSingleTxFee {
+                    per_transaction_requirement: 55_000 * 100,
+                    cw_balance_major: 54_000 * 100
+                }
+            ))
         );
     }
 
@@ -1041,6 +1073,7 @@ mod tests {
                 qualified_payables.clone(),
                 MasqAndTransactionFeeRunner {},
             )
+            .unwrap()
             .left()
             .unwrap();
 
@@ -1208,7 +1241,7 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         //because the proposed final balances all all way lower than (at least) the half of the original balances
         assert_eq!(result.accounts, vec![]);
@@ -1283,7 +1316,7 @@ mod tests {
             adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual transaction_fee balance limitations
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
@@ -1373,7 +1406,7 @@ mod tests {
             },
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         assert_eq!(
             result,
@@ -1453,7 +1486,7 @@ mod tests {
             },
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         // account_1, being the least important one, was eliminated as there wouldn't be enough
         // the transaction fee balance for all of them
@@ -1530,7 +1563,7 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         let expected_accounts = {
             let account_1_adjusted = PayableAccount {
@@ -1618,7 +1651,10 @@ mod tests {
             adjustment: Adjustment::MasqToken,
         };
 
-        let mut result = subject.adjust_payments(adjustment_setup, now).accounts;
+        let mut result = subject
+            .adjust_payments(adjustment_setup, now)
+            .unwrap()
+            .accounts;
 
         let winning_account = result.remove(0);
         assert_eq!(
@@ -1756,7 +1792,7 @@ mod tests {
             },
         };
 
-        let mut result = subject.adjust_payments(adjustment_setup, now);
+        let mut result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         let only_account = result.accounts.remove(0);
         assert_eq!(

@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
     ResolutionAfterFullyDetermined,
 };
-use crate::accountant::payment_adjuster::{diagnostics, AnalysisError};
+use crate::accountant::payment_adjuster::{diagnostics, AnalysisError, PaymentAdjusterError};
 use itertools::Itertools;
 use std::iter::successors;
 use thousands::Separable;
@@ -37,10 +37,10 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     })
 }
 
-pub fn analyze_potential_adjustment_feasibility(
+pub fn assess_potential_masq_adjustment_feasibility(
     accounts: &[&PayableAccount],
     cw_masq_balance_minor: u128,
-) -> Result<(), AnalysisError> {
+) -> Result<(), PaymentAdjusterError> {
     let largest_account =
         find_largest_debt_account_generic(accounts, |account| account.balance_wei);
     eprintln!(
@@ -53,10 +53,12 @@ pub fn analyze_potential_adjustment_feasibility(
     {
         Ok(())
     } else {
-        Err(AnalysisError::RiskOfAdjustmentWithTooLowBalances {
-            cw_masq_balance_minor,
-            number_of_accounts: accounts.len(),
-        }) //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
+        Err(PaymentAdjusterError::AnalysisError(
+            AnalysisError::RiskOfAdjustmentWithTooLowBalances {
+                cw_masq_balance_minor,
+                number_of_accounts: accounts.len(),
+            },
+        )) //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
     }
 }
 
@@ -342,7 +344,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        analyze_potential_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
+        assess_potential_masq_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
         exhaust_cw_balance_totally, find_largest_debt_account_generic,
         list_accounts_under_the_disqualification_limit, log_10, log_2,
         possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
@@ -352,7 +354,7 @@ mod tests {
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::AnalysisError;
+    use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -374,8 +376,10 @@ mod tests {
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
 
-        let result =
-            analyze_potential_adjustment_feasibility(&accounts_in_expected_format, cw_masq_balance);
+        let result = assess_potential_masq_adjustment_feasibility(
+            &accounts_in_expected_format,
+            cw_masq_balance,
+        );
 
         assert_eq!(result, Ok(()))
     }
@@ -422,15 +426,19 @@ mod tests {
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
 
-        let result =
-            analyze_potential_adjustment_feasibility(&accounts_in_expected_format, cw_masq_balance);
+        let result = assess_potential_masq_adjustment_feasibility(
+            &accounts_in_expected_format,
+            cw_masq_balance,
+        );
 
         assert_eq!(
             result,
-            Err(AnalysisError::RiskOfAdjustmentWithTooLowBalances {
-                cw_masq_balance_minor: cw_masq_balance,
-                number_of_accounts: 3
-            })
+            Err(PaymentAdjusterError::AnalysisError(
+                AnalysisError::RiskOfAdjustmentWithTooLowBalances {
+                    cw_masq_balance_minor: cw_masq_balance,
+                    number_of_accounts: 3
+                }
+            ))
         )
     }
 

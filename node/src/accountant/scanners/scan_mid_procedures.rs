@@ -25,7 +25,7 @@ pub trait PayableScannerMiddleProcedures {
     fn exacting_payments_instructions(
         &mut self,
         _setup: AwaitedAdjustment,
-    ) -> OutcomingPaymentsInstructions {
+    ) -> Result<OutcomingPaymentsInstructions, String> {
         intentionally_blank!()
     }
 }

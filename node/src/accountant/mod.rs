@@ -650,9 +650,14 @@ impl Accountant {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                self.scanners
+                match self
+                    .scanners
                     .payable
                     .exacting_payments_instructions(unaccepted_msg)
+                {
+                    Ok(instructions) => todo!(),
+                    Err(e) => todo!(),
+                }
             }
             Err(_e) => todo!("be completed by GH-711"),
         };
@@ -1482,7 +1487,7 @@ mod tests {
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
             .adjust_payments_params(&adjust_payments_params_arc)
-            .adjust_payments_result(adjusted_payments_instructions);
+            .adjust_payments_result(Ok(adjusted_payments_instructions));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();

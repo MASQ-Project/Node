@@ -13,7 +13,7 @@ use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError};
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
@@ -1393,16 +1393,17 @@ impl PayableThresholdsGaugeMock {
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params: Arc<Mutex<Vec<PayablePaymentSetup>>>,
     search_for_indispensable_adjustment_results:
-        RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
+        RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime)>>>,
-    adjust_payments_results: RefCell<Vec<OutcomingPaymentsInstructions>>,
+    adjust_payments_results:
+        RefCell<Vec<Result<OutcomingPaymentsInstructions, PaymentAdjusterError>>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
         msg: &PayablePaymentSetup,
-    ) -> Result<Option<Adjustment>, AnalysisError> {
+    ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
@@ -1416,7 +1417,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         &mut self,
         setup: AwaitedAdjustment,
         now: SystemTime,
-    ) -> OutcomingPaymentsInstructions {
+    ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError> {
         self.adjust_payments_params
             .lock()
             .unwrap()
@@ -1436,7 +1437,7 @@ impl PaymentAdjusterMock {
 
     pub fn search_for_indispensable_adjustment_result(
         self,
-        result: Result<Option<Adjustment>, AnalysisError>,
+        result: Result<Option<Adjustment>, PaymentAdjusterError>,
     ) -> Self {
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
@@ -1452,7 +1453,10 @@ impl PaymentAdjusterMock {
         self
     }
 
-    pub fn adjust_payments_result(self, result: OutcomingPaymentsInstructions) -> Self {
+    pub fn adjust_payments_result(
+        self,
+        result: Result<OutcomingPaymentsInstructions, PaymentAdjusterError>,
+    ) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
     }

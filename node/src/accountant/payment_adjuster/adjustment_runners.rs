@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
-use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use itertools::Either;
 
 pub trait AdjustmentRunner {
@@ -18,7 +18,10 @@ pub trait AdjustmentRunner {
 pub struct MasqAndTransactionFeeRunner {}
 
 impl AdjustmentRunner for MasqAndTransactionFeeRunner {
-    type ReturnType = Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>;
+    type ReturnType = Result<
+        Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
+        PaymentAdjusterError,
+    >;
 
     fn adjust(
         &self,
@@ -35,10 +38,10 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
             None => (),
         };
 
-        Either::Left(
+        Ok(Either::Left(
             payment_adjuster
                 .propose_adjustment_recursively(accounts_with_individual_criteria_sorted),
-        )
+        ))
     }
 }
 

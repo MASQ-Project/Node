@@ -275,9 +275,11 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     fn exacting_payments_instructions(
         &mut self,
         setup: AwaitedAdjustment,
-    ) -> OutcomingPaymentsInstructions {
+    ) -> Result<OutcomingPaymentsInstructions, String> {
         let now = SystemTime::now();
-        self.payment_adjuster.adjust_payments(setup, now)
+        self.payment_adjuster
+            .adjust_payments(setup, now)
+            .map_err(|e| todo!())
     }
 }
 
