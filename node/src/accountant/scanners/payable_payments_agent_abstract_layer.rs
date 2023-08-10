@@ -25,15 +25,12 @@ use web3::types::U256;
 //* defaulted limit
 
 pub trait PayablePaymentsAgent: Send {
-    // The nature of a method of this kind lies in the possibility of the need to
-    // refuse the consultant's  and leave the parameter out for uselessness
-    // e.g. Cardano does not require user's own choice of fee size
-    fn conclude_required_fee_per_computed_unit(
+    fn set_required_fee_per_computed_unit(
         &mut self,
-        consultant: &dyn PersistentConfiguration,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError>;
-    fn set_up_pending_transaction_id(&mut self, id: U256);
-    fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
+    fn set_pending_transaction_id(&mut self, id: U256);
+    fn set_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128;
     fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances>;
     fn required_fee_per_computed_unit(&self) -> Option<u64>;

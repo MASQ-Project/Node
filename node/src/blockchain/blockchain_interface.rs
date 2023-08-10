@@ -640,7 +640,7 @@ where
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let data = Self::transaction_data(recipient, amount);
-        let gas_limit = self.required_gas_limit(data.as_slice());
+        let gas_limit = self.compute_gas_limit(data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
             nonce: Some(nonce),
@@ -702,7 +702,7 @@ where
         data
     }
 
-    fn required_gas_limit(&self, data: &[u8]) -> U256 {
+    fn compute_gas_limit(&self, data: &[u8]) -> U256 {
         ethereum_types::U256::try_from(data.iter().fold(self.gas_limit_const_part, |acc, v| {
             acc + if v == &0u8 { 4 } else { 68 }
         }))

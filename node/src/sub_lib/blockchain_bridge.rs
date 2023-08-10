@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsgPayload;
+use crate::accountant::scanners::payable_payments_setup_msg::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -25,7 +25,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
-    pub initial_payable_payment_setup_msg: Recipient<PayablePaymentsSetupMsgPayload>,
+    pub qualified_paybles_message: Recipient<QualifiedPayablesMessage>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -39,7 +39,7 @@ impl Debug for BlockchainBridgeSubs {
 
 #[derive(Message)]
 pub struct OutboundPaymentsInstructions {
-    pub checked_accounts: Vec<PayableAccount>,
+    pub affordable_accounts: Vec<PayableAccount>,
     pub agent: Box<dyn PayablePaymentsAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }

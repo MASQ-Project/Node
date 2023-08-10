@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
+    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
@@ -131,7 +131,7 @@ recorder_message_handler_t_m_p!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler_t_m_p!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler_t_m_p!(InboundClientData);
 recorder_message_handler_t_m_p!(InboundServerData);
-recorder_message_handler_t_m_p!(PayablePaymentsSetupMsgPayload);
+recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
 recorder_message_handler_t_m_p!(IncipientCoresPackage);
 recorder_message_handler_t_m_p!(NewPasswordMessage);
 recorder_message_handler_t_m_p!(NewPublicIp);
@@ -302,16 +302,6 @@ impl Recording {
             .unwrap_or_else(|e| panic!("{}", e))
     }
 
-    pub fn get_record_partial_eq_less<T>(&self, index: usize) -> &T
-    where
-        T: Any + Send,
-    {
-        let wrapped_msg: &PretendedMatchable<T> = self
-            .get_record_inner_body(index)
-            .unwrap_or_else(|e| panic!("{}", e));
-        &wrapped_msg.0
-    }
-
     pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
     where
         T: Any + Send,
@@ -319,7 +309,7 @@ impl Recording {
         self.get_record_inner_body(index).ok()
     }
 
-    fn get_record_inner_body<T: 'static>(&self, index: usize) -> Result<&T, String> {
+    fn get_record_inner_body<T: 'static + Send>(&self, index: usize) -> Result<&T, String> {
         let item_box = match self.messages.get(index) {
             Some(item_box) => item_box,
             None => {
@@ -330,14 +320,20 @@ impl Recording {
                 ))
             }
         };
-        let item_opt = item_box.downcast_ref::<T>();
-
-        match item_opt {
+        match item_box.downcast_ref::<T>() {
             Some(item) => Ok(item),
-            None => Err(format!(
-                "Message {:?} could not be downcast to the expected type",
-                item_box
-            )),
+            None => {
+                // checking for less common but possible other type of an actor message, without PartialEq implemented
+                let item_opt = item_box.downcast_ref::<PretendedMatchable<T>>();
+
+                match item_opt {
+                    Some(item) => Ok(&item.0),
+                    None => Err(format!(
+                        "Message {:?} could not be downcast to the expected type",
+                        item_box
+                    )),
+                }
+            }
         }
     }
 }
@@ -479,7 +475,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        initial_payable_payment_setup_msg: recipient!(addr, PayablePaymentsSetupMsgPayload),
+        qualified_paybles_message: recipient!(addr, QualifiedPayablesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),

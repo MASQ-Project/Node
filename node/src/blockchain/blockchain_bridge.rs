@@ -3,7 +3,7 @@
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
+    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
@@ -138,10 +138,10 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<PayablePaymentsSetupMsgPayload> for BlockchainBridge {
+impl Handler<QualifiedPayablesMessage> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: PayablePaymentsSetupMsgPayload, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: QualifiedPayablesMessage, _ctx: &mut Self::Context) {
         self.handle_scan(
             Self::handle_payable_payments_setup_msg_payload,
             ScanType::Payables,
@@ -266,7 +266,7 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-            initial_payable_payment_setup_msg: recipient!(addr, PayablePaymentsSetupMsgPayload),
+            qualified_paybles_message: recipient!(addr, QualifiedPayablesMessage),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
@@ -275,7 +275,7 @@ impl BlockchainBridge {
 
     fn handle_payable_payments_setup_msg_payload(
         &mut self,
-        msg: PayablePaymentsSetupMsgPayload,
+        incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
@@ -289,11 +289,11 @@ impl BlockchainBridge {
         };
 
         // TODO GH-707 should see about rewriting these individual calls into a batch query
-        let gas_balance = match self
+        let transaction_fee_balance = match self
             .blockchain_interface
             .get_transaction_fee_balance(consuming_wallet)
         {
-            Ok(gas_balance) => gas_balance,
+            Ok(balance) => balance,
             Err(e) => {
                 return Err(format!(
                     "Did not find out gas balance of the consuming wallet: {:?}",
@@ -316,15 +316,15 @@ impl BlockchainBridge {
 
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: gas_balance,
+                transaction_fee_balance_in_minor_units: transaction_fee_balance,
                 masq_token_balance_in_minor_units: token_balance,
             }
         };
 
         let mut agent = self.blockchain_interface.mobilize_payable_payments_agent();
-        agent.set_up_consuming_wallet_balances(consuming_wallet_balances);
+        agent.set_consuming_wallet_balances(consuming_wallet_balances);
 
-        match agent.conclude_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
+        match agent.set_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
             Ok(()) => (),
             Err(e) => {
                 return Err(format!(
@@ -334,12 +334,12 @@ impl BlockchainBridge {
             }
         }
 
-        let msg = PayablePaymentsSetupMsg::from((msg, agent));
+        let outgoing_message = PayablePaymentsSetupMsg::new(incoming_message, agent);
 
         self.payable_payments_setup_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
-            .try_send(msg)
+            .try_send(outgoing_message)
             .expect("Accountant is dead");
 
         Ok(())
@@ -351,7 +351,7 @@ impl BlockchainBridge {
     ) -> Result<(), String> {
         let skeleton_opt = msg.response_skeleton_opt;
         let mut agent = msg.agent;
-        let checked_accounts = msg.checked_accounts;
+        let checked_accounts = msg.affordable_accounts;
         let result = self.process_payments(agent.as_mut(), checked_accounts);
 
         let locally_produced_result = match &result {
@@ -482,7 +482,7 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         agent: &mut dyn PayablePaymentsAgent,
-        checked_accounts: Vec<PayableAccount>,
+        affordable_accounts: Vec<PayableAccount>,
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let consuming_wallet = self
             .consuming_wallet_opt
@@ -494,7 +494,7 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)
             .map_err(PayableTransactionError::TransactionCount)?;
 
-        agent.set_up_pending_transaction_id(pending_tx_id);
+        agent.set_pending_transaction_id(pending_tx_id);
 
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
 
@@ -502,7 +502,7 @@ impl BlockchainBridge {
             consuming_wallet,
             agent,
             new_fingerprints_recipient,
-            &checked_accounts,
+            &affordable_accounts,
         )
     }
 
@@ -526,8 +526,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::{
-        make_payable_payment_setup_msg_payload, make_pending_payable_fingerprint,
-        PayablePaymentsAgentMock,
+        make_pending_payable_fingerprint, make_qualified_payables_message, PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
@@ -699,7 +698,7 @@ mod tests {
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        let payload_msg = make_payable_payment_setup_msg_payload(
+        let payload_msg = make_qualified_payables_message(
             qualified_payables.clone(),
             Some(ResponseSkeleton {
                 client_id: 11122,
@@ -739,8 +738,8 @@ mod tests {
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let actual_pps_msg: &PayablePaymentsSetupMsg =
-            accountant_received_payment.get_record_partial_eq_less(0);
-        assert_eq!(actual_pps_msg.payload, payload_msg);
+            accountant_received_payment.get_record(0);
+        assert_eq!(actual_pps_msg.payables, payload_msg);
         assert_eq!(actual_pps_msg.agent.arbitrary_id_stamp(), agent_id_stamp);
         assert_eq!(accountant_received_payment.len(), 1);
     }
@@ -766,7 +765,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = make_payable_payment_setup_msg_payload(
+        let request = make_qualified_payables_message(
             vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
@@ -804,8 +803,8 @@ mod tests {
     }
 
     #[test]
-    fn initial_payable_payment_setup_msg_fails_on_inspection_of_gas_balance() {
-        let test_name = "initial_payable_payment_setup_msg_fails_on_inspection_of_gas_balance";
+    fn qualified_payables_message_fails_on_inspection_of_gas_balance() {
+        let test_name = "qualified_payables_message_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::QueryFailed(
                 "So lazy and yet you're asking for your account balances?".to_string(),
@@ -817,8 +816,8 @@ mod tests {
     }
 
     #[test]
-    fn initial_payable_payment_setup_msg_fails_on_inspection_of_token_balance() {
-        let test_name = "initial_payable_payment_setup_msg_fails_on_inspection_of_token_balance";
+    fn qualified_payables_message_fails_on_inspection_of_token_balance() {
+        let test_name = "qualified_payables_message_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
@@ -840,7 +839,7 @@ mod tests {
             false,
             None,
         );
-        let request = make_payable_payment_setup_msg_payload(
+        let request = make_qualified_payables_message(
             vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
@@ -879,7 +878,7 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
-        let request = make_payable_payment_setup_msg_payload(
+        let request = make_qualified_payables_message(
             vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 123456,
@@ -959,7 +958,7 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                checked_accounts: accounts.clone(),
+                affordable_accounts: accounts.clone(),
                 agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1025,7 +1024,7 @@ mod tests {
         );
         subject.sent_payable_subs_opt = Some(recipient);
         let request = OutboundPaymentsInstructions {
-            checked_accounts: vec![PayableAccount {
+            affordable_accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
@@ -1095,7 +1094,7 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                checked_accounts: accounts,
+                affordable_accounts: accounts,
                 agent: Box::new(PayablePaymentsAgentMock::default()),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1138,7 +1137,7 @@ mod tests {
     }
 
     #[test]
-    fn process_payments_returns_error_fetching_pending_nonce() {
+    fn process_payments_returns_error_fetching_pending_transaction_id() {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Err(BlockchainError::QueryFailed(
                 "What the hack...??".to_string(),

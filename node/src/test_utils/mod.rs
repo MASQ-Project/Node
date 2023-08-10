@@ -903,9 +903,6 @@ pub mod unshared_test_utils {
                 interval: Duration,
                 ctx: &'a mut Context<A>,
             ) -> Box<dyn NLSpawnHandleHolder> {
-                if !cfg!(test) {
-                    panic!("NotifyLaterHandleMock outside test tree")
-                }
                 self.notify_later_params
                     .lock()
                     .unwrap()
@@ -1047,15 +1044,17 @@ pub mod unshared_test_utils {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
                     match self.arbitrary_id_stamp_opt {
                         Some(id) => id,
-                        // At some mockable methods with present params, the best they can do is to
-                        // ask for an ArbitraryId of the argument. If that needs to happen once it will
-                        // happen always actually, even in cases where we won't be interested in checking
-                        // the id up again. If we do nothing the call of this method will probably blow up,
-                        // because the filed it points to is optional and is likely set to None.
-                        // To avoid confusion from setting up a useless id stamp we provide a null id
-                        // stamp, which allows for both calling this method without a direct punishment
-                        // (if the id isn't set manually) but also setting the assertion on fire if it cannot
-                        // match the expected id stamp when we suddenly do care
+                        // For some mock implementations of methods with args, the best they can do to
+                        // preserve these args for assertions is to take the ArbitraryId of the argument.
+                        // If such code is set once it will happen in all tests using this mock and calling
+                        // the method. However also in cases where we aren't really interested in checking
+                        // that id. If we did nothing the call of this method would blow up because
+                        // the carrying field is likely to be implemented as optional with the value defaulted
+                        // to None.
+                        // As a prevention of confusion from a set, yet useless id stamp, we'll put a null
+                        // type of the id stamp in that place, allowing for both to call this method not risking a direct
+                        // punishment (if the id isn't set manually) but also set the assertion on fire
+                        // if it doesn't match the expected id when we write a test where we do care
                         None => ArbitraryIdStamp::null(),
                     }
                 }

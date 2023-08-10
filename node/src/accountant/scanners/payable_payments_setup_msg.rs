@@ -7,13 +7,13 @@ use actix::Message;
 use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
-pub struct PayablePaymentsSetupMsgPayload {
+pub struct QualifiedPayablesMessage {
     // On purpose restricted visibility
     pub(in crate::accountant) qualified_payables: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl PayablePaymentsSetupMsgPayload {
+impl QualifiedPayablesMessage {
     // On purpose restricted visibility
     pub(in crate::accountant) fn new(
         qualified_payables: Vec<PayableAccount>,
@@ -26,7 +26,7 @@ impl PayablePaymentsSetupMsgPayload {
     }
 }
 
-impl SkeletonOptHolder for PayablePaymentsSetupMsgPayload {
+impl SkeletonOptHolder for QualifiedPayablesMessage {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
@@ -34,23 +34,18 @@ impl SkeletonOptHolder for PayablePaymentsSetupMsgPayload {
 
 #[derive(Message)]
 pub struct PayablePaymentsSetupMsg {
-    pub payload: PayablePaymentsSetupMsgPayload,
+    pub payables: QualifiedPayablesMessage,
     pub agent: Box<dyn PayablePaymentsAgent>,
 }
 
-// To be able to construct that msg outside Accountant
-impl
-    From<(
-        PayablePaymentsSetupMsgPayload,
-        Box<dyn PayablePaymentsAgent>,
-    )> for PayablePaymentsSetupMsg
-{
-    fn from(
-        (payload, agent): (
-            PayablePaymentsSetupMsgPayload,
-            Box<dyn PayablePaymentsAgent>,
-        ),
+impl PayablePaymentsSetupMsg {
+    pub fn new(
+        qualified_payables_msg: QualifiedPayablesMessage,
+        payable_payments_agent: Box<dyn PayablePaymentsAgent>,
     ) -> Self {
-        PayablePaymentsSetupMsg { payload, agent }
+        Self {
+            payables: qualified_payables_msg,
+            agent: payable_payments_agent,
+        }
     }
 }

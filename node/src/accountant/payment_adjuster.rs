@@ -74,7 +74,7 @@ pub enum AnalysisError {}
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_payments_setup_msg::{
-        PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
+        PayablePaymentsSetupMsg, QualifiedPayablesMessage,
     };
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -98,7 +98,7 @@ mod tests {
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let non_required = PayablePaymentsSetupMsg {
-            payload: PayablePaymentsSetupMsgPayload {
+            payables: QualifiedPayablesMessage {
                 qualified_payables: vec![payable_1.clone(), payable_2.clone()],
                 response_skeleton_opt: None,
             },
@@ -118,7 +118,7 @@ mod tests {
             .consuming_wallet_balances_result(Some(consuming_wallet_balances))
             .estimated_transaction_fee_total_result(1_000_000_000_000_000);
         let should_require = PayablePaymentsSetupMsg {
-            payload: PayablePaymentsSetupMsgPayload {
+            payables: QualifiedPayablesMessage {
                 qualified_payables: vec![payable_1, payable_2],
                 response_skeleton_opt: None,
             },

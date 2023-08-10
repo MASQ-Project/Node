@@ -9,7 +9,7 @@ pub mod scanners_utils;
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::scanners::payable_payments_setup_msg::{PayablePaymentsSetupMsgPayload, PayablePaymentsSetupMsg};
+use crate::accountant::scanners::payable_payments_setup_msg::{QualifiedPayablesMessage, PayablePaymentsSetupMsg};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, PayableScannerMiddleProcedures, MultistagePayableScanner,
@@ -64,7 +64,7 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 
 pub struct Scanners {
-    pub payable: Box<dyn MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables>>,
+    pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -185,13 +185,13 @@ pub struct PayableScanner {
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
-impl Scanner<PayablePaymentsSetupMsgPayload, SentPayables> for PayableScanner {
+impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<PayablePaymentsSetupMsgPayload, BeginScanError> {
+    ) -> Result<QualifiedPayablesMessage, BeginScanError> {
         if let Some(timestamp) = self.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
@@ -220,7 +220,7 @@ impl Scanner<PayablePaymentsSetupMsgPayload, SentPayables> for PayableScanner {
                     qualified_payables.len()
                 );
                 let future_payload =
-                    PayablePaymentsSetupMsgPayload::new(qualified_payables, response_skeleton_opt);
+                    QualifiedPayablesMessage::new(qualified_payables, response_skeleton_opt);
                 Ok(future_payload)
             }
         }
@@ -267,9 +267,9 @@ impl PayableScannerMiddleProcedures for PayableScanner {
             Ok(None) => {
                 //TODO will be decoupled with Web3 by GH-696
                 Ok(Either::Left(OutboundPaymentsInstructions {
-                    checked_accounts: msg.payload.qualified_payables,
+                    affordable_accounts: msg.payables.qualified_payables,
                     agent: msg.agent,
-                    response_skeleton_opt: msg.payload.response_skeleton_opt,
+                    response_skeleton_opt: msg.payables.response_skeleton_opt,
                 }))
             }
             Ok(Some(adjustment)) => Ok(Either::Right(AwaitedAdjustment::new(msg, adjustment))),
@@ -287,7 +287,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
     }
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables> for PayableScanner {}
+impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {}
 
 impl PayableScanner {
     pub fn new(
@@ -1037,7 +1037,7 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsgPayload;
+    use crate::accountant::scanners::payable_payments_setup_msg::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
@@ -1169,7 +1169,7 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(PayablePaymentsSetupMsgPayload {
+            Ok(QualifiedPayablesMessage {
                 qualified_payables: qualified_payable_accounts.clone(),
                 response_skeleton_opt: None,
             })
@@ -2854,7 +2854,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let log_handler = TestLogHandler::new();
 
-        assert_elapsed_time_in_mark_as_ended::<PayablePaymentsSetupMsgPayload, SentPayables>(
+        assert_elapsed_time_in_mark_as_ended::<QualifiedPayablesMessage, SentPayables>(
             &mut PayableScannerBuilder::new().build(),
             "Payables",
             test_name,

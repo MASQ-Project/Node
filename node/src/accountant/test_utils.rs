@@ -16,7 +16,7 @@ use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, 
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::scanners::payable_payments_setup_msg::{
-    PayablePaymentsSetupMsg, PayablePaymentsSetupMsgPayload,
+    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::scan_mid_procedures::{
     AwaitedAdjustment, MultistagePayableScanner, PayableScannerMiddleProcedures,
@@ -1401,14 +1401,15 @@ impl PayableThresholdsGaugeMock {
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     //the tuple represents guts of unclonable PayablePaymentsSetupMsg
-    is_adjustment_required_params:
-        Arc<Mutex<Vec<((PayablePaymentsSetupMsgPayload, ArbitraryIdStamp), Logger)>>>,
-    is_adjustment_required_results: RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
+    search_for_indispensable_adjustment_params:
+        Arc<Mutex<Vec<((QualifiedPayablesMessage, ArbitraryIdStamp), Logger)>>>,
+    search_for_indispensable_adjustment_results:
+        RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     //the tuple represents guts of unclonable AwaitedAdjustment
     adjust_payments_params: Arc<
         Mutex<
             Vec<(
-                (Adjustment, PayablePaymentsSetupMsgPayload, ArbitraryIdStamp),
+                (Adjustment, QualifiedPayablesMessage, ArbitraryIdStamp),
                 SystemTime,
                 Logger,
             )>,
@@ -1423,11 +1424,16 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         msg: &PayablePaymentsSetupMsg,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
-        self.is_adjustment_required_params.lock().unwrap().push((
-            (msg.payload.clone(), msg.agent.arbitrary_id_stamp()),
-            logger.clone(),
-        ));
-        self.is_adjustment_required_results.borrow_mut().remove(0)
+        self.search_for_indispensable_adjustment_params
+            .lock()
+            .unwrap()
+            .push((
+                (msg.payables.clone(), msg.agent.arbitrary_id_stamp()),
+                logger.clone(),
+            ));
+        self.search_for_indispensable_adjustment_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn adjust_payments(
@@ -1439,7 +1445,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         self.adjust_payments_params.lock().unwrap().push((
             (
                 setup.adjustment,
-                setup.original_setup_msg.payload.clone(),
+                setup.original_setup_msg.payables.clone(),
                 setup.original_setup_msg.agent.arbitrary_id_stamp(),
             ),
             now,
@@ -1452,9 +1458,9 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<((PayablePaymentsSetupMsgPayload, ArbitraryIdStamp), Logger)>>>,
+        params: &Arc<Mutex<Vec<((QualifiedPayablesMessage, ArbitraryIdStamp), Logger)>>>,
     ) -> Self {
-        self.is_adjustment_required_params = params.clone();
+        self.search_for_indispensable_adjustment_params = params.clone();
         self
     }
 
@@ -1462,7 +1468,7 @@ impl PaymentAdjusterMock {
         self,
         result: Result<Option<Adjustment>, AnalysisError>,
     ) -> Self {
-        self.is_adjustment_required_results
+        self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .push(result);
         self
@@ -1473,7 +1479,7 @@ impl PaymentAdjusterMock {
         params: &Arc<
             Mutex<
                 Vec<(
-                    (Adjustment, PayablePaymentsSetupMsgPayload, ArbitraryIdStamp),
+                    (Adjustment, QualifiedPayablesMessage, ArbitraryIdStamp),
                     SystemTime,
                     Logger,
                 )>,
@@ -1491,11 +1497,11 @@ impl PaymentAdjusterMock {
 }
 
 //in order to bypass restricted visibility
-pub fn make_payable_payment_setup_msg_payload(
+pub fn make_qualified_payables_message(
     qualified_payables: Vec<PayableAccount>,
     response_skeleton_opt: Option<ResponseSkeleton>,
-) -> PayablePaymentsSetupMsgPayload {
-    PayablePaymentsSetupMsgPayload {
+) -> QualifiedPayablesMessage {
+    QualifiedPayablesMessage {
         qualified_payables,
         response_skeleton_opt,
     }
@@ -1536,7 +1542,7 @@ where
     implement_as_any!();
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables> for NullScanner {}
+impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for NullScanner {}
 
 impl PayableScannerMiddleProcedures for NullScanner {}
 
@@ -1649,12 +1655,12 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-impl MultistagePayableScanner<PayablePaymentsSetupMsgPayload, SentPayables>
-    for ScannerMock<PayablePaymentsSetupMsgPayload, SentPayables>
+impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>
+    for ScannerMock<QualifiedPayablesMessage, SentPayables>
 {
 }
 
-impl PayableScannerMiddleProcedures for ScannerMock<PayablePaymentsSetupMsgPayload, SentPayables> {}
+impl PayableScannerMiddleProcedures for ScannerMock<QualifiedPayablesMessage, SentPayables> {}
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(
@@ -1694,7 +1700,7 @@ pub struct PayablePaymentsAgentMock {
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn conclude_required_fee_per_computed_unit(
+    fn set_required_fee_per_computed_unit(
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
@@ -1707,14 +1713,14 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
             .remove(0)
     }
 
-    fn set_up_pending_transaction_id(&mut self, id: U256) {
+    fn set_pending_transaction_id(&mut self, id: U256) {
         self.set_up_pending_transaction_id_params
             .lock()
             .unwrap()
             .push(id);
     }
 
-    fn set_up_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
+    fn set_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
         self.set_up_consuming_wallet_balances_params
             .lock()
             .unwrap()

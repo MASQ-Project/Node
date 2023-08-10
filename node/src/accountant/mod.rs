@@ -30,7 +30,7 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsgPayload;
+use crate::accountant::scanners::payable_payments_setup_msg::QualifiedPayablesMessage;
 use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
@@ -93,7 +93,7 @@ pub struct Accountant {
     scan_schedulers: ScanSchedulers,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     outbound_payments_instructions_sub_opt: Option<Recipient<OutboundPaymentsInstructions>>,
-    payable_payments_setup_msg_payload_sub_opt: Option<Recipient<PayablePaymentsSetupMsgPayload>>,
+    payable_payments_setup_msg_payload_sub_opt: Option<Recipient<QualifiedPayablesMessage>>,
     retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
@@ -547,11 +547,8 @@ impl Accountant {
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
         self.report_inbound_payments_sub_opt =
             Some(msg.peer_actors.accountant.report_inbound_payments);
-        self.payable_payments_setup_msg_payload_sub_opt = Some(
-            msg.peer_actors
-                .blockchain_bridge
-                .initial_payable_payment_setup_msg,
-        );
+        self.payable_payments_setup_msg_payload_sub_opt =
+            Some(msg.peer_actors.blockchain_bridge.qualified_paybles_message);
         self.report_sent_payables_sub_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
@@ -1347,8 +1344,8 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recording.get_record::<PayablePaymentsSetupMsgPayload>(0),
-            &PayablePaymentsSetupMsgPayload {
+            blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
+            &QualifiedPayablesMessage {
                 qualified_payables: vec![payable_account],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1433,7 +1430,7 @@ mod tests {
         let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
-            payload: PayablePaymentsSetupMsgPayload {
+            payables: QualifiedPayablesMessage {
                 qualified_payables: accounts.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1452,7 +1449,7 @@ mod tests {
         let (actual_payload, actual_agent_id_stamp) = actual_payable_payments_setup_msg_guts;
         assert_eq!(
             actual_payload,
-            PayablePaymentsSetupMsgPayload {
+            QualifiedPayablesMessage {
                 qualified_payables: accounts.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1464,8 +1461,8 @@ mod tests {
         assert!(is_adjustment_required_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions = blockchain_bridge_recording
-            .get_record_partial_eq_less::<OutboundPaymentsInstructions>(0);
-        assert_eq!(payments_instructions.checked_accounts, accounts);
+            .get_record::<OutboundPaymentsInstructions>(0);
+        assert_eq!(payments_instructions.affordable_accounts, accounts);
         assert_eq!(
             payments_instructions.response_skeleton_opt,
             Some(ResponseSkeleton {
@@ -1522,7 +1519,7 @@ mod tests {
             client_id: 12,
             context_id: 55,
         };
-        let payload = PayablePaymentsSetupMsgPayload {
+        let payload = QualifiedPayablesMessage {
             qualified_payables: vec![unadjusted_account_1.clone(), unadjusted_account_2.clone()],
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1530,7 +1527,7 @@ mod tests {
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = PayablePaymentsSetupMsg {
-            payload: payload.clone(),
+            payables: payload.clone(),
             agent: Box::new(agent),
         };
         // In the real world the agents are identical, here they bear different ids
@@ -1539,7 +1536,7 @@ mod tests {
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
         let payments_instructions = OutboundPaymentsInstructions {
-            checked_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
+            affordable_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1562,20 +1559,26 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_guts_of_awaited_adjustment, captured_now, logger_clone) =
+        let (actual_fields_of_awaited_adjustment, captured_now, logger_clone) =
             adjust_payments_params.remove(0);
         let (actual_adjustment, actual_payload, actual_agent_id_stamp) =
-            actual_guts_of_awaited_adjustment;
+            actual_fields_of_awaited_adjustment;
         assert_eq!(actual_adjustment, Adjustment::MasqToken);
         assert_eq!(actual_payload, payload);
         assert_eq!(actual_agent_id_stamp, agent_id_stamp_first_phase);
-        assert!(before <= captured_now && captured_now <= after);
+        assert!(
+            before <= captured_now && captured_now <= after,
+            "captured timestamp should have been between {:?} and {:?} but was {:?}",
+            before,
+            after,
+            captured_now
+        );
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions = blockchain_bridge_recording
-            .get_record_partial_eq_less::<OutboundPaymentsInstructions>(0);
+            .get_record::<OutboundPaymentsInstructions>(0);
         assert_eq!(
-            payments_instructions.checked_accounts,
+            payments_instructions.affordable_accounts,
             vec![adjusted_account_1, adjusted_account_2]
         );
         assert_eq!(
@@ -1811,10 +1814,10 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let message = blockchain_bridge_recorder.get_record::<PayablePaymentsSetupMsgPayload>(0);
+        let message = blockchain_bridge_recorder.get_record::<QualifiedPayablesMessage>(0);
         assert_eq!(
             message,
-            &PayablePaymentsSetupMsgPayload {
+            &QualifiedPayablesMessage {
                 qualified_payables,
                 response_skeleton_opt: None,
             }
@@ -2122,7 +2125,7 @@ mod tests {
         let payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
-            .begin_scan_result(Ok(PayablePaymentsSetupMsgPayload {
+            .begin_scan_result(Ok(QualifiedPayablesMessage {
                 qualified_payables: vec![make_payable_account(123)],
                 response_skeleton_opt: None,
             }))
@@ -2331,7 +2334,7 @@ mod tests {
             PayableDaoMock::default().non_pending_payables_result(qualified_payables.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
-            .system_stop_conditions(match_every_type_id!(PayablePaymentsSetupMsgPayload));
+            .system_stop_conditions(match_every_type_id!(QualifiedPayablesMessage));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2351,10 +2354,10 @@ mod tests {
 
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
-        let message = blockchain_bridge_recordings.get_record::<PayablePaymentsSetupMsgPayload>(0);
+        let message = blockchain_bridge_recordings.get_record::<QualifiedPayablesMessage>(0);
         assert_eq!(
             message,
-            &PayablePaymentsSetupMsgPayload {
+            &QualifiedPayablesMessage {
                 qualified_payables,
                 response_skeleton_opt: None,
             }
@@ -2369,8 +2372,8 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(
-                PayablePaymentsSetupMsgPayload,
-                PayablePaymentsSetupMsgPayload
+                QualifiedPayablesMessage,
+                QualifiedPayablesMessage
             ))
             .start();
         let pps_for_blockchain_bridge_sub = blockchain_bridge_addr.clone().recipient();
@@ -2431,12 +2434,12 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 2);
-        let first_message: &PayablePaymentsSetupMsgPayload = recording.get_record(0);
+        let first_message: &QualifiedPayablesMessage = recording.get_record(0);
         assert_eq!(
             first_message.response_skeleton_opt,
             message_before.response_skeleton_opt
         );
-        let second_message: &PayablePaymentsSetupMsgPayload = recording.get_record(1);
+        let second_message: &QualifiedPayablesMessage = recording.get_record(1);
         assert_eq!(
             second_message.response_skeleton_opt,
             message_after.response_skeleton_opt
