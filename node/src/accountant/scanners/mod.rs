@@ -10,7 +10,7 @@ use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::scanners::payable_scan_setup_msgs::{PayablePaymentSetup};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+    PreparedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
@@ -259,39 +259,56 @@ impl PayableScannerMiddleProcedures for PayableScanner {
         &self,
         msg: PayablePaymentSetup,
         logger: &Logger,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, ()> {
+    ) -> Option<Either<OutcomingPaymentsInstructions, PreparedAdjustment>> {
         match self
             .payment_adjuster
             .search_for_indispensable_adjustment(&msg)
         {
-            Ok(None) => {
-                let blockchain_bridge_instructions = OutcomingPaymentsInstructions {
-                    accounts: msg.qualified_payables,
-                    response_skeleton_opt: msg.response_skeleton_opt,
-                };
-
-                Ok(Either::Left(blockchain_bridge_instructions))
-            }
-            Ok(Some(adjustment)) => Ok(Either::Right(AwaitedAdjustment::new(msg, adjustment))),
+            Ok(adjustment_opt) => match adjustment_opt {
+                None => {
+                    let blockchain_bridge_instructions = OutcomingPaymentsInstructions {
+                        accounts: msg.qualified_payables,
+                        response_skeleton_opt: msg.response_skeleton_opt,
+                    };
+                    Some(Either::Left(blockchain_bridge_instructions))
+                }
+                Some(adjustment) => {
+                    let prepared_adjustment = PreparedAdjustment::new(msg, adjustment);
+                    Some((Either::Right(prepared_adjustment)))
+                }
+            },
             Err(e) => {
                 warning!(logger,
-                    "The current balances do not suffice for a payment for any of the recently qualified \
-                    payables by the larger part of each. Please fund your consuming wallet in order \
-                    to avoid being banned from your creditors. Failure reason: {}.", e);
+                "The current balances do not suffice for a payment for any of the recently qualified \
+                payables by the larger part of each. Please fund your consuming wallet in order \
+                to avoid being banned from your creditors. Failure reason: {}.", e);
 
-                Err(())
+                None
             }
         }
     }
 
     fn perform_payment_adjustment(
         &mut self,
-        setup: AwaitedAdjustment,
-    ) -> Result<OutcomingPaymentsInstructions, String> {
+        setup: PreparedAdjustment,
+        logger: &Logger,
+    ) -> Option<OutcomingPaymentsInstructions> {
         let now = SystemTime::now();
-        self.payment_adjuster
-            .adjust_payments(setup, now)
-            .map_err(|e| todo!())
+        match self.payment_adjuster.adjust_payments(setup, now) {
+            Ok(instructions) => Some(instructions),
+            Err(e) => {
+                warning!(
+                    logger,
+                    "Payment adjustment did not succeed \
+                arranging executable payments burdened by balance insufficiency. \
+                Please fund your consuming wallet in order to avoid being banned \
+                from your creditors. Failure reason: {}",
+                    e
+                );
+
+                None
+            }
+        }
     }
 }
 

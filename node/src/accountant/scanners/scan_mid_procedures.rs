@@ -21,24 +21,25 @@ pub trait PayableScannerMiddleProcedures {
         &self,
         _msg: PayablePaymentSetup,
         _logger: &Logger,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, ()> {
+    ) -> Option<Either<OutcomingPaymentsInstructions, PreparedAdjustment>> {
         intentionally_blank!()
     }
     fn perform_payment_adjustment(
         &mut self,
-        _setup: AwaitedAdjustment,
-    ) -> Result<OutcomingPaymentsInstructions, String> {
+        _setup: PreparedAdjustment,
+        _logger: &Logger,
+    ) -> Option<OutcomingPaymentsInstructions> {
         intentionally_blank!()
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct AwaitedAdjustment {
+pub struct PreparedAdjustment {
     pub original_setup_msg: PayablePaymentSetup,
     pub adjustment: Adjustment,
 }
 
-impl AwaitedAdjustment {
+impl PreparedAdjustment {
     pub fn new(original_setup_msg: PayablePaymentSetup, adjustment: Adjustment) -> Self {
         Self {
             original_setup_msg,

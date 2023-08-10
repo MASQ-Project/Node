@@ -267,7 +267,7 @@ impl BlockchainBridge {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         // New card GH-707 will address this
         let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
-            Ok(gas_balance) => todo!(),
+            Ok(gas_balance) => u128::try_from(gas_balance).expect("unexpected wealth"),
             Err(e) => {
                 return Err(format!(
                     "Did not find out gas balance of the consuming wallet: {:?}",
@@ -279,7 +279,7 @@ impl BlockchainBridge {
             .blockchain_interface
             .get_token_balance(consuming_wallet)
         {
-            Ok(token_balance) => todo!(),
+            Ok(token_balance) => u128::try_from(token_balance).expect("unexpected wealth"),
             Err(e) => {
                 return Err(format!(
                     "Did not find out token balance of the consuming wallet: {:?}",

@@ -45,7 +45,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
 use crate::accountant::scanners::payable_scan_setup_msgs::{
     FinancialAndTechDetails, PayablePaymentSetup, StageData,
 };
-use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
+use crate::accountant::scanners::scan_mid_procedures::PreparedAdjustment;
 use crate::accountant::{gwei_to_wei, wei_to_gwei};
 use crate::diagnostics;
 use crate::masq_lib::utils::ExpectValue;
@@ -72,7 +72,7 @@ pub trait PaymentAdjuster {
 
     fn adjust_payments(
         &mut self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError>;
 
@@ -125,7 +125,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
     fn adjust_payments(
         &mut self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError> {
         let msg = setup.original_setup_msg;
@@ -748,7 +748,7 @@ mod tests {
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, PayablePaymentSetup, StageData,
     };
-    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
+    use crate::accountant::scanners::scan_mid_procedures::PreparedAdjustment;
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::{gwei_to_wei, ResponseSkeleton};
     use crate::sub_lib::blockchain_bridge::{
@@ -1300,7 +1300,7 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::MasqToken,
         };
@@ -1374,7 +1374,7 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::MasqToken, //this means the computation happens regardless the actual transaction_fee balance limitations
         };
@@ -1462,7 +1462,7 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
                 affordable_transaction_count: 2,
@@ -1542,7 +1542,7 @@ mod tests {
             )),
             response_skeleton_opt,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
                 affordable_transaction_count: 2,
@@ -1621,7 +1621,7 @@ mod tests {
                 context_id: 234,
             }),
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::MasqToken,
         };
@@ -1709,7 +1709,7 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::MasqToken,
         };
@@ -1848,7 +1848,7 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
-        let adjustment_setup = AwaitedAdjustment {
+        let adjustment_setup = PreparedAdjustment {
             original_setup_msg: setup_msg,
             adjustment: Adjustment::PriorityTransactionFee {
                 affordable_transaction_count: 2,

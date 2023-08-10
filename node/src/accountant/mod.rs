@@ -59,6 +59,7 @@ use actix::Message;
 use actix::Recipient;
 use itertools::Either;
 use itertools::Itertools;
+use log::logger;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -207,7 +208,7 @@ impl Handler<PayablePaymentSetup> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: PayablePaymentSetup, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_payable_payment_setup(msg)
+        self.handle_payable_payment_setup_msg(msg)
     }
 }
 
@@ -645,36 +646,36 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentSetup) {
+    fn handle_payable_payment_setup_msg(&mut self, msg: PayablePaymentSetup) {
         let response_skeleton_opt = msg.response_skeleton_opt;
-        let payment_adjustment_result = match self
+        let blockchain_bridge_instructions_opt = match self
             .scanners
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
-            Ok(Either::Left(transformed_message)) => Ok(transformed_message),
-            Ok(Either::Right(adjustment_info)) => {
+            Some(Either::Left(transformed_message)) => Some(transformed_message),
+            Some(Either::Right(adjustment_info)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 match self
                     .scanners
                     .payable
-                    .perform_payment_adjustment(adjustment_info)
+                    .perform_payment_adjustment(adjustment_info, &self.logger)
                 {
-                    Ok(instructions) => Ok(instructions),
-                    Err(e) => todo!(),
+                    Some(instructions) => Some(instructions),
+                    None => None,
                 }
             }
-            Err(e) => Err(()),
+            None => None,
         };
 
-        match payment_adjustment_result {
-            Ok(blockchain_bridge_instructions) => self
+        match blockchain_bridge_instructions_opt {
+            Some(blockchain_bridge_instructions) => self
                 .outcoming_payments_instructions_sub_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
                 .try_send(blockchain_bridge_instructions)
                 .expect("BlockchainBridge is dead"),
-            Err(e) => {
+            None => {
                 error!(
                     self.logger,
                     "Payable scanner could not finish. Preventing to settle already mature \
@@ -686,12 +687,10 @@ impl Accountant {
                         .as_ref()
                         .expect("UI gateway unbound")
                         .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(response_skeleton.client_id),
-                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                            target: MessageTarget::ClientId(11),
+                            body: UiScanResponse {}.tmb(22),
                         })
                         .expect("UI gateway is dead")
-                } else {
-                    todo!("eliminate me")
                 }
             }
         }
@@ -1044,7 +1043,7 @@ mod tests {
     use crate::accountant::scanners::payable_scan_setup_msgs::{
         FinancialAndTechDetails, StageData,
     };
-    use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
+    use crate::accountant::scanners::scan_mid_procedures::PreparedAdjustment;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1554,7 +1553,7 @@ mod tests {
         let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
         assert_eq!(
             cwbqp_msg,
-            AwaitedAdjustment {
+            PreparedAdjustment {
                 original_setup_msg: consuming_balances_and_qualified_payments,
                 adjustment: Adjustment::MasqToken
             }
@@ -1571,10 +1570,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn payment_adjuster_spit_out_an_error_from_the_insolvency_check() {
-        init_test_logging();
-        let test_name = "payment_adjuster_spit_out_an_error_from_the_insolvency_check";
+    fn test_handling_payment_adjuster_error(
+        test_name: &str,
+        payment_adjuster: PaymentAdjusterMock,
+        cw_transaction_fee_balance_major_opt: Option<u64>,
+    ) {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_recipient = blockchain_bridge.start().recipient();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1587,16 +1587,6 @@ mod tests {
             client_id: 12,
             context_id: 55,
         };
-        let cw_transaction_fee_balance_major = 123_u64;
-        let one_transaction_transaction_fee_requirement = 60 * 55_000;
-        let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts: 1,
-                    per_transaction_requirement_minor: one_transaction_transaction_fee_requirement,
-                    cw_transaction_fee_balance_minor: gwei_to_wei(cw_transaction_fee_balance_major),
-                },
-            )));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1615,7 +1605,7 @@ mod tests {
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
                         transaction_fee_minor: wei_to_gwei::<u128, _>(
-                            cw_transaction_fee_balance_major,
+                            cw_transaction_fee_balance_major_opt.unwrap_or(u64::MAX),
                         ),
                         masq_tokens_minor: 150_000_000_000,
                     },
@@ -1648,6 +1638,23 @@ mod tests {
                 body: UiScanResponse {}.tmb(55)
             }
         );
+    }
+
+    #[test]
+    fn payment_adjuster_spit_out_an_error_from_the_insolvency_check() {
+        init_test_logging();
+        let test_name = "payment_adjuster_spit_out_an_error_from_the_insolvency_check";
+        let payment_adjuster = PaymentAdjusterMock::default()
+            .search_for_indispensable_adjustment_result(Err(PaymentAdjusterError::AnalysisError(
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts: 1,
+                    per_transaction_requirement_minor: 60 * 55_000,
+                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                },
+            )));
+
+        test_handling_payment_adjuster_error(test_name, payment_adjuster, Some(123));
+
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: The current balances do not \
         suffice for a payment for any of the recently qualified payables by the larger part of each. \
@@ -1665,88 +1672,70 @@ mod tests {
 
     #[test]
     fn payment_adjuster_spit_out_an_error_it_became_dirty_from_the_job_on_the_adjustment() {
-        todo!("write a test body for these two tests, only payment adjuster should go in, and the logs should stay outside");
         init_test_logging();
         let test_name =
             "payment_adjuster_spit_out_an_error_it_became_dirty_from_the_job_on_the_adjustment";
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let blockchain_bridge_recipient = blockchain_bridge.start().recipient();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let ui_gateway_recipient = ui_gateway
-            .system_stop_conditions(match_every_type_id!(NodeToUiMessage))
-            .start()
-            .recipient();
-        let mut subject = AccountantBuilder::default().build();
-        let response_skeleton = ResponseSkeleton {
-            client_id: 12,
-            context_id: 55,
-        };
-        let cw_transaction_fee_balance_major = 123_u64;
-        let one_transaction_transaction_fee_requirement = 60 * 55_000;
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsUnexpectedlyEliminated));
+
+        test_handling_payment_adjuster_error(test_name, payment_adjuster, None);
+
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Payment adjustment did not \
+        succeed arranging executable payments burdened by balance insufficiency. Please fund your \
+        consuming wallet in order to avoid being banned from your creditors. Failure reason: Despite \
+        the preliminary analysis had expected a possibility to compute some executable adjusted \
+        payments, the algorithm eventually rejected them all"));
+        log_handler
+            .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
+        log_handler.exists_log_containing(&format!(
+            "ERROR: {test_name}: Payable scanner could not finish. \
+            Preventing to settle already mature payables could have serious consequences"
+        ));
+    }
+
+    #[test]
+    fn error_from_payment_adjuster_is_not_sent_by_an_exclusive_message_to_ui_if_not_manually_requested(
+    ) {
+        init_test_logging();
+        let test_name = "error_from_payment_adjuster_is_not_sent_by_an_exclusive_message_to_ui_if_not_manually_requested";
+        let mut subject = AccountantBuilder::default().build();
+        let payment_adjuster = PaymentAdjusterMock::default()
+            .search_for_indispensable_adjustment_result(Err(PaymentAdjusterError::AnalysisError(
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts: 20,
+                    per_transaction_requirement_minor: 40_000_000_000,
+                    cw_transaction_fee_balance_minor: 123,
+                },
+            )));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
-        subject.outcoming_payments_instructions_sub_opt = Some(blockchain_bridge_recipient);
-        subject.ui_message_sub_opt = Some(ui_gateway_recipient);
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let scan_started_at = SystemTime::now();
-        subject.scanners.payable.mark_as_started(scan_started_at);
-        let subject_addr = subject.start();
         let account_1 = make_payable_account(111_111);
         let system = System::new(test_name);
-        let consuming_balances_and_qualified_payments = PayablePaymentSetup {
+        let msg = PayablePaymentSetup {
             qualified_payables: vec![account_1],
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        transaction_fee_minor: wei_to_gwei::<u128, _>(
-                            cw_transaction_fee_balance_major,
-                        ),
+                        transaction_fee_minor: u128::MAX,
                         masq_tokens_minor: 150_000_000_000,
                     },
                     estimated_gas_limit_per_transaction: 55_000,
                     desired_transaction_fee_price_major: 60,
                 },
             )),
-            response_skeleton_opt: Some(response_skeleton),
-        };
-        let assertion_message = AssertionsMessage {
-            assertions: Box::new(|accountant: &mut Accountant| {
-                assert_eq!(accountant.scanners.payable.scan_started_at(), None) // meaning the scan wa called off
-            }),
+            response_skeleton_opt: None,
         };
 
-        subject_addr
-            .try_send(consuming_balances_and_qualified_payments)
-            .unwrap();
+        subject.handle_payable_payment_setup_msg(msg);
 
-        subject_addr.try_send(assertion_message).unwrap();
-        assert_eq!(system.run(), 0);
-        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        assert_eq!(blockchain_bridge_recording.len(), 0);
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let response_to_user: &NodeToUiMessage = ui_gateway_recording.get_record(0);
-        assert_eq!(
-            response_to_user,
-            &NodeToUiMessage {
-                target: MessageTarget::ClientId(12),
-                body: UiScanResponse {}.tmb(55)
-            }
-        );
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: The current balances do not \
-        suffice for a payment for any of the recently qualified payables by the larger part of each. \
-        Please fund your consuming wallet in order to avoid being banned from your creditors. Failure \
-        reason: Found less transaction fee balance than required by one payment. Number of canceled \
-        payments: 1. Transaction fee for a single account: 3,300,000 wei. Current consuming wallet \
-        balance: 123,000,000,000 wei."));
-        log_handler
-            .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
-        log_handler.exists_log_containing(&format!(
+        // test didn't blow up while the subject was disconnected and the system didn't
+        // run therefore we didn't attempt to send the NodeUiMessage
+        TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
             Preventing to settle already mature payables could have serious consequences"
         ));

@@ -16,7 +16,7 @@ use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, 
 use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError};
 use crate::accountant::scanners::payable_scan_setup_msgs::PayablePaymentSetup;
 use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures,
+    PayableScannerMiddleProcedures, PayableScannerWithMiddleProcedures, PreparedAdjustment,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -1394,7 +1394,7 @@ pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params: Arc<Mutex<Vec<PayablePaymentSetup>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime)>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     adjust_payments_results:
         RefCell<Vec<Result<OutcomingPaymentsInstructions, PaymentAdjusterError>>>,
 }
@@ -1415,7 +1415,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 
     fn adjust_payments(
         &mut self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutcomingPaymentsInstructions, PaymentAdjusterError> {
         self.adjust_payments_params
@@ -1447,7 +1447,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(AwaitedAdjustment, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
