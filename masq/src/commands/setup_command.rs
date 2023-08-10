@@ -4,13 +4,13 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
-use masq_lib::constants::SETUP_ERROR;
+use masq_lib::constants::{DATA_DIRECTORY_DAEMON_HELP, SETUP_ERROR};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
-use masq_lib::shared_schema::shared_app;
+use masq_lib::shared_schema::{data_directory_arg, shared_app};
 use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
 #[cfg(test)]
@@ -26,6 +26,7 @@ const SETUP_COMMAND_ABOUT: &str =
 
 pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
 #[derive(Debug, PartialEq, Eq)]

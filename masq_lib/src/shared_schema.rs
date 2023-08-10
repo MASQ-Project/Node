@@ -1,7 +1,7 @@
 use crate::constants::{
-    DATA_DIRECTORY_DAEMON_HELP, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER,
-    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
-    LOWEST_USABLE_INSECURE_PORT, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
+    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -348,7 +348,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(&CLANDESTINE_PORT_HELP),
     )
     .arg(config_file_arg())
-    .arg(data_directory_arg(&DATA_DIRECTORY_DAEMON_HELP))
     .arg(
         Arg::with_name("consuming-private-key")
             .long("consuming-private-key")
