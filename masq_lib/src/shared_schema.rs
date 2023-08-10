@@ -347,6 +347,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .validator(common_validators::validate_clandestine_port)
             .help(&CLANDESTINE_PORT_HELP),
     )
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(config_file_arg())
     .arg(
         Arg::with_name("consuming-private-key")

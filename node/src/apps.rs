@@ -8,7 +8,7 @@ use masq_lib::constants::{
 };
 use masq_lib::shared_schema::{
     chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
-    DATA_DIRECTORY_HELP, DB_PASSWORD_HELP,
+    DB_PASSWORD_HELP,
 };
 
 pub fn app_head() -> App<'static, 'static> {
@@ -37,9 +37,7 @@ pub fn app_daemon() -> App<'static, 'static> {
 }
 
 pub fn app_node() -> App<'static, 'static> {
-    shared_app(app_head().after_help(NODE_HELP_TEXT))
-        .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
-        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
+    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
 pub fn app_config_dumper() -> App<'static, 'static> {
