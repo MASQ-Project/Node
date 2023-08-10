@@ -49,7 +49,7 @@ use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
 use crate::accountant::{gwei_to_wei, wei_to_gwei};
 use crate::diagnostics;
 use crate::masq_lib::utils::ExpectValue;
-use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutcomingPaymentsInstructions};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use itertools::Either::{Left, Right};
@@ -57,9 +57,11 @@ use masq_lib::logger::Logger;
 #[cfg(test)]
 use std::any::Any;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::iter::once;
 use std::ops::Not;
 use std::time::SystemTime;
+use thousands::Separable;
 use web3::types::U256;
 
 pub trait PaymentAdjuster {
@@ -113,10 +115,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         match Self::check_need_of_masq_balances_adjustment(
             &self.logger,
             Either::Left(qualified_payables),
-            this_stage_data
-                .consuming_wallet_balances
-                .masq_tokens_wei
-                .as_u128(),
+            this_stage_data.consuming_wallet_balances.masq_tokens_minor,
         ) {
             Ok(true) => Ok(Some(Adjustment::MasqToken)),
             Ok(false) => Ok(None),
@@ -187,11 +186,11 @@ impl PaymentAdjusterReal {
     ) -> Result<Option<u16>, PaymentAdjusterError> {
         let transaction_fee_required_per_transaction_major =
             tech_info.estimated_gas_limit_per_transaction as u128
-                * tech_info.desired_gas_price_gwei as u128;
+                * tech_info.desired_transaction_fee_price_major as u128;
 
-        let transaction_fee_required_minor: U256 =
+        let transaction_fee_required_minor: u128 =
             gwei_to_wei(transaction_fee_required_per_transaction_major);
-        let available_balance_minor = tech_info.consuming_wallet_balances.gas_currency_wei;
+        let available_balance_minor = tech_info.consuming_wallet_balances.transaction_fee_minor;
         let max_doable_tx_count_loose_boundaries =
             available_balance_minor / transaction_fee_required_minor;
         let (max_doable_tx_count_u16, required_tx_count_u16) =
@@ -200,12 +199,12 @@ impl PaymentAdjusterReal {
                 required_tx_count,
             );
         if max_doable_tx_count_u16 == 0 {
-            let cw_balance = wei_to_gwei(available_balance_minor);
             let per_transaction_requirement = transaction_fee_required_per_transaction_major as u64;
             Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::BalanceBelowSingleTxFee {
-                    per_transaction_requirement,
-                    cw_balance_major: cw_balance,
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts: todo!(),
+                    per_transaction_requirement_minor: per_transaction_requirement,
+                    cw_transaction_fee_balance_minor: available_balance_minor,
                 },
             ))
         } else if max_doable_tx_count_u16 >= required_tx_count_u16 {
@@ -222,7 +221,7 @@ impl PaymentAdjusterReal {
     }
 
     fn process_big_nums_and_look_out_for_ceiling(
-        max_doable_tx_count: U256,
+        max_doable_tx_count: u128,
         required_tx_count: usize,
     ) -> (u16, u16) {
         (
@@ -280,7 +279,7 @@ impl PaymentAdjusterReal {
             } => Some(affordable_transaction_count),
             Adjustment::MasqToken => None,
         };
-        let cw_masq_balance = setup.consuming_wallet_balances.masq_tokens_wei.as_u128();
+        let cw_masq_balance = setup.consuming_wallet_balances.masq_tokens_minor;
         let inner =
             PaymentAdjusterInnerReal::new(now, transaction_fee_limitation_opt, cw_masq_balance);
         self.inner = Box::new(inner);
@@ -693,18 +692,42 @@ pub enum Adjustment {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentAdjusterError {
     AnalysisError(AnalysisError),
+    AllAccountsUnexpectedlyEliminated,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AnalysisError {
-    BalanceBelowSingleTxFee {
-        per_transaction_requirement: u64,
-        cw_balance_major: u64,
-    },
-    RiskOfAdjustmentWithTooLowBalances {
-        cw_masq_balance_minor: u128,
+    NotEnoughTransactionFeeBalanceForSingleTx {
         number_of_accounts: usize,
+        per_transaction_requirement_minor: u64,
+        cw_transaction_fee_balance_minor: u128,
     },
+    RiskOfAdjustmentWithTooLowMASQBalances {
+        number_of_accounts: usize,
+        cw_masq_balance_minor: u128,
+    },
+}
+
+impl Display for PaymentAdjusterError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PaymentAdjusterError::AnalysisError(analysis_error) => match analysis_error{
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {number_of_accounts,per_transaction_requirement_minor, cw_transaction_fee_balance_minor } =>
+                    write!(f, "Found less transaction fee balance than required by one payment. \
+                 Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
+                 Current consuming wallet balance: {} wei", number_of_accounts, per_transaction_requirement_minor.separate_with_commas(),
+                           cw_transaction_fee_balance_minor.separate_with_commas()),
+                AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {number_of_accounts, cw_masq_balance_minor } =>
+                    write!(f,"Analysis has revealed possibly unfavourable payment adjustments given \
+                the anticipated resulting payments from the limited resources. Please, provide more \
+                funds instead. Number of canceled payments: {}. Current consuming wallet balance: \
+                {} wei of MASQ", number_of_accounts.separate_with_commas(),cw_masq_balance_minor.separate_with_commas())
+            },
+            PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(f, "Despite \
+            the preliminary analysis had expected a possibility to compute some executable \
+            adjusted payments, the algorithm eventually rejected them all")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -751,7 +774,7 @@ mod tests {
         let _ = result.inner.unallocated_cw_masq_balance();
     }
 
-    struct MasqBalancesTestSetup {
+    struct PayableBalancesAndCWBAlanceInTest {
         balances_of_accounts_major: Vec<u64>,
         cw_balance_major: u64,
     }
@@ -765,7 +788,7 @@ mod tests {
         subject.logger = logger;
         //masq balance > payments
         let msg_1 = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(MasqBalancesTestSetup {
+            Some(PayableBalancesAndCWBAlanceInTest {
                 balances_of_accounts_major: vec![85, 14],
                 cw_balance_major: 100,
             }),
@@ -773,7 +796,7 @@ mod tests {
         );
         //masq balance = payments
         let msg_2 = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(MasqBalancesTestSetup {
+            Some(PayableBalancesAndCWBAlanceInTest {
                 balances_of_accounts_major: vec![85, 15],
                 cw_balance_major: 100,
             }),
@@ -782,21 +805,21 @@ mod tests {
         //transaction_fee balance > payments
         let msg_3 = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(TransactionFeeTestConditions {
+            Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 111,
                 number_of_payments: 5,
                 estimated_fee_limit_per_transaction: 53_000,
-                consuming_wallet_transaction_fee_major: (111 * 5 * 53_000) + 1,
+                cw_transaction_fee_balance_major: (111 * 5 * 53_000) + 1,
             }),
         );
         //transaction_fee balance = payments
         let msg_4 = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(TransactionFeeTestConditions {
+            Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
                 number_of_payments: 6,
                 estimated_fee_limit_per_transaction: 53_000,
-                consuming_wallet_transaction_fee_major: 100 * 6 * 53_000,
+                cw_transaction_fee_balance_major: 100 * 6 * 53_000,
             }),
         );
 
@@ -820,7 +843,7 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(MasqBalancesTestSetup {
+            Some(PayableBalancesAndCWBAlanceInTest {
                 balances_of_accounts_major: vec![85, 16],
                 cw_balance_major: 100,
             }),
@@ -848,11 +871,11 @@ mod tests {
         let number_of_payments = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
-            Some(TransactionFeeTestConditions {
+            Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
                 number_of_payments,
                 estimated_fee_limit_per_transaction: 55_000,
-                consuming_wallet_transaction_fee_major: 100 * 3 * 55_000 - 1,
+                cw_transaction_fee_balance_major: 100 * 3 * 55_000 - 1,
             }),
         );
 
@@ -881,12 +904,15 @@ mod tests {
         let subject = PaymentAdjusterReal::new();
         let number_of_payments = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
-            None,
-            Some(TransactionFeeTestConditions {
+            Some(PayableBalancesAndCWBAlanceInTest {
+                balances_of_accounts_major: vec![123],
+                cw_balance_major: 444,
+            }),
+            Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
                 number_of_payments,
                 estimated_fee_limit_per_transaction: 55_000,
-                consuming_wallet_transaction_fee_major: 54_000 * 100,
+                cw_transaction_fee_balance_major: 54_000 * 100,
             }),
         );
 
@@ -895,12 +921,50 @@ mod tests {
         assert_eq!(
             result,
             Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::BalanceBelowSingleTxFee {
-                    per_transaction_requirement: 55_000 * 100,
-                    cw_balance_major: 54_000 * 100
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts: 1,
+                    per_transaction_requirement_minor: 55_000 * 100 * 1_000_000_000,
+                    cw_transaction_fee_balance_minor: 54_000 * 100 * 1_000_000_000
                 }
             ))
         );
+    }
+
+    #[test]
+    fn payment_adjuster_error_implements_display() {
+        vec![
+            (
+                PaymentAdjusterError::AnalysisError(
+                    AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
+                        number_of_accounts: 5,
+                        cw_masq_balance_minor: 333_000_000,
+                    },
+                ),
+                "Analysis has revealed possibly unfavourable payment adjustments given \
+                the anticipated resulting payments from the limited resources. Please, \
+                provide more funds instead. Number of canceled payments: 5. Current \
+                consuming wallet balance: 333,000,000 wei of MASQ",
+            ),
+            (
+                PaymentAdjusterError::AnalysisError(
+                    AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                        number_of_accounts: 4,
+                        per_transaction_requirement_minor: 70_000_000_000_000,
+                        cw_transaction_fee_balance_minor: 90_000,
+                    },
+                ),
+                "Found less transaction fee balance than required by one payment. \
+                Number of canceled payments: 4. Transaction fee for a single account: \
+                70,000,000,000,000 wei. Current consuming wallet balance: 90,000 wei",
+            ),
+            (
+                PaymentAdjusterError::AllAccountsUnexpectedlyEliminated,
+                "Despite the preliminary analysis had expected a possibility to compute some \
+                executable adjusted payments, the algorithm eventually rejected them all",
+            ),
+        ]
+        .into_iter()
+        .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg))
     }
 
     #[test]
@@ -909,9 +973,9 @@ mod tests {
             .into_iter()
             .map(|correction| {
                 if correction < 0 {
-                    U256::from(u16::MAX - (correction.abs() as u16))
+                    (u16::MAX - correction.abs() as u16) as u128
                 } else {
-                    U256::from(u16::MAX as u32 + correction as u32)
+                    u16::MAX as u128 + correction as u128
                 }
             })
             .map(|max_doable_txs_count_u256| {
@@ -944,7 +1008,7 @@ mod tests {
             .map(|required_tx_count_usize| {
                 let (_, required_tx_count) =
                     PaymentAdjusterReal::process_big_nums_and_look_out_for_ceiling(
-                        U256::from(123),
+                        123,
                         required_tx_count_usize,
                     );
                 required_tx_count
@@ -1227,11 +1291,11 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(u32::MAX),
-                        masq_tokens_wei: U256::from(cw_masq_balance),
+                        transaction_fee_minor: u32::MAX as u128,
+                        masq_tokens_minor: cw_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 70_000,
-                    desired_gas_price_gwei: 120,
+                    desired_transaction_fee_price_major: 120,
                 },
             )),
             response_skeleton_opt: None,
@@ -1295,18 +1359,17 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let accounts_sum: u128 =
             4_444_444_444_444_444_444 + 6_000_000_000_000_000_000 + 6_666_666_666_000_000_000;
-        let consuming_wallet_masq_balance_wei =
-            U256::from(accounts_sum - 2_000_000_000_000_000_000);
+        let consuming_wallet_masq_balance_minor = accounts_sum - 2_000_000_000_000_000_000;
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(u32::MAX),
-                        masq_tokens_wei: consuming_wallet_masq_balance_wei,
+                        transaction_fee_minor: u32::MAX as u128,
+                        masq_tokens_minor: consuming_wallet_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 70_000,
-                    desired_gas_price_gwei: 120,
+                    desired_transaction_fee_price_major: 120,
                 },
             )),
             response_skeleton_opt: None,
@@ -1389,12 +1452,12 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        transaction_fee_minor: 5_544_000_000_000_000_u128 - 1,
                         //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: U256::from(10_u128.pow(22)),
+                        masq_tokens_minor: 10_u128.pow(22),
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
+                    desired_transaction_fee_price_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1469,12 +1532,12 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        transaction_fee_minor: 5_544_000_000_000_000_u128 - 1,
                         //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+                        masq_tokens_minor: consuming_wallet_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
+                    desired_transaction_fee_price_major: 24,
                 },
             )),
             response_skeleton_opt,
@@ -1539,18 +1602,18 @@ mod tests {
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        let consuming_wallet_masq_balance_wei = U256::from(333_000_000_000_u64 + 50_000_000_000);
+        let consuming_wallet_masq_balance_minor = 333_000_000_000 + 50_000_000_000;
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_000_000_000_000_000_000_000_000_u128),
+                        transaction_fee_minor: 5_000_000_000_000_000_000_000_000_u128,
                         //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: consuming_wallet_masq_balance_wei,
+                        masq_tokens_minor: consuming_wallet_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
+                    desired_transaction_fee_price_major: 24,
                 },
             )),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -1631,17 +1694,17 @@ mod tests {
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone()];
         let mut subject = PaymentAdjusterReal::new();
-        let consuming_wallet_masq_balance_wei = U256::from(consuming_wallet_balance_minor);
+        let consuming_wallet_masq_balance_wei = consuming_wallet_balance_minor;
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(u128::MAX),
-                        masq_tokens_wei: consuming_wallet_masq_balance_wei,
+                        transaction_fee_minor: u128::MAX,
+                        masq_tokens_minor: consuming_wallet_masq_balance_wei,
                     },
                     estimated_gas_limit_per_transaction: 55_000,
-                    desired_gas_price_gwei: 150,
+                    desired_transaction_fee_price_major: 150,
                 },
             )),
             response_skeleton_opt: None,
@@ -1775,12 +1838,12 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: U256::from(5_544_000_000_000_000_u128 - 1),
+                        transaction_fee_minor: 5_544_000_000_000_000_u128 - 1,
                         //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-                        masq_tokens_wei: U256::from(consuming_wallet_masq_balance),
+                        masq_tokens_minor: consuming_wallet_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_gas_price_gwei: 24,
+                    desired_transaction_fee_price_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1829,18 +1892,18 @@ mod tests {
         todo!("write this occasional test")
     }
 
-    struct TransactionFeeTestConditions {
+    struct TransactionFeeConditionsInTest {
         desired_transaction_fee_price_per_major: u64,
         number_of_payments: usize,
         estimated_fee_limit_per_transaction: u64,
-        consuming_wallet_transaction_fee_major: u64,
+        cw_transaction_fee_balance_major: u64,
     }
 
     fn make_payable_setup_msg_coming_from_blockchain_bridge(
-        masq_balances_setup_opt: Option<MasqBalancesTestSetup>,
-        transaction_fee_per_unit_opt: Option<TransactionFeeTestConditions>,
+        masq_balances_opt: Option<PayableBalancesAndCWBAlanceInTest>,
+        transaction_fee_conditions_opt: Option<TransactionFeeConditionsInTest>,
     ) -> PayablePaymentSetup {
-        let masq_balances_setup = masq_balances_setup_opt.unwrap_or(MasqBalancesTestSetup {
+        let masq_balances_setup = masq_balances_opt.unwrap_or(PayableBalancesAndCWBAlanceInTest {
             balances_of_accounts_major: vec![1, 1],
             cw_balance_major: u64::MAX,
         });
@@ -1852,12 +1915,12 @@ mod tests {
             number_of_payments,
             estimated_transaction_fee_limit_per_tx,
             cw_balance_transaction_fee_major,
-        ) = match transaction_fee_per_unit_opt {
+        ) = match transaction_fee_conditions_opt {
             Some(conditions) => (
                 conditions.desired_transaction_fee_price_per_major,
                 conditions.number_of_payments,
                 conditions.estimated_fee_limit_per_transaction,
-                conditions.consuming_wallet_transaction_fee_major,
+                conditions.cw_transaction_fee_balance_major,
             ),
             None => (120, accounts_count, 55_000, u64::MAX),
         };
@@ -1878,11 +1941,11 @@ mod tests {
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        gas_currency_wei: gwei_to_wei(cw_balance_transaction_fee_major),
-                        masq_tokens_wei: gwei_to_wei(masq_balances_setup.cw_balance_major),
+                        transaction_fee_minor: gwei_to_wei(cw_balance_transaction_fee_major),
+                        masq_tokens_minor: gwei_to_wei(masq_balances_setup.cw_balance_major),
                     },
                     estimated_gas_limit_per_transaction: estimated_transaction_fee_limit_per_tx,
-                    desired_gas_price_gwei: desired_transaction_fee_price,
+                    desired_transaction_fee_price_major: desired_transaction_fee_price,
                 },
             )),
             response_skeleton_opt: None,

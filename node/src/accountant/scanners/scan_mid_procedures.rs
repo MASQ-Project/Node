@@ -6,6 +6,7 @@ use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutcomingPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
+use masq_lib::logger::Logger;
 
 pub trait PayableScannerWithMiddleProcedures<BeginMessage, EndMessage>:
     Scanner<BeginMessage, EndMessage> + PayableScannerMiddleProcedures
@@ -16,13 +17,14 @@ where
 }
 
 pub trait PayableScannerMiddleProcedures {
-    fn try_softly(
+    fn try_skipping_payment_adjustment(
         &self,
         _msg: PayablePaymentSetup,
-    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, String> {
+        _logger: &Logger,
+    ) -> Result<Either<OutcomingPaymentsInstructions, AwaitedAdjustment>, ()> {
         intentionally_blank!()
     }
-    fn exacting_payments_instructions(
+    fn perform_payment_adjustment(
         &mut self,
         _setup: AwaitedAdjustment,
     ) -> Result<OutcomingPaymentsInstructions, String> {

@@ -267,7 +267,7 @@ impl BlockchainBridge {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         // New card GH-707 will address this
         let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
-            Ok(gas_balance) => gas_balance,
+            Ok(gas_balance) => todo!(),
             Err(e) => {
                 return Err(format!(
                     "Did not find out gas balance of the consuming wallet: {:?}",
@@ -279,7 +279,7 @@ impl BlockchainBridge {
             .blockchain_interface
             .get_token_balance(consuming_wallet)
         {
-            Ok(token_balance) => token_balance,
+            Ok(token_balance) => todo!(),
             Err(e) => {
                 return Err(format!(
                     "Did not find out token balance of the consuming wallet: {:?}",
@@ -289,8 +289,8 @@ impl BlockchainBridge {
         };
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                gas_currency_wei: gas_balance,
-                masq_tokens_wei: token_balance,
+                transaction_fee_minor: gas_balance,
+                masq_tokens_minor: token_balance,
             }
         };
         let desired_gas_price_gwei = self
@@ -302,7 +302,7 @@ impl BlockchainBridge {
         let this_stage_data = StageData::FinancialAndTechDetails(FinancialAndTechDetails {
             consuming_wallet_balances,
             estimated_gas_limit_per_transaction,
-            desired_gas_price_gwei,
+            desired_transaction_fee_price_major: desired_gas_price_gwei,
         });
         let msg = PayablePaymentSetup::from((msg, this_stage_data));
 
@@ -663,17 +663,17 @@ mod tests {
         let get_gas_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let gas_balance = U256::from(4455);
-        let token_balance = U256::from(112233);
+        let gas_balance = 4455;
+        let token_balance = 112233;
         let wallet_balances_found = ConsumingWalletBalances {
-            gas_currency_wei: gas_balance,
-            masq_tokens_wei: token_balance,
+            transaction_fee_minor: gas_balance,
+            masq_tokens_minor: token_balance,
         };
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_params(&get_gas_balance_params_arc)
-            .get_gas_balance_result(Ok(gas_balance))
+            .get_gas_balance_result(Ok(U256::from(gas_balance)))
             .get_token_balance_params(&get_token_balance_params_arc)
-            .get_token_balance_result(Ok(token_balance))
+            .get_token_balance_result(Ok(U256::from(token_balance)))
             .estimated_gas_limit_per_payable_result(51_546);
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
@@ -733,7 +733,7 @@ mod tests {
             StageData::FinancialAndTechDetails(FinancialAndTechDetails {
                 consuming_wallet_balances: wallet_balances_found,
                 estimated_gas_limit_per_transaction: 51_546,
-                desired_gas_price_gwei: 146,
+                desired_transaction_fee_price_major: 146,
             }),
         )
             .into();

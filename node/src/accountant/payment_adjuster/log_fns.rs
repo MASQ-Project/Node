@@ -151,7 +151,7 @@ pub fn log_insufficient_transaction_fee_balance(
             their count.",
         this_stage_data
             .consuming_wallet_balances
-            .masq_tokens_wei
+            .masq_tokens_minor
             .separate_with_commas(),
         required_transactions_count,
         limiting_count

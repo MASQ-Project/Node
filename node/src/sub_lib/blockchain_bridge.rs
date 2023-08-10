@@ -54,10 +54,10 @@ impl SkeletonOptHolder for OutcomingPaymentsInstructions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
-    pub gas_currency_wei: U256,
-    pub masq_tokens_wei: U256, //TODO should be u128 instead
+    pub transaction_fee_minor: u128,
+    pub masq_tokens_minor: u128,
 }
 
 #[cfg(test)]

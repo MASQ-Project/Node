@@ -10,6 +10,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     ResolutionAfterFullyDetermined,
 };
 use crate::accountant::payment_adjuster::{diagnostics, AnalysisError, PaymentAdjusterError};
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use itertools::Itertools;
 use std::iter::successors;
 use thousands::Separable;
@@ -43,10 +44,7 @@ pub fn assess_potential_masq_adjustment_feasibility(
 ) -> Result<(), PaymentAdjusterError> {
     let largest_account =
         find_largest_debt_account_generic(accounts, |account| account.balance_wei);
-    eprintln!(
-        "largest: {:?}, cw balance {}",
-        largest_account, cw_masq_balance_minor
-    );
+
     if (largest_account.balance_wei * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
         / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
         <= cw_masq_balance_minor
@@ -54,11 +52,12 @@ pub fn assess_potential_masq_adjustment_feasibility(
         Ok(())
     } else {
         Err(PaymentAdjusterError::AnalysisError(
-            AnalysisError::RiskOfAdjustmentWithTooLowBalances {
-                cw_masq_balance_minor,
+            AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
                 number_of_accounts: accounts.len(),
+                cw_masq_balance_minor: todo!(),
+                //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
             },
-        )) //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
+        ))
     }
 }
 
@@ -356,6 +355,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
     use crate::accountant::test_utils::make_payable_account;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
@@ -434,9 +434,9 @@ mod tests {
         assert_eq!(
             result,
             Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfAdjustmentWithTooLowBalances {
-                    cw_masq_balance_minor: cw_masq_balance,
-                    number_of_accounts: 3
+                AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
+                    number_of_accounts: 3,
+                    cw_masq_balance_minor: cw_masq_balance
                 }
             ))
         )

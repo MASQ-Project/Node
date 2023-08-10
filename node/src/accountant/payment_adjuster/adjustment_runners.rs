@@ -79,10 +79,10 @@ mod tests {
         let cw_balance = 9_000_000;
         let details = FinancialAndTechDetails {
             consuming_wallet_balances: ConsumingWalletBalances {
-                gas_currency_wei: U256::from(0),
-                masq_tokens_wei: U256::from(cw_balance),
+                transaction_fee_minor: 0,
+                masq_tokens_minor: cw_balance,
             },
-            desired_gas_price_gwei: 30,
+            desired_transaction_fee_price_major: 30,
             estimated_gas_limit_per_transaction: 100,
         };
         let wallet_1 = make_wallet("abc");
