@@ -653,18 +653,20 @@ impl Accountant {
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
-            Some(Either::Left(transformed_message)) => Some(transformed_message),
-            Some(Either::Right(adjustment_info)) => {
-                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                match self
-                    .scanners
-                    .payable
-                    .perform_payment_adjustment(adjustment_info, &self.logger)
-                {
-                    Some(instructions) => Some(instructions),
-                    None => None,
+            Some(result) => match result {
+                Either::Left(transformed_message) => Some(transformed_message),
+                Either::Right(adjustment_info) => {
+                    //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
+                    match self
+                        .scanners
+                        .payable
+                        .perform_payment_adjustment(adjustment_info, &self.logger)
+                    {
+                        Some(instructions) => Some(instructions),
+                        None => None,
+                    }
                 }
-            }
+            },
             None => None,
         };
 
@@ -687,8 +689,8 @@ impl Accountant {
                         .as_ref()
                         .expect("UI gateway unbound")
                         .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(11),
-                            body: UiScanResponse {}.tmb(22),
+                            target: MessageTarget::ClientId(response_skeleton.client_id),
+                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
                         })
                         .expect("UI gateway is dead")
                 }
@@ -1715,7 +1717,6 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
         let account_1 = make_payable_account(111_111);
-        let system = System::new(test_name);
         let msg = PayablePaymentSetup {
             qualified_payables: vec![account_1],
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(

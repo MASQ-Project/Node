@@ -199,11 +199,10 @@ impl PaymentAdjusterReal {
                 required_tx_count,
             );
         if max_doable_tx_count_u16 == 0 {
-            let per_transaction_requirement = transaction_fee_required_per_transaction_major as u64;
             Err(PaymentAdjusterError::AnalysisError(
                 AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts: todo!(),
-                    per_transaction_requirement_minor: per_transaction_requirement,
+                    number_of_accounts: required_tx_count,
+                    per_transaction_requirement_minor: transaction_fee_required_minor,
                     cw_transaction_fee_balance_minor: available_balance_minor,
                 },
             ))
@@ -699,7 +698,7 @@ pub enum PaymentAdjusterError {
 pub enum AnalysisError {
     NotEnoughTransactionFeeBalanceForSingleTx {
         number_of_accounts: usize,
-        per_transaction_requirement_minor: u64,
+        per_transaction_requirement_minor: u128,
         cw_transaction_fee_balance_minor: u128,
     },
     RiskOfAdjustmentWithTooLowMASQBalances {
@@ -807,8 +806,8 @@ mod tests {
             None,
             Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 111,
-                number_of_payments: 5,
-                estimated_fee_limit_per_transaction: 53_000,
+                number_of_accounts: 5,
+                estimated_transaction_fee_units_limit_per_transaction: 53_000,
                 cw_transaction_fee_balance_major: (111 * 5 * 53_000) + 1,
             }),
         );
@@ -817,8 +816,8 @@ mod tests {
             None,
             Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
-                number_of_payments: 6,
-                estimated_fee_limit_per_transaction: 53_000,
+                number_of_accounts: 6,
+                estimated_transaction_fee_units_limit_per_transaction: 53_000,
                 cw_transaction_fee_balance_major: 100 * 6 * 53_000,
             }),
         );
@@ -868,20 +867,20 @@ mod tests {
         let logger = Logger::new(test_name);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
-        let number_of_payments = 3;
+        let number_of_accounts = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             None,
             Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
-                number_of_payments,
-                estimated_fee_limit_per_transaction: 55_000,
+                number_of_accounts,
+                estimated_transaction_fee_units_limit_per_transaction: 55_000,
                 cw_transaction_fee_balance_major: 100 * 3 * 55_000 - 1,
             }),
         );
 
         let result = subject.search_for_indispensable_adjustment(&msg);
 
-        let expected_limiting_count = number_of_payments as u16 - 1;
+        let expected_limiting_count = number_of_accounts as u16 - 1;
         assert_eq!(
             result,
             Ok(Some(Adjustment::PriorityTransactionFee {
@@ -902,7 +901,7 @@ mod tests {
     fn search_for_indispensable_adjustment_unable_to_pay_even_for_a_single_transaction_because_of_transaction_fee(
     ) {
         let subject = PaymentAdjusterReal::new();
-        let number_of_payments = 3;
+        let number_of_accounts = 3;
         let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
             Some(PayableBalancesAndCWBAlanceInTest {
                 balances_of_accounts_major: vec![123],
@@ -910,8 +909,8 @@ mod tests {
             }),
             Some(TransactionFeeConditionsInTest {
                 desired_transaction_fee_price_per_major: 100,
-                number_of_payments,
-                estimated_fee_limit_per_transaction: 55_000,
+                number_of_accounts,
+                estimated_transaction_fee_units_limit_per_transaction: 55_000,
                 cw_transaction_fee_balance_major: 54_000 * 100,
             }),
         );
@@ -922,7 +921,7 @@ mod tests {
             result,
             Err(PaymentAdjusterError::AnalysisError(
                 AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts: 1,
+                    number_of_accounts,
                     per_transaction_requirement_minor: 55_000 * 100 * 1_000_000_000,
                     cw_transaction_fee_balance_minor: 54_000 * 100 * 1_000_000_000
                 }
@@ -1894,8 +1893,8 @@ mod tests {
 
     struct TransactionFeeConditionsInTest {
         desired_transaction_fee_price_per_major: u64,
-        number_of_payments: usize,
-        estimated_fee_limit_per_transaction: u64,
+        number_of_accounts: usize,
+        estimated_transaction_fee_units_limit_per_transaction: u64,
         cw_transaction_fee_balance_major: u64,
     }
 
@@ -1918,8 +1917,8 @@ mod tests {
         ) = match transaction_fee_conditions_opt {
             Some(conditions) => (
                 conditions.desired_transaction_fee_price_per_major,
-                conditions.number_of_payments,
-                conditions.estimated_fee_limit_per_transaction,
+                conditions.number_of_accounts,
+                conditions.estimated_transaction_fee_units_limit_per_transaction,
                 conditions.cw_transaction_fee_balance_major,
             ),
             None => (120, accounts_count, 55_000, u64::MAX),

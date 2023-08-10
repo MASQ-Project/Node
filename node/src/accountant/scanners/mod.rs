@@ -274,7 +274,7 @@ impl PayableScannerMiddleProcedures for PayableScanner {
                 }
                 Some(adjustment) => {
                     let prepared_adjustment = PreparedAdjustment::new(msg, adjustment);
-                    Some((Either::Right(prepared_adjustment)))
+                    Some(Either::Right(prepared_adjustment))
                 }
             },
             Err(e) => {

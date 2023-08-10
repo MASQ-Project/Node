@@ -54,8 +54,7 @@ pub fn assess_potential_masq_adjustment_feasibility(
         Err(PaymentAdjusterError::AnalysisError(
             AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
                 number_of_accounts: accounts.len(),
-                cw_masq_balance_minor: todo!(),
-                //TODO think later if you wanna carry the info about count, we could fetch it at a different place too
+                cw_masq_balance_minor,
             },
         ))
     }
