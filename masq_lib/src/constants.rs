@@ -116,7 +116,7 @@ fn compute_data_directory_help() -> String {
         .join("polygon-mumbai");
     format!("Directory in which the Node will store its persistent state, including at least its database \
         and by default its configuration file as well. By default, your data-directory is located in \
-        your application directory, under your home directory e.g.: e.g.: '{}'.\n\n\
+        your application directory, under your home directory e.g.: '{}'.\n\n\
         In case you change your chain to a different one, the data-directory path is automatically changed \
         to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
         automatically changed to: '{}'.\n\n\
