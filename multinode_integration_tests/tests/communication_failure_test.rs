@@ -235,7 +235,7 @@ fn dns_resolution_failure_with_real_nodes() {
             .chain(cluster.chain)
             .build(),
     );
-    let nodes = (0..5)
+    let nodes = (0..7)
         .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
@@ -245,7 +245,7 @@ fn dns_resolution_failure_with_real_nodes() {
             )
         })
         .collect::<Vec<MASQRealNode>>();
-    thread::sleep(Duration::from_millis(1000 * (nodes.len() as u64)));
+    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
     let mut client = first_node.make_client(8080, 60000);
 
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.nonexistent.com\r\n\r\n");
