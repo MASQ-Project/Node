@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use web3::types::U256;
@@ -72,8 +72,8 @@ impl PayablePaymentsAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-    use crate::accountant::scanners::payable_payments_agent_web3::{
+    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_web3::{
         PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;

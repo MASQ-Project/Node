@@ -14,12 +14,12 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_setup_msg::{
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, MultistagePayableScanner, PayableScannerMiddleProcedures,
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::{
+    MultistagePayableScanner, PayableScannerMidScanProcedures, PreparedAdjustment,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -1438,7 +1438,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 
     fn adjust_payments(
         &self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions {
@@ -1544,7 +1544,7 @@ where
 
 impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for NullScanner {}
 
-impl PayableScannerMiddleProcedures for NullScanner {}
+impl PayableScannerMidScanProcedures for NullScanner {}
 
 impl Default for NullScanner {
     fn default() -> Self {
@@ -1660,7 +1660,7 @@ impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>
 {
 }
 
-impl PayableScannerMiddleProcedures for ScannerMock<QualifiedPayablesMessage, SentPayables> {}
+impl PayableScannerMidScanProcedures for ScannerMock<QualifiedPayablesMessage, SentPayables> {}
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(
@@ -1687,15 +1687,12 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    conclude_required_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
-    conclude_required_fee_per_computed_unit_results:
-        RefCell<Vec<Result<(), PersistentConfigError>>>,
-    set_up_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
-    set_up_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
-    consuming_wallet_balances_results: RefCell<Vec<Option<ConsumingWalletBalances>>>,
+    set_required_fee_per_computed_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+    set_required_fee_per_computed_unit_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    set_pending_transaction_id_params: Arc<Mutex<Vec<U256>>>,
+    set_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     required_fee_per_computed_unit_results: RefCell<Vec<Option<u64>>>,
     pending_transaction_id_results: RefCell<Vec<Option<U256>>>,
-    estimated_transaction_fee_total_results: Option<u128>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
@@ -1704,24 +1701,24 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
         &mut self,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<(), PersistentConfigError> {
-        self.conclude_required_fee_per_computed_unit_params
+        self.set_required_fee_per_computed_unit_params
             .lock()
             .unwrap()
             .push(persistent_config.arbitrary_id_stamp());
-        self.conclude_required_fee_per_computed_unit_results
+        self.set_required_fee_per_computed_unit_results
             .borrow_mut()
             .remove(0)
     }
 
     fn set_pending_transaction_id(&mut self, id: U256) {
-        self.set_up_pending_transaction_id_params
+        self.set_pending_transaction_id_params
             .lock()
             .unwrap()
             .push(id);
     }
 
     fn set_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
-        self.set_up_consuming_wallet_balances_params
+        self.set_consuming_wallet_balances_params
             .lock()
             .unwrap()
             .push(balances)
@@ -1749,50 +1746,34 @@ impl PayablePaymentsAgent for PayablePaymentsAgentMock {
 }
 
 impl PayablePaymentsAgentMock {
-    pub fn conclude_required_fee_per_computed_unit_params(
+    pub fn set_required_fee_per_computed_unit_params(
         mut self,
         params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
     ) -> Self {
-        self.conclude_required_fee_per_computed_unit_params = params.clone();
+        self.set_required_fee_per_computed_unit_params = params.clone();
         self
     }
 
-    pub fn conclude_required_fee_per_computed_unit_result(
+    pub fn set_required_fee_per_computed_unit_result(
         self,
         result: Result<(), PersistentConfigError>,
     ) -> Self {
-        self.conclude_required_fee_per_computed_unit_results
+        self.set_required_fee_per_computed_unit_results
             .borrow_mut()
             .push(result);
         self
     }
 
-    pub fn set_up_pending_transaction_id_params(mut self, params: &Arc<Mutex<Vec<U256>>>) -> Self {
-        self.set_up_pending_transaction_id_params = params.clone();
+    pub fn set_pending_transaction_id_params(mut self, params: &Arc<Mutex<Vec<U256>>>) -> Self {
+        self.set_pending_transaction_id_params = params.clone();
         self
     }
 
-    pub fn set_up_consuming_wallet_balances_params(
+    pub fn set_consuming_wallet_balances_params(
         mut self,
         params: &Arc<Mutex<Vec<ConsumingWalletBalances>>>,
     ) -> Self {
-        self.set_up_consuming_wallet_balances_params = params.clone();
-        self
-    }
-
-    pub fn estimated_transaction_fee_params(self, _params: &Arc<Mutex<Vec<usize>>>) -> Self {
-        todo!("to be implemented by GH-711")
-    }
-
-    pub fn estimated_transaction_fee_total_result(mut self, result: u128) -> Self {
-        self.estimated_transaction_fee_total_results = Some(result);
-        self
-    }
-
-    pub fn consuming_wallet_balances_result(self, result: Option<ConsumingWalletBalances>) -> Self {
-        self.consuming_wallet_balances_results
-            .borrow_mut()
-            .push(result);
+        self.set_consuming_wallet_balances_params = params.clone();
         self
     }
 

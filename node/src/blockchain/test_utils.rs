@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};

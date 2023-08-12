@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_payments_agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::payable_payments_setup_msg::{
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::{
@@ -36,7 +36,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{TransactionReceipt, H256};
@@ -213,42 +213,33 @@ impl BlockchainBridge {
         }
     }
 
-    pub fn make_connections(
-        blockchain_service_url: Option<String>,
-        data_directory: PathBuf,
-        chain: Chain,
-    ) -> (
-        Box<dyn BlockchainInterface>,
-        Box<dyn PersistentConfiguration>,
-    ) {
-        let blockchain_interface: Box<dyn BlockchainInterface> = {
-            match blockchain_service_url {
-                Some(url) => match Http::new(&url) {
-                    Ok((event_loop_handle, transport)) => {
-                        Self::construct_blockchain_interface(event_loop_handle, transport, chain)
-                    }
-                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                },
-                None => Box::new(BlockchainInterfaceClandestine::new(chain)),
-            }
-        };
+    pub fn initialize_persistent_configuration(data_directory: &Path)->Box<dyn PersistentConfiguration>{
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(
-                    &data_directory,
+                    data_directory,
                     DbInitializationConfig::panic_on_migration(),
                 )
-                .unwrap_or_else(|err| db_connection_launch_panic(err, &data_directory)),
+                .unwrap_or_else(|err| db_connection_launch_panic(err, data_directory)),
         ));
-        (
-            blockchain_interface,
-            Box::new(PersistentConfigurationReal::new(config_dao)),
-        )
+        Box::new(PersistentConfigurationReal::new(config_dao))
+    }
+    
+    pub fn initialize_blockchain_interface(blockchain_service_url_opt: Option<&str>, chain: Chain)->Box<dyn BlockchainInterface>{
+        match blockchain_service_url_opt {
+            Some(url) => match Http::new(&url) {
+                Ok((event_loop_handle, transport)) => {
+                    Self::initialize_appropriate_definite_interface(event_loop_handle, transport, chain)
+                }
+                Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+            },
+            None => Box::new(BlockchainInterfaceClandestine::new(chain)), //TODO make sure this is tested (after the merge??)
+        }
     }
 
     // TODO when we have multiple chains of fundamentally different architectures and also ability to switch them,
     // this should probably be replaced by a HashMap of a distinct blockchain interface for each chain
-    fn construct_blockchain_interface(
+    fn initialize_appropriate_definite_interface(
         http_event_loop_handle: EventLoopHandle,
         transport: Http,
         chain: Chain,
@@ -629,10 +620,9 @@ mod tests {
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
         let data_directory = PathBuf::new(); //never reached
-        let blockchain_service_url = Some("http://λ:8545".to_string());
-        let _ = BlockchainBridge::make_connections(
+        let blockchain_service_url = Some("http://λ:8545");
+        let _ = BlockchainBridge::initialize_blockchain_interface(
             blockchain_service_url,
-            data_directory,
             DEFAULT_CHAIN,
         );
     }
@@ -653,11 +643,11 @@ mod tests {
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = PayablePaymentsAgentMock::default()
             .set_arbitrary_id_stamp(agent_id_stamp)
-            .set_up_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
-            .conclude_required_fee_per_computed_unit_params(
+            .set_consuming_wallet_balances_params(&set_up_consuming_wallet_balances_params_arc)
+            .set_required_fee_per_computed_unit_params(
                 &conclude_required_fee_per_computed_unit_params_arc,
             )
-            .conclude_required_fee_per_computed_unit_result(Ok(()));
+            .set_required_fee_per_computed_unit_result(Ok(()));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
@@ -737,8 +727,7 @@ mod tests {
             vec![persistent_config_id_stamp]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        let actual_pps_msg: &PayablePaymentsSetupMsg =
-            accountant_received_payment.get_record(0);
+        let actual_pps_msg: &PayablePaymentsSetupMsg = accountant_received_payment.get_record(0);
         assert_eq!(actual_pps_msg.payables, payload_msg);
         assert_eq!(actual_pps_msg.agent.arbitrary_id_stamp(), agent_id_stamp);
         assert_eq!(accountant_received_payment.len(), 1);
@@ -862,10 +851,9 @@ mod tests {
 
     #[test]
     fn handle_payable_payments_setup_msg_payload_fails_on_gas_price_query_on_behalf_of_the_agent() {
-        let agent = PayablePaymentsAgentMock::default()
-            .conclude_required_fee_per_computed_unit_result(Err(
-                PersistentConfigError::DatabaseError("siesta".to_string()),
-            ));
+        let agent = PayablePaymentsAgentMock::default().set_required_fee_per_computed_unit_result(
+            Err(PersistentConfigError::DatabaseError("siesta".to_string())),
+        );
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(456789)))
             .get_token_balance_result(Ok(U256::from(7890123456_u64)))
@@ -953,7 +941,7 @@ mod tests {
         let arbitrary_id_stamp = ArbitraryIdStamp::new();
         let agent = PayablePaymentsAgentMock::default()
             .set_arbitrary_id_stamp(arbitrary_id_stamp)
-            .set_up_pending_transaction_id_params(&set_up_pending_transaction_id_params_arc);
+            .set_pending_transaction_id_params(&set_up_pending_transaction_id_params_arc);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -1892,10 +1880,8 @@ mod tests {
         );
 
         let act = |data_dir: &Path| {
-            BlockchainBridge::make_connections(
-                Some("http://127.0.0.1".to_string()),
-                data_dir.to_path_buf(),
-                Chain::PolyMumbai,
+            BlockchainBridge::initialize_persistent_configuration(
+                data_dir
             );
         };
 

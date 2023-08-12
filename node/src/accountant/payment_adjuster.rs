@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
-use crate::accountant::scanners::scan_mid_procedures::AwaitedAdjustment;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
 #[cfg(test)]
@@ -17,7 +17,7 @@ pub trait PaymentAdjuster {
 
     fn adjust_payments(
         &self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         now: SystemTime,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions;
@@ -38,7 +38,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
     fn adjust_payments(
         &self,
-        _setup: AwaitedAdjustment,
+        _setup: PreparedAdjustment,
         _now: SystemTime,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
@@ -73,63 +73,37 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_payments_setup_msg::{
+    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
         PayablePaymentsSetupMsg, QualifiedPayablesMessage,
     };
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use web3::types::U256;
 
     #[test]
     fn search_for_indispensable_adjustment_always_returns_none() {
         init_test_logging();
         let test_name = "is_adjustment_required_always_returns_none";
-        let mut payable_1 = make_payable_account(111);
-        payable_1.balance_wei = 100_000_000;
-        let mut payable_2 = make_payable_account(222);
-        payable_2.balance_wei = 200_000_000;
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::from(1_001_000_000_000_u64),
-            masq_token_balance_in_minor_units: U256::from(301_000_000),
-        };
-        let agent_for_enough = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_transaction_fee_total_result(1_000_000_000_000_000);
-        let non_required = PayablePaymentsSetupMsg {
+        let mut payable = make_payable_account(111);
+        payable.balance_wei = 100_000_000;
+        let agent = PayablePaymentsAgentMock::default();
+        let setup_msg = PayablePaymentsSetupMsg {
             payables: QualifiedPayablesMessage {
-                qualified_payables: vec![payable_1.clone(), payable_2.clone()],
+                qualified_payables: vec![payable],
                 response_skeleton_opt: None,
             },
-            agent: Box::new(agent_for_enough),
+            agent: Box::new(agent),
         };
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();
 
-        let non_required_result =
-            subject.search_for_indispensable_adjustment(&non_required, &logger);
+        let result = subject.search_for_indispensable_adjustment(&setup_msg, &logger);
 
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::from(999_000_000_000_u64),
-            masq_token_balance_in_minor_units: U256::from(299_000_000),
-        };
-        let agent_for_insufficient = PayablePaymentsAgentMock::default()
-            .consuming_wallet_balances_result(Some(consuming_wallet_balances))
-            .estimated_transaction_fee_total_result(1_000_000_000_000_000);
-        let should_require = PayablePaymentsSetupMsg {
-            payables: QualifiedPayablesMessage {
-                qualified_payables: vec![payable_1, payable_2],
-                response_skeleton_opt: None,
-            },
-            agent: Box::new(agent_for_insufficient),
-        };
-
-        let should_require_result =
-            subject.search_for_indispensable_adjustment(&should_require, &logger);
-
-        assert_eq!(non_required_result, Ok(None));
-        assert_eq!(should_require_result, Ok(None));
+        assert_eq!(result, Ok(None));
         TestLogHandler::default().exists_no_log_containing(test_name);
+        // Nobody in this test asked about the wallet balances and the transaction fee
+        // requirement, yet we got through with the final None.
+        // How do we know? The mock agent didn't blow up while missing these
+        // results
     }
 }

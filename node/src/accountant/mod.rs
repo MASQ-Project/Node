@@ -30,7 +30,9 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::payable_payments_setup_msg::QualifiedPayablesMessage;
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
+    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
+};
 use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
@@ -67,7 +69,6 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use scanners::payable_payments_setup_msg::PayablePaymentsSetupMsg;
 use std::any::type_name;
 #[cfg(test)]
 use std::default::Default;
@@ -1052,7 +1053,7 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use crate::{match_every_type_id, match_every_type_id_partial_eq_less};
+    use crate::{match_every_type_id, match_every_type_id_without_partial_eq};
     use actix::{Arbiter, System};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
@@ -1407,7 +1408,7 @@ mod tests {
         let is_adjustment_required_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let instructions_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id_partial_eq_less!(
+            .system_stop_conditions(match_every_type_id_without_partial_eq!(
                 OutboundPaymentsInstructions
             ))
             .start()
@@ -1460,8 +1461,8 @@ mod tests {
         assert_eq!(actual_agent_id_stamp, agent_id_stamp);
         assert!(is_adjustment_required_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        let payments_instructions = blockchain_bridge_recording
-            .get_record::<OutboundPaymentsInstructions>(0);
+        let payments_instructions =
+            blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
         assert_eq!(payments_instructions.affordable_accounts, accounts);
         assert_eq!(
             payments_instructions.response_skeleton_opt,
@@ -1499,7 +1500,7 @@ mod tests {
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id_partial_eq_less!(
+            .system_stop_conditions(match_every_type_id_without_partial_eq!(
                 OutboundPaymentsInstructions
             ))
             .start()
@@ -1575,8 +1576,8 @@ mod tests {
         );
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        let payments_instructions = blockchain_bridge_recording
-            .get_record::<OutboundPaymentsInstructions>(0);
+        let payments_instructions =
+            blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
         assert_eq!(
             payments_instructions.affordable_accounts,
             vec![adjusted_account_1, adjusted_account_2]
@@ -3180,8 +3181,8 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let agent = PayablePaymentsAgentMock::default()
-            .set_up_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc)
-            .conclude_required_fee_per_computed_unit_result(Ok(()));
+            .set_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc)
+            .set_required_fee_per_computed_unit_result(Ok(()));
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()

@@ -1,19 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_payments_agent_abstract_layer;
-pub mod payable_payments_agent_web3;
-pub mod payable_payments_setup_msg;
-pub mod scan_mid_procedures;
+pub mod mid_scan_procedures;
 pub mod scanners_utils;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::scanners::payable_payments_setup_msg::{QualifiedPayablesMessage, PayablePaymentsSetupMsg};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-use crate::accountant::scanners::scan_mid_procedures::{
-    AwaitedAdjustment, PayableScannerMiddleProcedures, MultistagePayableScanner,
-};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
@@ -62,6 +55,8 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, PayableScannerMidScanProcedures};
+use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{PayablePaymentsSetupMsg, QualifiedPayablesMessage};
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -254,12 +249,12 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
     implement_as_any!();
 }
 
-impl PayableScannerMiddleProcedures for PayableScanner {
+impl PayableScannerMidScanProcedures for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
         msg: PayablePaymentsSetupMsg,
         logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, AwaitedAdjustment>, String> {
+    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         match self
             .payment_adjuster
             .search_for_indispensable_adjustment(&msg, logger)
@@ -272,14 +267,14 @@ impl PayableScannerMiddleProcedures for PayableScanner {
                     response_skeleton_opt: msg.payables.response_skeleton_opt,
                 }))
             }
-            Ok(Some(adjustment)) => Ok(Either::Right(AwaitedAdjustment::new(msg, adjustment))),
+            Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment::new(msg, adjustment))),
             Err(_e) => todo!("be implemented with GH-711"),
         }
     }
 
     fn perform_payment_adjustment(
         &self,
-        setup: AwaitedAdjustment,
+        setup: PreparedAdjustment,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions {
         let now = SystemTime::now();
@@ -1037,7 +1032,7 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::payable_payments_setup_msg::QualifiedPayablesMessage;
+    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{

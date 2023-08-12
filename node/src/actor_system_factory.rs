@@ -510,14 +510,14 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = is_crashable(config);
         let wallet_opt = config.consuming_wallet_opt.clone();
         let data_directory = config.data_directory.clone();
-        let chain_id = config.blockchain_bridge_config.chain;
+        let chain = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
-            let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
-                blockchain_service_url_opt,
-                data_directory,
-                chain_id,
+            let blockchain_interface= BlockchainBridge::initialize_blockchain_interface(
+                blockchain_service_url_opt.as_ref().map(|url|url.as_str()),
+                chain,
             );
+            let persistent_config = BlockchainBridge::initialize_persistent_configuration(&data_directory);
             BlockchainBridge::new(
                 blockchain_interface,
                 persistent_config,

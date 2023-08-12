@@ -125,7 +125,7 @@ macro_rules! match_every_type_id{
 }
 
 #[macro_export]
-macro_rules! match_every_type_id_partial_eq_less {
+macro_rules! match_every_type_id_without_partial_eq {
     ($($single_message: ident),+) => {
          StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<PretendedMatchable<$single_message>>())),+])
     }
