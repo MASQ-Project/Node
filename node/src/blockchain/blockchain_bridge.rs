@@ -9,6 +9,7 @@ use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
+use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
@@ -36,7 +37,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{TransactionReceipt, H256};
@@ -213,23 +214,29 @@ impl BlockchainBridge {
         }
     }
 
-    pub fn initialize_persistent_configuration(data_directory: &Path)->Box<dyn PersistentConfiguration>{
+    pub fn initialize_persistent_configuration(
+        data_directory: &Path,
+    ) -> Box<dyn PersistentConfiguration> {
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    data_directory,
-                    DbInitializationConfig::panic_on_migration(),
-                )
+                .initialize(data_directory, DbInitializationConfig::panic_on_migration())
                 .unwrap_or_else(|err| db_connection_launch_panic(err, data_directory)),
         ));
         Box::new(PersistentConfigurationReal::new(config_dao))
     }
-    
-    pub fn initialize_blockchain_interface(blockchain_service_url_opt: Option<&str>, chain: Chain)->Box<dyn BlockchainInterface>{
+
+    pub fn initialize_blockchain_interface(
+        blockchain_service_url_opt: Option<String>,
+        chain: Chain,
+    ) -> Box<dyn BlockchainInterface> {
         match blockchain_service_url_opt {
             Some(url) => match Http::new(&url) {
                 Ok((event_loop_handle, transport)) => {
-                    Self::initialize_appropriate_definite_interface(event_loop_handle, transport, chain)
+                    Self::initialize_appropriate_definite_interface(
+                        event_loop_handle,
+                        transport,
+                        chain,
+                    )
                 }
                 Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
             },
@@ -511,6 +518,14 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
+pub struct BlockchainBridgeSubsFactory {}
+
+impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSubsFactory {
+    fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
+        BlockchainBridge::make_subs_from(addr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,7 +551,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, ZERO,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -553,6 +568,18 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
+
+    impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            msg: AssertionsMessage<Self>,
+            ctx: &mut Self::Context,
+        ) -> Self::Result {
+            (msg.assertions)(self)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -619,8 +646,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Invalid blockchain node URL")]
     fn invalid_blockchain_url_produces_panic() {
-        let data_directory = PathBuf::new(); //never reached
-        let blockchain_service_url = Some("http://λ:8545");
+        let blockchain_service_url = Some("http://λ:8545".to_string());
         let _ = BlockchainBridge::initialize_blockchain_interface(
             blockchain_service_url,
             DEFAULT_CHAIN,
@@ -1880,9 +1906,7 @@ mod tests {
         );
 
         let act = |data_dir: &Path| {
-            BlockchainBridge::initialize_persistent_configuration(
-                data_dir
-            );
+            BlockchainBridge::initialize_persistent_configuration(data_dir);
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
@@ -1895,5 +1919,29 @@ mod tests {
         assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
         assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
         assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000);
+    }
+}
+
+#[cfg(test)]
+pub mod assertion_messages_with_exposed_private_actor_body {
+    use super::*;
+    use crate::test_utils::unshared_test_utils::AssertionsMessage;
+    use actix::System;
+
+    pub fn assertion_msg_to_test_blockchain_bridge_connectivity(
+        wallet: Wallet,
+        expected_gas_price: u64,
+    ) -> AssertionsMessage<BlockchainBridge> {
+        AssertionsMessage {
+            assertions: Box::new(move |bb: &mut BlockchainBridge| {
+                //the first assertion is made outside, it checks receiving this request
+                let _result = bb.blockchain_interface.get_token_balance(&wallet);
+                assert_eq!(
+                    bb.persistent_config.gas_price().unwrap(),
+                    expected_gas_price
+                );
+                System::current().stop();
+            }),
+        }
     }
 }

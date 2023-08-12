@@ -8,6 +8,7 @@ use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
 };
+use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -110,13 +111,9 @@ impl Debug for AccountantSubs {
     }
 }
 
-pub trait AccountantSubsFactory {
-    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs;
-}
+pub struct AccountantSubsFactory {}
 
-pub struct AccountantSubsFactoryReal {}
-
-impl AccountantSubsFactory for AccountantSubsFactoryReal {
+impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactory {
     fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
         Accountant::make_subs_from(addr)
     }
@@ -197,10 +194,9 @@ mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
-        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
-        TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactory, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
+        ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
@@ -257,7 +253,7 @@ mod tests {
 
     #[test]
     fn accountant_subs_factory_produces_proper_subs() {
-        let subject = AccountantSubsFactoryReal {};
+        let subject = AccountantSubsFactory {};
         let accountant = AccountantBuilder::default().build();
         let addr = accountant.start();
 

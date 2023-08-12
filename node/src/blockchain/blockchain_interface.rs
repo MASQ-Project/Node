@@ -733,6 +733,7 @@ mod tests {
     };
     use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
@@ -776,69 +777,6 @@ mod tests {
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
         assert_eq!(GWEI, U256([1_000_000_000u64, 0, 0, 0]));
-    }
-
-    struct TestServer {
-        port: u16,
-        rx: Receiver<Request<Vec<u8>>>,
-    }
-
-    impl Drop for TestServer {
-        fn drop(&mut self) {
-            self.stop();
-        }
-    }
-
-    impl TestServer {
-        fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
-            std::env::set_var("SIMPLESERVER_THREADS", "1");
-            let (tx, rx) = unbounded();
-            let _ = thread::spawn(move || {
-                let bodies_arc = Arc::new(Mutex::new(bodies));
-                Server::new(move |req, mut rsp| {
-                    if req.headers().get("X-Quit").is_some() {
-                        panic!("Server stop requested");
-                    }
-                    tx.send(req).unwrap();
-                    let body = bodies_arc.lock().unwrap().remove(0);
-                    Ok(rsp.body(body)?)
-                })
-                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-            });
-            let deadline = Instant::now().add(Duration::from_secs(5));
-            loop {
-                thread::sleep(Duration::from_millis(10));
-                match TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)) {
-                    Ok(_) => break,
-                    Err(e) => eprintln!("No: {:?}", e),
-                }
-                if Instant::now().gt(&deadline) {
-                    panic!("TestServer still not started after 5sec");
-                }
-            }
-            TestServer { port, rx }
-        }
-
-        fn requests_so_far(&self) -> Vec<Request<Vec<u8>>> {
-            let mut requests = vec![];
-            while let Ok(request) = self.rx.try_recv() {
-                requests.push(request);
-            }
-            return requests;
-        }
-
-        fn stop(&mut self) {
-            let mut stream = match TcpStream::connect(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
-                self.port,
-            )) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            stream
-                .write(b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes")
-                .unwrap();
-        }
     }
 
     #[test]
@@ -890,8 +828,8 @@ mod tests {
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
         assert_eq!(
-            format!("\"0x000000000000000000000000{}\"", &to[2..]),
             bodies[0]["params"][0]["topics"][2].to_string(),
+            format!("\"0x000000000000000000000000{}\"", &to[2..]),
         );
         assert_eq!(
             result,
@@ -1285,7 +1223,6 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
@@ -1523,7 +1460,7 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_interface_send_batch_of_payables_components_are_used_together_properly() {
+    fn non_clandestine_interface_send_batch_of_payables_components_work_together_as_expected() {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1828,7 +1765,6 @@ mod tests {
             chain,
             web3_gas_limit_const_part(chain),
         );
-
         let system = System::new("test");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();

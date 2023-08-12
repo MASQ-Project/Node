@@ -724,9 +724,8 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from_recorder, TestLogOwner};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
@@ -753,8 +752,8 @@ mod tests {
     };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
-    use actix::Recipient;
     use actix::System;
+    use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
     use futures::Future;
     use lazy_static::lazy_static;
@@ -2227,7 +2226,9 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                        subs: make_stream_handler_pool_subs_from_recorder(
+                            &stream_handler_pool.start(),
+                        ),
                     }
                 };
 

@@ -980,31 +980,6 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 }
 
 #[cfg(test)]
-pub mod check_sqlite_fns {
-    use super::*;
-    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
-    use actix::System;
-
-    #[derive(Message)]
-    pub struct TestUserDefinedSqliteFnsForNewDelinquencies {}
-
-    impl Handler<TestUserDefinedSqliteFnsForNewDelinquencies> for Accountant {
-        type Result = ();
-
-        fn handle(
-            &mut self,
-            _msg: TestUserDefinedSqliteFnsForNewDelinquencies,
-            _ctx: &mut Self::Context,
-        ) -> Self::Result {
-            //will crash a test if our user-defined SQLite fns have been unregistered
-            self.receivable_dao
-                .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
-            System::current().stop();
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::accountant::database_access_objects::payable_dao::{
@@ -4479,5 +4454,28 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+}
+
+#[cfg(test)]
+pub mod assertion_messages_with_exposed_private_actor_body {
+    use super::*;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
+    use crate::test_utils::unshared_test_utils::AssertionsMessage;
+    use actix::System;
+
+    pub fn assertion_msg_to_test_registration_of_our_sqlite_fns() -> AssertionsMessage<Accountant> {
+        AssertionsMessage {
+            assertions: Box::new(|accountant: &mut Accountant| {
+                // Will crash a test if our user-defined SQLite fns have been unreachable;
+                // We cannot rely on failures in the DAO tests, because Account's database connection
+                // has to be set up specially so as to register the extra sqlite functions
+
+                accountant
+                    .receivable_dao
+                    .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
+                System::current().stop();
+            }),
+        }
     }
 }

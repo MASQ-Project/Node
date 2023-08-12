@@ -18,6 +18,8 @@ use web3::types::U256;
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
+    //TODO: actually totally ignored during the setup of the BlockchainBridge actor!
+    // Use it in the body or delete this field
     pub gas_price: u64,
 }
 
@@ -65,7 +67,11 @@ pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::actor_system_factory::SubsFactory;
+    use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactory};
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
@@ -87,5 +93,23 @@ mod tests {
         assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
         assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
         assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000)
+    }
+
+    #[test]
+    fn blockchain_bridge_subs_factory_produces_proper_subs() {
+        let subject = BlockchainBridgeSubsFactory {};
+        let blockchain_interface = BlockchainInterfaceMock::default();
+        let persistent_config = PersistentConfigurationMock::new();
+        let accountant = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_config),
+            false,
+            None,
+        );
+        let addr = accountant.start();
+
+        let subs = subject.make(&addr);
+
+        assert_eq!(subs, BlockchainBridge::make_subs_from(&addr))
     }
 }
