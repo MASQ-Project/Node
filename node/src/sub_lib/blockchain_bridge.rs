@@ -58,23 +58,14 @@ pub struct ConsumingWalletBalances {
     pub masq_token_balance_in_minor_units: U256,
 }
 
-pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
-    match chain {
-        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactory};
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
-    use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
-    use masq_lib::blockchains::chains::Chain;
 
     #[test]
     fn blockchain_bridge_subs_debug() {
@@ -83,16 +74,6 @@ mod tests {
         let subject = make_blockchain_bridge_subs_from(&recorder);
 
         assert_eq!(format!("{:?}", subject), "BlockchainBridgeSubs");
-    }
-
-    #[test]
-    fn web3_gas_limit_const_part_gives_right_values() {
-        assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::EthMainnet), 55_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000)
     }
 
     #[test]

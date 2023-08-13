@@ -61,13 +61,8 @@ fn verify_bill_payment() {
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
-    let web3_gas_const_part = web3_gas_limit_const_part(cluster.chain);
-    let blockchain_interface = BlockchainInterfaceNonClandestine::new(
-        http,
-        _event_loop_handle,
-        cluster.chain,
-        web3_gas_const_part,
-    );
+    let blockchain_interface =
+        BlockchainInterfaceNonClandestine::new(http, _event_loop_handle, cluster.chain);
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,

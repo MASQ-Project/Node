@@ -33,7 +33,7 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::{Actor, Recipient};
+use actix::Recipient;
 use actix::{Addr, Arbiter};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
@@ -664,10 +664,8 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
-    use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, AssertionsMessage,
-    };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -2174,7 +2172,7 @@ mod tests {
         let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
         let test_server = TestServer::start(
             port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":___}"#.to_vec()],
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
         );
         let wallet = make_wallet("abc");
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -2209,7 +2207,6 @@ mod tests {
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
-        eprintln!("{:?}  {:?}", bodies, TEST_DEFAULT_CHAIN.rec().contract);
         assert_eq!(
             bodies[0]["params"][0]["data"].to_string()[35..75],
             wallet.to_string()[2..]

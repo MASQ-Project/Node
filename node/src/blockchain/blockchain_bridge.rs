@@ -11,17 +11,17 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
+    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine, PayableTransactionError,
+    ProcessedPayableFallible,
 };
+use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{
-    web3_gas_limit_const_part, BlockchainBridgeSubs, ConsumingWalletBalances,
-    OutboundPaymentsInstructions,
+    BlockchainBridgeSubs, ConsumingWalletBalances, OutboundPaymentsInstructions,
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -39,7 +39,6 @@ use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::Path;
 use std::time::SystemTime;
-use web3::transports::{EventLoopHandle, Http};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -230,34 +229,18 @@ impl BlockchainBridge {
         chain: Chain,
     ) -> Box<dyn BlockchainInterface> {
         match blockchain_service_url_opt {
-            Some(url) => match Http::new(&url) {
-                Ok((event_loop_handle, transport)) => {
-                    Self::initialize_appropriate_definite_interface(
-                        event_loop_handle,
-                        transport,
-                        chain,
-                    )
+            Some(url) => //match Http::new(&url) {
+               // Ok((event_loop_handle, transport)) => {
+                {
+                    let initializer = BlockchainInterfaceInitializer {};
+                    initializer.initialize_chain_compatible_interface(&url, chain)
+                    //  }
+//                Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+                    //    }
                 }
-                Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-            },
-            None => Box::new(BlockchainInterfaceClandestine::new(chain)), //TODO make sure this is tested (after the merge??)
+        ,
+            None => Box::new(BlockchainInterfaceClandestine::new(chain)), //TODO make sure this is tested for BlockchainInterfaceNull (after the merge??)
         }
-    }
-
-    // TODO when we have multiple chains of fundamentally different architectures and also ability to switch them,
-    // this should probably be replaced by a HashMap of a distinct blockchain interface for each chain
-    fn initialize_appropriate_definite_interface(
-        http_event_loop_handle: EventLoopHandle,
-        transport: Http,
-        chain: Chain,
-    ) -> Box<dyn BlockchainInterface> {
-        let gas_limit_const_part = web3_gas_limit_const_part(chain);
-        Box::new(BlockchainInterfaceNonClandestine::new(
-            transport,
-            http_event_loop_handle,
-            chain,
-            gas_limit_const_part,
-        ))
     }
 
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
@@ -557,7 +540,6 @@ mod tests {
     use actix::System;
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
-    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -640,16 +622,6 @@ mod tests {
         system.run();
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid blockchain node URL")]
-    fn invalid_blockchain_url_produces_panic() {
-        let blockchain_service_url = Some("http://λ:8545".to_string());
-        let _ = BlockchainBridge::initialize_blockchain_interface(
-            blockchain_service_url,
-            DEFAULT_CHAIN,
         );
     }
 
@@ -1910,15 +1882,6 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
-    }
-
-    #[test]
-    fn web3_gas_limit_const_part_gives_reasonable_values() {
-        assert_eq!(web3_gas_limit_const_part(Chain::EthMainnet), 55_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 }
 
