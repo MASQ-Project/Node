@@ -1632,39 +1632,26 @@ mod tests {
 
     #[test]
     fn non_clandestine_gas_limit_for_polygon_mainnet_lies_within_limits_for_raw_transaction() {
-        let transport = TestTransport::default();
-        let chain = Chain::PolyMainnet;
-        let gas_limit_const_part =
-            BlockchainInterfaceNonClandestine::<Http>::web3_gas_limit_const_part(chain);
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-
-        let maximal_possible_value = gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-
-        assert_gas_limit_is_between(subject, gas_limit_const_part, maximal_possible_value);
+        test_gas_limit_is_between_limits(Chain::PolyMainnet);
     }
 
     #[test]
     fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
-        let transport = TestTransport::default();
-        let chain = Chain::EthMainnet;
-        let gas_limit_const_part =
-            BlockchainInterfaceNonClandestine::<Http>::web3_gas_limit_const_part(chain);
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let maximal_possible_value = gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-
-        assert_gas_limit_is_between(subject, gas_limit_const_part, maximal_possible_value)
+        test_gas_limit_is_between_limits(Chain::EthMainnet)
     }
 
-    fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static + Default>(
-        mut subject: BlockchainInterfaceNonClandestine<T>,
-        not_under_this_value: u64,
-        not_above_this_value: u64,
+    fn test_gas_limit_is_between_limits(
+        chain: Chain
     ) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default();
+        let mut subject =
+            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let not_under_this_value =
+            BlockchainInterfaceNonClandestine::<Http>::web3_gas_limit_const_part(chain);
+        let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let batch_payable_tools = BatchPayableToolsMock::<T>::default()
+        let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(make_default_signed_transaction()));
         subject.batch_payable_tools = Box::new(batch_payable_tools);
