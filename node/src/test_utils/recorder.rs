@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::QualifiedPayablesMessage;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::QualifiedPayablesMessage;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,

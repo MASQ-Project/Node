@@ -30,7 +30,7 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::{
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{ScanSchedulers, Scanners};
@@ -3163,7 +3163,7 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_result(Ok(token_balance))
-            .mobilize_payable_payments_agent_result(Box::new(agent))
+            .build_payable_payments_agent_result(Box::new(agent))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,

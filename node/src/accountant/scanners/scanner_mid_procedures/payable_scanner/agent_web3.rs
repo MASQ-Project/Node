@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use web3::types::U256;
@@ -35,7 +35,7 @@ impl PayablePaymentsAgent for PayablePaymentsAgentWeb3 {
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
         let gas_price = self
             .gwei_per_computed_unit_opt
-            .expect("gas price was not set") as u128;
+            .expect("gas price must be set before this") as u128;
         number_of_transactions as u128
             * gas_price
             * (self.maximum_added_gas_margin + self.gas_limit_const_part) as u128
@@ -72,8 +72,8 @@ impl PayablePaymentsAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
-    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_web3::{
+    use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+    use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_web3::{
         PayablePaymentsAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;

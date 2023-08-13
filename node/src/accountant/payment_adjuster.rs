@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
 #[cfg(test)]
@@ -73,7 +73,7 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
+    use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::{
         PayablePaymentsSetupMsg, QualifiedPayablesMessage,
     };
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};

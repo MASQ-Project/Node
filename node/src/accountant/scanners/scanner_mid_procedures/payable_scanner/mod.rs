@@ -5,7 +5,7 @@ pub mod agent_web3;
 pub mod setup_msg;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;

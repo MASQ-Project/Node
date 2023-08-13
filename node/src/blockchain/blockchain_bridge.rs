@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::setup_msg::{
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::{
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::{
@@ -319,7 +319,7 @@ impl BlockchainBridge {
             }
         };
 
-        let mut agent = self.blockchain_interface.mobilize_payable_payments_agent();
+        let mut agent = self.blockchain_interface.build_payable_payments_agent();
         agent.set_consuming_wallet_balances(consuming_wallet_balances);
 
         match agent.set_required_fee_per_computed_unit(self.persistent_config.as_ref()) {
@@ -679,7 +679,7 @@ mod tests {
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
-            .mobilize_payable_payments_agent_result(Box::new(agent));
+            .build_payable_payments_agent_result(Box::new(agent));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_configuration = PersistentConfigurationMock::default()
@@ -883,7 +883,7 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(456789)))
             .get_token_balance_result(Ok(U256::from(7890123456_u64)))
-            .mobilize_payable_payments_agent_result(Box::new(agent));
+            .build_payable_payments_agent_result(Box::new(agent));
         let persistent_configuration = PersistentConfigurationMock::default();
         let consuming_wallet = make_wallet("our wallet");
         let mut subject = BlockchainBridge::new(

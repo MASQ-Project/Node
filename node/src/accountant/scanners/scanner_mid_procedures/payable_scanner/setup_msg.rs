@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use actix::Message;
 use std::fmt::Debug;

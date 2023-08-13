@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -139,7 +140,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent>;
+    fn build_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent>;
 
     fn send_batch_of_payables(
         &self,
@@ -194,8 +195,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
-        todo!()
+    fn build_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
+        todo!("fill me up with code when merged with master having the NullScanner and its own test suite")
     }
 
     fn send_batch_of_payables(
@@ -350,8 +351,8 @@ where
             .wait()
     }
 
-    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
-        todo!()
+    fn build_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
+        Box::new(PayablePaymentsAgentWeb3::new(self.gas_limit_const_part))
     }
 
     fn send_batch_of_payables(
@@ -363,10 +364,10 @@ where
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let gas_price = payable_payments_agent
             .required_fee_per_computed_unit()
-            .expect("agent screwed gas price");
+            .expect("agent should know the gas price but doesn't");
         let pending_nonce = payable_payments_agent
             .pending_transaction_id()
-            .expect("agent screwed nonce");
+            .expect("agent should know the nonce but doesn't");
 
         debug!(
             self.logger,
@@ -720,7 +721,7 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
         PayablePaymentsAgentMock,
@@ -731,10 +732,12 @@ mod tests {
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
         BatchPayableToolsMock, TestTransport,
     };
+    use crate::db_config::persistent_configuration::PersistentConfiguration;
     use crate::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
     use crate::test_utils::{make_wallet, TestRawTransaction};
@@ -1213,6 +1216,35 @@ mod tests {
         };
 
         assert_error_during_requesting_balance(act, "Invalid hex");
+    }
+
+    #[test]
+    fn blockchain_interface_can_build_payable_payments_agent() {
+        // these numbers mean gwei
+        [
+            (Chain::EthMainnet, 21523032),
+            (Chain::PolyMainnet, 27058032),
+        ]
+        .into_iter()
+        .for_each(|(chain, expected_estimation)| {
+            let subject = BlockchainInterfaceNonClandestine::new(
+                TestTransport::default(),
+                make_fake_event_loop_handle(),
+                chain,
+                web3_gas_limit_const_part(chain),
+            );
+
+            let mut result = subject.build_payable_payments_agent();
+
+            let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(123));
+            result
+                .set_required_fee_per_computed_unit(&persistent_config)
+                .unwrap();
+            assert_eq!(
+                result.estimated_transaction_fee_total(3),
+                expected_estimation
+            )
+        });
     }
 
     fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str)

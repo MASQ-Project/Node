@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
+use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::agent_abstract_layer::PayablePaymentsAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
@@ -61,7 +61,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    mobilize_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
+    build_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -101,8 +101,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn mobilize_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
-        self.mobilize_payable_payments_agent_results
+    fn build_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
+        self.build_payable_payments_agent_results
             .borrow_mut()
             .remove(0)
     }
@@ -178,11 +178,11 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn mobilize_payable_payments_agent_result(
+    pub fn build_payable_payments_agent_result(
         self,
         result: Box<dyn PayablePaymentsAgent>,
     ) -> Self {
-        self.mobilize_payable_payments_agent_results
+        self.build_payable_payments_agent_results
             .borrow_mut()
             .push(result);
         self
