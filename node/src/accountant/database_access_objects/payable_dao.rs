@@ -1,15 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::{
+use crate::accountant::big_int::big_int_db_processor::KnownKeyVariants::{
     PendingPayableRowid, WalletAddress,
 };
-use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
+use crate::accountant::big_int::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::big_int_processing::big_int_db_processor::{
+use crate::accountant::big_int::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::big_int::big_int_divider::BigIntDivider;
 use crate::accountant::database_access_objects::utils;
 use crate::accountant::database_access_objects::utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,

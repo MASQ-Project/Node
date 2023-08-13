@@ -3,7 +3,7 @@ use crate::accountant::database_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::database_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoFactory;
-use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,

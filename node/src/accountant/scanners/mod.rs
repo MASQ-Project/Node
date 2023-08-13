@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod scanner_mid_procedures;
+pub mod mid_scan_msg_handling;
 pub mod scanners_utils;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
@@ -55,8 +55,8 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, PayableScannerMidScanProcedures};
-use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::{PayablePaymentsSetupMsg, QualifiedPayablesMessage};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, PayableScannerMidScanProcedures};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{PayablePaymentsSetupMsg, QualifiedPayablesMessage};
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -1032,7 +1032,7 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::QualifiedPayablesMessage;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{

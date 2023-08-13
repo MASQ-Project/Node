@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::big_int::big_int_divider::BigIntDivider;
 use crate::accountant::database_access_objects::utils::VigilantRusqliteFlatten;
 use crate::accountant::gwei_to_wei;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;

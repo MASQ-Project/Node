@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::big_int::big_int_divider::BigIntDivider;
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
 use crate::accountant::{checked_conversion, gwei_to_wei, sign_conversion};

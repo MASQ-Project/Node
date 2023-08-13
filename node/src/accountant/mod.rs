@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod big_int_processing;
+pub mod big_int;
 pub mod database_access_objects;
 pub mod financials;
 pub mod payment_adjuster;
@@ -30,7 +30,7 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::scanner_mid_procedures::payable_scanner::setup_msg::{
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{ScanSchedulers, Scanners};

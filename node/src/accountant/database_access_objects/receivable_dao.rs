@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::WalletAddress;
-use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
+use crate::accountant::big_int::big_int_db_processor::KnownKeyVariants::WalletAddress;
+use crate::accountant::big_int::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::big_int_processing::big_int_db_processor::{
+use crate::accountant::big_int::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::big_int::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::database_access_objects::utils;
