@@ -42,7 +42,7 @@ jobs:
       - name: Build ${{ matrix.target.os }}
         run: |
           ./ci/all.sh
-          ./ci/multinode_integration_test.sh || true
+          ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
