@@ -591,7 +591,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub db_patch_size: Hops,
+    pub db_patch_size: u8,
 }
 
 pub struct NeighborhoodTools {
