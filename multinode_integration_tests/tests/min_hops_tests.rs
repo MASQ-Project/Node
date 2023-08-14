@@ -29,12 +29,14 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
         .build();
     let first_node = cluster.start_real_node(config);
 
-    let nodes_count = 2 * (min_hops as usize) + 1;
+    // For 1-hop route, at least 3 nodes in the network are necessary
+    let nodes_count = (min_hops as usize) + 2;
     let nodes = (0..nodes_count)
-        .map(|_| {
+        .map(|i| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(first_node.node_reference())
+                    .consuming_wallet_info(make_consuming_wallet_info(&format!("node_{i}")))
                     .chain(cluster.chain)
                     .build(),
             )
@@ -43,7 +45,8 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
 
     thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
 
-    let mut client = first_node.make_client(8080, 5000);
+    let last_node = nodes.last().unwrap();
+    let mut client = last_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
