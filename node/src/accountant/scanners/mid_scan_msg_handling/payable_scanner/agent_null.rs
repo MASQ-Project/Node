@@ -12,8 +12,32 @@ use masq_lib::logger::Logger;
 #[cfg(test)]
 use std::any::Any;
 
+trait LoggingNullObject<'a> {
+    fn logger(&'a self) -> &'a Logger;
+
+    fn name(&self) -> &'static str;
+
+    fn log_function_call(&'a self, function_call: &str) {
+        error!(
+            self.logger(),
+            "calling null version of {function_call} for {} will be without effect",
+            self.name()
+        );
+    }
+}
+
 pub struct PayablePaymentsAgentNull {
     logger: Logger,
+}
+
+impl<'a> LoggingNullObject<'a> for PayablePaymentsAgentNull {
+    fn logger(&'a self) -> &'a Logger {
+        &self.logger
+    }
+
+    fn name(&self) -> &'static str {
+        "PayablePaymentsAgentNull"
+    }
 }
 
 impl PayablePaymentsAgent for PayablePaymentsAgentNull {
@@ -55,24 +79,37 @@ impl PayablePaymentsAgentNull {
             logger: Logger::new("PayablePaymentsAgentNull"),
         }
     }
+}
 
-    fn log_function_call(&self, function_call: &str) {
-        error!(
-            self.logger,
-            "calling null version of {function_call} will be without effect"
-        );
+impl Default for PayablePaymentsAgentNull {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-pub struct AgentDigestNull {}
+pub struct AgentDigestNull {
+    logger: Logger,
+}
+
+impl<'a> LoggingNullObject<'a> for AgentDigestNull {
+    fn logger(&'a self) -> &'a Logger {
+        &self.logger
+    }
+
+    fn name(&self) -> &'static str {
+        "AgentDigestNull"
+    }
+}
 
 impl AgentDigest for AgentDigestNull {
     fn agreed_fee_per_computation_unit(&self) -> u64 {
-        todo!()
+        self.log_function_call("agreed_fee_per_computation_unit()");
+        0
     }
 
     fn pending_transaction_id(&self) -> U256 {
-        todo!()
+        self.log_function_call("pending_transaction_id()");
+        U256::zero()
     }
 
     implement_as_any!();
@@ -80,13 +117,23 @@ impl AgentDigest for AgentDigestNull {
 
 impl AgentDigestNull {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            logger: Logger::new("AgentDigestNull"),
+        }
+    }
+}
+
+impl Default for AgentDigestNull {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::PayablePaymentsAgent;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
+        AgentDigest, PayablePaymentsAgent,
+    };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::{
         AgentDigestNull, PayablePaymentsAgentNull,
     };
@@ -98,11 +145,13 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
 
-    #[test]
-    fn payable_payments_agent_null_constructor_works() {
+    fn payable_payments_agent_null_constructor_works<C>(constructor: C)
+    where
+        C: Fn() -> PayablePaymentsAgentNull,
+    {
         init_test_logging();
 
-        let result = PayablePaymentsAgentNull::new();
+        let result = constructor();
 
         warning!(
             result.logger,
@@ -112,6 +161,16 @@ mod tests {
             "WARN: PayablePaymentsAgentNull: \
         payable_payments_agent_null_constructor_works",
         );
+    }
+
+    #[test]
+    fn payable_payments_agent_null_constructor_works_for_new() {
+        payable_payments_agent_null_constructor_works(PayablePaymentsAgentNull::new)
+    }
+
+    #[test]
+    fn payable_payments_agent_null_constructor_works_for_default() {
+        payable_payments_agent_null_constructor_works(PayablePaymentsAgentNull::default)
     }
 
     #[test]
@@ -127,7 +186,8 @@ mod tests {
         assert_eq!(result, Ok(()));
         TestLogHandler::default().exists_log_containing(&format!(
             "ERROR: {test_name}: calling null \
-        version of set_agreed_fee_per_computation_unit() will be without effect"
+        version of set_agreed_fee_per_computation_unit() for PayablePaymentsAgentNull \
+        will be without effect"
         ));
     }
 
@@ -143,7 +203,8 @@ mod tests {
 
         TestLogHandler::default().exists_log_containing(&format!(
             "ERROR: {test_name}: calling \
-            null version of set_consuming_wallet_balances() will be without effect"
+            null version of set_consuming_wallet_balances() for PayablePaymentsAgentNull will \
+            be without effect"
         ));
     }
 
@@ -159,7 +220,8 @@ mod tests {
         assert_eq!(result, 0);
         TestLogHandler::default().exists_log_containing(&format!(
             "ERROR: {test_name}: calling \
-            null version of estimated_transaction_fee_total() will be without effect"
+            null version of estimated_transaction_fee_total() for PayablePaymentsAgentNull \
+            will be without effect"
         ));
     }
 
@@ -174,8 +236,8 @@ mod tests {
 
         assert_eq!(result, None);
         TestLogHandler::default().exists_log_containing(&format!(
-            "ERROR: {test_name}: calling \
-            null version of consuming_wallet_balances() will be without effect"
+            "ERROR: {test_name}: calling null version of consuming_wallet_balances() \
+            for PayablePaymentsAgentNull will be without effect"
         ));
     }
 
@@ -195,7 +257,65 @@ mod tests {
         result.as_any().downcast_ref::<AgentDigestNull>().unwrap();
         TestLogHandler::default().exists_log_containing(&format!(
             "ERROR: {test_name}: calling \
-            null version of make_agent_digest() will be without effect"
+            null version of make_agent_digest() for PayablePaymentsAgentNull \
+            will be without effect"
+        ));
+    }
+
+    fn null_agent_digest_constructor_works<C>(constructor: C)
+    where
+        C: Fn() -> AgentDigestNull,
+    {
+        init_test_logging();
+
+        let result = constructor();
+
+        warning!(result.logger, "null_agent_digest_constructor_works");
+        TestLogHandler::default().exists_log_containing(
+            "WARN: AgentDigestNull: \
+        null_agent_digest_constructor_works",
+        );
+    }
+
+    #[test]
+    fn null_agent_digest_constructor_works_for_new() {
+        null_agent_digest_constructor_works(AgentDigestNull::new)
+    }
+
+    #[test]
+    fn null_agent_digest_constructor_works_for_default() {
+        null_agent_digest_constructor_works(AgentDigestNull::default)
+    }
+
+    #[test]
+    fn null_agent_digest_agreed_fee_per_computation_unit() {
+        init_test_logging();
+        let test_name = "null_agent_digest_agreed_fee_per_computation_unit";
+        let mut subject = AgentDigestNull::new();
+        subject.logger = Logger::new(test_name);
+
+        let result = subject.agreed_fee_per_computation_unit();
+
+        assert_eq!(result, 0);
+        TestLogHandler::default().exists_log_containing(&format!(
+            "ERROR: {test_name}: calling null version of agreed_fee_per_computation_unit() \
+            for AgentDigestNull will be without effect"
+        ));
+    }
+
+    #[test]
+    fn null_agent_digest_pending_transaction_id() {
+        init_test_logging();
+        let test_name = "null_agent_digest_pending_transaction_id";
+        let mut subject = AgentDigestNull::new();
+        subject.logger = Logger::new(test_name);
+
+        let result = subject.pending_transaction_id();
+
+        assert_eq!(result, U256::zero());
+        TestLogHandler::default().exists_log_containing(&format!(
+            "ERROR: {test_name}: calling null version of pending_transaction_id() \
+            for AgentDigestNull will be without effect"
         ));
     }
 }

@@ -6,6 +6,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
+#[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -13,6 +14,7 @@ use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
 };
 use crate::sub_lib::wallet::Wallet;
+#[cfg(test)]
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use actix::{Message, Recipient};
 use futures::{future, Future};

@@ -13,7 +13,6 @@ use super::ui_gateway::UiGateway;
 use crate::accountant::database_access_objects::banned_dao::{
     BannedCacheLoader, BannedCacheLoaderReal,
 };
-use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactory};
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
