@@ -153,6 +153,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::BroadcastHandleInactive;
+    use crate::test_utils::mocks::TRANSACT_TIMEOUT_MILLIS_FOR_TESTS;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -240,7 +241,12 @@ mod tests {
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
 
-        let response = subject.transact(UiShutdownRequest {}.tmb(1), 1000).unwrap();
+        let response = subject
+            .transact(
+                UiShutdownRequest {}.tmb(1),
+                TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+            )
+            .unwrap();
         let mut input = String::new();
         subject.stdin().read_to_string(&mut input).unwrap();
         write!(subject.stdout(), "This is stdout.").unwrap();
@@ -290,7 +296,10 @@ mod tests {
         let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject.transact(
+            UiSetupRequest { values: vec![] }.tmb(1),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        );
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
         stop_handle.stop();
@@ -305,7 +314,10 @@ mod tests {
         let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject.transact(
+            UiSetupRequest { values: vec![] }.tmb(1),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        );
 
         match response {
             Err(ConnectionDropped(_)) => (),
