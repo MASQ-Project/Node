@@ -11,6 +11,8 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 
+pub const DEFAULT_TRANSACT_TIMEOUT_MILLIS: u64 = 1000;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
     ConnectionRefused(String),
@@ -159,6 +161,11 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+
+    #[test]
+    fn constant_has_correct_values() {
+        assert_eq!(DEFAULT_TRANSACT_TIMEOUT_MILLIS, 1000);
+    }
 
     #[test]
     fn error_conversion_happy_path() {
