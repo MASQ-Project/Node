@@ -29,7 +29,7 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
         .build();
     let first_node = cluster.start_real_node(config);
 
-    // For 1-hop route, at least 3 nodes in the network are necessary
+    // For 1-hop route, 3 nodes are necessary if we use last node as the originating node
     let nodes_count = (min_hops as usize) + 2;
     let nodes = (0..nodes_count)
         .map(|i| {
