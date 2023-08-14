@@ -177,7 +177,7 @@ impl Wallet {
         public_key: &dyn AsRef<[u8]>,
         contract_address: &dyn AsRef<[u8]>,
     ) -> Payer {
-        match self.sign(&cryptde::create_digest(public_key, contract_address)) {
+        match self.sign(&cryptde::make_agent_digest(public_key, contract_address)) {
             Ok(proof) => Payer::new(self, &proof),
             Err(e) => panic!(
                 "Trying to sign for {:?} encountered {:?}",

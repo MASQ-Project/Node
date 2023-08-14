@@ -1,15 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
+    AgentDigest, PayablePaymentsAgent,
+};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::PayablePaymentsAgentWeb3;
 use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
+use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
 };
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use actix::{Message, Recipient};
 use futures::{future, Future};
 use itertools::Either::{Left, Right};
@@ -145,7 +149,7 @@ pub trait BlockchainInterface {
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        payable_payments_agent: &dyn PayablePaymentsAgent,
+        agent_digest: Box<dyn AgentDigest>,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
@@ -157,6 +161,9 @@ pub trait BlockchainInterface {
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
+
+    #[cfg(test)]
+    arbitrary_id_stamp_in_trait!();
 }
 
 // TODO: This probably should go away
@@ -202,7 +209,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn send_batch_of_payables(
         &self,
         _consuming_wallet: &Wallet,
-        _payable_payments_agent: &dyn PayablePaymentsAgent,
+        _agent_digest: Box<dyn AgentDigest>,
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
@@ -358,16 +365,12 @@ where
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        payable_payments_agent: &dyn PayablePaymentsAgent,
+        agent_digest: Box<dyn AgentDigest>,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        let gas_price = payable_payments_agent
-            .required_fee_per_computed_unit()
-            .expect("agent should know the gas price but doesn't");
-        let pending_nonce = payable_payments_agent
-            .pending_transaction_id()
-            .expect("agent should know the nonce but doesn't");
+        let gas_price = agent_digest.agreed_fee_per_computation_unit();
+        let pending_nonce = agent_digest.pending_transaction_id();
 
         debug!(
             self.logger,
@@ -724,10 +727,12 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::AgentDigestNull;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::{
+        AgentDigestWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+    };
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-        PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
@@ -1177,7 +1182,7 @@ mod tests {
 
             let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(123));
             result
-                .set_required_fee_per_computed_unit(&persistent_config)
+                .set_agreed_fee_per_computation_unit(&persistent_config)
                 .unwrap();
             assert_eq!(
                 result.estimated_transaction_fee_total(3),
@@ -1271,14 +1276,12 @@ mod tests {
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
         let test_timestamp_before = SystemTime::now();
-        let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(Some(120))
-            .pending_transaction_id_result(Some(U256::from(6)));
+        let agent_digest = Box::new(AgentDigestWeb3::new(120, U256::from(6)));
 
         let result = subject
             .send_batch_of_payables(
                 &consuming_wallet,
-                &agent,
+                agent_digest,
                 &fingerprint_recipient,
                 &accounts_to_process,
             )
@@ -1512,13 +1515,11 @@ mod tests {
             second_payment_amount,
             None,
         );
-        let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(Some(123))
-            .pending_transaction_id_result(Some(U256::from(4)));
+        let agent_digest = Box::new(AgentDigestWeb3::new(123, U256::from(4)));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
-            &agent,
+            agent_digest,
             &initiate_fingerprints_recipient,
             &vec![first_account, second_account],
         );
@@ -1640,9 +1641,7 @@ mod tests {
         test_gas_limit_is_between_limits(Chain::EthMainnet)
     }
 
-    fn test_gas_limit_is_between_limits(
-        chain: Chain
-    ) {
+    fn test_gas_limit_is_between_limits(chain: Chain) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default();
         let mut subject =
@@ -1707,12 +1706,10 @@ mod tests {
         let recipient = Recorder::new().start().recipient();
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
-        let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(Some(123))
-            .pending_transaction_id_result(Some(U256::from(4)));
+        let agent_digest = Box::new(AgentDigestWeb3::new(123, U256::from(4)));
 
         let result =
-            subject.send_batch_of_payables(&consuming_wallet, &agent, &recipient, &accounts);
+            subject.send_batch_of_payables(&consuming_wallet, agent_digest, &recipient, &accounts);
 
         assert_eq!(
             result,
@@ -1740,13 +1737,11 @@ mod tests {
             9000,
             None,
         );
-        let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(Some(123))
-            .pending_transaction_id_result(Some(U256::from(1)));
+        let agent_digest = Box::new(AgentDigestWeb3::new(123, U256::from(1)));
 
         let result = subject.send_batch_of_payables(
             &incomplete_consuming_wallet,
-            &agent,
+            agent_digest,
             &recipient,
             &vec![account],
         );
@@ -1782,13 +1777,11 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let agent = PayablePaymentsAgentMock::default()
-            .desired_fee_per_computed_unit_result(Some(123))
-            .pending_transaction_id_result(Some(U256::from(4)));
+        let agent_digest = Box::new(AgentDigestWeb3::new(120, U256::from(6)));
 
         let result = subject.send_batch_of_payables(
             &consuming_wallet,
-            &agent,
+            agent_digest,
             &unimportant_recipient,
             &vec![account],
         );
@@ -2475,20 +2468,24 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_clandestine_send_batch_of_payables() {
+    fn blockchain_interface_clandestine_cannot_send_batch_of_payables() {
         init_test_logging();
-        let test_name = "blockchain_interface_clandestine_send_batch_of_payables";
+        let test_name = "blockchain_interface_clandestine_cannot_send_batch_of_payables";
         let wallet = make_wallet("blah");
         let chains = all_chains();
         let (recorder, _, _) = make_recorder();
         let recipient = recorder.start().recipient();
-        let agent = PayablePaymentsAgentMock::default();
         let accounts = vec![make_payable_account(111)];
 
         chains.into_iter().for_each(|chain| {
+            let agent_digest = Box::new(AgentDigestNull::new());
             assert_eq!(
-                make_clandestine_subject(test_name, chain)
-                    .send_batch_of_payables(&wallet, &agent, &recipient, &accounts),
+                make_clandestine_subject(test_name, chain).send_batch_of_payables(
+                    &wallet,
+                    agent_digest,
+                    &recipient,
+                    &accounts
+                ),
                 Err(PayableTransactionError::Sending {
                     msg: "invalid attempt to send txs clandestinely".to_string(),
                     hashes: vec![],

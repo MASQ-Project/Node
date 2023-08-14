@@ -171,7 +171,7 @@ impl CryptDENull {
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);
-        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
+        let digest = cryptde::make_agent_digest(&public_key, &chain.rec().contract);
         Self {
             private_key,
             public_key,
@@ -189,7 +189,7 @@ impl CryptDENull {
     pub fn set_key_pair(&mut self, public_key: &PublicKey, chain: Chain) {
         self.public_key = public_key.clone();
         self.private_key = CryptDENull::private_from_public(public_key);
-        self.digest = cryptde::create_digest(public_key, &chain.rec().contract);
+        self.digest = cryptde::make_agent_digest(public_key, &chain.rec().contract);
     }
 
     pub fn private_from_public(in_key: &PublicKey) -> PrivateKey {

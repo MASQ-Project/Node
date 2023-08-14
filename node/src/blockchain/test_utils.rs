@@ -21,8 +21,11 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::PayablePaymentsAgent;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
+    AgentDigest, PayablePaymentsAgent,
+};
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -82,6 +85,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -110,13 +114,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn send_batch_of_payables(
         &self,
         consuming_wallet: &Wallet,
-        payable_payments_agent: &dyn PayablePaymentsAgent,
+        agent_digest: Box<dyn AgentDigest>, //TODO test by clone later on??
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         self.send_batch_of_payables_params.lock().unwrap().push((
             consuming_wallet.clone(),
-            payable_payments_agent.arbitrary_id_stamp(),
+            agent_digest.arbitrary_id_stamp(),
             new_fingerprints_recipient.clone(),
             accounts.to_vec(),
         ));
@@ -156,6 +160,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .push(hash);
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
+
+    #[cfg(test)]
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl BlockchainInterfaceMock {
@@ -258,6 +265,9 @@ impl BlockchainInterfaceMock {
             .push(result);
         self
     }
+
+    #[cfg(test)]
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 #[derive(Debug, Default, Clone)]

@@ -996,10 +996,10 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
-        PayableDaoMock, PayablePaymentsAgentMock, PayableScannerBuilder, PaymentAdjusterMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, ScannerMock,
+        AgentDigestMock, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
+        PayableDaoFactoryMock, PayableDaoMock, PayablePaymentsAgentMock, PayableScannerBuilder,
+        PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -3116,7 +3116,9 @@ mod tests {
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
-        let set_up_consuming_balances_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_consuming_balances_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_agreed_fee_per_computation_unit_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_agent_digest_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3155,17 +3157,25 @@ mod tests {
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
+        let agent_digest_id_stamp = ArbitraryIdStamp::new();
+        let agent_digest = AgentDigestMock::default().set_arbitrary_id_stamp(agent_digest_id_stamp);
         let agent = PayablePaymentsAgentMock::default()
-            .set_consuming_wallet_balances_params(&set_up_consuming_balances_params_arc)
-            .set_required_fee_per_computed_unit_result(Ok(()));
+            .set_consuming_wallet_balances_params(&set_consuming_balances_params_arc)
+            .set_agreed_fee_per_computation_unit_params(
+                &set_agreed_fee_per_computation_unit_params_arc,
+            )
+            .set_agreed_fee_per_computation_unit_result(Ok(()))
+            .make_agent_digest_params(&make_agent_digest_params_arc)
+            .make_agent_digest_result(Ok(Box::new(agent_digest)));
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
+        let blockchain_interface_id_stamp = ArbitraryIdStamp::new();
         let blockchain_interface = BlockchainInterfaceMock::default()
+            .set_arbitrary_id_stamp(blockchain_interface_id_stamp)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_result(Ok(token_balance))
             .build_payable_payments_agent_result(Box::new(agent))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             // there is one component missing in this wholesome test - the part where we send a request for
             // a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
@@ -3189,12 +3199,15 @@ mod tests {
             .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_fourth_round)));
         let consuming_wallet = make_paying_wallet(b"wallet");
         let system = System::new("pending_transaction");
-        let persistent_config = PersistentConfigurationMock::default().gas_price_result(Ok(130));
+        let persistent_config_id_stamp = ArbitraryIdStamp::new();
+        let persistent_config = PersistentConfigurationMock::default()
+            .set_arbitrary_id_stamp(persistent_config_id_stamp)
+            .gas_price_result(Ok(130));
         let blockchain_bridge = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet),
+            Some(consuming_wallet.clone()),
         );
         let account_1 = PayableAccount {
             wallet: wallet_account_1.clone(),
@@ -3366,15 +3379,28 @@ mod tests {
                 pending_tx_hash_2,
             ]
         );
-        let set_up_consuming_wallet_balances_params =
-            set_up_consuming_balances_params_arc.lock().unwrap();
+        let set_consuming_wallet_balances_params =
+            set_consuming_balances_params_arc.lock().unwrap();
         let expected_consuming_wallet_balances = ConsumingWalletBalances {
             transaction_fee_balance_in_minor_units: transaction_fee_balance,
             masq_token_balance_in_minor_units: token_balance,
         };
         assert_eq!(
-            *set_up_consuming_wallet_balances_params,
+            *set_consuming_wallet_balances_params,
             vec![expected_consuming_wallet_balances]
+        );
+        let set_agreed_fee_per_computation_unit_params =
+            set_agreed_fee_per_computation_unit_params_arc
+                .lock()
+                .unwrap();
+        assert_eq!(
+            *set_agreed_fee_per_computation_unit_params,
+            vec![persistent_config_id_stamp]
+        );
+        let make_agent_digest_params = make_agent_digest_params_arc.lock().unwrap();
+        assert_eq!(
+            *make_agent_digest_params,
+            vec![(blockchain_interface_id_stamp, consuming_wallet)]
         );
         let update_fingerprints_params = update_fingerprint_params_arc.lock().unwrap();
         assert_eq!(

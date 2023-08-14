@@ -58,6 +58,15 @@ pub struct ConsumingWalletBalances {
     pub masq_token_balance_in_minor_units: U256,
 }
 
+impl ConsumingWalletBalances {
+    pub fn new(transaction_fee: U256, masq_token: U256) -> Self {
+        Self {
+            transaction_fee_balance_in_minor_units: transaction_fee,
+            masq_token_balance_in_minor_units: masq_token,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::actor_system_factory::SubsFactory;
