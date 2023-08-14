@@ -46,7 +46,8 @@ pub trait PayablePaymentsAgent: Send {
     arbitrary_id_stamp_in_trait!();
 }
 
-// designed not to include unnecessary setter methods
+// Preferably, keep the trait without setter methods. That's actually
+// the idea that drove the creation of this object
 pub trait AgentDigest: Send {
     fn agreed_fee_per_computation_unit(&self) -> u64;
     fn pending_transaction_id(&self) -> U256;

@@ -115,7 +115,7 @@ macro_rules! recorder_message_handler_t_p {
 
 recorder_message_handler_t_m_p!(AddReturnRouteMessage);
 recorder_message_handler_t_m_p!(AddRouteMessage);
-recorder_message_handler_t_m_p!(AddStreamMsg);
+recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
 recorder_message_handler_t_m_p!(ConnectionProgressMessage);
 recorder_message_handler_t_m_p!(CrashNotification);
@@ -323,7 +323,7 @@ impl Recording {
         match item_box.downcast_ref::<T>() {
             Some(item) => Ok(item),
             None => {
-                // checking for less common but possible other type of an actor message, without PartialEq implemented
+                // double-checking for an uncommon, yet possible other type of an actor message, which doesn't implement PartialEq
                 let item_opt = item_box.downcast_ref::<PretendedMatchable<T>>();
 
                 match item_opt {

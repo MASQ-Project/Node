@@ -1046,17 +1046,17 @@ pub mod unshared_test_utils {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
                     match self.arbitrary_id_stamp_opt {
                         Some(id) => id,
-                        // For some mock implementations of methods with args, the best they can do to
-                        // preserve these args for assertions is to take the ArbitraryId of the argument.
-                        // If such code is set once it will happen in all tests using this mock and calling
-                        // the method. However also in cases where we aren't really interested in checking
-                        // that id. If we did nothing the call of this method would blow up because
-                        // the carrying field is likely to be implemented as optional with the value defaulted
-                        // to None.
-                        // As a prevention of confusion from a set, yet useless id stamp, we'll put a null
-                        // type of the id stamp in that place, allowing for both to call this method not risking a direct
-                        // punishment (if the id isn't set manually) but also set the assertion on fire
-                        // if it doesn't match the expected id when we write a test where we do care
+                        // In some implementations of mocks and their methods taking args, the best we can do to
+                        // capture and examine these args for assertions is to grab the ArbitraryIdStamp of the argument.
+                        // If such strategy is once deployed this id transfers will have to happen in all tests relying
+                        // on this mock, while also calling the meant method. So even in cases where we certainly are not
+                        // really interested in checking that id.
+                        // If we ignored that the call of this method would blow up because the holding field has likely
+                        // the characteristic of an optional one with the value defaulted to None.
+                        // As a prevention of confusion that might stem from a requirement to set the id stamp, even though
+                        // we are not planning to use it, we put a null type of the stamp in the place. As result, we don't
+                        // risk a direct punishment (if the None value was a problem) but we will set the assertion on fire
+                        // if it doesn't match the expected id in a test where we do care
                         None => ArbitraryIdStamp::null(),
                     }
                 }
