@@ -3,6 +3,7 @@
 pub mod agent;
 pub mod agent_null;
 pub mod agent_web3;
+pub mod protected_payables;
 pub mod setup_msg;
 
 use crate::accountant::payment_adjuster::Adjustment;
