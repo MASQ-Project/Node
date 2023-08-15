@@ -10,7 +10,6 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     ResolutionAfterFullyDetermined,
 };
 use crate::accountant::payment_adjuster::{diagnostics, AnalysisError, PaymentAdjusterError};
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use itertools::Itertools;
 use std::iter::successors;
 use thousands::Separable;
@@ -45,6 +44,8 @@ pub fn assess_potential_masq_adjustment_feasibility(
     let largest_account =
         find_largest_debt_account_generic(accounts, |account| account.balance_wei);
 
+    //TODO you need to make this better !!!! What if the big one is too big against the other ones?
+
     if (largest_account.balance_wei * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
         / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
         <= cw_masq_balance_minor
@@ -61,16 +62,16 @@ pub fn assess_potential_masq_adjustment_feasibility(
 }
 
 pub fn cut_back_by_excessive_transaction_fee(
-    weights_and_accounts: Vec<(u128, PayableAccount)>,
+    weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     limit: u16,
 ) -> Vec<(u128, PayableAccount)> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "keeping {} out of {} accounts",
         limit,
-        weights_and_accounts.len()
+        weights_and_accounts_in_descending_order.len()
     );
-    weights_and_accounts
+    weights_and_accounts_in_descending_order
         .into_iter()
         .take(limit as usize)
         .collect()
@@ -354,7 +355,6 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
     use crate::accountant::test_utils::make_payable_account;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};

@@ -59,7 +59,6 @@ use actix::Message;
 use actix::Recipient;
 use itertools::Either;
 use itertools::Itertools;
-use log::logger;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -1933,8 +1932,7 @@ mod tests {
     }
 
     #[test]
-    //TODO change this name!!!!
-    fn accountant_sends_asks_blockchain_bridge_about_consuming_wallet_balances_when_qualified_payable_found(
+    fn accountant_sends_payable_payment_setup_msg_to_blockchain_bridge_when_qualified_payable_found(
     ) {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();

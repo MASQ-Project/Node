@@ -2,7 +2,6 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::data_sructures::DisqualifiedPayableAccount;
-use crate::accountant::scanners::payable_scan_setup_msgs::FinancialAndTechDetails;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -141,7 +140,7 @@ pub fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: u128, cw_m
 pub fn log_insufficient_transaction_fee_balance(
     logger: &Logger,
     required_transactions_count: u16,
-    this_stage_data: &FinancialAndTechDetails,
+    transaction_fee_minor: u128,
     limiting_count: u16,
 ) {
     warning!(
@@ -149,14 +148,19 @@ pub fn log_insufficient_transaction_fee_balance(
         "Gas amount {} wei cannot cover anticipated fees from sending {} \
             transactions. Maximum is {}. The payments need to be adjusted in \
             their count.",
-        this_stage_data
-            .consuming_wallet_balances
-            .masq_tokens_minor
-            .separate_with_commas(),
+        transaction_fee_minor.separate_with_commas(),
         required_transactions_count,
         limiting_count
     );
     info!(logger, "{}", REFILL_RECOMMENDATION)
+}
+
+pub fn log_error_for_transaction_fee_adjustment_ok_but_masq_balance_insufficient(logger: &Logger) {
+    error!(
+        logger,
+        "Passing successful payment adjustment by the transaction fee, \
+                but facing critical scarcity of MASQ balance. Operation will abort."
+    )
 }
 
 #[cfg(test)]
@@ -167,9 +171,8 @@ mod tests {
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "\
-In order to continue using services of other Nodes and avoid delinquency \
-bans you will need to put more funds into your consuming wallet."
+            "In order to continue using services of other Nodes and avoid delinquency \
+            bans you will need to put more funds into your consuming wallet."
         )
     }
 }

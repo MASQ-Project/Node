@@ -26,12 +26,12 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
     fn adjust(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
+        criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
                 return payment_adjuster.begin_with_adjustment_by_transaction_fees(
-                    accounts_with_individual_criteria_sorted,
+                    criteria_and_accounts_in_descending_order,
                     limit,
                 )
             }
@@ -40,7 +40,7 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
 
         Ok(Either::Left(
             payment_adjuster
-                .propose_adjustment_recursively(accounts_with_individual_criteria_sorted),
+                .propose_adjustment_recursively(criteria_and_accounts_in_descending_order),
         ))
     }
 }
@@ -53,9 +53,9 @@ impl AdjustmentRunner for MasqOnlyRunner {
     fn adjust(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
+        criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
-        payment_adjuster.propose_adjustment_recursively(accounts_with_individual_criteria_sorted)
+        payment_adjuster.propose_adjustment_recursively(criteria_and_accounts_in_descending_order)
     }
 }
 
@@ -71,7 +71,6 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use std::time::{Duration, SystemTime};
-    use web3::types::U256;
 
     #[test]
     fn masq_only_adjuster_is_not_meant_to_adjust_also_by_transaction_fee() {
