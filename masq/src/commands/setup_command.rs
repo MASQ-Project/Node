@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
-use masq_lib::constants::{DATA_DIRECTORY_DAEMON_HELP, SETUP_ERROR};
+use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
@@ -12,7 +12,7 @@ use masq_lib::messages::{
 };
 use masq_lib::shared_schema::{data_directory_arg, shared_app};
 use masq_lib::short_writeln;
-use masq_lib::utils::index_of_from;
+use masq_lib::utils::{index_of_from, DATA_DIRECTORY_DAEMON_HELP};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
