@@ -34,6 +34,7 @@ use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
+use web3::contract::tokens::Tokenize;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -144,7 +145,7 @@ pub fn server_initializer_collected_params<'a>(
     //todo!("Send args out of this function and retrieve them with replaced all important tildas with home dir");
     //TODO important strings config file path, data directory and real user, and only on the begining of the string
     println!("args: {:#?}", args);
-    let fixedargs = replace_tilde_with_directory(args);
+    let fixedargs = replace_tilde_with_directory(args.into_iter().collect());
     let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
@@ -452,6 +453,33 @@ mod tests {
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
+    }
+
+    #[test]
+    fn server_initializer_collected_params_can_replace_tilde_in_arguments() {
+        running_test();
+        let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator",
+            "server_initializer_collected_params_can_replace_tilde_in_arguments",
+        );
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(PathBuf::from("/home/booga")))
+            .data_dir_result(Some(PathBuf::from(
+                "/home/booga/.local/share",
+            )));
+
+        let gathered_params = server_initializer_collected_params(
+            &dir_wrapper,
+            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", "~/masqhome"]),
+        )
+            .unwrap();
+
+        let multi_config = gathered_params.multi_config;
+        assert_eq!(
+            value_m!(multi_config, "data-directory", String).unwrap(),
+            "/home/booga/masqhome".to_string()
+        );
     }
 
     #[test]

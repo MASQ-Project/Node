@@ -23,6 +23,7 @@ use masq_lib::shared_schema::{
 };
 use masq_lib::utils::{localhost, ExpectValue};
 use std::net::{SocketAddr, TcpListener};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
 
@@ -158,16 +159,25 @@ impl DirsWrapper for DirsWrapperReal {
     }
 }
 
-pub fn replace_tilde_with_directory(args: &[std::string::String]) {
-    let data_dir = "--data-directory".to_string();
-    let mut arg;
-    for s in args {
-        arg = match &s {
-            data_dir => s,
-            _ => s
-        };
-        println!("arg: {}", s)
-    };
+pub fn replace_tilde_with_directory(args: Vec<&str>) {
+    let target_char = '~';
+    for arg in args.iter() {
+        if arg.contains(target_char) {
+            println!("Argument '{}' contains the character '{}'", arg, target_char);
+        } else {
+            println!("Argument '{}' does not contain the character '{}'", arg, target_char);
+        }
+    }
+
+    // let data_dir = "--data-directory".to_string();
+    // let mut arg;
+    // for s in args {
+    //     arg = match &s {
+    //         data_dir => s,
+    //         _ => s
+    //     };
+    //     println!("arg: {}", s)
+    // };
     // let fixedargs = args.into_iter()
     //     .filter(|a| a == data_dir {
     //         iterargs.next()
