@@ -3640,8 +3640,8 @@ mod tests {
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
-        let expected = masqhome.join("polygon-mainnet");
 
+        let expected = masqhome.join("polygon-mainnet");
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
             expected.to_str().unwrap()

@@ -15,10 +15,6 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
-pub const DATA_DIRECTORY_HELP: &str =
-    "Directory in which the Node will store its persistent state, including at least its database \
-    and by default its configuration file as well.\nNote: any existing database in the data directory \
-    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const CONFIG_FILE_HELP: &str =
     "Optional TOML file containing configuration that doesn't often change. Should contain only \
      scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
@@ -33,6 +29,10 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
+pub const DATA_DIRECTORY_HELP: &str =
+    "Directory in which the Node will store its persistent state, including at least its database \
+    and by default its configuration file as well.\nNote: any existing database in the data directory \
+    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
@@ -347,7 +347,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .validator(common_validators::validate_clandestine_port)
             .help(&CLANDESTINE_PORT_HELP),
     )
-    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(config_file_arg())
     .arg(
         Arg::with_name("consuming-private-key")
@@ -368,6 +367,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -687,13 +687,6 @@ mod tests {
              Ethereum client specified by --blockchain-service-url communicates with the same blockchain network."
         );
         assert_eq!(
-            DATA_DIRECTORY_HELP,
-            "Directory in which the Node will store its persistent state, including at \
-             least its database and by default its configuration file as well.\nNote: any existing \
-             database in the data directory must have been created from the same chain this run is using, \
-             or the Node will be terminated."
-        );
-        assert_eq!(
             CONFIG_FILE_HELP,
             "Optional TOML file containing configuration that doesn't often change. Should contain only \
              scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
@@ -711,6 +704,13 @@ mod tests {
              make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
+        );
+        assert_eq!(
+            DATA_DIRECTORY_HELP,
+            "Directory in which the Node will store its persistent state, including at \
+             least its database and by default its configuration file as well.\nNote: any existing \
+             database in the data directory must have been created from the same chain this run is using, \
+             or the Node will be terminated."
         );
         assert_eq!(
             DB_PASSWORD_HELP,
