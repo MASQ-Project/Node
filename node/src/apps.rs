@@ -1,17 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::path::Path;
 use clap::{crate_description, crate_version, App, AppSettings, Arg};
 use dirs::{data_local_dir, home_dir};
 use indoc::indoc;
 use lazy_static::lazy_static;
-use masq_lib::constants::{
-    DATA_DIRECTORY_DAEMON_HELP, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-};
+use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{
     chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
     DB_PASSWORD_HELP,
 };
+use std::path::Path;
 
 pub fn app_head() -> App<'static, 'static> {
     App::new("MASQNode")
@@ -52,7 +50,6 @@ pub fn app_config_dumper() -> App<'static, 'static> {
                 .takes_value(false)
                 .help(DUMP_CONFIG_HELP),
         )
-
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
         .arg(db_password_arg(DB_PASSWORD_HELP))
         .arg(real_user_arg())
@@ -153,7 +150,7 @@ mod tests {
             DATA_DIRECTORY_DAEMON_HELP.as_str(),
             format!("Directory in which the Node will store its persistent state, including at least its database \
             and by default its configuration file as well. By default, your data-directory is located in \
-            your application directory, under your home directory e.g.: e.g.: '{}'.\n\n\
+            your application directory, under your home directory e.g.: '{}'.\n\n\
             In case you change your chain to a different one, the data-directory path is automatically changed \
             to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
             automatically changed to: '{}'.\n\n\
