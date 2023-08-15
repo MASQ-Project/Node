@@ -1007,6 +1007,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -1017,7 +1018,6 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::recorder::PretendedMatchable;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -1028,7 +1028,6 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use crate::{match_every_type_id, match_every_type_id_without_partial_eq};
     use actix::{Arbiter, System};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
@@ -1383,9 +1382,7 @@ mod tests {
         let is_adjustment_required_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let instructions_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id_without_partial_eq!(
-                OutboundPaymentsInstructions
-            ))
+            .system_stop_conditions(match_every_type_id!(OutboundPaymentsInstructions))
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
@@ -1475,9 +1472,7 @@ mod tests {
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let report_recipient = blockchain_bridge
-            .system_stop_conditions(match_every_type_id_without_partial_eq!(
-                OutboundPaymentsInstructions
-            ))
+            .system_stop_conditions(match_every_type_id!(OutboundPaymentsInstructions))
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();

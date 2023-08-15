@@ -47,7 +47,9 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
-use crate::test_utils::recorder_stop_conditions::StopConditions;
+use crate::test_utils::recorder_stop_conditions::{
+    ForcedMatchable, PretendedMatchableWrapper, StopConditions,
+};
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
@@ -57,7 +59,7 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -80,8 +82,6 @@ pub struct RecordAwaiter {
     recording: Arc<Mutex<Recording>>,
 }
 
-pub struct PretendedMatchable<T: 'static + Send>(pub T);
-
 impl Actor for Recorder {
     type Context = Context<Self>;
 }
@@ -98,12 +98,22 @@ macro_rules! message_handler_common {
     };
 }
 
-// t, m, p, stand for type, match, predicate, regarding a list of the system stop conditions
-// to possibly use
+macro_rules! matchable {
+    ($message_type: ty) => {
+        impl ForcedMatchable<$message_type> for $message_type {
+            fn correct_msg_type_id(&self) -> TypeId {
+                TypeId::of::<$message_type>()
+            }
+        }
+    };
+}
+
+// t, m, p (type, match, predicate) represents a list of the possible system stop conditions
 
 macro_rules! recorder_message_handler_t_m_p {
     ($message_type: ty) => {
         message_handler_common!($message_type, handle_msg_t_m_p);
+        matchable!($message_type);
     };
 }
 
@@ -170,6 +180,16 @@ where
 
     fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
         self.handle_msg_t_m_p(msg)
+    }
+}
+
+impl<OuterM, InnerM> ForcedMatchable<OuterM> for MessageScheduler<InnerM>
+where
+    OuterM: PartialEq + 'static,
+    InnerM: PartialEq + Send + Message,
+{
+    fn correct_msg_type_id(&self) -> TypeId {
+        TypeId::of::<OuterM>()
     }
 }
 
@@ -252,7 +272,7 @@ impl Recorder {
 
     fn handle_msg_t_m_p<M>(&mut self, msg: M)
     where
-        M: 'static + PartialEq + Send,
+        M: 'static + ForcedMatchable<M> + Send,
     {
         let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
             stop_conditions.resolve_stop_conditions::<M>(&msg)
@@ -272,7 +292,7 @@ impl Recorder {
     where
         M: 'static + Send,
     {
-        self.handle_msg_t_m_p(PretendedMatchable(msg))
+        self.handle_msg_t_m_p(PretendedMatchableWrapper(msg))
     }
 }
 
@@ -324,7 +344,7 @@ impl Recording {
             Some(item) => Ok(item),
             None => {
                 // double-checking for an uncommon, yet possible other type of an actor message, which doesn't implement PartialEq
-                let item_opt = item_box.downcast_ref::<PretendedMatchable<T>>();
+                let item_opt = item_box.downcast_ref::<PretendedMatchableWrapper<T>>();
 
                 match item_opt {
                     Some(item) => Ok(&item.0),
@@ -361,17 +381,6 @@ impl RecordAwaiter {
             }
             thread::sleep(Duration::from_millis(50))
         }
-    }
-}
-
-impl<T: Send> PartialEq for PretendedMatchable<T> {
-    fn eq(&self, _other: &Self) -> bool {
-        panic!(
-            r#"You requested the stop condition of the "precise match" for
-            message that does not implement PartialEq. Consider to use stop
-            conditions matching on the type only or using a predicate which
-            don't require this trait to be implemented."#
-        )
     }
 }
 
@@ -661,12 +670,12 @@ mod tests {
     #[test]
     fn different_messages_in_pretending_matchable_have_different_type_ids() {
         assert_eq!(
-            TypeId::of::<PretendedMatchable<ExampleMsgA>>(),
-            TypeId::of::<PretendedMatchable<ExampleMsgA>>()
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>()
         );
         assert_ne!(
-            TypeId::of::<PretendedMatchable<ExampleMsgA>>(),
-            TypeId::of::<PretendedMatchable<ExampleMsgB>>()
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgB>>()
         )
     }
 }
