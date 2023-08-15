@@ -3,7 +3,6 @@
 pub mod agent;
 pub mod agent_null;
 pub mod agent_web3;
-pub mod protected_payables;
 pub mod setup_msg;
 
 use crate::accountant::payment_adjuster::Adjustment;
@@ -15,30 +14,28 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 
 pub trait MultistagePayableScanner<BeginMessage, EndMessage>:
-    Scanner<BeginMessage, EndMessage> + PayableScannerMidScanProcedures
+    Scanner<BeginMessage, EndMessage> + MidScanPayableHandlingScanner
 where
     BeginMessage: Message,
     EndMessage: Message,
 {
 }
 
-pub trait PayableScannerMidScanProcedures {
+pub trait MidScanPayableHandlingScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        _msg: PayablePaymentsSetupMsg,
-        _logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
-        intentionally_blank!()
-    }
+        msg: PayablePaymentsSetupMsg,
+        logger: &Logger,
+    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
 
     fn perform_payment_adjustment(
         &self,
-        _setup: PreparedAdjustment,
-        _logger: &Logger,
-    ) -> OutboundPaymentsInstructions {
-        intentionally_blank!()
-    }
+        setup: PreparedAdjustment,
+        logger: &Logger,
+    ) -> OutboundPaymentsInstructions;
 }
+
+pub struct ProtectedPayables(pub(in crate::accountant) Vec<u8>);
 
 pub struct PreparedAdjustment {
     pub original_setup_msg: PayablePaymentsSetupMsg,

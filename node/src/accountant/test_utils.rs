@@ -21,7 +21,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_m
     PayablePaymentsSetupMsg, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
-    MultistagePayableScanner, PayableScannerMidScanProcedures, PreparedAdjustment,
+    MidScanPayableHandlingScanner, MultistagePayableScanner, PreparedAdjustment,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -51,6 +51,7 @@ use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use actix::{Message, System};
 use ethereum_types::H256;
+use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
@@ -1511,6 +1512,30 @@ pub fn make_qualified_payables_message(
     }
 }
 
+macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
+    ($scanner:ty) => {
+        impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for $scanner {}
+
+        impl MidScanPayableHandlingScanner for $scanner {
+            fn try_skipping_payment_adjustment(
+                &self,
+                _msg: PayablePaymentsSetupMsg,
+                _logger: &Logger,
+            ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
+                intentionally_blank!()
+            }
+
+            fn perform_payment_adjustment(
+                &self,
+                _setup: PreparedAdjustment,
+                _logger: &Logger,
+            ) -> OutboundPaymentsInstructions {
+                intentionally_blank!()
+            }
+        }
+    };
+}
+
 pub struct NullScanner {}
 
 impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
@@ -1546,9 +1571,7 @@ where
     implement_as_any!();
 }
 
-impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for NullScanner {}
-
-impl PayableScannerMidScanProcedures for NullScanner {}
+formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);
 
 impl Default for NullScanner {
     fn default() -> Self {
@@ -1659,12 +1682,7 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>
-    for ScannerMock<QualifiedPayablesMessage, SentPayables>
-{
-}
-
-impl PayableScannerMidScanProcedures for ScannerMock<QualifiedPayablesMessage, SentPayables> {}
+formal_traits_for_payable_mid_scan_msg_handling!(ScannerMock<QualifiedPayablesMessage, SentPayables>);
 
 impl ScanSchedulers {
     pub fn update_scheduler<T: Default + 'static>(

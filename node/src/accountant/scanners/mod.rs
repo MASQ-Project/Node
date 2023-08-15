@@ -50,12 +50,13 @@ use masq_lib::utils::ExpectValue;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem::transmute;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, PayableScannerMidScanProcedures};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, MidScanPayableHandlingScanner, ProtectedPayables};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{PayablePaymentsSetupMsg, QualifiedPayablesMessage};
 
 pub struct Scanners {
@@ -249,7 +250,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
     implement_as_any!();
 }
 
-impl PayableScannerMidScanProcedures for PayableScanner {
+impl MidScanPayableHandlingScanner for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
         msg: PayablePaymentsSetupMsg,
@@ -493,6 +494,15 @@ impl PayableScanner {
         if let Some(msg) = missing_fgp_err_msg_opt {
             panic!("{}", msg)
         };
+    }
+
+    fn protection_on(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
+        let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
+        ProtectedPayables(bytes)
+    }
+
+    fn protection_off(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
+        unsafe { transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0) }
     }
 }
 
@@ -1143,6 +1153,18 @@ mod tests {
             Rc::strong_count(&payment_thresholds_rc),
             initial_rc_count + 3
         );
+    }
+
+    #[test]
+    fn protected_payables_can_be_cast_from_and_back_to_vec_of_payable_accounts_by_payable_scanner()
+    {
+        let initial_unprotected = vec![make_payable_account(123), make_payable_account(456)];
+        let subject = PayableScannerBuilder::new().build();
+
+        let protected = subject.protection_on(initial_unprotected.clone());
+        let again_unprotected: Vec<PayableAccount> = subject.protection_off(protected);
+
+        assert_eq!(initial_unprotected, again_unprotected)
     }
 
     #[test]
