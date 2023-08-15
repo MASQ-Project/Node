@@ -391,15 +391,21 @@ impl FromStr for Hops {
             "4" => Ok(Hops::FourHops),
             "5" => Ok(Hops::FiveHops),
             "6" => Ok(Hops::SixHops),
-            _ => Err("Invalid value for min hops count provided".to_string()),
+            _ => Err("Invalid value for min hops provided".to_string()),
         }
+    }
+}
+
+impl Display for Hops {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as usize)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
-    pub min_hops_count: Hops,
+    pub min_hops: Hops,
 }
 
 lazy_static! {
@@ -576,7 +582,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops_count: Hops,
+    pub min_hops: Hops,
 }
 
 pub struct NeighborhoodTools {
@@ -1248,7 +1254,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_count_can_be_converted_from_str() {
+    fn valid_hops_can_be_converted_from_str() {
         assert_eq!(Hops::from_str("1").unwrap(), Hops::OneHop);
         assert_eq!(Hops::from_str("2").unwrap(), Hops::TwoHops);
         assert_eq!(Hops::from_str("3").unwrap(), Hops::ThreeHops);
@@ -1258,12 +1264,22 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_count_conversion_from_str_returns_error() {
+    fn invalid_hops_conversion_from_str_returns_error() {
         let result = Hops::from_str("100");
 
         assert_eq!(
             result,
-            Err("Invalid value for min hops count provided".to_string())
+            Err("Invalid value for min hops provided".to_string())
         )
+    }
+
+    #[test]
+    fn display_is_implemented_for_hops() {
+        assert_eq!(Hops::OneHop.to_string(), "1");
+        assert_eq!(Hops::TwoHops.to_string(), "2");
+        assert_eq!(Hops::ThreeHops.to_string(), "3");
+        assert_eq!(Hops::FourHops.to_string(), "4");
+        assert_eq!(Hops::FiveHops.to_string(), "5");
+        assert_eq!(Hops::SixHops.to_string(), "6");
     }
 }

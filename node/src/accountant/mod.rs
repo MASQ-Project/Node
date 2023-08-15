@@ -2999,7 +2999,7 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_gas_balance_result(Ok(U256::from(u128::MAX)))
+            .get_transaction_fee_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
@@ -3381,59 +3381,81 @@ mod tests {
           confirmation for all these transactions: 0x00000000000000000000000000000000000000000000000000000000000001c8");
     }
 
+    const EXAMPLE_RESPONSE_SKELETON: ResponseSkeleton = ResponseSkeleton {
+        client_id: 1234,
+        context_id: 4321,
+    };
+
+    const EXAMPLE_ERROR_MSG: &str = "My tummy hurts";
+
     #[test]
-    fn handles_scan_error() {
-        let response_skeleton = ResponseSkeleton {
-            client_id: 1234,
-            context_id: 4321,
-        };
-        let msg = "My tummy hurts";
+    fn handling_scan_error_for_externally_triggered_payables() {
         assert_scan_error_is_handled_properly(
-            "payables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_externally_triggered_pending_payables() {
         assert_scan_error_is_handled_properly(
-            "pending_payables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_externally_triggered_receivables() {
         assert_scan_error_is_handled_properly(
-            "receivables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_payables() {
         assert_scan_error_is_handled_properly(
-            "payables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_pending_payables() {
         assert_scan_error_is_handled_properly(
-            "pending_payables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_receivables() {
         assert_scan_error_is_handled_properly(
-            "receivables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
     }
