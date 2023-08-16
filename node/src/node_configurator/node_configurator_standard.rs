@@ -129,9 +129,9 @@ impl NodeConfiguratorStandardUnprivileged {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct TildeSensitiveDirectory(Vec<String>);
+struct TildeSensitiveVelue(Vec<String>);
 
-impl FromStr for TildeSensitiveDirectory {
+impl FromStr for TildeSensitiveVelue {
     type Err = ConfiguratorError;
 
     fn from_str(s: &str) -> Result<Self, ConfiguratorError> {
@@ -145,18 +145,18 @@ impl FromStr for TildeSensitiveDirectory {
                false => part.to_string()
            }
         }).collect();
-        Ok(TildeSensitiveDirectory(inner_vec))
+        Ok(TildeSensitiveVelue(inner_vec))
     }
 }
 
 
-impl FromIterator<&'static std::string::String> for TildeSensitiveDirectory {
+impl FromIterator<&'static std::string::String> for TildeSensitiveVelue {
     fn from_iter<I: IntoIterator<Item = &'static std::string::String>>(iter: I) -> Self {
-        TildeSensitiveDirectory(iter.into_iter().map(|s| s.to_string()).collect())
+        TildeSensitiveVelue(iter.into_iter().map(|s| s.to_string()).collect())
     }
 }
 
-impl TildeSensitiveDirectory {
+impl TildeSensitiveVelue {
     fn first_element(&self) -> Option<String> {
         self.0.first().cloned()
     }
@@ -183,12 +183,10 @@ pub fn server_initializer_collected_params<'a>(
             Box::new(CommandLineVcl::new(args.to_vec())),
         ],
     )?;
-    let fixed_data_directory = value_m!(check_tilde_multi_config, "data-directory", TildeSensitiveDirectory).ok_or(println!("wrong argument"));
-    let fixed_data_dir_for_vec = match fixed_data_directory {
-        Ok(directory) => directory.first_element().unwrap_or("expected data directory".to_string()),
-        Err(_) => panic!("Fixed data directory is not available."),
-    };
-    let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
+    let fixed_data_directory = value_m!(check_tilde_multi_config, "data-directory", TildeSensitiveVelue).ok_or(println!("wrong argument data-directory"));
+    let fixed_config_file_path = value_m!(check_tilde_multi_config, "config-file", TildeSensitiveVelue).ok_or(println!("wrong argument config-file"));
+    let args_replaced_tilde = fix_tilde_for_data_directory_and_config_file(args, fixed_data_directory, fixed_config_file_path);
+    let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args_replaced_tilde.as_slice())?;
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
@@ -196,8 +194,7 @@ pub fn server_initializer_collected_params<'a>(
     let multi_config = make_new_multi_config(
         &app,
         vec![
-            Box::new(CommandLineVcl::new(args.to_vec())),
-            Box::new(CommandLineVcl::new(vec!["".to_string(), "--data-directory".to_string(), fixed_data_dir_for_vec ])),
+            Box::new(CommandLineVcl::new(args_replaced_tilde.to_vec())),
             Box::new(EnvironmentVcl::new(&app)),
             config_file_vcl,
         ],
@@ -208,6 +205,46 @@ pub fn server_initializer_collected_params<'a>(
         .expectv("data_directory");
     let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
     Ok(GatheredParams::new(multi_config, data_directory, real_user))
+}
+
+fn fix_tilde_for_data_directory_and_config_file(
+    args: &[String],
+    fixed_data_directory: Result<TildeSensitiveVelue, ()>,
+    fixed_config_file_path: Result<TildeSensitiveVelue, ()>
+    ) -> Vec<String> {
+    let fixed_data_dir_for_vec = match fixed_data_directory {
+        Ok(directory) => directory.first_element().unwrap_or("expected data directory".to_string()),
+        Err(_) => panic!("Fixed data directory is not available."),
+    };
+    let fixed_cf_for_vec = match fixed_config_file_path {
+        Ok(directory) => directory.first_element().unwrap_or("expected data directory".to_string()),
+        Err(_) => panic!("Fixed data directory is not available."),
+    };
+    let mut tokenize_args = args.to_vec();
+    let mut data_dir_key = None;
+    let mut config_file_key = None;
+    for (index, element) in tokenize_args.iter().enumerate() {
+        match element.as_str() {
+            "--data-directory" => {
+                data_dir_key = Some(index + 1);
+            }
+            "--config-file" => {
+                config_file_key = Some(index + 1);
+            }
+            _ => {}
+        }
+    }
+    if let Some(index) = data_dir_key {
+        if let Some(next_element) = tokenize_args.get_mut(index) {
+            *next_element = fixed_data_dir_for_vec;
+        }
+    };
+    if let Some(index) = config_file_key {
+        if let Some(next_element) = tokenize_args.get_mut(index) {
+            *next_element = fixed_cf_for_vec;
+        }
+    };
+    tokenize_args
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -354,7 +391,7 @@ mod tests {
     use masq_lib::utils::{running_test, slice_of_strs_to_vec_of_strings};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -508,10 +545,22 @@ mod tests {
             .data_dir_result(Some(PathBuf::from(
                 "/home/booga/.local/share",
             )));
-
+        {
+            let config_file_dir = home_dir().expect("REASON").as_path().join("masqconfig");
+            match create_dir_all(&config_file_dir)
+            {
+                Ok(_) => {
+                    let mut config_file = File::create(config_file_dir.join("config.toml")).unwrap();
+                    config_file
+                        .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
+                        .unwrap();
+                }
+                Err(err) => panic!("unable to create config directory {}", err)
+            }
+        }
         let gathered_params = server_initializer_collected_params(
             &dir_wrapper,
-            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", "~/masqhome", "--ip", "1.2.3.4"]),
+            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", "~/masqhome", "--ip", "1.2.3.4", "--config-file", "~/masqconfig/config.toml"]),
         )
             .unwrap();
 
@@ -520,7 +569,11 @@ mod tests {
         let home_user_dir = home_dir().unwrap().to_string_lossy().to_string();
         assert_eq!(
             value_m!(multi_config, "data-directory", String).unwrap(),
-            home_user_dir + "/masqhome"
+            home_user_dir.clone() + "/masqhome"
+        );
+        assert_eq!(
+            value_m!(multi_config, "config-file", String).unwrap(),
+            home_user_dir + "/masqconfig/config.toml"
         );
     }
 
