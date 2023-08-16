@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-//keep these modules private
+//try to keep these modules private
 mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
@@ -8,6 +8,7 @@ mod inner;
 mod log_fns;
 mod miscellaneous;
 mod test_utils;
+mod verifier;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::gwei_to_wei;
@@ -38,11 +39,10 @@ use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
     ResolutionAfterFullyDetermined,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    assess_potential_masq_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
-    criteria_total, cut_back_by_excessive_transaction_fee, exhaust_cw_balance_totally,
-    find_largest_debt_account_generic, list_accounts_under_the_disqualification_limit,
-    possibly_outweighed_accounts_fold_guts, rebuild_accounts, sort_in_descendant_order_by_weights,
-    sum_as,
+    compute_fraction_preventing_mul_coeff, criteria_total, cut_back_by_excessive_transaction_fee,
+    exhaust_cw_balance_totally, find_largest_debt_account_generic,
+    list_accounts_under_the_disqualification_limit, possibly_outweighed_accounts_fold_guts,
+    rebuild_accounts, sort_in_descendant_order_by_weights, sum_as,
 };
 use crate::accountant::scanners::payable_scan_setup_msgs::{
     FinancialAndTechDetails, PayablePaymentSetup, StageData,

@@ -37,30 +37,6 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     })
 }
 
-pub fn assess_potential_masq_adjustment_feasibility(
-    accounts: &[&PayableAccount],
-    cw_masq_balance_minor: u128,
-) -> Result<(), PaymentAdjusterError> {
-    let largest_account =
-        find_largest_debt_account_generic(accounts, |account| account.balance_wei);
-
-    //TODO you need to make this better !!!! What if the big one is too big against the other ones?
-
-    if (largest_account.balance_wei * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
-        / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
-        <= cw_masq_balance_minor
-    {
-        Ok(())
-    } else {
-        Err(PaymentAdjusterError::AnalysisError(
-            AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
-                number_of_accounts: accounts.len(),
-                cw_masq_balance_minor,
-            },
-        ))
-    }
-}
-
 pub fn cut_back_by_excessive_transaction_fee(
     weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     limit: u16,
@@ -343,10 +319,9 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        assess_potential_masq_adjustment_feasibility, compute_fraction_preventing_mul_coeff,
-        exhaust_cw_balance_totally, find_largest_debt_account_generic,
-        list_accounts_under_the_disqualification_limit, log_10, log_2,
-        possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
+        compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
+        find_largest_debt_account_generic, list_accounts_under_the_disqualification_limit, log_10,
+        log_2, possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
         ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
         MAX_EXPONENT_FOR_10_IN_U128,
     };
@@ -366,79 +341,6 @@ mod tests {
         assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
         assert_eq!(ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier, 1);
         assert_eq!(ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor, 2)
-    }
-
-    fn test_body_for_adjustment_feasibility_nearly_insufficient(
-        original_accounts: Vec<PayableAccount>,
-        cw_masq_balance: u128,
-    ) {
-        let accounts_in_expected_format =
-            original_accounts.iter().collect::<Vec<&PayableAccount>>();
-
-        let result = assess_potential_masq_adjustment_feasibility(
-            &accounts_in_expected_format,
-            cw_masq_balance,
-        );
-
-        assert_eq!(result, Ok(()))
-    }
-
-    fn calculate_border_line(account_balance: u128) -> u128 {
-        (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
-    }
-
-    #[test]
-    fn adjustment_feasibility_nearly_insufficient_when_1_less() {
-        let mut account_1 = make_payable_account(111);
-        account_1.balance_wei = 2_000_000_000;
-        let mut account_2 = make_payable_account(333);
-        account_2.balance_wei = 1_000_000_000;
-        let cw_masq_balance = calculate_border_line(account_1.balance_wei) + 1;
-        let original_accounts = vec![account_1, account_2];
-
-        test_body_for_adjustment_feasibility_nearly_insufficient(original_accounts, cw_masq_balance)
-    }
-
-    #[test]
-    fn adjustment_feasibility_nearly_insufficient_when_equal() {
-        let mut account_1 = make_payable_account(111);
-        account_1.balance_wei = 2_000_000_000;
-        let mut account_2 = make_payable_account(333);
-        account_2.balance_wei = 1_000_000_000;
-        let cw_masq_balance = calculate_border_line(account_1.balance_wei);
-        let original_accounts = vec![account_1, account_2];
-
-        test_body_for_adjustment_feasibility_nearly_insufficient(original_accounts, cw_masq_balance)
-    }
-
-    #[test]
-    fn adjustment_feasibility_err_from_insufficient_balance() {
-        let mut account_1 = make_payable_account(111);
-        account_1.balance_wei = 2_000_000_000;
-        let mut account_2 = make_payable_account(222);
-        account_2.balance_wei = 2_000_000_002;
-        let mut account_3 = make_payable_account(333);
-        account_3.balance_wei = 1_000_000_000;
-        let cw_masq_balance = calculate_border_line(account_2.balance_wei) - 1;
-        let original_accounts = vec![account_1, account_2, account_3];
-        let accounts_in_expected_format =
-            original_accounts.iter().collect::<Vec<&PayableAccount>>();
-
-        let result = assess_potential_masq_adjustment_feasibility(
-            &accounts_in_expected_format,
-            cw_masq_balance,
-        );
-
-        assert_eq!(
-            result,
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
-                    number_of_accounts: 3,
-                    cw_masq_balance_minor: cw_masq_balance
-                }
-            ))
-        )
     }
 
     #[test]
