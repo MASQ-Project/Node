@@ -74,7 +74,7 @@ pub struct ProxyServer {
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
-    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>, // TODO: TTLHashmap look into using this for clean up if all else fails.
+    dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>,
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
@@ -278,20 +278,15 @@ impl ProxyServer {
         }
     }
 
-    fn dns_failure_retries_left(&self, stream_key: &StreamKey) -> Result<usize, String> {
-        match self.dns_failure_retries.get(stream_key) {
+    fn pop_dns_failure_retry(&mut self, stream_key: &StreamKey) -> Result<DNSFailureRetry, String> {
+        match self.dns_failure_retries.remove(stream_key) {
             None => Err("No retry found for this stream_key".to_string()),
-            Some(retry) => Ok(retry.retries_left),
+            Some(retry) => Ok(retry),
         }
     }
 
-    fn retry_dns_resolution(&mut self, stream_key: &StreamKey, source_addr: SocketAddr) {
-        let mut retry = self
-            .dns_failure_retries
-            .remove(stream_key)
-            .unwrap_or_else(|| {
-                todo!("my feeling is the code is broken in such a case...maybe even panic");
-            });
+    fn retry_dns_resolution(&mut self, mut retry: DNSFailureRetry, source_addr: SocketAddr) {
+        let stream_key = retry.unsuccessful_request.stream_key;
         let args = self.try_transmit_to_hopper_args_msg(
             retry.unsuccessful_request.clone(),
             source_addr,
@@ -306,17 +301,15 @@ impl ProxyServer {
 
         inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
         retry.retries_left -= 1;
-        self.dns_failure_retries.insert(*stream_key, retry);
+        self.dns_failure_retries.insert(stream_key, retry);
     }
 
-    fn mark_dns_resolution_as_failed(&mut self, stream_key: &StreamKey) {
-        debug!(
-            // TODO: should we change this to warning?
+    fn retire_stream_key(&mut self, stream_key: &StreamKey) {
+        warning!(
             self.logger,
             "Retiring stream key {}: DnsResolveFailure", stream_key
         );
         self.purge_stream_key(stream_key);
-        self.dns_failure_retries.remove(stream_key);
     }
 
     fn send_dns_failure_response_to_the_browser(
@@ -385,8 +378,8 @@ impl ProxyServer {
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
-                let retries_left = match self.dns_failure_retries_left(&response.stream_key) {
-                    Ok(retries_left) => retries_left,
+                let retry = match self.pop_dns_failure_retry(&response.stream_key) {
+                    Ok(retry) => retry,
                     Err(_) => {
                         panic!("No entry found inside dns_failure_retries hashmap for the stream_key: {:?}", &response.stream_key);
                     }
@@ -394,10 +387,10 @@ impl ProxyServer {
 
                 // TODO: Take out dns_failure_retries - Handle it properly is case a new attempt succeeds (We might need a multi node test for this)
 
-                if retries_left > 0 {
-                    self.retry_dns_resolution(&response.stream_key, socket_addr);
+                if retry.retries_left > 0 {
+                    self.retry_dns_resolution(retry, socket_addr);
                 } else {
-                    self.mark_dns_resolution_as_failed(&response.stream_key);
+                    self.retire_stream_key(&response.stream_key);
                     self.send_dns_failure_response_to_the_browser(
                         socket_addr,
                         return_route_info.protocol,
@@ -441,6 +434,10 @@ impl ProxyServer {
             response.sequenced_packet.data.len(),
             payload_data_len,
         );
+        match self.pop_dns_failure_retry(&response.stream_key) {
+            Ok(_) => { debug!(self.logger, "Successful attempt of DNS resolution, removing DNS retry entry for stream key: {}", &response.stream_key) }
+            Err(_) => { trace!(self.logger, "No DNS retry entry found for stream key: {} during a successful attempt", &response.stream_key) }
+        }
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
                 let last_data = response.sequenced_packet.last_data;
@@ -3970,6 +3967,138 @@ mod tests {
     }
 
     #[test]
+    fn dns_retry_entry_is_removed_after_a_successful_client_response() {
+        init_test_logging();
+        let test_name = "dns_retry_entry_is_removed_after_a_successful_client_response";
+        let system = System::new(test_name);
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let stream_key_clone = stream_key.clone();
+        let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.logger = Logger::new(test_name);
+        let mut dns_failure_retries_hash_map = HashMap::new();
+        let mut dns_fail_client_payload = make_request_payload(111, cryptde);
+        dns_fail_client_payload.stream_key = stream_key;
+        dns_failure_retries_hash_map.insert(
+            stream_key,
+            DNSFailureRetry {
+                unsuccessful_request: dns_fail_client_payload,
+                retries_left: 3,
+            },
+        );
+        subject.dns_failure_retries = dns_failure_retries_hash_map;
+        let incoming_route_d_wallet = make_wallet("D Earning");
+        let incoming_route_e_wallet = make_wallet("E Earning");
+        let incoming_route_f_wallet = make_wallet("F Earning");
+        let rate_pack_d = rate_pack(101);
+        let rate_pack_e = rate_pack(102);
+        let rate_pack_f = rate_pack(103);
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![
+                    ExpectedService::Exit(
+                        irrelevant_public_key.clone(),
+                        incoming_route_d_wallet.clone(),
+                        rate_pack_d,
+                    ),
+                    ExpectedService::Routing(
+                        irrelevant_public_key.clone(),
+                        incoming_route_e_wallet.clone(),
+                        rate_pack_e,
+                    ),
+                    ExpectedService::Routing(
+                        irrelevant_public_key.clone(),
+                        incoming_route_f_wallet.clone(),
+                        rate_pack_f,
+                    ),
+                    ExpectedService::Nothing,
+                ],
+                protocol: ProxyProtocol::TLS,
+                hostname_opt: None,
+            },
+        );
+        let incoming_route_g_wallet = make_wallet("G Earning");
+        let incoming_route_h_wallet = make_wallet("H Earning");
+        let incoming_route_i_wallet = make_wallet("I Earning");
+        let rate_pack_g = rate_pack(104);
+        let rate_pack_h = rate_pack(105);
+        let rate_pack_i = rate_pack(106);
+        subject.route_ids_to_return_routes.insert(
+            1235,
+            AddReturnRouteMessage {
+                return_route_id: 1235,
+                expected_services: vec![
+                    ExpectedService::Exit(
+                        irrelevant_public_key.clone(),
+                        incoming_route_g_wallet.clone(),
+                        rate_pack_g,
+                    ),
+                    ExpectedService::Routing(
+                        irrelevant_public_key.clone(),
+                        incoming_route_h_wallet.clone(),
+                        rate_pack_h,
+                    ),
+                    ExpectedService::Routing(
+                        irrelevant_public_key.clone(),
+                        incoming_route_i_wallet.clone(),
+                        rate_pack_i,
+                    ),
+                    ExpectedService::Nothing,
+                ],
+                protocol: ProxyProtocol::TLS,
+                hostname_opt: None,
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let first_client_response_payload = ClientResponsePayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket {
+                data: b"some data".to_vec(),
+                sequence_number: 4321,
+                last_data: false,
+            },
+        };
+        let first_expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                first_client_response_payload.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder()
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(first_expired_cores_package.clone())
+            .unwrap();
+
+        subject_addr.try_send(AssertionsMessage{ assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+            let retry_opt = proxy_server.dns_failure_retries.get(&stream_key);
+            assert_eq!(retry_opt, None);
+        }) }).unwrap();
+
+        System::current().stop();
+        system.run();
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Successful attempt of DNS resolution, removing DNS retry entry for stream key: {stream_key_clone}"));
+    }
+
+    #[test]
     fn proxy_server_records_services_consumed_even_after_browser_stream_is_gone() {
         let system =
             System::new("proxy_server_records_services_consumed_even_after_browser_stream_is_gone");
@@ -4745,10 +4874,10 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
+        let stream_key = client_payload.stream_key;
         dns_failure_retries_hash_map.insert(
             stream_key,
             DNSFailureRetry {
@@ -4821,99 +4950,6 @@ mod tests {
             route_query_response_expected
         );
     }
-
-    // TODO Test this using a multi node test.
-    // #[test]
-    // fn proxy_server_receives_failed_dns_then_a_successful_cores_package() {
-    //     let main_cryptde = main_cryptde();
-    //     let alias_cryptde = alias_cryptde();
-    //     let http_request = b"CONNECT https://realdomain.nu:443 HTTP/1.1\r\nHost: https://bunkjunk.wrong:443\r\n\r\n";
-    //     let (hopper_mock, _hopper_awaiter, _) = make_recorder();
-    //     let (neighborhood_mock, _, _) = make_recorder();
-    //     let destination_key = PublicKey::from(&b"our destination"[..]);
-    //     let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
-    //         route: Route { hops: vec![] },
-    //         expected_services: ExpectedServices::RoundTrip(
-    //             vec![make_exit_service_from_key(destination_key.clone())],
-    //             vec![],
-    //             1234,
-    //         ),
-    //     }));
-    //     let (dispatcher_mock, _, _) = make_recorder();
-    //     let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-    //     let stream_key = make_meaningless_stream_key();
-    //     let request_data = http_request.to_vec();
-    //     let msg_from_dispatcher = InboundClientData {
-    //         timestamp: SystemTime::now(),
-    //         peer_addr: socket_addr.clone(),
-    //         reception_port: Some(8443),
-    //         sequence_number: Some(0),
-    //         last_data: false,
-    //         is_clandestine: false,
-    //         data: request_data.clone(),
-    //     };
-    //     let tunnelled_msg = InboundClientData {
-    //         timestamp: SystemTime::now(),
-    //         peer_addr: socket_addr.clone(),
-    //         reception_port: Some(8443),
-    //         sequence_number: Some(0),
-    //         last_data: false,
-    //         is_clandestine: false,
-    //         data: b"client hello".to_vec(),
-    //     };
-    //     let expected_payload = ClientRequestPayload_0v1 {
-    //         stream_key: stream_key.clone(),
-    //         sequenced_packet: SequencedPacket {
-    //             data: b"client hello".to_vec(),
-    //             sequence_number: 0,
-    //             last_data: false,
-    //         },
-    //         target_hostname: Some(String::from("realdomain.nu")),
-    //         target_port: 443,
-    //         protocol: ProxyProtocol::TLS,
-    //         originator_public_key: alias_cryptde.public_key().clone(),
-    //     };
-    //     let unsuccessful_request = expected_payload.clone();
-    //     let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-    //     let system =
-    //         System::new("proxy_server_receives_failed_dns_then_a_successful_cores_package");
-    //     let mut subject = ProxyServer::new(
-    //         main_cryptde,
-    //         alias_cryptde,
-    //         true,
-    //         Some(STANDARD_CONSUMING_WALLET_BALANCE),
-    //         false,
-    //     );
-    //     subject.dns_failure_retries.insert(
-    //         stream_key,
-    //         DNSFailureRetry {
-    //             unsuccessful_request,
-    //             retries_left: 2,
-    //         },
-    //     );
-    //     subject.stream_key_factory = Box::new(stream_key_factory);
-    //     let subject_addr: Addr<ProxyServer> = subject.start();
-    //     let mut peer_actors = peer_actors_builder()
-    //         .dispatcher(dispatcher_mock)
-    //         .hopper(hopper_mock)
-    //         .neighborhood(neighborhood_mock)
-    //         .build();
-    //     peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-    //     subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-    //
-    //     subject_addr.try_send(msg_from_dispatcher).unwrap();
-    //     subject_addr.try_send(tunnelled_msg).unwrap();
-    //     subject_addr
-    //         .try_send(AssertionsMessage {
-    //             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-    //                 assert!(proxy_server.dns_failure_retries.get(&stream_key).is_none());
-    //             }),
-    //         })
-    //         .unwrap();
-    //
-    //     System::current().stop();
-    //     system.run();
-    // }
 
     #[test]
     #[should_panic(
@@ -5008,11 +5044,11 @@ mod tests {
             false,
         );
         subject.logger = Logger::new(test_name);
-        let stream_key = make_meaningless_stream_key();
-        let stream_key_clone = stream_key.clone();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
+        let stream_key = client_payload.stream_key;
+        let stream_key_clone = stream_key.clone();
         dns_failure_retries_hash_map.insert(
             stream_key,
             DNSFailureRetry {
@@ -5080,7 +5116,7 @@ mod tests {
             .unwrap();
         system.run();
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
+            "WARN: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
         ));
     }
 

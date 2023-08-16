@@ -68,7 +68,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
-            .min_hops_count(min_hops)
+            .min_hops(min_hops)
             .rate_pack(model_db.root().inner.rate_pack)
             .chain(cluster.chain)
             .build(),

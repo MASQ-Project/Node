@@ -358,22 +358,15 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         ),
     );
 
-    // TODO GH-674: Once the new exit node is picked, the Node will continue using that exit node
-    // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
-    // most economical solution. For example, in the assertion below, we may prefer to use
-    // cheaper_exit_node instead.
-    // TODO: Maybe we're using the same stream key (it represents the TCP connection b/w Client and the Originating Node)
-    // that resulted in DNS Failure?
-    // If the stream key remains the same, any request going through that stream key
-    // will pick the last route.
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
     let cheapest_node = node_list.first().unwrap();
-    let _ = cheapest_node
+    let cheapest_node_expired_cores_package = cheapest_node
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node_socket_address,
         )
         .unwrap();
+    assert_eq!(cheapest_node_expired_cores_package.immediate_neighbor, originating_node_socket_address);
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u16) -> RatePack {

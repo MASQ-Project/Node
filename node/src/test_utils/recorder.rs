@@ -619,7 +619,6 @@ mod tests {
         let system = System::new("recorder_can_be_stopped_on_a_particular_message");
         let recorder = Recorder::new().stop_on_message(type_id!(FirstMessageType));
         let recording_arc = recorder.get_recording();
-
         let rec_addr: Addr<Recorder> = recorder.start();
 
         rec_addr
@@ -629,7 +628,6 @@ mod tests {
             .unwrap();
 
         system.run();
-
         let recording = recording_arc.lock().unwrap();
         assert_eq!(
             recording.get_record::<FirstMessageType>(0),
