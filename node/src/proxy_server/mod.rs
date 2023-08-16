@@ -541,7 +541,7 @@ impl ProxyServer {
             dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
             accountant_sub: self.out_subs("Accountant").accountant.clone(),
             add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-            is_decentralized: self.is_decentralized, //TODO did this break a test? value was true
+            is_decentralized: self.is_decentralized,
         }
     }
 
@@ -613,7 +613,6 @@ impl ProxyServer {
                     .stream_key_factory
                     .make(self.main_cryptde.public_key(), ibcd.peer_addr);
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
-                // todo!("Add Stream here to DNS_retries");
                 debug!(
                     self.logger,
                     "make_stream_key() inserted new key {} for {}", &stream_key, ibcd.peer_addr
@@ -1096,11 +1095,6 @@ impl IBCDHelper for IBCDHelperReal {
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
         }
-        // TODO Fix this later - GH-651 - This needs to be implemented to remove the dns_failure_retries for a successful DNS request after a failure
-        // else {
-        //     todo!("Found same stream key");
-        //     // proxy.dns_failure_retries.remove(&stream_key);
-        // }
 
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: proxy.main_cryptde,
@@ -1322,7 +1316,7 @@ mod tests {
                     Result<Option<RouteQueryResponse>, MailboxError>,
                 )>,
             >,
-        >, // resolve_message_results: RefCell<Vec<()>>
+        >,
     }
 
     impl RouteQueryResponseResolver for RouteQueryResponseResolverMock {
@@ -1553,7 +1547,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&make_parameters_arc)
                 .make_result(stream_key);
-            let system = System::new("test_name");
+            let system = System::new(test_name);
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
