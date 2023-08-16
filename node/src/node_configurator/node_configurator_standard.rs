@@ -2,7 +2,7 @@
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator::DirsWrapperReal;
-use crate::node_configurator::{replace_tilde_with_directory, initialize_database, DirsWrapper, NodeConfigurator};
+use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
@@ -34,7 +34,8 @@ use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
-use web3::contract::tokens::Tokenize;
+use std::iter::FromIterator;
+use dirs::home_dir;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -127,6 +128,40 @@ impl NodeConfiguratorStandardUnprivileged {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+struct TildeSensitiveDirectory(Vec<String>);
+
+impl FromStr for TildeSensitiveDirectory {
+    type Err = ConfiguratorError;
+
+    fn from_str(s: &str) -> Result<Self, ConfiguratorError> {
+        let parts: Vec<&str> = s.split(' ').collect();
+
+        let inner_vec: Vec<String> = parts.iter().map(|part| {
+           let home_directory = home_dir().map(|path| path.to_str().unwrap_or("Invalid argument").to_owned())
+               .unwrap_or_else(|| "Home directory is not available.".to_owned());
+           match part.to_string().contains(&"~".to_string()) {
+               true => part.to_string().replace("~", &home_directory),
+               false => part.to_string()
+           }
+        }).collect();
+        Ok(TildeSensitiveDirectory(inner_vec))
+    }
+}
+
+
+impl FromIterator<&'static std::string::String> for TildeSensitiveDirectory {
+    fn from_iter<I: IntoIterator<Item = &'static std::string::String>>(iter: I) -> Self {
+        TildeSensitiveDirectory(iter.into_iter().map(|s| s.to_string()).collect())
+    }
+}
+
+impl TildeSensitiveDirectory {
+    fn first_element(&self) -> Option<String> {
+        self.0.first().cloned()
+    }
+}
+
 fn collect_externals_from_multi_config(
     multi_config: &MultiConfig,
 ) -> (NeighborhoodModeLight, Option<String>) {
@@ -142,10 +177,17 @@ pub fn server_initializer_collected_params<'a>(
     args: &[String],
 ) -> Result<GatheredParams<'a>, ConfiguratorError> {
     let app = app_node();
-    //todo!("Send args out of this function and retrieve them with replaced all important tildas with home dir");
-    //TODO important strings config file path, data directory and real user, and only on the begining of the string
-    println!("args: {:#?}", args);
-    let fixedargs = replace_tilde_with_directory(args.into_iter().collect());
+    let check_tilde_multi_config = make_new_multi_config(
+        &app,
+        vec![
+            Box::new(CommandLineVcl::new(args.to_vec())),
+        ],
+    )?;
+    let fixed_data_directory = value_m!(check_tilde_multi_config, "data-directory", TildeSensitiveDirectory).ok_or(println!("wrong argument"));
+    let fixed_data_dir_for_vec = match fixed_data_directory {
+        Ok(directory) => directory.first_element().unwrap_or("expected data directory".to_string()),
+        Err(_) => panic!("Fixed data directory is not available."),
+    };
     let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
@@ -155,6 +197,7 @@ pub fn server_initializer_collected_params<'a>(
         &app,
         vec![
             Box::new(CommandLineVcl::new(args.to_vec())),
+            Box::new(CommandLineVcl::new(vec!["".to_string(), "--data-directory".to_string(), fixed_data_dir_for_vec ])),
             Box::new(EnvironmentVcl::new(&app)),
             config_file_vcl,
         ],
@@ -316,6 +359,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use dirs::home_dir;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -459,10 +503,6 @@ mod tests {
     fn server_initializer_collected_params_can_replace_tilde_in_arguments() {
         running_test();
         let _guard = EnvironmentGuard::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
-            "server_initializer_collected_params_can_replace_tilde_in_arguments",
-        );
         let dir_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/home/booga")))
             .data_dir_result(Some(PathBuf::from(
@@ -471,14 +511,16 @@ mod tests {
 
         let gathered_params = server_initializer_collected_params(
             &dir_wrapper,
-            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", "~/masqhome"]),
+            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", "~/masqhome", "--ip", "1.2.3.4"]),
         )
             .unwrap();
 
         let multi_config = gathered_params.multi_config;
+
+        let home_user_dir = home_dir().unwrap().to_string_lossy().to_string();
         assert_eq!(
             value_m!(multi_config, "data-directory", String).unwrap(),
-            "/home/booga/masqhome".to_string()
+            home_user_dir + "/masqhome"
         );
     }
 
