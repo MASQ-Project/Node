@@ -280,7 +280,10 @@ impl ProxyServer {
 
     fn pop_dns_failure_retry(&mut self, stream_key: &StreamKey) -> Result<DNSFailureRetry, String> {
         match self.dns_failure_retries.remove(stream_key) {
-            None => Err("No retry found for this stream_key".to_string()),
+            None => Err(format!(
+                "No entry found inside dns_failure_retries hashmap for the stream_key: {:?}",
+                stream_key
+            )),
             Some(retry) => Ok(retry),
         }
     }
@@ -307,7 +310,8 @@ impl ProxyServer {
     fn retire_stream_key(&mut self, stream_key: &StreamKey) {
         warning!(
             self.logger,
-            "Retiring stream key {}: DnsResolveFailure", stream_key
+            "Retiring stream key {}: DnsResolveFailure",
+            stream_key
         );
         self.purge_stream_key(stream_key);
     }
@@ -377,16 +381,12 @@ impl ProxyServer {
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
-
                 let retry = match self.pop_dns_failure_retry(&response.stream_key) {
                     Ok(retry) => retry,
-                    Err(_) => {
-                        panic!("No entry found inside dns_failure_retries hashmap for the stream_key: {:?}", &response.stream_key);
+                    Err(error_msg) => {
+                        panic!("{}", error_msg);
                     }
                 };
-
-                // TODO: Take out dns_failure_retries - Handle it properly is case a new attempt succeeds (We might need a multi node test for this)
-
                 if retry.retries_left > 0 {
                     self.retry_dns_resolution(retry, socket_addr);
                 } else {
@@ -435,8 +435,16 @@ impl ProxyServer {
             payload_data_len,
         );
         match self.pop_dns_failure_retry(&response.stream_key) {
-            Ok(_) => { debug!(self.logger, "Successful attempt of DNS resolution, removing DNS retry entry for stream key: {}", &response.stream_key) }
-            Err(_) => { trace!(self.logger, "No DNS retry entry found for stream key: {} during a successful attempt", &response.stream_key) }
+            Ok(_) => {
+                debug!(self.logger, "Successful attempt of DNS resolution, removing DNS retry entry for stream key: {}", &response.stream_key)
+            }
+            Err(_) => {
+                trace!(
+                    self.logger,
+                    "No DNS retry entry found for stream key: {} during a successful attempt",
+                    &response.stream_key
+                )
+            }
         }
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
@@ -844,8 +852,12 @@ impl ProxyServer {
         dispatcher: &Recipient<TransmitDataMsg>,
     ) -> String {
         let target_hostname = ProxyServer::hostname(&payload);
+        let stream_key = payload.stream_key;
         ProxyServer::send_route_failure(payload, source_addr, dispatcher);
-        format!("Failed to find route to {}", target_hostname) // TODO: Would be better if we added stream_key
+        format!(
+            "Failed to find route to {} for stream key: {}",
+            target_hostname, stream_key
+        )
     }
 
     fn send_route_failure(
@@ -2570,6 +2582,8 @@ mod tests {
 
     #[test]
     fn proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route() {
+        init_test_logging();
+        let test_name = "proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route";
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
@@ -2592,8 +2606,7 @@ mod tests {
 
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-            let system =
-                System::new("proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route");
+            let system = System::new(test_name);
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -2601,6 +2614,7 @@ mod tests {
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.logger = Logger::new(test_name);
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
@@ -2618,19 +2632,16 @@ mod tests {
             system.run();
         });
 
-        // let expected_dns_retry_result_message = DnsRetryResultMessage {
-        //     stream_key,
-        //     result: Ok(route_query_response.unwrap()),
-        // };
-
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
         let message = recording.get_record::<RouteResultMessage>(0);
-        // assert_eq!(message, &expected_dns_retry_result_message);
-
-        // 'ERROR: ProxyServer: Failed to find route to nowhere.com':
         assert_eq!(message.stream_key, stream_key);
-        assert!(message.result.is_err());
+        assert_eq!(
+            message.result,
+            Err(format!(
+                "Failed to find route to nowhere.com for stream key: {stream_key}"
+            ))
+        );
     }
 
     #[test]
@@ -4030,38 +4041,6 @@ mod tests {
                 hostname_opt: None,
             },
         );
-        let incoming_route_g_wallet = make_wallet("G Earning");
-        let incoming_route_h_wallet = make_wallet("H Earning");
-        let incoming_route_i_wallet = make_wallet("I Earning");
-        let rate_pack_g = rate_pack(104);
-        let rate_pack_h = rate_pack(105);
-        let rate_pack_i = rate_pack(106);
-        subject.route_ids_to_return_routes.insert(
-            1235,
-            AddReturnRouteMessage {
-                return_route_id: 1235,
-                expected_services: vec![
-                    ExpectedService::Exit(
-                        irrelevant_public_key.clone(),
-                        incoming_route_g_wallet.clone(),
-                        rate_pack_g,
-                    ),
-                    ExpectedService::Routing(
-                        irrelevant_public_key.clone(),
-                        incoming_route_h_wallet.clone(),
-                        rate_pack_h,
-                    ),
-                    ExpectedService::Routing(
-                        irrelevant_public_key.clone(),
-                        incoming_route_i_wallet.clone(),
-                        rate_pack_i,
-                    ),
-                    ExpectedService::Nothing,
-                ],
-                protocol: ProxyProtocol::TLS,
-                hostname_opt: None,
-            },
-        );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let first_client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
@@ -4079,8 +4058,7 @@ mod tests {
                 first_client_response_payload.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
-            .build();
+        let mut peer_actors = peer_actors_builder().build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -4088,10 +4066,14 @@ mod tests {
             .try_send(first_expired_cores_package.clone())
             .unwrap();
 
-        subject_addr.try_send(AssertionsMessage{ assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-            let retry_opt = proxy_server.dns_failure_retries.get(&stream_key);
-            assert_eq!(retry_opt, None);
-        }) }).unwrap();
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                    let retry_opt = proxy_server.dns_failure_retries.get(&stream_key);
+                    assert_eq!(retry_opt, None);
+                }),
+            })
+            .unwrap();
 
         System::current().stop();
         system.run();

@@ -366,7 +366,10 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             originating_node_socket_address,
         )
         .unwrap();
-    assert_eq!(cheapest_node_expired_cores_package.immediate_neighbor, originating_node_socket_address);
+    assert_eq!(
+        cheapest_node_expired_cores_package.immediate_neighbor,
+        originating_node_socket_address
+    );
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u16) -> RatePack {
