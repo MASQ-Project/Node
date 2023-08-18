@@ -34,15 +34,15 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
-        todo!()
+        self.gas_price_gwei
     }
 
     fn consuming_wallet(&self) -> &Wallet {
-        todo!()
+        &self.consuming_wallet
     }
 
     fn pending_transaction_id(&self) -> U256 {
-        todo!()
+        self.pending_transaction_id
     }
 }
 
@@ -104,8 +104,6 @@ mod tests {
 
     #[test]
     fn estimated_transaction_fee_works() {
-        let persistent_config = PersistentConfigurationMock::default()
-            .gas_price_result(Ok(550));
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = ConsumingWalletBalances{ transaction_fee_balance_in_minor_units: Default::default(), masq_token_balance_in_minor_units: Default::default() };
         let nonce = U256::from(55);
@@ -113,14 +111,14 @@ mod tests {
 
         let result = agent.estimated_transaction_fee_total(3);
 
-        assert_eq!(agent.gas_limit_const_part, 55_000);
+        assert_eq!(agent.gas_limit_const_part, 77_777);
         assert_eq!(
             agent.maximum_added_gas_margin,
             WEB3_MAXIMAL_GAS_LIMIT_MARGIN
         );
         assert_eq!(
             result,
-            (3 * (444 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 550
+            (3 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) as u128 * 444
         );
     }
 }

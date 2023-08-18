@@ -37,7 +37,7 @@ impl BlockchainAgent for BlockchainAgentNull {
     }
 
     fn consuming_wallet(&self) -> &Wallet {
-        self.log_function_call("consuming_wallet");
+        self.log_function_call("consuming_wallet()");
         &self.wallet
     }
 

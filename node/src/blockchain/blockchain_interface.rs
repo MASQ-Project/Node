@@ -768,7 +768,6 @@ mod tests {
     use web3::types::H2048;
     use web3::Error as Web3Error;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-    use crate::neighborhood::gossip_acceptor;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
     #[test]
@@ -1450,7 +1449,7 @@ mod tests {
         let chain = Chain::EthMainnet;
         let mut subject =
             BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let first_tx_parameters = TransactionParameters {
+        let first_transaction_params_expected = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
@@ -1466,10 +1465,10 @@ mod tests {
         let first_signed_transaction = subject
             .web3
             .accounts()
-            .sign_transaction(first_tx_parameters.clone(), &secret_key)
+            .sign_transaction(first_transaction_params_expected.clone(), &secret_key)
             .wait()
             .unwrap();
-        let second_tx_parameters = TransactionParameters {
+        let second_transaction_params_expected = TransactionParameters {
             nonce: Some(U256::from(5)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
@@ -1485,7 +1484,7 @@ mod tests {
         let second_signed_transaction = subject
             .web3
             .accounts()
-            .sign_transaction(second_tx_parameters.clone(), &secret_key)
+            .sign_transaction(second_transaction_params_expected.clone(), &secret_key)
             .wait()
             .unwrap();
         let first_hash = first_signed_transaction.transaction_hash;
@@ -1544,8 +1543,8 @@ mod tests {
             ])
         );
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
-        let (first_transaction_params, web3, secret) = sign_transaction_params.remove(0);
-        assert_eq!(first_transaction_params, first_tx_parameters);
+        let (first_transaction_params_actual, web3, secret) = sign_transaction_params.remove(0);
+        assert_eq!(first_transaction_params_actual, first_transaction_params_expected);
         let check_web3_origin = |web3: &Web3<Batch<TestTransport>>| {
             let ref_count_before_clone = Arc::strong_count(&reference_counter_arc);
             let _new_ref = web3.clone();
@@ -1558,9 +1557,9 @@ mod tests {
             (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
                 .into()
         );
-        let (second_transaction_params, web3_from_st_call, secret) =
+        let (second_transaction_params_actual, web3_from_st_call, secret) =
             sign_transaction_params.remove(0);
-        assert_eq!(second_transaction_params, second_tx_parameters);
+        assert_eq!(second_transaction_params_actual, second_transaction_params_expected);
         check_web3_origin(&web3_from_st_call);
         assert_eq!(
             secret,
@@ -2425,7 +2424,7 @@ mod tests {
     fn make_initialized_agent(gas_price_gwei: u64, consuming_wallet: Wallet, nonce: U256, chain: Chain) ->Box<dyn BlockchainAgent>{
         let gas_limit_const_part = BlockchainInterfaceNonClandestine::<Http>::web3_gas_limit_const_part(chain);
         let consuming_wallet_balances = ConsumingWalletBalances{ transaction_fee_balance_in_minor_units: Default::default(), masq_token_balance_in_minor_units: Default::default() };
-        Box::new(BlockchainAgentWeb3::new(120, gas_limit_const_part,consuming_wallet,consuming_wallet_balances,nonce))
+        Box::new(BlockchainAgentWeb3::new(gas_price_gwei, gas_limit_const_part,consuming_wallet,consuming_wallet_balances,nonce))
     }
 
     fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {

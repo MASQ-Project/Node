@@ -133,7 +133,7 @@ impl Wallet {
     }
 
     pub fn null()->Self{
-        todo!()
+        Wallet{ kind: WalletKind::Uninitialized }
     }
 
     pub fn string_address_from_keypair(&self) -> String {
