@@ -15,10 +15,10 @@ use crate::accountant::database_access_objects::receivable_dao::{
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-    AgentDigest, PayablePaymentsAgent,
+    BlockchainAgent,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
-    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
     MidScanPayableHandlingScanner, MultistagePayableScanner, PreparedAdjustment,
@@ -1426,7 +1426,7 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &PayablePaymentsSetupMsg,
+        msg: &BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.search_for_indispensable_adjustment_params
@@ -1519,7 +1519,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
         impl MidScanPayableHandlingScanner for $scanner {
             fn try_skipping_payment_adjustment(
                 &self,
-                _msg: PayablePaymentsSetupMsg,
+                _msg: BlockchainAgentWithContextMessage,
                 _logger: &Logger,
             ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
                 intentionally_blank!()
@@ -1709,116 +1709,26 @@ impl ScanSchedulers {
 
 #[derive(Default)]
 pub struct PayablePaymentsAgentMock {
-    set_agreed_fee_per_computation_unit_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
-    set_agreed_fee_per_computation_unit_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    set_consuming_wallet_balances_params: Arc<Mutex<Vec<ConsumingWalletBalances>>>,
-    make_agent_digest_params: Arc<Mutex<Vec<(ArbitraryIdStamp, Wallet)>>>,
-    make_agent_digest_results: RefCell<Vec<Result<Box<dyn AgentDigest>, BlockchainError>>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-}
-
-impl PayablePaymentsAgent for PayablePaymentsAgentMock {
-    fn set_agreed_fee_per_computation_unit(
-        &mut self,
-        persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<(), PersistentConfigError> {
-        self.set_agreed_fee_per_computation_unit_params
-            .lock()
-            .unwrap()
-            .push(persistent_config.arbitrary_id_stamp());
-        self.set_agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn set_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances) {
-        self.set_consuming_wallet_balances_params
-            .lock()
-            .unwrap()
-            .push(balances)
-    }
-
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
-        todo!("to be implemented by GH-711")
-    }
-
-    fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances> {
-        todo!("to be implemented by GH-711")
-    }
-
-    fn make_agent_digest(
-        &self,
-        blockchain_interface: &dyn BlockchainInterface,
-        wallet: &Wallet,
-    ) -> Result<Box<dyn AgentDigest>, BlockchainError> {
-        self.make_agent_digest_params
-            .lock()
-            .unwrap()
-            .push((blockchain_interface.arbitrary_id_stamp(), wallet.clone()));
-        self.make_agent_digest_results.borrow_mut().remove(0)
-    }
-
-    arbitrary_id_stamp_in_trait_impl!();
-}
-
-impl PayablePaymentsAgentMock {
-    pub fn set_agreed_fee_per_computation_unit_params(
-        mut self,
-        params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
-    ) -> Self {
-        self.set_agreed_fee_per_computation_unit_params = params.clone();
-        self
-    }
-
-    pub fn set_agreed_fee_per_computation_unit_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> Self {
-        self.set_agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn set_consuming_wallet_balances_params(
-        mut self,
-        params: &Arc<Mutex<Vec<ConsumingWalletBalances>>>,
-    ) -> Self {
-        self.set_consuming_wallet_balances_params = params.clone();
-        self
-    }
-
-    pub fn make_agent_digest_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(ArbitraryIdStamp, Wallet)>>>,
-    ) -> Self {
-        self.make_agent_digest_params = params.clone();
-        self
-    }
-
-    pub fn make_agent_digest_result(
-        self,
-        result: Result<Box<dyn AgentDigest>, BlockchainError>,
-    ) -> Self {
-        self.make_agent_digest_results.borrow_mut().push(result);
-        self
-    }
-
-    set_arbitrary_id_stamp_in_mock_impl!();
-}
-
-#[derive(Default)]
-pub struct AgentDigestMock {
     agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
     pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-impl AgentDigest for AgentDigestMock {
+impl BlockchainAgent for PayablePaymentsAgentMock {
+    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
+        todo!("to be implemented by GH-711")
+    }
+
+    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
+        todo!("to be implemented by GH-711")
+    }
+
     fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .remove(0)
+        self.agreed_fee_per_computation_unit_results.borrow_mut().remove(0)
+    }
+
+    fn consuming_wallet(&self) -> &Wallet {
+        todo!()
     }
 
     fn pending_transaction_id(&self) -> U256 {
@@ -1828,7 +1738,7 @@ impl AgentDigest for AgentDigestMock {
     arbitrary_id_stamp_in_trait_impl!();
 }
 
-impl AgentDigestMock {
+impl PayablePaymentsAgentMock {
     pub fn agreed_fee_per_computation_unit_result(self, result: u64) -> Self {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()
@@ -1836,7 +1746,7 @@ impl AgentDigestMock {
         self
     }
 
-    pub fn pending_transaction_id(self, result: U256) -> Self {
+    pub fn pending_transaction_id_result(self, result: U256) -> Self {
         self.pending_transaction_id_results
             .borrow_mut()
             .push(result);

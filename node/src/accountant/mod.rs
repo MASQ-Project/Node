@@ -31,7 +31,7 @@ use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
-    PayablePaymentsSetupMsg, QualifiedPayablesMessage,
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
@@ -206,10 +206,10 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<PayablePaymentsSetupMsg> for Accountant {
+impl Handler<BlockchainAgentWithContextMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: PayablePaymentsSetupMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BlockchainAgentWithContextMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_payable_payment_setup(msg)
     }
 }
@@ -448,7 +448,7 @@ impl Accountant {
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-            report_payable_payments_setup: recipient!(addr, PayablePaymentsSetupMsg),
+            report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -648,7 +648,7 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: PayablePaymentsSetupMsg) {
+    fn handle_payable_payment_setup(&mut self, msg: BlockchainAgentWithContextMessage) {
         let blockchain_bridge_instructions = match self
             .scanners
             .payable
@@ -996,7 +996,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        AgentDigestMock, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
         PayableDaoFactoryMock, PayableDaoMock, PayablePaymentsAgentMock, PayableScannerBuilder,
         PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
@@ -1402,7 +1402,7 @@ mod tests {
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
-        let payable_payments_setup_msg = PayablePaymentsSetupMsg {
+        let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
             payables: QualifiedPayablesMessage {
                 qualified_payables: accounts.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -1497,7 +1497,7 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
-        let payable_payments_setup_msg = PayablePaymentsSetupMsg {
+        let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
             payables: payload.clone(),
             agent: Box::new(agent),
         };
@@ -3111,9 +3111,7 @@ mod tests {
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
-        let set_consuming_balances_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_agreed_fee_per_computation_unit_params_arc = Arc::new(Mutex::new(vec![]));
-        let make_agent_digest_params_arc = Arc::new(Mutex::new(vec![]));
+        let build_blockchain_agent_params = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3153,23 +3151,14 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let agent_digest_id_stamp = ArbitraryIdStamp::new();
-        let agent_digest = AgentDigestMock::default().set_arbitrary_id_stamp(agent_digest_id_stamp);
-        let agent = PayablePaymentsAgentMock::default()
-            .set_consuming_wallet_balances_params(&set_consuming_balances_params_arc)
-            .set_agreed_fee_per_computation_unit_params(
-                &set_agreed_fee_per_computation_unit_params_arc,
-            )
-            .set_agreed_fee_per_computation_unit_result(Ok(()))
-            .make_agent_digest_params(&make_agent_digest_params_arc)
-            .make_agent_digest_result(Ok(Box::new(agent_digest)));
+        let agent = PayablePaymentsAgentMock::default();
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
-        let blockchain_interface_id_stamp = ArbitraryIdStamp::new();
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .set_arbitrary_id_stamp(blockchain_interface_id_stamp)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_result(Ok(token_balance))
-            .build_payable_payments_agent_result(Box::new(agent))
+            .build_blockchain_agent_params(&build_blockchain_agent_params)
+            .build_blockchain_agent_result(Box::new(agent))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             // there is one component missing in this wholesome test - the part where we send a request for
@@ -3374,28 +3363,10 @@ mod tests {
                 pending_tx_hash_2,
             ]
         );
-        let set_consuming_wallet_balances_params =
-            set_consuming_balances_params_arc.lock().unwrap();
-        let expected_consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: transaction_fee_balance,
-            masq_token_balance_in_minor_units: token_balance,
-        };
+        let build_blockchain_agent_params = build_blockchain_agent_params.lock().unwrap();
         assert_eq!(
-            *set_consuming_wallet_balances_params,
-            vec![expected_consuming_wallet_balances]
-        );
-        let set_agreed_fee_per_computation_unit_params =
-            set_agreed_fee_per_computation_unit_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *set_agreed_fee_per_computation_unit_params,
-            vec![persistent_config_id_stamp]
-        );
-        let make_agent_digest_params = make_agent_digest_params_arc.lock().unwrap();
-        assert_eq!(
-            *make_agent_digest_params,
-            vec![(blockchain_interface_id_stamp, consuming_wallet)]
+            *build_blockchain_agent_params,
+            vec![(consuming_wallet,persistent_config_id_stamp)]
         );
         let update_fingerprints_params = update_fingerprint_params_arc.lock().unwrap();
         assert_eq!(

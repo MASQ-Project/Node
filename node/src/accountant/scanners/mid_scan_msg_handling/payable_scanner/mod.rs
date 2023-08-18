@@ -6,7 +6,7 @@ pub mod agent_web3;
 pub mod setup_msg;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
@@ -24,7 +24,7 @@ where
 pub trait MidScanPayableHandlingScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: PayablePaymentsSetupMsg,
+        msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
 
@@ -38,12 +38,12 @@ pub trait MidScanPayableHandlingScanner {
 pub struct ProtectedPayables(pub(in crate::accountant) Vec<u8>);
 
 pub struct PreparedAdjustment {
-    pub original_setup_msg: PayablePaymentsSetupMsg,
+    pub original_setup_msg: BlockchainAgentWithContextMessage,
     pub adjustment: Adjustment,
 }
 
 impl PreparedAdjustment {
-    pub fn new(original_setup_msg: PayablePaymentsSetupMsg, adjustment: Adjustment) -> Self {
+    pub fn new(original_setup_msg: BlockchainAgentWithContextMessage, adjustment: Adjustment) -> Self {
         Self {
             original_setup_msg,
             adjustment,

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
@@ -149,7 +149,7 @@ recorder_message_handler_t_m_p!(NodeFromUiMessage);
 recorder_message_handler_t_m_p!(NodeToUiMessage);
 recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
-recorder_message_handler_t_p!(PayablePaymentsSetupMsg);
+recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
 recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
 recorder_message_handler_t_m_p!(PoolBindMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
@@ -462,7 +462,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_payable_payments_setup: recipient!(addr, PayablePaymentsSetupMsg),
+        report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),

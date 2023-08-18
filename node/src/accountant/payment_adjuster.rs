@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
@@ -11,7 +11,7 @@ use std::time::SystemTime;
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &PayablePaymentsSetupMsg,
+        msg: &BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError>;
 
@@ -30,7 +30,7 @@ pub struct PaymentAdjusterReal {}
 impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
-        _msg: &PayablePaymentsSetupMsg,
+        _msg: &BlockchainAgentWithContextMessage,
         _logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         Ok(None)
@@ -74,7 +74,7 @@ pub enum AnalysisError {}
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
-        PayablePaymentsSetupMsg, QualifiedPayablesMessage,
+        BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
     };
     use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
     use masq_lib::logger::Logger;
@@ -87,7 +87,7 @@ mod tests {
         let mut payable = make_payable_account(111);
         payable.balance_wei = 100_000_000;
         let agent = PayablePaymentsAgentMock::default();
-        let setup_msg = PayablePaymentsSetupMsg {
+        let setup_msg = BlockchainAgentWithContextMessage {
             payables: QualifiedPayablesMessage {
                 qualified_payables: vec![payable],
                 response_skeleton_opt: None,

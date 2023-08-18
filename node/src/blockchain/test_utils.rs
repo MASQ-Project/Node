@@ -22,7 +22,7 @@ use std::time::SystemTime;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-    AgentDigest, PayablePaymentsAgent,
+    BlockchainAgent,
 };
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -32,6 +32,7 @@ use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 lazy_static! {
@@ -64,11 +65,11 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    build_payable_payments_agent_results: RefCell<Vec<Box<dyn PayablePaymentsAgent>>>,
+    build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
+    build_blockchain_agent_results: RefCell<Vec<Box<dyn BlockchainAgent>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
-                Wallet,
                 ArbitraryIdStamp,
                 Recipient<PendingPayableFingerprintSeeds>,
                 Vec<PayableAccount>,
@@ -105,22 +106,21 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn build_payable_payments_agent(&self) -> Box<dyn PayablePaymentsAgent> {
-        self.build_payable_payments_agent_results
+    fn build_blockchain_agent(&self, consuming_wallet: &Wallet, persistent_config: &dyn PersistentConfiguration) -> Box<dyn BlockchainAgent> {
+        self.build_blockchain_agent_params.lock().unwrap().push((consuming_wallet.clone(), persistent_config.arbitrary_id_stamp()));
+        self.build_blockchain_agent_results
             .borrow_mut()
             .remove(0)
     }
 
     fn send_batch_of_payables(
         &self,
-        consuming_wallet: &Wallet,
-        agent_digest: Box<dyn AgentDigest>, //TODO test by clone later on??
+        agent: Box<dyn BlockchainAgent>,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         self.send_batch_of_payables_params.lock().unwrap().push((
-            consuming_wallet.clone(),
-            agent_digest.arbitrary_id_stamp(),
+            agent.arbitrary_id_stamp(),
             new_fingerprints_recipient.clone(),
             accounts.to_vec(),
         ));
@@ -160,9 +160,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .push(hash);
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
-
-    #[cfg(test)]
-    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl BlockchainInterfaceMock {
@@ -185,11 +182,16 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn build_payable_payments_agent_result(
+    pub fn build_blockchain_agent_params(mut self, params: &Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>)->Self{
+        self.build_blockchain_agent_params = params.clone();
+        self
+    }
+
+    pub fn build_blockchain_agent_result(
         self,
-        result: Box<dyn PayablePaymentsAgent>,
+        result: Box<dyn BlockchainAgent>,
     ) -> Self {
-        self.build_payable_payments_agent_results
+        self.build_blockchain_agent_results
             .borrow_mut()
             .push(result);
         self
@@ -200,7 +202,6 @@ impl BlockchainInterfaceMock {
         params: &Arc<
             Mutex<
                 Vec<(
-                    Wallet,
                     ArbitraryIdStamp,
                     Recipient<PendingPayableFingerprintSeeds>,
                     Vec<PayableAccount>,

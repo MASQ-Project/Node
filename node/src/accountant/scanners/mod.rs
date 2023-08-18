@@ -57,7 +57,7 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, MidScanPayableHandlingScanner, ProtectedPayables};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{PayablePaymentsSetupMsg, QualifiedPayablesMessage};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -253,7 +253,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
 impl MidScanPayableHandlingScanner for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: PayablePaymentsSetupMsg,
+        msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         match self

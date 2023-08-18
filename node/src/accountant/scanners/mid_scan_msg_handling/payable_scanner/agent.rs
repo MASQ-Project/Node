@@ -28,31 +28,13 @@ use web3::types::U256;
 
 //* defaulted limit
 
-pub trait PayablePaymentsAgent: Send {
-    fn set_agreed_fee_per_computation_unit(
-        &mut self,
-        persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<(), PersistentConfigError>;
-    fn set_consuming_wallet_balances(&mut self, balances: ConsumingWalletBalances);
+pub trait BlockchainAgent: Send {
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128;
-    fn consuming_wallet_balances(&self) -> Option<ConsumingWalletBalances>;
-    fn make_agent_digest(
-        &self,
-        blockchain_interface: &dyn BlockchainInterface,
-        wallet: &Wallet,
-    ) -> Result<Box<dyn AgentDigest>, BlockchainError>;
-
-    #[cfg(test)]
-    arbitrary_id_stamp_in_trait!();
-}
-
-// Preferably, keep the trait without setter methods. That's actually
-// the idea that drove the creation of this object
-pub trait AgentDigest: Send {
+    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn agreed_fee_per_computation_unit(&self) -> u64;
+    fn consuming_wallet(&self)-> &Wallet;
     fn pending_transaction_id(&self) -> U256;
 
-    declare_as_any!();
     #[cfg(test)]
     arbitrary_id_stamp_in_trait!();
 }

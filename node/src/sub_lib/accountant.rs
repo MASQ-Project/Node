@@ -3,7 +3,7 @@ use crate::accountant::database_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::database_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoFactory;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::PayablePaymentsSetupMsg;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
@@ -96,7 +96,7 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_payable_payments_setup: Recipient<PayablePaymentsSetupMsg>,
+    pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
