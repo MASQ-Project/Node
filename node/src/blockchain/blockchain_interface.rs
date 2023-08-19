@@ -420,14 +420,7 @@ where
                     }
                     Err(e) => {
                         error!(self.logger, "Retrieving transactions: {:?}", e);
-
-                        Ok(RetrievedBlockchainTransactions {
-                            new_start_block: match start_block {
-                                BlockNumber::Number(block_number) => block_number.as_u64(),
-                                _ => fallback_start_block_number - 1u64,
-                            },
-                            transactions: vec![],
-                        })
+                        Err(BlockchainError::QueryFailed(e.to_string()))
                     }
                 }
             }
