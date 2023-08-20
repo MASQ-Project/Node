@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
@@ -10,10 +10,6 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine, PayableTransactionError,
-    ProcessedPayableFallible,
-};
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -40,6 +36,8 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::Path;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -508,10 +506,6 @@ mod tests {
         make_pending_payable_fingerprint, make_protected_in_test, PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
-    };
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -540,6 +534,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction, PayableTransactionError, RetrievedBlockchainTransactions};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1720,7 +1717,7 @@ pub mod assertion_messages_with_exposed_private_actor_body {
         AssertionsMessage {
             assertions: Box::new(move |bb: &mut BlockchainBridge| {
                 //the first assertion is made outside, it checks receiving this request
-                let _result = bb.blockchain_interface.get_token_balance(&wallet);
+                let _result = bb.blockchain_interface.helper().get_token_balance(&wallet);
                 assert_eq!(
                     bb.persistent_config.gas_price().unwrap(),
                     expected_gas_price

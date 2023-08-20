@@ -37,9 +37,6 @@ use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::{
-    BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible,
-};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -78,6 +75,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::blockchain::blockchain_interface::{BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -1008,8 +1006,6 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
-    use crate::blockchain::blockchain_interface::BlockchainTransaction;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1058,6 +1054,7 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();

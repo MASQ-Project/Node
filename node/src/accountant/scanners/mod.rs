@@ -30,7 +30,6 @@ use crate::accountant::{
 };
 use crate::accountant::database_access_objects::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-use crate::blockchain::blockchain_interface::PayableTransactionError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
@@ -58,6 +57,7 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, MidScanPayableHandlingScanner, ProtectedPayables};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::blockchain::blockchain_interface::PayableTransactionError;
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -1047,10 +1047,6 @@ mod tests {
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        BlockchainTransaction, PayableTransactionError, RpcPayableFailure,
-    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
@@ -1068,6 +1064,8 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
+    use crate::blockchain::blockchain_interface::{BlockchainTransaction, PayableTransactionError, RpcFailurePayables};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -1257,7 +1255,7 @@ mod tests {
         let failure_payable_hash_2 = make_tx_hash(0xde);
         let failure_payable_rowid_2 = 126;
         let failure_payable_wallet_2 = make_wallet("hihihi");
-        let failure_payable_2 = RpcPayableFailure {
+        let failure_payable_2 = RpcFailurePayables {
             rpc_error: Error::InvalidResponse(
                 "Learn how to write before you send your garbage!".to_string(),
             ),
@@ -1642,12 +1640,12 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Failed(RpcPayableFailure {
+        let failed_payment_1 = Failed(RpcFailurePayables {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = Failed(RpcPayableFailure {
+        let failed_payment_2 = Failed(RpcFailurePayables {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,

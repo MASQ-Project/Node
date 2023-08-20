@@ -17,7 +17,7 @@ use node_lib::accountant::database_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoReal,
 };
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
-use node_lib::blockchain::blockchain_interface::{
+use node_lib::blockchain::blockchain_interface_s::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
 use node_lib::database::db_initializer::{

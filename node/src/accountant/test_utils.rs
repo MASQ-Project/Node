@@ -14,7 +14,7 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
@@ -30,9 +30,6 @@ use crate::accountant::{
     gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainTransaction,
-};
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -63,6 +60,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use web3::types::U256;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());

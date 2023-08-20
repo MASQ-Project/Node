@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod agent;
+pub mod blockchain_agent;
 pub mod agent_null;
 pub mod agent_web3;
 pub mod setup_msg;

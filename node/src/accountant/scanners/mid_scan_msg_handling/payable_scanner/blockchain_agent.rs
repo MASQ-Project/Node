@@ -2,7 +2,6 @@
 
 #[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;

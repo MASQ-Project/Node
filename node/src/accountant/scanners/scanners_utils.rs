@@ -7,10 +7,6 @@ pub mod payable_scanner_utils {
         LocallyCausedError, RemotelyCausedErrors,
     };
     use crate::accountant::{comma_joined_stringifiable, SentPayables};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        PayableTransactionError, ProcessedPayableFallible, RpcPayableFailure,
-    };
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
@@ -23,6 +19,8 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
+    use crate::blockchain::blockchain_interface::{PayableTransactionError, ProcessedPayableFallible, RpcFailurePayables};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
@@ -158,7 +156,7 @@ pub mod payable_scanner_utils {
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
             Correct(pending_payable) => add_pending_payable(acc, pending_payable),
-            Failed(RpcPayableFailure {
+            Failed(RpcFailurePayables {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -428,10 +426,6 @@ mod tests {
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, PayableTransactionError, RpcPayableFailure,
-    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -439,6 +433,8 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
+    use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError, RpcFailurePayables};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -550,7 +546,7 @@ mod tests {
             recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
-        let bad_rpc_call = RpcPayableFailure {
+        let bad_rpc_call = RpcFailurePayables {
             rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
             recipient_wallet: make_wallet("whooa"),
             hash: make_tx_hash(0x315),

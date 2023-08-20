@@ -14,7 +14,6 @@ use crate::accountant::database_access_objects::utils::{
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -32,6 +31,7 @@ use rusqlite::{named_params, Error};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReceivableDaoError {
@@ -428,6 +428,7 @@ mod tests {
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::ToSql;
     use std::path::Path;
+    use crate::blockchain::blockchain_interface::BlockchainTransaction;
 
     #[test]
     fn conversion_from_pce_works() {
