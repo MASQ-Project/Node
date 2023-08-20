@@ -1367,6 +1367,7 @@ mod tests {
         let keypair =
             Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         config.consuming_wallet_opt = Some(Wallet::from(keypair));
+        config.neighborhood_config.min_hops = Hops::FourHops;
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()

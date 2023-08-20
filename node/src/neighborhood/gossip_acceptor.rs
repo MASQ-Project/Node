@@ -143,8 +143,7 @@ impl GossipHandler for IpChangeHandler {
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _connection_progress_peers: &[IpAddr],
-        _cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        _neighborhood_metadata: NeighborhoodMetadata,
     ) -> GossipAcceptanceResult {
         let source_agr = agrs.remove(0); // empty Gossip shouldn't get here
         let mut db_node = database
@@ -1413,7 +1412,6 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 impl<'a> GossipAcceptorReal<'a> {
     pub fn new(
         cryptde: &'a dyn CryptDE,
-        cpm_recipient: Recipient<ConnectionProgressMessage>,
         remove_stream_recipient: Recipient<RemoveStreamMsg>,
         stream_shutdown_recipient: Recipient<StreamShutdownMsg>,
     ) -> GossipAcceptorReal {
@@ -1486,7 +1484,7 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
-    use actix::System;
+    use actix::{Actor, System};
     use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::convert::TryInto;
@@ -1530,7 +1528,6 @@ mod tests {
         );
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, _) = make_cpm_recipient();
         let (stream_handler_pool, _, stream_handler_pool_recording_arc) = make_recorder();
         let (dispatcher, _, _) = make_recorder();
         let stream_handler_pool_sub = stream_handler_pool.start().recipient();
@@ -1548,8 +1545,7 @@ mod tests {
             &mut db,
             agrs_vec,
             gossip_source,
-            &vec![],
-            &cpm_recipient,
+            make_default_neighborhood_metadata(),
         );
 
         System::current().stop();
@@ -1625,7 +1621,6 @@ mod tests {
         );
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let (cpm_recipient, _) = make_cpm_recipient();
         let (stream_handler_pool, _, stream_handler_pool_recording_arc) = make_recorder();
         let (dispatcher, _, _) = make_recorder();
         let stream_handler_pool_sub = stream_handler_pool.start().recipient();
@@ -1643,8 +1638,7 @@ mod tests {
             &mut db,
             agrs_vec,
             gossip_source,
-            &vec![],
-            &cpm_recipient,
+            make_default_neighborhood_metadata(),
         );
 
         System::current().stop();
@@ -4732,9 +4726,6 @@ mod tests {
     }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
-        let (neighborhood, _, _) = make_recorder();
-        let addr = neighborhood.start();
-        let cmr_recipient = addr.recipient::<ConnectionProgressMessage>();
         let (stream_handler_pool, _, _) = make_recorder();
         let addr = stream_handler_pool.start();
         let remove_recipient = addr.recipient::<RemoveStreamMsg>();
@@ -4743,7 +4734,6 @@ mod tests {
         let shutdown_recipient = addr.recipient::<StreamShutdownMsg>();
         let subject = GossipAcceptorReal::new(
             crypt_de,
-            cmr_recipient,
             remove_recipient,
             shutdown_recipient,
         );

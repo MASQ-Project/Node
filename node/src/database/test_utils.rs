@@ -32,7 +32,7 @@ pub struct ConnectionWrapperMock<'b, 'a: 'b> {
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
     transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-    arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}

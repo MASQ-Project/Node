@@ -10,6 +10,11 @@ use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
+// A StreamKey is made from the public key of the originating Node and the SocketAddr of the
+// browser's end of the stream (which will almost always have 127.0.0.1 as the IP address, but
+// whose port number will vary). There is no information in a StreamKey about the far (server) end
+// of the connection, which means a StreamKey can be constructed before the logical stream across
+// the MASQ network fully exists.
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
     hash: HashType,

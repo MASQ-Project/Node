@@ -1310,46 +1310,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
-    )]
-    fn change_handler_panics_when_receiving_ip_change_from_isp() {
-        running_test();
-        let actor_factory = ActorFactoryMock::new();
-        let mut config = BootstrapperConfig::default();
-        config.automap_config.usual_protocol_opt = Some(AutomapProtocol::Pcp);
-        config.neighborhood_config = NeighborhoodConfig {
-            mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
-                vec![],
-                rate_pack(100),
-            ),
-            min_hops: MIN_HOPS_FOR_TEST,
-        };
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_subject_with_null_setter();
-        subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_params(&make_params_arc)
-                .make_result(Box::new(
-                    AutomapControlMock::new()
-                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-                        .get_mapping_protocol_result(Some(AutomapProtocol::Pcp))
-                        .add_mapping_result(Ok(())),
-                )),
-        );
-
-        let _ = subject.prepare_initial_messages(
-            make_cryptde_pair(),
-            config,
-            Box::new(PersistentConfigurationMock::new()),
-            Box::new(actor_factory),
-        );
-
-        assert!(LOG_RECIPIENT_OPT.lock().unwrap().is_some());
-    }
-
-    #[test]
     fn discovered_automap_protocol_is_written_into_the_db() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let (tx, _rx) = unbounded();

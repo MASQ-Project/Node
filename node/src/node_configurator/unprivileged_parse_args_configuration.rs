@@ -628,7 +628,6 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::{
         encrypted_past_neighbors, PersistentConfigurationMock,
     };
@@ -638,7 +637,7 @@ mod tests {
         make_simplified_multi_config, PCField,
     };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{DEFAULT_GAS_PRICE, TEST_DEFAULT_CHAIN};
+    use masq_lib::constants::{TEST_DEFAULT_CHAIN};
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
@@ -2672,45 +2671,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(bootstrapper_config.suppress_initial_scans, false);
-    }
-
-    fn make_persistent_config(
-        db_password_opt: Option<&str>,
-        consuming_wallet_private_key_opt: Option<&str>,
-        earning_wallet_address_opt: Option<&str>,
-        gas_price_opt: Option<u64>,
-        past_neighbors_opt: Option<&str>,
-        rate_pack_opt: Option<RatePack>,
-        min_hops_opt: Option<Hops>,
-    ) -> PersistentConfigurationMock {
-        let consuming_wallet_private_key_opt =
-            consuming_wallet_private_key_opt.map(|x| x.to_string());
-        let earning_wallet_opt = match earning_wallet_address_opt {
-            None => None,
-            Some(address) => Some(Wallet::from_str(address).unwrap()),
-        };
-        let gas_price = gas_price_opt.unwrap_or(DEFAULT_GAS_PRICE);
-        let past_neighbors_result = match (past_neighbors_opt, db_password_opt) {
-            (Some(past_neighbors), Some(_)) => Ok(Some(
-                past_neighbors
-                    .split(",")
-                    .map(|s| NodeDescriptor::try_from((main_cryptde(), s)).unwrap())
-                    .collect::<Vec<NodeDescriptor>>(),
-            )),
-            _ => Ok(None),
-        };
-        let rate_pack = rate_pack_opt.unwrap_or(DEFAULT_RATE_PACK);
-        let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
-        PersistentConfigurationMock::new()
-            .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result(
-                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
-            )
-            .earning_wallet_result(Ok(earning_wallet_opt))
-            .gas_price_result(Ok(gas_price))
-            .past_neighbors_result(past_neighbors_result)
-            .mapping_protocol_result(Ok(Some(Pcp)))
-            .rate_pack_result(Ok(rate_pack))
-            .min_hops_result(Ok(min_hops))
     }
 }

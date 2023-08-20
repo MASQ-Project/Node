@@ -2,6 +2,9 @@
 
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
+#[cfg(test)]
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+#[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
 
 pub trait ConnectionWrapper: Debug + Send {

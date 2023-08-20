@@ -85,16 +85,15 @@ pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response len
 
 #[derive(Clone)]
 pub struct GossipAcceptorSubs {
-    connection_progress_sub: Recipient<ConnectionProgressMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
 }
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper_opt: Option<Recipient<IncipientCoresPackage>>,
-    hopper_no_lookup_sub_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
-    connected_signal_sub_opt: Option<Recipient<StartMessage>>,
-    node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
+    hopper_no_lookup_recipient_opt: Option<Recipient<NoLookupIncipientCoresPackage>>,
+    connected_signal_recipient_opt: Option<Recipient<StartMessage>>,
+    node_to_ui_recipient_opt: Option<Recipient<NodeToUiMessage>>,
     gossip_acceptor_info_opt: Option<Either<Box<dyn GossipAcceptor>, GossipAcceptorSubs>>,
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
@@ -122,14 +121,13 @@ impl Handler<BindMessage> for Neighborhood {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.hopper_no_lookup_sub_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
-        self.connected_signal_sub_opt = Some(msg.peer_actors.accountant.start);
+        self.hopper_no_lookup_recipient_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.connected_signal_recipient_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_info_opt = Some(Either::Right(GossipAcceptorSubs {
-            connection_progress_sub: msg.peer_actors.neighborhood.connection_progress_sub,
             stream_shutdown_sub: msg.peer_actors.dispatcher.stream_shutdown_sub,
         }));
-        self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
-        self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.gossip_producer = Box::new(GossipProducerReal::new());
+        self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 }
 
@@ -144,7 +142,6 @@ impl Handler<PoolBindMessage> for Neighborhood {
             .right_or_else(|_| panic!("Neighborhood got multiple PoolBindMessages"));
         self.gossip_acceptor_info_opt = Some(Either::Left(Box::new(GossipAcceptorReal::new(
             self.cryptde,
-            gossip_acceptor_subs.connection_progress_sub,
             msg.stream_handler_pool_subs.remove_stream_sub,
             gossip_acceptor_subs.stream_shutdown_sub,
         ))));
@@ -174,29 +171,6 @@ impl Handler<SetConsumingWalletMessage> for Neighborhood {
 
     fn handle(&mut self, msg: SetConsumingWalletMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.consuming_wallet_opt = Some(msg.wallet);
-    }
-}
-
-impl Handler<NodeQueryMessage> for Neighborhood {
-    type Result = MessageResult<NodeQueryMessage>;
-
-    fn handle(
-        &mut self,
-        msg: NodeQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        let node_record_ref_opt = match msg {
-            NodeQueryMessage::IpAddress(ip_addr) => self.neighborhood_database.node_by_ip(ip_addr),
-            NodeQueryMessage::PublicKey(key) => self.neighborhood_database.node_by_key(&key),
-        };
-
-        MessageResult(node_record_ref_opt.map(|node_record_ref| {
-            NodeQueryResponseMetadata::new(
-                node_record_ref.public_key().clone(),
-                node_record_ref.node_addr_opt(),
-                *node_record_ref.rate_pack(),
-            )
-        }))
     }
 }
 
@@ -315,7 +289,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                         self.overall_connection_status
                             .update_ocs_stage_and_send_message_to_ui(
                                 OverallConnectionStage::ConnectedToNeighbor,
-                                self.node_to_ui_sub_opt
+                                self.node_to_ui_recipient_opt
                                     .as_ref()
                                     .expect("UI Gateway is unbound"),
                                 &self.logger,
@@ -498,9 +472,9 @@ impl Neighborhood {
         Neighborhood {
             cryptde,
             hopper_opt: None,
-            hopper_no_lookup_sub_opt: None,
-            connected_signal_sub_opt: None,
-            node_to_ui_sub_opt: None,
+            hopper_no_lookup_recipient_opt: None,
+            connected_signal_recipient_opt: None,
+            node_to_ui_recipient_opt: None,
             gossip_acceptor_info_opt: None,
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
@@ -517,15 +491,6 @@ impl Neighborhood {
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
         }
-    }
-
-    pub fn gossip_acceptor(&self) -> &dyn GossipAcceptor {
-        self
-            .gossip_acceptor_info_opt
-            .as_ref()
-            .expect("Neighborhood never got its BindMessage")
-            .expect_left("Neighborhood never got its PoolBindMessage")
-            .as_ref()
     }
 
     pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
@@ -584,9 +549,7 @@ impl Neighborhood {
             })
             .for_each(|(key, node_addr)| {
                 let gossip = self
-                    .gossip_producer_opt
-                    .as_ref()
-                    .expect("No GossipProducer")
+                    .gossip_producer
                     .produce_debut_or_ipchange(&self.neighborhood_database);
                 let message_type = MessageType::Gossip(VersionedData::new(
                     &crate::sub_lib::migrations::gossip::MIGRATIONS,
@@ -958,10 +921,10 @@ impl Neighborhood {
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
                     OverallConnectionStage::RouteFound,
-                    self.node_to_ui_sub_opt.as_ref().expect("UI was not bound."),
+                    self.node_to_ui_recipient_opt.as_ref().expect("UI was not bound."),
                     &self.logger,
                 );
-            self.connected_signal_sub_opt
+            self.connected_signal_recipient_opt
                 .as_ref()
                 .expect("Accountant was not bound")
                 .try_send(StartMessage {})
@@ -1563,7 +1526,7 @@ impl Neighborhood {
                 return;
             }
         };
-        self.hopper_no_lookup_sub_opt
+        self.hopper_no_lookup_recipient_opt
             .as_ref()
             .expect("No-lookup Hopper is unbound")
             .try_send(package)
@@ -1608,7 +1571,7 @@ impl Neighborhood {
             body: UiConnectionStatusResponse { stage }.tmb(context_id),
         };
 
-        self.node_to_ui_sub_opt
+        self.node_to_ui_recipient_opt
             .as_ref()
             .expect("UI Gateway is unbound")
             .try_send(message)
@@ -2371,7 +2334,7 @@ mod tests {
         );
         let (node_to_ui_recipient, node_to_ui_recording_arc) =
             make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -2430,7 +2393,7 @@ mod tests {
         );
         let (node_to_ui_recipient, node_to_ui_recording_arc) =
             make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -2548,7 +2511,7 @@ mod tests {
                 "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other"),
         );
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
         let system = System::new("testing");
@@ -2648,203 +2611,6 @@ mod tests {
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 3.4.5.6 refused Debut: No neighbors for Introduction or Pass");
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 4.5.6.7 refused Debut: Node owner manually rejected your Debut");
         tlh.exists_log_containing ("ERROR: Neighborhood: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_initially_configured_with_no_data() {
-        let system = System::new("responds_with_none_when_initially_configured_with_no_data");
-        let subject = make_standard_subject();
-        let addr = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_key_query_matches_no_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system =
-            System::new("node_query_responds_with_none_when_key_query_matches_no_configured_data");
-        let subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::PolyMumbai,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops: DEFAULT_MIN_HOPS,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_none_when_key_query_matches_no_configured_data",
-            ),
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_result_when_key_query_matches_configured_data() {
-        let cryptde = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system =
-            System::new("node_query_responds_with_result_when_key_query_matches_configured_data");
-        let one_neighbor = make_node_record(2345, true);
-        let another_neighbor = make_node_record(3456, true);
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![node_record_to_neighbor_config(&one_neighbor)],
-                        rate_pack(100),
-                    ),
-                    min_hops: DEFAULT_MIN_HOPS,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_result_when_key_query_matches_configured_data",
-            ),
-        );
-        subject
-            .neighborhood_database
-            .add_node(another_neighbor.clone())
-            .unwrap();
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::PublicKey(
-            another_neighbor.public_key().clone(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(
-            result.unwrap(),
-            NodeQueryResponseMetadata::new(
-                another_neighbor.public_key().clone(),
-                Some(another_neighbor.node_addr_opt().unwrap().clone()),
-                another_neighbor.rate_pack().clone(),
-            )
-        );
-    }
-
-    #[test]
-    fn node_query_responds_with_none_when_ip_address_query_matches_no_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system = System::new(
-            "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
-        );
-        let subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                        vec![NodeDescriptor::from((
-                            &PublicKey::new(&b"booga"[..]),
-                            &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::PolyMumbai,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops: DEFAULT_MIN_HOPS,
-                },
-                earning_wallet.clone(),
-                consuming_wallet.clone(),
-                "node_query_responds_with_none_when_ip_address_query_matches_no_configured_data",
-            ),
-        );
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::IpAddress(
-            IpAddr::from_str("2.3.4.5").unwrap(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result.is_none(), true);
-    }
-
-    #[test]
-    fn node_query_responds_with_result_when_ip_address_query_matches_configured_data() {
-        let cryptde: &dyn CryptDE = main_cryptde();
-        let system = System::new(
-            "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
-        );
-        let node_record = make_node_record(1234, true);
-        let another_node_record = make_node_record(2345, true);
-        let mut subject = Neighborhood::new(
-            cryptde,
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        node_record.node_addr_opt().unwrap(),
-                        vec![NodeDescriptor::from((
-                            &node_record,
-                            Chain::PolyMumbai,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops: DEFAULT_MIN_HOPS,
-                },
-                node_record.earning_wallet(),
-                None,
-                "node_query_responds_with_result_when_ip_address_query_matches_configured_data",
-            ),
-        );
-        subject
-            .neighborhood_database
-            .add_node(another_node_record.clone())
-            .unwrap();
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<NodeQueryMessage> = addr.recipient::<NodeQueryMessage>();
-
-        let future = sub.send(NodeQueryMessage::IpAddress(
-            IpAddr::from_str("2.3.4.5").unwrap(),
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(
-            result.unwrap(),
-            NodeQueryResponseMetadata::new(
-                another_node_record.public_key().clone(),
-                Some(another_node_record.node_addr_opt().unwrap().clone()),
-                another_node_record.rate_pack().clone(),
-            )
-        );
     }
 
     #[test]
@@ -3876,7 +3642,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3916,7 +3682,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let system = System::new("neighborhood_transmits_gossip_failure_properly");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
 
         subject.handle_gossip_agrs(
@@ -3996,8 +3762,8 @@ mod tests {
 
     fn bind_subject(subject: &mut Neighborhood, peer_actors: PeerActors) {
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
-        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
-        subject.connected_signal_sub_opt = Some(peer_actors.accountant.start);
+        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.connected_signal_recipient_opt = Some(peer_actors.accountant.start);
     }
 
     #[test]
@@ -4058,8 +3824,11 @@ mod tests {
     fn neighborhood_starts_accountant_when_first_route_can_be_made() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
+        let gossip_acceptor = GossipAcceptorMock::new()
+            .handle_result(GossipAcceptanceResult::Accepted);
         let mut subject = make_neighborhood_with_linearly_connected_nodes(4);
-        subject.node_to_ui_sub_opt = Some(ui_gateway.start().recipient());
+        subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
+        subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
@@ -4148,12 +3917,17 @@ mod tests {
             make_neighborhood_with_linearly_connected_nodes(nodes_count);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let (hopper, _, _) = make_recorder();
+        let gossip_acceptor = GossipAcceptorMock::new()
+            .handle_result(GossipAcceptanceResult::Accepted);
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.min_hops = hops;
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_opt = Some(connected_signal);
+        subject.connected_signal_recipient_opt = Some(connected_signal);
+        subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
+        subject.hopper_opt = Some(hopper.start().recipient());
         let system = System::new(test_name);
 
         subject.handle_gossip_agrs(
@@ -4205,11 +3979,16 @@ mod tests {
         let mut subject: Neighborhood = make_neighborhood_with_linearly_connected_nodes(3);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
+        let (hopper, _, _) = make_recorder();
+        let gossip_acceptor = GossipAcceptorMock::new()
+            .handle_result(GossipAcceptanceResult::Accepted);
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.logger = Logger::new(test_name);
-        subject.node_to_ui_sub_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_sub_opt = Some(connected_signal);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.connected_signal_recipient_opt = Some(connected_signal);
+        subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
+        subject.hopper_opt = Some(hopper.start().recipient());
         let system = System::new(test_name);
 
         subject.handle_gossip_agrs(
@@ -4478,8 +4257,8 @@ mod tests {
         let (subject, one_neighbor, another_neighbor) = {
             let mut subject: Neighborhood =
                 neighborhood_from_nodes(&subject_node, Some(&make_node_record(7654, true)));
-            subject.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
-            subject.hopper_no_lookup_sub_opt = Some(hopper.start().recipient());
+            subject.gossip_producer = Box::new(GossipProducerReal::new());
+            subject.hopper_no_lookup_recipient_opt = Some(hopper.start().recipient());
             let db = &mut subject.neighborhood_database;
             let one_neighbor = db.add_node(make_node_record(1234, true)).unwrap();
             let another_neighbor = db.add_node(make_node_record(2345, true)).unwrap();
@@ -4700,7 +4479,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_sub_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
         subject.handle_gossip(
@@ -6336,7 +6115,7 @@ mod tests {
         let mut neighborhood = Neighborhood::new(main_cryptde(), &bootstrap_config);
 
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
-        neighborhood.node_to_ui_sub_opt = Some(node_to_ui_recipient);
+        neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         neighborhood
     }
 

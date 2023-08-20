@@ -1364,9 +1364,6 @@ mod tests {
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8ad01851bf08eb00083011680949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900083027126a0a2b0575e27cc95821fc518fb63e7ce0a0a095df23a9dc68c8b78fe2452b576caa067b910cb27b8aca68e6569fa2c8f1d48dd5a44b899ea4a68a6c818fc2f2afb96""#)]);
-        transport.assert_no_more_requests();
-        let (hash, timestamp) = result;
         let send_batch_params = send_batch_params_arc.lock().unwrap();
         assert_eq!(
             *send_batch_params,
@@ -1376,9 +1373,12 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a906851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa060b9f375c06f56\
-        41951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c031172ac6873037d90dcca36a1fbf2e67960ff".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8ad06851bf08eb00083011600949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007731323300000000000000000000000000000000000\
+                        00000000000000c7d713b49da000083027126a06bad9e403960cde22268b2bf8c1deab78581\
+                        9ac7152fa5ece046c6292c2f63c6a03a3f4b340e9d79649ea7d2c47cc4ed5ed2deb62a859ba\
+                        90873412b76c697f1f0".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1387,9 +1387,12 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dae894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        000000000000000000000000000000000000000000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00e61352bb2ac9b\
-        32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915ecfbaa58268010e00d32c18a49a9fc3b9bd20a".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8ad07851bf08eb00083011580949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007735353500000000000000000000000000000000000\
+                        000000000000000000000075bcd1583027126a096c5eedddc39555efab0ee4629fde8f7fe6f\
+                        7ab42d93dd634959ad047aa9be00a079cc22ae4813f43a0cf6b8a548c8a28370abfd2d57bfb\
+                        e801a1293fbb59f55c5".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1398,9 +1401,12 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02d300cc8ba7b63\
-        b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23fbe8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8ad08851bf08eb00083011600949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007739383700000000000000000000000000000000000\
+                        0000000000000007680cd2f2d340083027125a005b432dbaf53189c32f37a6e0cfb82871e68\
+                        126c8ad1a986ac145bc90dcb71b1a01b05d415517ed5357af7de307749e03c3e71ac2455064\
+                        113a3e736fb9c754a38".to_string())]),
                         id: Id::Num(1)
                     })
                 )
@@ -1419,7 +1425,7 @@ mod tests {
         };
         //first successful request
         let expected_hash_1 =
-            H256::from_str("26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1")
+            H256::from_str("11b299d200856fc2cb0d8c15e4262f74d2330e428105039d60bcf44d838a5d3e")
                 .unwrap();
         check_expected_successful_request(expected_hash_1, 0);
         //failing request
@@ -1444,13 +1450,13 @@ mod tests {
             })
         );
         let expected_hash_2 =
-            H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
+            H256::from_str("b093cda60083b946bd206b8ad8c1711a0c1e1940afc1c9684a20f6ad04050956")
                 .unwrap();
         assert_eq!(hash_2, &expected_hash_2);
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
         let expected_hash_3 =
-            H256::from_str("a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44")
+            H256::from_str("bd0a664c42d98c62e805d222c6ed425aec62c7415f1d157e2deaf02112e8debc")
                 .unwrap();
         check_expected_successful_request(expected_hash_3, 2);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1476,7 +1482,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: sending_batch_payments: \
         Common attributes of payables to be transacted: sender wallet: 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725, contract: \
-          0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
+          0x9b27034acabd44223fb23d628ba4849867ce1db2, chain_id: 80001, gas_price: 120");
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 900,000,000,000,000,000 wei \
         to 0x0000000000000000000000000000000077313233 with nonce 6",
@@ -1494,7 +1500,7 @@ mod tests {
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 gwei\n\
-        chain:                                       ropsten\n\
+        chain:                                       mumbai\n\
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
