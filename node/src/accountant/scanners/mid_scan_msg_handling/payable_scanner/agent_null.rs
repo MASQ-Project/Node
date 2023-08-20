@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-    BlockchainAgent,
-};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -12,6 +10,7 @@ use masq_lib::logger::Logger;
 #[cfg(test)]
 use std::any::Any;
 
+#[derive(Clone)]
 pub struct BlockchainAgentNull {
     wallet: Wallet,
     logger: Logger,
@@ -25,7 +24,7 @@ impl BlockchainAgent for BlockchainAgentNull {
 
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
         self.log_function_call("consuming_wallet_balances()");
-        ConsumingWalletBalances{
+        ConsumingWalletBalances {
             transaction_fee_balance_in_minor_units: U256::zero(),
             masq_token_balance_in_minor_units: U256::zero(),
         }
@@ -44,6 +43,10 @@ impl BlockchainAgent for BlockchainAgentNull {
     fn pending_transaction_id(&self) -> U256 {
         self.log_function_call("pending_transaction_id()");
         U256::zero()
+    }
+
+    fn dup(&self) -> Box<dyn BlockchainAgent> {
+        todo!()
     }
 }
 
@@ -71,20 +74,16 @@ impl Default for BlockchainAgentNull {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-        BlockchainAgent,
-    };
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::{
-        BlockchainAgentNull,
-    };
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
-    use crate::sub_lib::wallet::Wallet;
 
     fn blockchain_agent_null_constructor_works<C>(constructor: C)
     where
@@ -95,10 +94,7 @@ mod tests {
         let result = constructor();
 
         assert_eq!(result.wallet, Wallet::null());
-        warning!(
-            result.logger,
-            "blockchain_agent_null_constructor_works"
-        );
+        warning!(result.logger, "blockchain_agent_null_constructor_works");
         TestLogHandler::default().exists_log_containing(
             "WARN: BlockchainAgentNull: \
         blockchain_agent_null_constructor_works",
@@ -115,7 +111,7 @@ mod tests {
         blockchain_agent_null_constructor_works(BlockchainAgentNull::default)
     }
 
-    fn assert_error_log(test_name: &str, expected_operation: &str){
+    fn assert_error_log(test_name: &str, expected_operation: &str) {
         TestLogHandler::default().exists_log_containing(&format!(
             "ERROR: {test_name}: calling \
             null version of {expected_operation}() for BlockchainAgentNull \
@@ -145,7 +141,13 @@ mod tests {
 
         let result = subject.consuming_wallet_balances();
 
-        assert_eq!(result, ConsumingWalletBalances{ transaction_fee_balance_in_minor_units: U256::zero(), masq_token_balance_in_minor_units: U256::zero() });
+        assert_eq!(
+            result,
+            ConsumingWalletBalances {
+                transaction_fee_balance_in_minor_units: U256::zero(),
+                masq_token_balance_in_minor_units: U256::zero()
+            }
+        );
         assert_error_log(test_name, "consuming_wallet_balances")
     }
 

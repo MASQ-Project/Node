@@ -1,10 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-    BlockchainAgent,
-};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -44,6 +42,10 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     fn pending_transaction_id(&self) -> U256 {
         self.pending_transaction_id
     }
+
+    fn dup(&self) -> Box<dyn BlockchainAgent> {
+        todo!()
+    }
 }
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
@@ -52,7 +54,13 @@ pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328;
 
 impl BlockchainAgentWeb3 {
     //TODO should we make another kind of Wallet?
-    pub fn new(gas_price_gwei: u64, gas_limit_const_part: u64, consuming_wallet: Wallet, consuming_wallet_balances: ConsumingWalletBalances, pending_transaction_id: U256) -> Self {
+    pub fn new(
+        gas_price_gwei: u64,
+        gas_limit_const_part: u64,
+        consuming_wallet: Wallet,
+        consuming_wallet_balances: ConsumingWalletBalances,
+        pending_transaction_id: U256,
+    ) -> Self {
         Self {
             gas_price_gwei,
             gas_limit_const_part,
@@ -66,18 +74,14 @@ impl BlockchainAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-        BlockchainAgent,
-    };
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::{
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use std::sync::{Arc, Mutex};
     use web3::types::U256;
 
@@ -91,23 +95,44 @@ mod tests {
         let gas_price_gwei = 123;
         let gas_limit_const_part = 44_000;
         let consuming_wallet = make_wallet("abcde");
-        let consuming_wallet_balances = ConsumingWalletBalances{ transaction_fee_balance_in_minor_units: U256::from(456_789), masq_token_balance_in_minor_units: U256::from(123_000_000)};
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: U256::from(456_789),
+            masq_token_balance_in_minor_units: U256::from(123_000_000),
+        };
         let pending_transaction_id = U256::from(777);
 
-        let subject = BlockchainAgentWeb3::new(gas_price_gwei, gas_limit_const_part, consuming_wallet.clone(), consuming_wallet_balances, pending_transaction_id);
+        let subject = BlockchainAgentWeb3::new(
+            gas_price_gwei,
+            gas_limit_const_part,
+            consuming_wallet.clone(),
+            consuming_wallet_balances,
+            pending_transaction_id,
+        );
 
         assert_eq!(subject.agreed_fee_per_computation_unit(), gas_price_gwei);
         assert_eq!(subject.consuming_wallet(), &consuming_wallet);
-        assert_eq!(subject.consuming_wallet_balances(), consuming_wallet_balances);
+        assert_eq!(
+            subject.consuming_wallet_balances(),
+            consuming_wallet_balances
+        );
         assert_eq!(subject.pending_transaction_id(), pending_transaction_id)
     }
 
     #[test]
     fn estimated_transaction_fee_works() {
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances{ transaction_fee_balance_in_minor_units: Default::default(), masq_token_balance_in_minor_units: Default::default() };
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: Default::default(),
+            masq_token_balance_in_minor_units: Default::default(),
+        };
         let nonce = U256::from(55);
-        let agent = BlockchainAgentWeb3::new(444,77_777, consuming_wallet,consuming_wallet_balances, nonce);
+        let agent = BlockchainAgentWeb3::new(
+            444,
+            77_777,
+            consuming_wallet,
+            consuming_wallet_balances,
+            nonce,
+        );
 
         let result = agent.estimated_transaction_fee_total(3);
 

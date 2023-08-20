@@ -14,14 +14,12 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::{
-    BlockchainAgent,
-};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
-    MidScanPayableHandlingScanner, MultistagePayableScanner, PreparedAdjustment,
+    MidScanPayableHandlingScanner, MultistagePayableScanner, PreparedAdjustment, ProtectedPayables,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -60,6 +58,7 @@ use std::any::type_name;
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::mem::transmute;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -1403,23 +1402,18 @@ impl PayableThresholdsGaugeMock {
     }
 }
 
+pub fn make_protected_in_test(payables: Vec<PayableAccount>) -> ProtectedPayables {
+    let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
+    ProtectedPayables(bytes)
+}
+
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    //the tuple represents guts of unclonable PayablePaymentsSetupMsg
     search_for_indispensable_adjustment_params:
-        Arc<Mutex<Vec<((QualifiedPayablesMessage, ArbitraryIdStamp), Logger)>>>,
+        Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
-    //the tuple represents guts of unclonable AwaitedAdjustment
-    adjust_payments_params: Arc<
-        Mutex<
-            Vec<(
-                (Adjustment, QualifiedPayablesMessage, ArbitraryIdStamp),
-                SystemTime,
-                Logger,
-            )>,
-        >,
-    >,
+    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
     adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
 }
 
@@ -1432,10 +1426,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
-            .push((
-                (msg.payables.clone(), msg.agent.arbitrary_id_stamp()),
-                logger.clone(),
-            ));
+            .push((msg.clone(), logger.clone()));
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .remove(0)
@@ -1447,15 +1438,10 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         now: SystemTime,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions {
-        self.adjust_payments_params.lock().unwrap().push((
-            (
-                setup.adjustment,
-                setup.original_setup_msg.payables.clone(),
-                setup.original_setup_msg.agent.arbitrary_id_stamp(),
-            ),
-            now,
-            logger.clone(),
-        ));
+        self.adjust_payments_params
+            .lock()
+            .unwrap()
+            .push((setup.clone(), now, logger.clone()));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1463,7 +1449,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<((QualifiedPayablesMessage, ArbitraryIdStamp), Logger)>>>,
+        params: &Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
     ) -> Self {
         self.search_for_indispensable_adjustment_params = params.clone();
         self
@@ -1481,15 +1467,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    (Adjustment, QualifiedPayablesMessage, ArbitraryIdStamp),
-                    SystemTime,
-                    Logger,
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
@@ -1498,17 +1476,6 @@ impl PaymentAdjusterMock {
     pub fn adjust_payments_result(self, result: OutboundPaymentsInstructions) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
-    }
-}
-
-//in order to bypass restricted visibility
-pub fn make_qualified_payables_message(
-    qualified_payables: Vec<PayableAccount>,
-    response_skeleton_opt: Option<ResponseSkeleton>,
-) -> QualifiedPayablesMessage {
-    QualifiedPayablesMessage {
-        qualified_payables,
-        response_skeleton_opt,
     }
 }
 
@@ -1724,7 +1691,9 @@ impl BlockchainAgent for PayablePaymentsAgentMock {
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.agreed_fee_per_computation_unit_results.borrow_mut().remove(0)
+        self.agreed_fee_per_computation_unit_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -1733,6 +1702,10 @@ impl BlockchainAgent for PayablePaymentsAgentMock {
 
     fn pending_transaction_id(&self) -> U256 {
         self.pending_transaction_id_results.borrow_mut().remove(0)
+    }
+
+    fn dup(&self) -> Box<dyn BlockchainAgent> {
+        todo!()
     }
 
     arbitrary_id_stamp_in_trait_impl!();

@@ -132,8 +132,10 @@ impl Wallet {
         }
     }
 
-    pub fn null()->Self{
-        Wallet{ kind: WalletKind::Uninitialized }
+    pub fn null() -> Self {
+        Wallet {
+            kind: WalletKind::Uninitialized,
+        }
     }
 
     pub fn string_address_from_keypair(&self) -> String {
@@ -507,10 +509,15 @@ mod tests {
     }
 
     #[test]
-    fn null_wallet(){
-       let result =  Wallet::null();
+    fn null_wallet() {
+        let result = Wallet::null();
 
-       assert_eq!(result, Wallet{ kind: WalletKind::Uninitialized })
+        assert_eq!(
+            result,
+            Wallet {
+                kind: WalletKind::Uninitialized
+            }
+        )
     }
 
     #[test]

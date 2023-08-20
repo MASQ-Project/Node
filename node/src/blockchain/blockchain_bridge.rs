@@ -298,7 +298,9 @@ impl BlockchainBridge {
         //     Err(e) => todo!()
         // };
 
-        let mut agent = self.blockchain_interface.build_blockchain_agent(consuming_wallet, &*self.persistent_config);
+        let agent = self
+            .blockchain_interface
+            .build_blockchain_agent(consuming_wallet, &*self.persistent_config)?;
 
         // agent.set_consuming_wallet_balances(consuming_wallet_balances);
         //
@@ -312,7 +314,11 @@ impl BlockchainBridge {
         //     }
         // }
 
-        let outgoing_message = BlockchainAgentWithContextMessage::new(incoming_message, agent);
+        let outgoing_message = BlockchainAgentWithContextMessage::new(
+            incoming_message.qualified_payables,
+            agent,
+            incoming_message.response_skeleton_opt,
+        );
 
         self.payable_payments_setup_subs_opt
             .as_ref()
@@ -499,8 +505,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::{
-        make_pending_payable_fingerprint, make_qualified_payables_message,
-        PayablePaymentsAgentMock,
+        make_pending_payable_fingerprint, make_protected_in_test, PayablePaymentsAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
@@ -623,15 +628,14 @@ mod tests {
         let transaction_fee_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default()
-            .set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_params(&get_token_balance_params_arc)
             .get_token_balance_result(Ok(token_balance))
             .build_blockchain_agent_params(&build_blockchain_agent_params_arc)
-            .build_blockchain_agent_result(Box::new(agent));
+            .build_blockchain_agent_result(Ok(Box::new(agent)));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_configuration = PersistentConfigurationMock::default()
@@ -666,88 +670,101 @@ mod tests {
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        let payload_msg = make_qualified_payables_message(
-            qualified_payables.clone(),
-            Some(ResponseSkeleton {
+        let qualified_payables = make_protected_in_test(qualified_payables.clone());
+        let qualified_payables_msg = QualifiedPayablesMessage {
+            qualified_payables: qualified_payables.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
             }),
-        );
+        };
         send_bind_message!(subject_subs, peer_actors);
 
-        addr.try_send(payload_msg.clone()).unwrap();
+        addr.try_send(qualified_payables_msg).unwrap();
 
         System::current().stop();
         system.run();
 
-        let build_blockchain_agent_params =
-            build_blockchain_agent_params_arc.lock().unwrap();
+        let build_blockchain_agent_params = build_blockchain_agent_params_arc.lock().unwrap();
         assert_eq!(
             *build_blockchain_agent_params,
             vec![(consuming_wallet.clone(), persistent_config_id_stamp)]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        let actual_pps_msg: &BlockchainAgentWithContextMessage = accountant_received_payment.get_record(0);
-        assert_eq!(actual_pps_msg.payables, payload_msg);
-        assert_eq!(actual_pps_msg.agent.arbitrary_id_stamp(), agent_id_stamp);
+        let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
+            accountant_received_payment.get_record(0);
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.qualified_payables,
+            qualified_payables
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual
+                .agent
+                .arbitrary_id_stamp(),
+            agent_id_stamp
+        );
         assert_eq!(accountant_received_payment.len(), 1);
     }
 
     #[test]
-    fn build_of_blockchain_agent_fails_after_receiving_the_qualified_payables_message(
-    ) {
-        todo!("write me");
-        // init_test_logging();
-        // let (accountant, _, accountant_recording_arc) = make_recorder();
-        // let scan_error_recipient: Recipient<ScanError> = accountant
-        //     .system_stop_conditions(match_every_type_id!(ScanError))
-        //     .start()
-        //     .recipient();
-        // let persistent_configuration = PersistentConfigurationMock::default();
-        // let consuming_wallet = make_wallet(test_name);
-        // let mut subject = BlockchainBridge::new(
-        //     Box::new(blockchain_interface),
-        //     Box::new(persistent_configuration),
-        //     false,
-        //     Some(consuming_wallet),
-        // );
-        // subject.logger = Logger::new(test_name);
-        // subject.scan_error_subs_opt = Some(scan_error_recipient);
-        // let request = make_qualified_payables_message(
-        //     vec![PayableAccount {
-        //         wallet: make_wallet("blah"),
-        //         balance_wei: 42,
-        //         last_paid_timestamp: SystemTime::now(),
-        //         pending_payable_opt: None,
-        //     }],
-        //     Some(ResponseSkeleton {
-        //         client_id: 11,
-        //         context_id: 2323,
-        //     }),
-        // );
-        // let subject_addr = subject.start();
-        // let system = System::new(test_name);
-        //
-        // // Don't eliminate or bypass this message as an important check that
-        // // the Handler employs scan_handle()
-        // subject_addr.try_send(request).unwrap();
-        //
-        // system.run();
-        // let recording = accountant_recording_arc.lock().unwrap();
-        // let message = recording.get_record::<ScanError>(0);
-        // assert_eq!(recording.len(), 1);
-        // assert_eq!(
-        //     message,
-        //     &ScanError {
-        //         scan_type: ScanType::Payables,
-        //         response_skeleton_opt: Some(ResponseSkeleton {
-        //             client_id: 11,
-        //             context_id: 2323
-        //         }),
-        //         msg: error_msg.to_string()
-        //     }
-        // );
-        // TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, error_msg));
+    fn build_of_blockchain_agent_throws_err_in_the_handler_for_qualified_payables_message() {
+        init_test_logging();
+        let test_name =
+            "build_of_blockchain_agent_throws_err_in_the_handler_for_qualified_payables_message";
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let scan_error_recipient: Recipient<ScanError> = accountant
+            .system_stop_conditions(match_every_type_id!(ScanError))
+            .start()
+            .recipient();
+        let persistent_configuration = PersistentConfigurationMock::default();
+        let consuming_wallet = make_wallet(test_name);
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .build_blockchain_agent_result(Err("Damn it!".to_string()));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_configuration),
+            false,
+            Some(consuming_wallet),
+        );
+        subject.logger = Logger::new(test_name);
+        subject.scan_error_subs_opt = Some(scan_error_recipient);
+        let request = QualifiedPayablesMessage {
+            qualified_payables: make_protected_in_test(vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance_wei: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            }]),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 11,
+                context_id: 2323,
+            }),
+        };
+        let subject_addr = subject.start();
+        let system = System::new(test_name);
+
+        // Don't eliminate or bypass this message as an important check that
+        // the Handler employs scan_handle()
+        subject_addr.try_send(request).unwrap();
+
+        system.run();
+        let recording = accountant_recording_arc.lock().unwrap();
+        let message = recording.get_record::<ScanError>(0);
+        assert_eq!(recording.len(), 1);
+        let expected_error_msg = "Damn it!";
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Payables,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 11,
+                    context_id: 2323
+                }),
+                msg: expected_error_msg.to_string()
+            }
+        );
+        TestLogHandler::new()
+            .exists_log_containing(&format!("WARN: {test_name}: {expected_error_msg}"));
     }
 
     #[test]
@@ -760,15 +777,15 @@ mod tests {
             false,
             None,
         );
-        let request = make_qualified_payables_message(
-            vec![PayableAccount {
+        let request = QualifiedPayablesMessage {
+            qualified_payables: make_protected_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
-            }],
-            None,
-        );
+            }]),
+            response_skeleton_opt: None,
+        };
 
         let result = subject.handle_payable_payments_setup_msg_payload(request);
 
@@ -849,11 +866,8 @@ mod tests {
         system.run();
         let mut send_batch_of_payables_params = send_batch_of_payables_params_arc.lock().unwrap();
         //cannot assert on the captured recipient as its actor is gone after the System stops spinning
-        let (
-            actual_agent_id_stamp,
-            _recipient_actual,
-            accounts_actual,
-        ) = send_batch_of_payables_params.remove(0);
+        let (actual_agent_id_stamp, _recipient_actual, accounts_actual) =
+            send_batch_of_payables_params.remove(0);
         assert!(send_batch_of_payables_params.is_empty());
         assert_eq!(actual_agent_id_stamp, agent_id_stamp);
         assert_eq!(accounts_actual, accounts);

@@ -209,7 +209,11 @@ impl Handler<ReceivedPayments> for Accountant {
 impl Handler<BlockchainAgentWithContextMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: BlockchainAgentWithContextMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: BlockchainAgentWithContextMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         self.handle_payable_payment_setup(msg)
     }
 }
@@ -996,7 +1000,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
+        make_protected_in_test, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
         PayableDaoFactoryMock, PayableDaoMock, PayablePaymentsAgentMock, PayableScannerBuilder,
         PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
@@ -1321,7 +1325,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                qualified_payables: vec![payable_account],
+                qualified_payables: make_protected_in_test(vec![payable_account]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1403,34 +1407,37 @@ mod tests {
         let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            payables: QualifiedPayablesMessage {
-                qualified_payables: accounts.clone(),
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321,
-                }),
-            },
+            qualified_payables: make_protected_in_test(accounts.clone()),
             agent: Box::new(agent),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
         };
 
         subject_addr.try_send(payable_payments_setup_msg).unwrap();
 
         system.run();
         let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
-        let (actual_payable_payments_setup_msg_guts, logger_clone) =
+        let (blockchain_agent_with_context_msg_actual, logger_clone) =
             is_adjustment_required_params.remove(0);
-        let (actual_payload, actual_agent_id_stamp) = actual_payable_payments_setup_msg_guts;
         assert_eq!(
-            actual_payload,
-            QualifiedPayablesMessage {
-                qualified_payables: accounts.clone(),
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321,
-                })
-            }
+            blockchain_agent_with_context_msg_actual.qualified_payables,
+            make_protected_in_test(accounts.clone())
         );
-        assert_eq!(actual_agent_id_stamp, agent_id_stamp);
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.response_skeleton_opt,
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            })
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual
+                .agent
+                .arbitrary_id_stamp(),
+            agent_id_stamp
+        );
         assert!(is_adjustment_required_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
@@ -1490,24 +1497,25 @@ mod tests {
             client_id: 12,
             context_id: 55,
         };
-        let payload = QualifiedPayablesMessage {
-            qualified_payables: vec![unadjusted_account_1.clone(), unadjusted_account_2.clone()],
-            response_skeleton_opt: Some(response_skeleton),
-        };
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            payables: payload.clone(),
+            qualified_payables: make_protected_in_test(vec![
+                unadjusted_account_1.clone(),
+                unadjusted_account_2.clone(),
+            ]),
             agent: Box::new(agent),
+            response_skeleton_opt: Some(response_skeleton),
         };
         // In the real world the agents are identical, here they bear different ids
         // so that we can watch their journey better
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
             PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
+        let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
-            affordable_accounts: vec![adjusted_account_1.clone(), adjusted_account_2.clone()],
+            affordable_accounts: affordable_accounts.clone(),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1530,13 +1538,22 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_fields_of_awaited_adjustment, captured_now, logger_clone) =
+        let (actual_prepared_adjustment, captured_now, logger_clone) =
             adjust_payments_params.remove(0);
-        let (actual_adjustment, actual_payload, actual_agent_id_stamp) =
-            actual_fields_of_awaited_adjustment;
-        assert_eq!(actual_adjustment, Adjustment::MasqToken);
-        assert_eq!(actual_payload, payload);
-        assert_eq!(actual_agent_id_stamp, agent_id_stamp_first_phase);
+        assert_eq!(actual_prepared_adjustment.adjustment, Adjustment::MasqToken);
+        assert_eq!(
+            actual_prepared_adjustment
+                .original_setup_msg
+                .qualified_payables,
+            make_protected_in_test(affordable_accounts.clone())
+        );
+        assert_eq!(
+            actual_prepared_adjustment
+                .original_setup_msg
+                .agent
+                .arbitrary_id_stamp(),
+            agent_id_stamp_first_phase
+        );
         assert!(
             before <= captured_now && captured_now <= after,
             "captured timestamp should have been between {:?} and {:?} but was {:?}",
@@ -1550,7 +1567,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
         assert_eq!(
             payments_instructions.affordable_accounts,
-            vec![adjusted_account_1, adjusted_account_2]
+            affordable_accounts
         );
         assert_eq!(
             payments_instructions.response_skeleton_opt,
@@ -1789,7 +1806,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables,
+                qualified_payables: make_protected_in_test(qualified_payables),
                 response_skeleton_opt: None,
             }
         );
@@ -2097,7 +2114,7 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
-                qualified_payables: vec![make_payable_account(123)],
+                qualified_payables: make_protected_in_test(vec![make_payable_account(123)]),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2329,7 +2346,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables,
+                qualified_payables: make_protected_in_test(qualified_payables),
                 response_skeleton_opt: None,
             }
         );
@@ -3158,7 +3175,7 @@ mod tests {
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_token_balance_result(Ok(token_balance))
             .build_blockchain_agent_params(&build_blockchain_agent_params)
-            .build_blockchain_agent_result(Box::new(agent))
+            .build_blockchain_agent_result(Ok(Box::new(agent)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             // there is one component missing in this wholesome test - the part where we send a request for
@@ -3366,7 +3383,7 @@ mod tests {
         let build_blockchain_agent_params = build_blockchain_agent_params.lock().unwrap();
         assert_eq!(
             *build_blockchain_agent_params,
-            vec![(consuming_wallet,persistent_config_id_stamp)]
+            vec![(consuming_wallet, persistent_config_id_stamp)]
         );
         let update_fingerprints_params = update_fingerprint_params_arc.lock().unwrap();
         assert_eq!(

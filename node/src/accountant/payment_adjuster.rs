@@ -76,7 +76,9 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
         BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
     };
-    use crate::accountant::test_utils::{make_payable_account, PayablePaymentsAgentMock};
+    use crate::accountant::test_utils::{
+        make_payable_account, make_protected_in_test, PayablePaymentsAgentMock,
+    };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -88,11 +90,9 @@ mod tests {
         payable.balance_wei = 100_000_000;
         let agent = PayablePaymentsAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
-            payables: QualifiedPayablesMessage {
-                qualified_payables: vec![payable],
-                response_skeleton_opt: None,
-            },
+            qualified_payables: make_protected_in_test(vec![payable]),
             agent: Box::new(agent),
+            response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);
         let subject = PaymentAdjusterReal::new();

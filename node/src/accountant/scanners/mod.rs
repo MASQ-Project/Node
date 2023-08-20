@@ -215,9 +215,10 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let future_payload =
-                    QualifiedPayablesMessage::new(qualified_payables, response_skeleton_opt);
-                Ok(future_payload)
+                let protected_payables = self.make_protected(qualified_payables);
+                let outgoing_msg =
+                    QualifiedPayablesMessage::new(protected_payables, response_skeleton_opt);
+                Ok(outgoing_msg)
             }
         }
     }
@@ -262,10 +263,12 @@ impl MidScanPayableHandlingScanner for PayableScanner {
         {
             Ok(None) => {
                 //TODO will be decoupled with Web3 by GH-696
+                let protected = msg.qualified_payables;
+                let unprotected = self.make_unprotected(protected);
                 Ok(Either::Left(OutboundPaymentsInstructions {
-                    affordable_accounts: msg.payables.qualified_payables,
+                    affordable_accounts: unprotected,
                     agent: msg.agent,
-                    response_skeleton_opt: msg.payables.response_skeleton_opt,
+                    response_skeleton_opt: msg.response_skeleton_opt,
                 }))
             }
             Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment::new(msg, adjustment))),
@@ -496,12 +499,12 @@ impl PayableScanner {
         };
     }
 
-    fn protection_on(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
+    fn make_protected(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
         let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
         ProtectedPayables(bytes)
     }
 
-    fn protection_off(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
+    fn make_unprotected(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
         unsafe { transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0) }
     }
 }
@@ -1022,11 +1025,11 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
-        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
-        ReceivableScannerBuilder,
+        make_pending_payable_fingerprint, make_protected_in_test, make_receivable_account,
+        BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ReceivableScannerBuilder,
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
@@ -1161,8 +1164,8 @@ mod tests {
         let initial_unprotected = vec![make_payable_account(123), make_payable_account(456)];
         let subject = PayableScannerBuilder::new().build();
 
-        let protected = subject.protection_on(initial_unprotected.clone());
-        let again_unprotected: Vec<PayableAccount> = subject.protection_off(protected);
+        let protected = subject.make_protected(initial_unprotected.clone());
+        let again_unprotected: Vec<PayableAccount> = subject.make_unprotected(protected);
 
         assert_eq!(initial_unprotected, again_unprotected)
     }
@@ -1187,7 +1190,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: qualified_payable_accounts.clone(),
+                qualified_payables: make_protected_in_test(qualified_payable_accounts.clone()),
                 response_skeleton_opt: None,
             })
         );

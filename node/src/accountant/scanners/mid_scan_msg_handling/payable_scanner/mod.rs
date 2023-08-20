@@ -35,15 +35,20 @@ pub trait MidScanPayableHandlingScanner {
     ) -> OutboundPaymentsInstructions;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtectedPayables(pub(in crate::accountant) Vec<u8>);
 
+#[derive(Clone)]
 pub struct PreparedAdjustment {
     pub original_setup_msg: BlockchainAgentWithContextMessage,
     pub adjustment: Adjustment,
 }
 
 impl PreparedAdjustment {
-    pub fn new(original_setup_msg: BlockchainAgentWithContextMessage, adjustment: Adjustment) -> Self {
+    pub fn new(
+        original_setup_msg: BlockchainAgentWithContextMessage,
+        adjustment: Adjustment,
+    ) -> Self {
         Self {
             original_setup_msg,
             adjustment,
