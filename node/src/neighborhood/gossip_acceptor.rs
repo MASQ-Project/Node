@@ -1482,6 +1482,7 @@ mod tests {
         make_meaningless_db, make_node_record, make_node_record_f, make_node_records,
         public_keys_from_node_records, MIN_HOPS_FOR_TEST,
     };
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
@@ -1491,7 +1492,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use crate::test_utils::recorder::make_recorder;
 
     #[test]
     fn constants_have_correct_values() {
@@ -4732,11 +4732,7 @@ mod tests {
         let (dispatcher, _, _) = make_recorder();
         let addr = dispatcher.start();
         let shutdown_recipient = addr.recipient::<StreamShutdownMsg>();
-        let subject = GossipAcceptorReal::new(
-            crypt_de,
-            remove_recipient,
-            shutdown_recipient,
-        );
+        let subject = GossipAcceptorReal::new(crypt_de, remove_recipient, shutdown_recipient);
         subject
     }
 

@@ -513,9 +513,10 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration,
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, configure_persistent_config,
         prove_that_crash_request_handler_is_hooked_up, PCField,
-        configure_persistent_config};
+    };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;

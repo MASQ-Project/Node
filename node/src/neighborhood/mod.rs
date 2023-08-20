@@ -121,7 +121,8 @@ impl Handler<BindMessage> for Neighborhood {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.hopper_no_lookup_recipient_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.hopper_no_lookup_recipient_opt =
+            Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
         self.connected_signal_recipient_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_info_opt = Some(Either::Right(GossipAcceptorSubs {
             stream_shutdown_sub: msg.peer_actors.dispatcher.stream_shutdown_sub,
@@ -921,7 +922,9 @@ impl Neighborhood {
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
                     OverallConnectionStage::RouteFound,
-                    self.node_to_ui_recipient_opt.as_ref().expect("UI was not bound."),
+                    self.node_to_ui_recipient_opt
+                        .as_ref()
+                        .expect("UI was not bound."),
                     &self.logger,
                 );
             self.connected_signal_recipient_opt
@@ -1654,6 +1657,7 @@ impl<'a> ComputedRouteSegment<'a> {
 mod tests {
     use actix::Recipient;
     use actix::System;
+    use itertools::Either::Left;
     use itertools::Itertools;
     use serde_cbor;
     use std::any::TypeId;
@@ -1666,7 +1670,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
-    use itertools::Either::Left;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TEST_DEFAULT_CHAIN, TLS_PORT};
@@ -3642,7 +3645,8 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt =
+            Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
@@ -3682,7 +3686,8 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let system = System::new("neighborhood_transmits_gossip_failure_properly");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt =
+            Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
 
         subject.handle_gossip_agrs(
@@ -3762,7 +3767,8 @@ mod tests {
 
     fn bind_subject(subject: &mut Neighborhood, peer_actors: PeerActors) {
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
-        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt =
+            Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.connected_signal_recipient_opt = Some(peer_actors.accountant.start);
     }
 
@@ -3776,7 +3782,9 @@ mod tests {
         replacement_database
             .add_arbitrary_half_neighbor(subject_node.public_key(), neighbor.public_key());
         subject.gossip_acceptor_info_opt =
-            Some(Left(Box::new(DatabaseReplacementGossipAcceptor { replacement_database })));
+            Some(Left(Box::new(DatabaseReplacementGossipAcceptor {
+                replacement_database,
+            })));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3802,7 +3810,9 @@ mod tests {
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let replacement_database = subject.neighborhood_database.clone();
         subject.gossip_acceptor_info_opt =
-            Some(Left(Box::new(DatabaseReplacementGossipAcceptor { replacement_database })));
+            Some(Left(Box::new(DatabaseReplacementGossipAcceptor {
+                replacement_database,
+            })));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_already_connected");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3824,8 +3834,8 @@ mod tests {
     fn neighborhood_starts_accountant_when_first_route_can_be_made() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
-        let gossip_acceptor = GossipAcceptorMock::new()
-            .handle_result(GossipAcceptanceResult::Accepted);
+        let gossip_acceptor =
+            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
         let mut subject = make_neighborhood_with_linearly_connected_nodes(4);
         subject.gossip_acceptor_info_opt = Some(Left(Box::new(gossip_acceptor)));
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
@@ -3918,8 +3928,8 @@ mod tests {
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
-        let gossip_acceptor = GossipAcceptorMock::new()
-            .handle_result(GossipAcceptanceResult::Accepted);
+        let gossip_acceptor =
+            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.min_hops = hops;
@@ -3980,8 +3990,8 @@ mod tests {
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
-        let gossip_acceptor = GossipAcceptorMock::new()
-            .handle_result(GossipAcceptanceResult::Accepted);
+        let gossip_acceptor =
+            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         let connected_signal = accountant.start().recipient();
         subject.logger = Logger::new(test_name);
@@ -4479,7 +4489,8 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let system = System::new("");
-        subject.hopper_no_lookup_recipient_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        subject.hopper_no_lookup_recipient_opt =
+            Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
         subject.handle_gossip(

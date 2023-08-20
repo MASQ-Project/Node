@@ -77,8 +77,8 @@ mod tests {
         172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown\n\
         172.18.0.0/16 dev br-85f38f356a58 proto kernel scope link src 172.18.0.1 linkdown\n\
         192.168.0.0/24 dev enp4s0 proto kernel scope link src 192.168.0.100 metric 100";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(ip_route_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(ip_route_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -94,8 +94,8 @@ mod tests {
         169.254.0.0/16 dev enp0s3 scope link metric 1000\n\
         192.168.1.0/24 dev enp0s8 proto kernel scope link src 192.168.1.64 metric 101\n\
         192.168.1.1 via 10.0.2.15 dev enp0s3";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(ip_route_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(ip_route_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -114,8 +114,8 @@ mod tests {
         default via 2001:1:2:3:4:5:6:7 dev enX0 proto kernel metric 256 pref medium\n\
         fe80::/64 dev docker0 proto kernel metric 256 pref medium";
 
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command);
 
@@ -160,8 +160,8 @@ mod tests {
         default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
         default via 192.168.0 dev enp0s3 proto dhcp metric 102\n\
         169.254.0.0/16 dev enp4s0 scope link metric 1000";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command);
 

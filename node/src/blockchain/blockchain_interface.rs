@@ -1373,12 +1373,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8ad06851bf08eb00083011600949b2\
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad06851bf08eb00083011600949b2\
                         7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
                         000000000000000000000000000000007731323300000000000000000000000000000000000\
                         00000000000000c7d713b49da000083027126a06bad9e403960cde22268b2bf8c1deab78581\
                         9ac7152fa5ece046c6292c2f63c6a03a3f4b340e9d79649ea7d2c47cc4ed5ed2deb62a859ba\
-                        90873412b76c697f1f0".to_string())]),
+                        90873412b76c697f1f0"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1387,12 +1390,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8ad07851bf08eb00083011580949b2\
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad07851bf08eb00083011580949b2\
                         7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
                         000000000000000000000000000000007735353500000000000000000000000000000000000\
                         000000000000000000000075bcd1583027126a096c5eedddc39555efab0ee4629fde8f7fe6f\
                         7ab42d93dd634959ad047aa9be00a079cc22ae4813f43a0cf6b8a548c8a28370abfd2d57bfb\
-                        e801a1293fbb59f55c5".to_string())]),
+                        e801a1293fbb59f55c5"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1401,12 +1407,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8ad08851bf08eb00083011600949b2\
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad08851bf08eb00083011600949b2\
                         7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
                         000000000000000000000000000000007739383700000000000000000000000000000000000\
                         0000000000000007680cd2f2d340083027125a005b432dbaf53189c32f37a6e0cfb82871e68\
                         126c8ad1a986ac145bc90dcb71b1a01b05d415517ed5357af7de307749e03c3e71ac2455064\
-                        113a3e736fb9c754a38".to_string())]),
+                        113a3e736fb9c754a38"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 )

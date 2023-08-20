@@ -8,7 +8,10 @@ use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERV
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::constants::{
+    CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT,
+    LOWEST_USABLE_INSECURE_PORT,
+};
 use masq_lib::logger::Logger;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -1183,10 +1186,7 @@ mod tests {
             .initialize(home_dir.as_path(), init_config)
             .unwrap_err();
 
-        assert_eq!(
-            error,
-            SqliteError(Error::GetAuxWrongType)
-        )
+        assert_eq!(error, SqliteError(Error::GetAuxWrongType))
     }
 
     #[test]

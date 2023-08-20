@@ -631,16 +631,19 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::{
         encrypted_past_neighbors, PersistentConfigurationMock,
     };
-    use crate::test_utils::unshared_test_utils::PCField::{BlockchainServiceUrl, ConsumingWalletPrivateKey, EarningWallet, EarningWalletAddress, GasPrice, MappingProtocol, MinHops, PastNeighbors, PaymentThresholds, ScanIntervals};
+    use crate::test_utils::unshared_test_utils::PCField::{
+        BlockchainServiceUrl, ConsumingWalletPrivateKey, EarningWallet, EarningWalletAddress,
+        GasPrice, MappingProtocol, MinHops, PastNeighbors, PaymentThresholds, ScanIntervals,
+    };
     use crate::test_utils::unshared_test_utils::{
         configure_persistent_config, make_persistent_config_real_with_config_dao_null,
         make_simplified_multi_config, PCField,
     };
     use crate::test_utils::{main_cryptde, ArgsBuilder};
-    use masq_lib::constants::{TEST_DEFAULT_CHAIN};
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::AutomapProtocol::Pcp;
     use masq_lib::utils::{running_test, AutomapProtocol};
     use std::path::PathBuf;
@@ -738,8 +741,8 @@ mod tests {
             ))],
         )
         .unwrap();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .min_hops_result(Err(NotPresent));
+        let mut persistent_config =
+            PersistentConfigurationMock::new().min_hops_result(Err(NotPresent));
 
         let _result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
@@ -1865,25 +1868,27 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_persistent_config(PCField::base_and(vec![PCField::RatePack, MappingProtocol]))
-                .scan_intervals_result(Ok(crate::sub_lib::accountant::ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(100),
-                    payable_scan_interval: Duration::from_secs(101),
-                    receivable_scan_interval: Duration::from_secs(102),
-                }))
-                .payment_thresholds_result(Ok(crate::sub_lib::accountant::PaymentThresholds {
-                    threshold_interval_sec: 3000,
-                    debt_threshold_gwei: 30000,
-                    payment_grace_period_sec: 3000,
-                    maturity_threshold_sec: 30000,
-                    permanent_debt_allowed_gwei: 30000,
-                    unban_below_gwei: 30000,
-                }))
-                .set_scan_intervals_params(&set_scan_intervals_params_arc)
-                .set_scan_intervals_result(Ok(()))
-                .set_payment_thresholds_params(&set_payment_thresholds_params_arc)
-                .set_payment_thresholds_result(Ok(()));
+        let mut persistent_configuration = configure_persistent_config(PCField::base_and(vec![
+            PCField::RatePack,
+            MappingProtocol,
+        ]))
+        .scan_intervals_result(Ok(crate::sub_lib::accountant::ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(100),
+            payable_scan_interval: Duration::from_secs(101),
+            receivable_scan_interval: Duration::from_secs(102),
+        }))
+        .payment_thresholds_result(Ok(crate::sub_lib::accountant::PaymentThresholds {
+            threshold_interval_sec: 3000,
+            debt_threshold_gwei: 30000,
+            payment_grace_period_sec: 3000,
+            maturity_threshold_sec: 30000,
+            permanent_debt_allowed_gwei: 30000,
+            unban_below_gwei: 30000,
+        }))
+        .set_scan_intervals_params(&set_scan_intervals_params_arc)
+        .set_scan_intervals_result(Ok(()))
+        .set_payment_thresholds_params(&set_payment_thresholds_params_arc)
+        .set_payment_thresholds_result(Ok(()));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1941,21 +1946,23 @@ mod tests {
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
-        let mut persistent_configuration =
-            configure_persistent_config(PCField::base_and(vec![PCField::RatePack, MappingProtocol]))
-                .scan_intervals_result(Ok(crate::sub_lib::accountant::ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(180),
-                    payable_scan_interval: Duration::from_secs(150),
-                    receivable_scan_interval: Duration::from_secs(130),
-                }))
-                .payment_thresholds_result(Ok(crate::sub_lib::accountant::PaymentThresholds {
-                    threshold_interval_sec: 1000,
-                    debt_threshold_gwei: 100000,
-                    payment_grace_period_sec: 1000,
-                    maturity_threshold_sec: 1000,
-                    permanent_debt_allowed_gwei: 20000,
-                    unban_below_gwei: 20000,
-                }));
+        let mut persistent_configuration = configure_persistent_config(PCField::base_and(vec![
+            PCField::RatePack,
+            MappingProtocol,
+        ]))
+        .scan_intervals_result(Ok(crate::sub_lib::accountant::ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
+        }))
+        .payment_thresholds_result(Ok(crate::sub_lib::accountant::PaymentThresholds {
+            threshold_interval_sec: 1000,
+            debt_threshold_gwei: 100000,
+            payment_grace_period_sec: 1000,
+            maturity_threshold_sec: 1000,
+            permanent_debt_allowed_gwei: 20000,
+            unban_below_gwei: 20000,
+        }));
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject

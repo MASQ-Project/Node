@@ -839,8 +839,8 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration,
-        configure_persistent_config, prove_that_crash_request_handler_is_hooked_up, PCField,
+        assert_on_initialization_with_panic_on_migration, configure_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, PCField,
     };
     use crate::test_utils::{main_cryptde, make_meaningless_public_key};
     use bip39::{Language, Mnemonic};

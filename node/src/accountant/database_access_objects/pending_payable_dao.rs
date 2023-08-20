@@ -253,12 +253,12 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
+    use crate::database::test_utils::ConnectionWrapperMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
     use std::time::SystemTime;
     use web3::types::H256;
-    use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
     fn insert_new_fingerprints_happy_path() {

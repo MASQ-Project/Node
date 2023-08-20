@@ -543,6 +543,7 @@ pub mod unshared_test_utils {
     use crate::database::db_initializer::DATABASE_FILE;
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::neighborhood::DEFAULT_MIN_HOPS;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{
         PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
@@ -562,6 +563,7 @@ pub mod unshared_test_utils {
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use lazy_static::lazy_static;
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::test_utils::utils::MutexIncrementInset;
@@ -576,8 +578,6 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
-    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
-    use crate::neighborhood::DEFAULT_MIN_HOPS;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
