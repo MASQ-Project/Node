@@ -2576,15 +2576,15 @@ mod tests {
 
     #[test]
     fn proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route() {
-        init_test_logging();
         let test_name = "proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route";
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
+        let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
-        let neighborhood_mock =
-            neighborhood_mock.route_query_response(route_query_response.clone());
+        let neighborhood_mock = neighborhood_mock
+            .stop_on_message(type_id!(RouteResultMessage))
+            .route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
@@ -2598,35 +2598,32 @@ mod tests {
             data: expected_data.clone(),
         };
 
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-            let system = System::new(test_name);
-            let mut subject = ProxyServer::new(
-                cryptde,
-                alias_cryptde(),
-                true,
-                Some(STANDARD_CONSUMING_WALLET_BALANCE),
-                false,
-            );
-            subject.logger = Logger::new(test_name);
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
-                .proxy_server(proxy_server_mock)
-                .neighborhood(neighborhood_mock)
-                .build();
-            // Get the dns_retry_result recipient so we can partially mock it...
-            let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+        let system = System::new(test_name);
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        subject.logger = Logger::new(test_name);
+        subject.stream_key_factory = Box::new(stream_key_factory);
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let mut peer_actors = peer_actors_builder()
+            .proxy_server(proxy_server_mock)
+            .neighborhood(neighborhood_mock)
+            .build();
+        // Get the dns_retry_result recipient so we can partially mock it...
+        let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
+        subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-            system.run();
-        });
+        system.run();
 
-        proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
         let message = recording.get_record::<RouteResultMessage>(0);
         assert_eq!(message.stream_key, stream_key);
