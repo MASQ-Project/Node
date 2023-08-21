@@ -47,6 +47,7 @@ macro_rules! values_m {
     }};
 }
 
+#[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
 }
@@ -1126,6 +1127,7 @@ pub mod tests {
         }
 
         let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+
         assert_contains(
             &result.to_string(),
             "doesn't make sense: parameter 'array' must have a scalar value, not an array value.",
