@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod big_int;
-pub mod database_access_objects;
+pub mod db_big_integer;
+pub mod db_access_objects;
 pub mod financials;
 pub mod payment_adjuster;
 pub mod scanners;
@@ -19,12 +19,12 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoError};
-use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::database_access_objects::receivable_dao::{
+use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoError,
 };
-use crate::accountant::database_access_objects::utils::{
+use crate::accountant::db_access_objects::utils::{
     remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
 use crate::accountant::financials::visibility_restricted_module::{
@@ -986,13 +986,13 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::payable_dao::{
+    use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
-    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{

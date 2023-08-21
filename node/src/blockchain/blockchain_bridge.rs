@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
@@ -453,8 +453,8 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::{
         make_pending_payable_fingerprint, make_protected_in_test, BlockahinAgentMock,
     };

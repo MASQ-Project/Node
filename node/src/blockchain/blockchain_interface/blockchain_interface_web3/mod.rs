@@ -15,7 +15,7 @@ use web3::transports::{Batch, EventLoopHandle};
 use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, H160, H256, Log, SignedTransaction, TransactionParameters, U256};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::gwei_to_wei;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::masq_lib::utils::ExpectValue;
@@ -524,8 +524,8 @@ type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::{
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
