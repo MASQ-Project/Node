@@ -73,11 +73,9 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
-        BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
-    };
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
     use crate::accountant::test_utils::{
-        make_payable_account, make_protected_in_test, PayablePaymentsAgentMock,
+        make_payable_account, make_protected_in_test, BlockahinAgentMock,
     };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -88,7 +86,7 @@ mod tests {
         let test_name = "is_adjustment_required_always_returns_none";
         let mut payable = make_payable_account(111);
         payable.balance_wei = 100_000_000;
-        let agent = PayablePaymentsAgentMock::default();
+        let agent = BlockahinAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
             qualified_payables: make_protected_in_test(vec![payable]),
             agent: Box::new(agent),

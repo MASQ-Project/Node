@@ -30,11 +30,11 @@ use crate::accountant::{
     gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
@@ -60,7 +60,6 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use web3::types::U256;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -1673,13 +1672,13 @@ impl ScanSchedulers {
 }
 
 #[derive(Default)]
-pub struct PayablePaymentsAgentMock {
+pub struct BlockahinAgentMock {
     agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
     pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-impl BlockchainAgent for PayablePaymentsAgentMock {
+impl BlockchainAgent for BlockahinAgentMock {
     fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
         todo!("to be implemented by GH-711")
     }
@@ -1709,7 +1708,7 @@ impl BlockchainAgent for PayablePaymentsAgentMock {
     arbitrary_id_stamp_in_trait_impl!();
 }
 
-impl PayablePaymentsAgentMock {
+impl BlockahinAgentMock {
     pub fn agreed_fee_per_computation_unit_result(self, result: u64) -> Self {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()

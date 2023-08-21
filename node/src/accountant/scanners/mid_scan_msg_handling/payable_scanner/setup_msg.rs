@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::ProtectedPayables;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
@@ -38,12 +37,6 @@ pub struct BlockchainAgentWithContextMessage {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl Clone for BlockchainAgentWithContextMessage {
-    fn clone(&self) -> Self {
-        todo!()
-    }
-}
-
 impl BlockchainAgentWithContextMessage {
     pub fn new(
         qualified_payables: ProtectedPayables,
@@ -54,6 +47,26 @@ impl BlockchainAgentWithContextMessage {
             qualified_payables,
             agent: blockchain_agent,
             response_skeleton_opt,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+
+    impl Clone for BlockchainAgentWithContextMessage {
+        fn clone(&self) -> Self {
+            let original_agent_id = self.agent.arbitrary_id_stamp();
+            let cloned_agent =
+                BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);
+            Self {
+                qualified_payables: self.qualified_payables.clone(),
+                agent: Box::new(cloned_agent),
+                response_skeleton_opt: self.response_skeleton_opt,
+            }
         }
     }
 }

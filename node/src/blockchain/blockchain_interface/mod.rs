@@ -1,22 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod blockchain_interface_web3;
+pub mod blockchain_interface_helper;
 pub mod blockchain_interface_null;
+pub mod blockchain_interface_web3;
+pub mod test_utils;
 
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use actix::Recipient;
-use itertools::Either;
-use actix::Message;
-use web3::Error;
-use web3::types::{Address, H256, TransactionReceipt};
 use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface_helper::BlockchainInterfaceHelper;
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
+use actix::Message;
+use actix::Recipient;
+use itertools::Either;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use web3::types::{Address, TransactionReceipt, H256};
+use web3::Error;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -42,9 +44,8 @@ pub trait BlockchainInterface {
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
-    fn helper(&self) ->&dyn BlockchainInterfaceHelper;
+    fn helper(&self) -> &dyn BlockchainInterfaceHelper;
 }
-
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
 pub struct BlockchainTransaction {
@@ -85,7 +86,6 @@ impl Display for BlockchainError {
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PayableTransactionError {
@@ -148,19 +148,19 @@ pub struct RpcFailurePayables {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError};
     use crate::blockchain::test_utils::make_tx_hash;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
+    use std::fmt::Display;
 
     fn collect_match_displayable_error_variants_in_exhaustive_mode<E, C>(
         errors_to_assert: &[E],
         exhaustive_error_matching: C,
         expected_check_nums: Vec<u8>,
     ) -> Vec<String>
-        where
-            E: Display,
-            C: Fn(&E) -> (String, u8),
+    where
+        E: Display,
+        C: Fn(&E) -> (String, u8),
     {
         let displayed_errors_with_check_nums = errors_to_assert
             .iter()
@@ -262,5 +262,4 @@ mod tests {
             ])
         )
     }
-
 }

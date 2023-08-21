@@ -18,17 +18,22 @@ use std::time::SystemTime;
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
+    BlockchainInterfaceHelper, ResultForBalance,
+};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
+    ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions,
+};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::set_arbitrary_id_stamp_in_mock_impl;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
-use masq_lib::blockchains::chains::Chain;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError, ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
-use crate::blockchain::blockchain_interface_helper::{BlockchainInterfaceHelper, ResultForBalance};
-use crate::db_config::persistent_configuration::PersistentConfiguration;
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -126,32 +131,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         ));
         self.send_batch_of_payables_results.borrow_mut().remove(0)
     }
-
-    // fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
-    //     self.get_transaction_fee_balance_params
-    //         .lock()
-    //         .unwrap()
-    //         .push(address.clone());
-    //     self.get_transaction_fee_balance_results
-    //         .borrow_mut()
-    //         .remove(0)
-    // }
-    //
-    // fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
-    //     self.get_token_balance_params
-    //         .lock()
-    //         .unwrap()
-    //         .push(address.clone());
-    //     self.get_token_balance_results.borrow_mut().remove(0)
-    // }
-    //
-    // fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
-    //     self.get_transaction_count_parameters
-    //         .lock()
-    //         .unwrap()
-    //         .push(wallet.clone());
-    //     self.get_transaction_count_results.borrow_mut().remove(0)
-    // }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.get_transaction_receipt_params
@@ -274,7 +253,6 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    #[cfg(test)]
     set_arbitrary_id_stamp_in_mock_impl!();
 }
 

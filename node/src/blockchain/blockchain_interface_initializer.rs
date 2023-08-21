@@ -1,9 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
+};
+use crate::blockchain::blockchain_interface::BlockchainInterface;
 use masq_lib::blockchains::chains::Chain;
 use web3::transports::Http;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL};
-use crate::blockchain::blockchain_interface::BlockchainInterface;
 
 pub(in crate::blockchain) struct BlockchainInterfaceInitializer {}
 
@@ -42,45 +44,25 @@ impl BlockchainInterfaceInitializer {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-    use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::make_wallet;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_CHAIN;
-    use masq_lib::utils::find_free_port;
     use serde_json::Value;
     use std::net::Ipv4Addr;
 
+    use crate::blockchain::blockchain_interface::test_utils::test_blockchain_interface_is_connected_and_functioning;
+    use crate::test_utils::http_test_server::TestServer;
+    use crate::test_utils::make_wallet;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::utils::find_free_port;
+
     #[test]
     fn initialize_web3_interface_works() {
-        todo!("fix me later")
-        // let port = find_free_port();
-        // let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
-        // let test_server = TestServer::start(
-        //     port,
-        //     vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-        // );
-        // let wallet = make_wallet("123");
-        // let subject = BlockchainInterfaceInitializer {};
-        // let chain = Chain::PolyMainnet;
-        //
-        // let interface = subject.initialize_web3_interface(&server_url, chain);
-        //
-        // //no result assertion, we anticipate a badly formatted response from the server
-        // let _ = interface.get_token_balance(&wallet);
-        //
-        // let requests = test_server.requests_so_far();
-        // let bodies: Vec<Value> = requests
-        //     .into_iter()
-        //     .map(|request| serde_json::from_slice(&request.body()).unwrap())
-        //     .collect();
-        // assert_eq!(
-        //     bodies[0]["params"][0]["data"].to_string()[35..75],
-        //     wallet.to_string()[2..]
-        // );
-        // assert_eq!(
-        //     bodies[0]["params"][0]["to"],
-        //     format!("{:?}", chain.rec().contract)
-        // );
+        let subject_factory = |port: u16, chain: Chain| {
+            let subject = BlockchainInterfaceInitializer {};
+            let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
+            subject.initialize_web3_interface(server_url, chain)
+        };
+
+        test_blockchain_interface_is_connected_and_functioning(subject_factory)
     }
 
     #[test]

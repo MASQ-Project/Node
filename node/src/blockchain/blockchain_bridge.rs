@@ -10,15 +10,17 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
+};
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, ConsumingWalletBalances, OutboundPaymentsInstructions,
-};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -36,8 +38,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::Path;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -260,57 +260,10 @@ impl BlockchainBridge {
                 )
             }
         };
-        //
-        // // TODO GH-707 should see about rewriting these individual calls into a batch query
-        // let transaction_fee_balance = match self
-        //     .blockchain_interface
-        //     .get_transaction_fee_balance(consuming_wallet)
-        // {
-        //     Ok(balance) => balance,
-        //     Err(e) => {
-        //         return Err(format!(
-        //             "Did not find out gas balance of the consuming wallet: {:?}",
-        //             e
-        //         ))
-        //     }
-        // };
-        // let token_balance = match self
-        //     .blockchain_interface
-        //     .get_token_balance(consuming_wallet)
-        // {
-        //     Ok(token_balance) => token_balance,
-        //     Err(e) => {
-        //         return Err(format!(
-        //             "Did not find out token balance of the consuming wallet: {:?}",
-        //             e
-        //         ))
-        //     }
-        // };
-
-        // let consuming_wallet_balances =
-        //     ConsumingWalletBalances::new(transaction_fee_balance, token_balance);
-
-        // let transaction_fee_opt = match self.persistent_config.gas_price(){
-        //     Ok(fee)=>
-        //         //todo!(),
-        //     Err(e) => todo!()
-        // };
 
         let agent = self
             .blockchain_interface
             .build_blockchain_agent(consuming_wallet, &*self.persistent_config)?;
-
-        // agent.set_consuming_wallet_balances(consuming_wallet_balances);
-        //
-        // match agent.set_agreed_fee_per_computation_unit() {
-        //     Ok(()) => (),
-        //     Err(e) => {
-        //         return Err(format!(
-        //             "Resolving of the transaction fee per computed unit failed: {:?}",
-        //             e
-        //         ))
-        //     }
-        // }
 
         let outgoing_message = BlockchainAgentWithContextMessage::new(
             incoming_message.qualified_payables,
@@ -503,14 +456,20 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::{
-        make_pending_payable_fingerprint, make_protected_in_test, PayablePaymentsAgentMock,
+        make_pending_payable_fingerprint, make_protected_in_test, BlockahinAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, BlockchainTransaction, PayableTransactionError,
+        RetrievedBlockchainTransactions,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
@@ -534,9 +493,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
-    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction, PayableTransactionError, RetrievedBlockchainTransactions};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -625,7 +581,7 @@ mod tests {
         let transaction_fee_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
@@ -845,7 +801,7 @@ mod tests {
             },
         ];
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -927,7 +883,7 @@ mod tests {
             last_paid_timestamp: from_time_t(150_000_000),
             pending_payable_opt: None,
         }];
-        let agent = PayablePaymentsAgentMock::default();
+        let agent = BlockahinAgentMock::default();
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -998,7 +954,7 @@ mod tests {
             last_paid_timestamp: SystemTime::now(),
             pending_payable_opt: None,
         }];
-        let agent = Box::new(PayablePaymentsAgentMock::default());
+        let agent = Box::new(BlockahinAgentMock::default());
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
         subject
@@ -1717,7 +1673,7 @@ pub mod assertion_messages_with_exposed_private_actor_body {
         AssertionsMessage {
             assertions: Box::new(move |bb: &mut BlockchainBridge| {
                 //the first assertion is made outside, it checks receiving this request
-                let _result = bb.blockchain_interface.helper().get_token_balance(&wallet);
+                let _result = bb.blockchain_interface.helper().get_masq_balance(&wallet);
                 assert_eq!(
                     bb.persistent_config.gas_price().unwrap(),
                     expected_gas_price

@@ -1,0 +1,121 @@
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
+    BlockchainInterfaceHelper, ResultForBalance, ResultForNonce,
+};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::BlockchainInterface;
+use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::http_test_server::TestServer;
+use crate::test_utils::make_wallet;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::find_free_port;
+use serde_json::Value;
+use std::cell::RefCell;
+use std::net::Ipv4Addr;
+use std::sync::{Arc, Mutex};
+use web3::transports::{EventLoopHandle, Http};
+
+#[derive(Default)]
+pub struct BlockchainInterfaceHelperMock {
+    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
+    get_masq_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_transaction_id_params: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
+}
+
+impl BlockchainInterfaceHelper for BlockchainInterfaceHelperMock {
+    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
+        self.get_transaction_fee_balance_params
+            .lock()
+            .unwrap()
+            .push(address.clone());
+        self.get_transaction_fee_balance_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn get_masq_balance(&self, address: &Wallet) -> ResultForBalance {
+        self.get_masq_balance_params
+            .lock()
+            .unwrap()
+            .push(address.clone());
+        self.get_masq_balance_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_id(&self, address: &Wallet) -> ResultForNonce {
+        self.get_transaction_id_params
+            .lock()
+            .unwrap()
+            .push(address.clone());
+        self.get_transaction_id_results.borrow_mut().remove(0)
+    }
+}
+
+impl BlockchainInterfaceHelperMock {
+    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_transaction_fee_balance_params = params.clone();
+        self
+    }
+
+    pub fn get_transaction_fee_balance_result(self, result: ResultForBalance) -> Self {
+        self.get_transaction_fee_balance_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn get_masq_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_masq_balance_params = params.clone();
+        self
+    }
+
+    pub fn get_masq_balance_result(self, result: ResultForBalance) -> Self {
+        self.get_masq_balance_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_transaction_id_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+        self.get_transaction_id_params = params.clone();
+        self
+    }
+
+    pub fn get_transaction_id_result(self, result: ResultForNonce) -> Self {
+        self.get_transaction_id_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub fn test_blockchain_interface_is_connected_and_functioning<F>(subject_factory: F)
+where
+    F: Fn(u16, Chain) -> Box<dyn BlockchainInterface>,
+{
+    let port = find_free_port();
+    let test_server = TestServer::start(
+        port,
+        vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
+    );
+    let wallet = make_wallet("123");
+    let chain = Chain::PolyMainnet;
+    let subject = subject_factory(port, chain);
+
+    // no result assertion, we anticipate a badly formatted response from the server,
+    // still proving we're connected
+    let _ = subject.helper().get_masq_balance(&wallet);
+
+    let requests = test_server.requests_so_far();
+    let bodies: Vec<Value> = requests
+        .into_iter()
+        .map(|request| serde_json::from_slice(&request.body()).unwrap())
+        .collect();
+    assert_eq!(
+        bodies[0]["params"][0]["data"].to_string()[35..75],
+        wallet.to_string()[2..]
+    );
+    assert_eq!(
+        bodies[0]["params"][0]["to"],
+        format!("{:?}", chain.rec().contract)
+    );
+}

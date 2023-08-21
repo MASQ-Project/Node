@@ -1,15 +1,22 @@
-use actix::Recipient;
-use web3::types::{Address, H256};
-use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::logger::Logger;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+pub mod blockchain_interface_helper_null;
+
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions};
-use crate::blockchain::blockchain_interface_helper::BlockchainInterfaceHelper;
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
+    ResultForReceipt, RetrievedBlockchainTransactions,
+};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
+use actix::Recipient;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::logger::Logger;
+use web3::types::{Address, H256};
 
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
@@ -23,12 +30,6 @@ impl BlockchainInterfaceClandestine {
             logger: Logger::new("BlockchainInterface"),
             chain,
         }
-    }
-}
-
-impl Default for BlockchainInterfaceClandestine {
-    fn default() -> Self {
-        Self::new(DEFAULT_CHAIN)
     }
 }
 
@@ -49,8 +50,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: &Wallet,
-        persistent_config: &dyn PersistentConfiguration,
+        _consuming_wallet: &Wallet,
+        _persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, String> {
         todo!("fill me up with code when merged with master having the NullScanner and its own test suite")
     }
@@ -68,24 +69,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         })
     }
 
-    // fn get_transaction_fee_balance(&self, _address: &Wallet) -> ResultForBalance {
-    //     error!(self.logger, "Can't get gas balance clandestinely yet",);
-    //     Ok(0.into())
-    // }
-    //
-    // fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-    //     error!(
-    //         self.logger,
-    //         "Can't get masq token balance clandestinely yet",
-    //     );
-    //     Ok(0.into())
-    // }
-    //
-    // fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-    //     error!(self.logger, "Can't get transaction count clandestinely yet",);
-    //     Ok(0.into())
-    // }
-
     fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
         error!(
             self.logger,
@@ -95,23 +78,25 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn helper(&self) -> &dyn BlockchainInterfaceHelper {
-        todo!()
+        todo!("fill me up with code when merged with master having the NullScanner and its own test suite")
     }
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, BlockchainInterface, PayableTransactionError,
+    };
+    use crate::blockchain::test_utils::{all_chains, make_tx_hash};
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
-    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface, PayableTransactionError};
-    use crate::blockchain::test_utils::{all_chains, make_tx_hash};
-    use crate::test_utils::make_wallet;
-    use crate::test_utils::recorder::make_recorder;
 
     fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
         BlockchainInterfaceClandestine {
@@ -178,69 +163,6 @@ mod tests{
             format!("ERROR: {test_name}: Can't send transactions out clandestinely yet");
         TestLogHandler::new()
             .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_gas_balance() {
-        todo!("fix me later")
-        // init_test_logging();
-        // let test_name = "blockchain_interface_clandestine_gets_no_gas_balance";
-        // let wallet = make_wallet("blah");
-        // let chains = all_chains();
-        //
-        // chains.into_iter().for_each(|chain| {
-        //     assert_eq!(
-        //         make_clandestine_subject(test_name, chain).get_transaction_fee_balance(&wallet),
-        //         Ok(U256::zero())
-        //     )
-        // });
-        //
-        // let expected_log_msg =
-        //     format!("ERROR: {test_name}: Can't get gas balance clandestinely yet");
-        // TestLogHandler::new()
-        //     .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_token_balance() {
-        todo!("fix me later")
-        // init_test_logging();
-        // let test_name = "blockchain_interface_clandestine_gets_no_token_balance";
-        // let wallet = make_wallet("blah");
-        // let chains = all_chains();
-        //
-        // chains.into_iter().for_each(|chain| {
-        //     assert_eq!(
-        //         make_clandestine_subject(test_name, chain).get_token_balance(&wallet),
-        //         Ok(U256::zero())
-        //     )
-        // });
-        //
-        // let expected_log_msg =
-        //     format!("ERROR: {test_name}: Can't get masq token balance clandestinely yet");
-        // TestLogHandler::new()
-        //     .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_transaction_count() {
-        todo!("fix me later")
-        // init_test_logging();
-        // let test_name = "blockchain_interface_clandestine_gets_no_transaction_count";
-        // let wallet = make_wallet("blah");
-        // let chains = all_chains();
-        //
-        // chains.into_iter().for_each(|chain| {
-        //     assert_eq!(
-        //         make_clandestine_subject(test_name, chain).get_transaction_count(&wallet),
-        //         Ok(U256::zero())
-        //     )
-        // });
-        //
-        // let expected_log_msg =
-        //     format!("ERROR: {test_name}: Can't get transaction count clandestinely yet");
-        // TestLogHandler::new()
-        //     .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
     }
 
     #[test]

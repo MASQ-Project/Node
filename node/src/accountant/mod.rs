@@ -37,6 +37,9 @@ use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
+use crate::blockchain::blockchain_interface::{
+    BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible,
+};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -75,7 +78,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::blockchain::blockchain_interface::{BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -998,23 +1000,22 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        make_protected_in_test, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
-        PayableDaoFactoryMock, PayableDaoMock, PayablePaymentsAgentMock, PayableScannerBuilder,
+        make_protected_in_test, BannedDaoFactoryMock, BlockahinAgentMock, MessageIdGeneratorMock,
+        NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
         PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::{
-        ConsumingWalletBalances, OutboundPaymentsInstructions,
-    };
+    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1054,7 +1055,6 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1401,7 +1401,7 @@ mod tests {
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
             qualified_payables: make_protected_in_test(accounts.clone()),
@@ -1496,7 +1496,7 @@ mod tests {
         };
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
-            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
+            BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
             qualified_payables: make_protected_in_test(vec![
                 unadjusted_account_1.clone(),
@@ -1509,7 +1509,7 @@ mod tests {
         // so that we can watch their journey better
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
-            PayablePaymentsAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
+            BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
         let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),
@@ -3164,8 +3164,7 @@ mod tests {
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
-        let agent_digest_id_stamp = ArbitraryIdStamp::new();
-        let agent = PayablePaymentsAgentMock::default();
+        let agent = BlockahinAgentMock::default();
         let transaction_fee_balance = U256::from(444_555_666_777_u64);
         let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()

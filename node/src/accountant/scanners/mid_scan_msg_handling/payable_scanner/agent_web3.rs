@@ -1,12 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::masq_lib::utils::ExpectValue;
+
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use std::any::Any;
+
 use web3::types::U256;
 
 #[derive(Debug, Clone)]
@@ -41,10 +39,6 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     fn pending_transaction_id(&self) -> U256 {
         self.pending_transaction_id
     }
-
-    fn dup(&self) -> Box<dyn BlockchainAgent> {
-        todo!()
-    }
 }
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
@@ -73,14 +67,14 @@ impl BlockchainAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::{
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::make_wallet;
-    use std::sync::{Arc, Mutex};
+
     use web3::types::U256;
 
     #[test]

@@ -2,13 +2,12 @@
 
 #[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-#[cfg(test)]
-use std::any::Any;
+
 use web3::types::U256;
 
 // Table of chains by
@@ -33,8 +32,11 @@ pub trait BlockchainAgent: Send {
     fn agreed_fee_per_computation_unit(&self) -> u64;
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;
-    fn dup(&self) -> Box<dyn BlockchainAgent>;
 
+    #[cfg(test)]
+    fn dup(&self) -> Box<dyn BlockchainAgent> {
+        intentionally_blank!()
+    }
     #[cfg(test)]
     arbitrary_id_stamp_in_trait!();
 }

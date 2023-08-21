@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod blockchain_agent;
 pub mod agent_null;
 pub mod agent_web3;
+pub mod blockchain_agent;
 pub mod setup_msg;
+pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;

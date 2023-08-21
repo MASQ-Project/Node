@@ -1047,6 +1047,10 @@ mod tests {
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainTransaction, PayableTransactionError, RpcFailurePayables,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
@@ -1064,8 +1068,6 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::blockchain::blockchain_interface::{BlockchainTransaction, PayableTransactionError, RpcFailurePayables};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {

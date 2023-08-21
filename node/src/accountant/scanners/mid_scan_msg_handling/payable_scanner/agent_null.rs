@@ -1,13 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -44,6 +42,7 @@ impl BlockchainAgent for BlockchainAgentNull {
         U256::zero()
     }
 
+    #[cfg(test)]
     fn dup(&self) -> Box<dyn BlockchainAgent> {
         todo!()
     }
@@ -73,13 +72,12 @@ impl Default for BlockchainAgentNull {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_wallet;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
