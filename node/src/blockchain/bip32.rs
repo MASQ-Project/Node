@@ -11,7 +11,6 @@ use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
-
 #[derive(Debug)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct Bip32EncryptionKeyProvider {
@@ -187,9 +186,11 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let bip32eckey_provider =
-            Bip32EncryptionKeyProvider::try_from((seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH.as_str()))
-                .unwrap();
+        let bip32eckey_provider = Bip32EncryptionKeyProvider::try_from((
+            seed.as_ref(),
+            DEFAULT_EARNING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
         let address: Address = bip32eckey_provider.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x20eF925bBbFca786bd426BaED8c6Ae45e4284e12\"")
@@ -257,8 +258,11 @@ mod tests {
     #[test]
     fn bip32_try_from_errors_with_empty_seed() {
         assert_eq!(
-            Bip32EncryptionKeyProvider::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap_err(),
+            Bip32EncryptionKeyProvider::try_from((
+                "".as_ref(),
+                DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
+            ))
+            .unwrap_err(),
             "Invalid Seed Length: 0".to_string()
         );
     }

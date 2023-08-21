@@ -493,8 +493,11 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32EncryptionKeyProvider::try_from((expected_seed.as_bytes(), derivation_path.as_str()))
-                .unwrap(),
+            Bip32EncryptionKeyProvider::try_from((
+                expected_seed.as_bytes(),
+                derivation_path.as_str(),
+            ))
+            .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
@@ -647,12 +650,14 @@ mod tests {
     #[test]
     fn can_convert_to_keypair_if_came_from_keypair() {
         let secret_key_text = "0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
-        let keypair =
-            Bip32EncryptionKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
-                .unwrap();
-        let expected_keypair =
-            Bip32EncryptionKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
-                .unwrap();
+        let keypair = Bip32EncryptionKeyProvider::from_raw_secret(
+            &secret_key_text.from_hex::<Vec<u8>>().unwrap(),
+        )
+        .unwrap();
+        let expected_keypair = Bip32EncryptionKeyProvider::from_raw_secret(
+            &secret_key_text.from_hex::<Vec<u8>>().unwrap(),
+        )
+        .unwrap();
         let subject = Wallet::from(keypair);
 
         let result: Bip32EncryptionKeyProvider = subject.try_into().unwrap();

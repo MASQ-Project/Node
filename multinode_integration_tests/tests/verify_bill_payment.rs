@@ -14,9 +14,7 @@ use multinode_integration_tests_lib::utils::{
     node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::db_access_objects::receivable_dao::{
-    ReceivableDao, ReceivableDaoReal,
-};
+use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,

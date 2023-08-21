@@ -1626,7 +1626,8 @@ mod tests {
         check_web3_origin(&web3);
         assert_eq!(
             secret,
-            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
         let (second_transaction_params, web3_from_st_call, secret) =
@@ -1635,7 +1636,8 @@ mod tests {
         check_web3_origin(&web3_from_st_call);
         assert_eq!(
             secret,
-            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
         assert!(sign_transaction_params.is_empty());
@@ -1773,8 +1775,10 @@ mod tests {
         assert!(transaction_params.gas <= U256::from(not_above_this_value));
         assert_eq!(
             secret,
-            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(
+                &consuming_wallet_secret_raw_bytes.keccak256()
+            )
+            .unwrap())
                 .into()
         );
     }
@@ -2176,7 +2180,8 @@ mod tests {
             .zip(constant_parts)
         {
             let secret = Wallet::from(
-                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
+                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
+                    .unwrap(),
             )
             .prepare_secp256k1_secret()
             .unwrap();

@@ -511,7 +511,8 @@ pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     let digest = secret.keccak256();
     Wallet::from(
-        Bip32EncryptionKeyProvider::from_raw_secret(&digest).expect("Invalid Secret for Bip32ECKeyPair"),
+        Bip32EncryptionKeyProvider::from_raw_secret(&digest)
+            .expect("Invalid Secret for Bip32ECKeyPair"),
     )
 }
 

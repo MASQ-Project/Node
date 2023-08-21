@@ -548,7 +548,8 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_wallet = Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
+        let consuming_wallet =
+            Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(configure_default_persistent_config(ZERO)),

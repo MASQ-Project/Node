@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod db_big_integer;
 pub mod db_access_objects;
+pub mod db_big_integer;
 pub mod financials;
 pub mod scanners;
 
@@ -25,9 +25,7 @@ use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError,
 };
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::db_access_objects::receivable_dao::{
-    ReceivableDao, ReceivableDaoError,
-};
+use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };

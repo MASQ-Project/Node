@@ -536,7 +536,8 @@ mod tests {
 
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
-            Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref())
+                .unwrap();
         assert_eq!(
             bootstrapper_config.consuming_wallet_opt,
             Some(Wallet::from(consuming_keypair)),

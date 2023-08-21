@@ -173,8 +173,8 @@ pub fn get_wallets(
                     consuming_private_key
                 )
             });
-        let key_pair =
-            Bip32EncryptionKeyProvider::from_raw_secret(key_bytes.as_slice()).unwrap_or_else(|_| {
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(key_bytes.as_slice())
+            .unwrap_or_else(|_| {
                 panic!(
                     "Wallet corruption: consuming wallet private key in invalid format: {:?}",
                     key_bytes
@@ -1558,7 +1558,8 @@ mod tests {
         assert_eq!(
             config.consuming_wallet_opt,
             Some(Wallet::from(
-                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice())
+                    .unwrap()
             )),
         );
         assert_eq!(

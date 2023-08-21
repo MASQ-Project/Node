@@ -221,13 +221,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                         "Database corruption {:?}: consuming private key is not hex, but '{}'",
                         e, key
                     ),
-                    Ok(bytes) => match Bip32EncryptionKeyProvider::from_raw_secret(bytes.as_slice()) {
-                        Err(e) => panic!(
-                            "Database corruption {:?}: consuming private key is invalid",
-                            e
-                        ),
-                        Ok(pair) => Wallet::from(pair),
-                    },
+                    Ok(bytes) => {
+                        match Bip32EncryptionKeyProvider::from_raw_secret(bytes.as_slice()) {
+                            Err(e) => panic!(
+                                "Database corruption {:?}: consuming private key is invalid",
+                                e
+                            ),
+                            Ok(pair) => Wallet::from(pair),
+                        }
+                    }
                 })
             })
     }
