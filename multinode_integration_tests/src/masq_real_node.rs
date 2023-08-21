@@ -30,6 +30,7 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::string::ToString;
@@ -1166,6 +1167,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
+        let log_file_path = Path::new(DATA_DIRECTORY).join(CURRENT_LOGFILE_NAME);
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {
@@ -1176,10 +1178,7 @@ impl MASQRealNode {
             thread::sleep(Duration::from_millis(250));
             match Self::exec_command_on_container_and_wait(
                 name,
-                vec![
-                    "cat",
-                    &format!("{}/{}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME),
-                ],
+                vec!["cat", &log_file_path.to_string_lossy()],
             ) {
                 Ok(output) => {
                     if let Some(captures) = descriptor_regex.captures(output.as_str()) {
@@ -1196,8 +1195,10 @@ impl MASQRealNode {
                 }
                 Err(e) => {
                     println!(
-                        "Failed to cat logfile for {} at {}/{}: {}",
-                        name, DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                        "Failed to cat logfile for {} at {}: {}",
+                        name,
+                        &log_file_path.to_string_lossy(),
+                        e
                     );
                 }
             };

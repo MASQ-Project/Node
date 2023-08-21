@@ -1152,6 +1152,8 @@ mod tests {
                 "2.2.2.2",
                 "--real-user",
                 "123:456:/home/booga",
+                "--chain",
+                "polygon-mumbai",
             ]))
             .unwrap();
 
