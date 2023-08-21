@@ -45,14 +45,12 @@ impl BlockchainInterfaceInitializer {
 mod tests {
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use masq_lib::blockchains::chains::Chain;
-    use serde_json::Value;
+
     use std::net::Ipv4Addr;
 
     use crate::blockchain::blockchain_interface::test_utils::test_blockchain_interface_is_connected_and_functioning;
-    use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::make_wallet;
+
     use masq_lib::constants::DEFAULT_CHAIN;
-    use masq_lib::utils::find_free_port;
 
     #[test]
     fn initialize_web3_interface_works() {

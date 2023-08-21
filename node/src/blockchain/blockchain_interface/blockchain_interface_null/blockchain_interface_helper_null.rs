@@ -49,7 +49,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::test_utils::all_chains;
+
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
 
@@ -90,12 +90,12 @@ mod tests {
     ) {
         init_test_logging();
         let wallet = make_wallet("blah");
-        let mut subject = BlockchainInterfaceHelperNull::new(&Logger::new(test_name));
+        let subject = BlockchainInterfaceHelperNull::new(&Logger::new(test_name));
 
         let result = act(&subject, &wallet);
 
         assert_eq!(result, Ok(U256::zero()));
-        let expected_log_msg = TestLogHandler::new().exists_log_containing(&format!(
+        let _expected_log_msg = TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Blockchain helper null can't fetch {expected_method_name}"
         ));
     }

@@ -1,9 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
     BlockchainInterfaceHelper, ResultForBalance, ResultForNonce,
 };
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::http_test_server::TestServer;
@@ -12,9 +14,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::find_free_port;
 use serde_json::Value;
 use std::cell::RefCell;
-use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
-use web3::transports::{EventLoopHandle, Http};
 
 #[derive(Default)]
 pub struct BlockchainInterfaceHelperMock {

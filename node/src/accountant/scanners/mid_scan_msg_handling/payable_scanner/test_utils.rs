@@ -15,7 +15,7 @@ pub struct BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
         todo!()
     }
 

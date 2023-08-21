@@ -53,7 +53,6 @@ where
     batch_web3: Rc<Web3<Batch<T>>>,
     helper: Box<dyn BlockchainInterfaceHelper>,
     batch_payable_tools: Box<dyn BatchPayableTools<T>>,
-    contract: Contract<T>,
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
@@ -243,27 +242,6 @@ where
             Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
         }
     }
-    //
-    // fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
-    //     self.web3
-    //         .eth()
-    //         .balance(wallet.address(), None)
-    //         .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-    //         .wait()
-    // }
-    //
-    // fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
-    //     self.contract
-    //         .query(
-    //             "balanceOf",
-    //             wallet.address(),
-    //             None,
-    //             Options::default(),
-    //             None,
-    //         )
-    //         .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-    //         .wait()
-    // }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.web3
@@ -293,7 +271,7 @@ where
             Box::new(BlockchainInterfaceNonClandestineHelper::new(
                 Rc::clone(&web3),
                 Rc::clone(&batch_web3),
-                contract.clone(),
+                contract,
             ));
         let gas_limit_const_part = Self::web3_gas_limit_const_part(chain);
 
@@ -306,7 +284,6 @@ where
             batch_web3,
             helper: lower_level_blockchain_interface,
             batch_payable_tools,
-            contract,
         }
     }
 
@@ -559,9 +536,7 @@ mod tests {
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-    use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-        BlockchainInterfaceHelper, ResultForBalance,
-    };
+
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceNonClandestine, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
@@ -600,16 +575,16 @@ mod tests {
     use serde_derive::Deserialize;
     use serde_json::{json, Value};
     use std::net::Ipv4Addr;
-    use std::rc::Rc;
+
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-    use web3::transports::{Batch, EventLoopHandle, Http};
+    use web3::transports::{Batch, Http};
     use web3::types::{
         Address, Bytes, TransactionParameters, TransactionReceipt, H2048, H256, U256,
     };
+    use web3::Error as Web3Error;
     use web3::Web3;
-    use web3::{Error as Web3Error, Transport};
 
     #[test]
     fn constants_are_correct() {
@@ -643,7 +618,7 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_provides_correct_helper() {
         //TODO you can rewrite this code to be less shared between tests
-        let subject_factory = |port: u16, chain: Chain| {
+        let subject_factory = |port: u16, _chain: Chain| {
             let chain = Chain::PolyMainnet;
             let (event_loop_handle, transport) = Http::with_max_parallel(
                 &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -955,7 +930,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(
             PersistentConfigError::UninterpretableValue("booga".to_string()),
         ));
-        let mut subject = BlockchainInterfaceNonClandestine::new(
+        let subject = BlockchainInterfaceNonClandestine::new(
             TestTransport::default(),
             make_fake_event_loop_handle(),
             chain,

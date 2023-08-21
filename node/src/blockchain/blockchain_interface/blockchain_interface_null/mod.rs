@@ -14,7 +14,7 @@ use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::DEFAULT_CHAIN;
+
 use masq_lib::logger::Logger;
 use web3::types::{Address, H256};
 

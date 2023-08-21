@@ -500,12 +500,16 @@ impl PayableScanner {
     }
 
     fn make_protected(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
+        #[allow(clippy::unsound_collection_transmute)]
         let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
         ProtectedPayables(bytes)
     }
 
     fn make_unprotected(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
-        unsafe { transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0) }
+        #[allow(clippy::unsound_collection_transmute)]
+        unsafe {
+            transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0)
+        }
     }
 }
 

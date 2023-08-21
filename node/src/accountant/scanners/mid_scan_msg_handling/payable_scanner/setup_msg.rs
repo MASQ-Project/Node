@@ -53,7 +53,7 @@ impl BlockchainAgentWithContextMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
+
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 

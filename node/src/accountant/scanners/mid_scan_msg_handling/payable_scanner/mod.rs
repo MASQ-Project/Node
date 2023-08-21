@@ -39,7 +39,6 @@ pub trait MidScanPayableHandlingScanner {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtectedPayables(pub(in crate::accountant) Vec<u8>);
 
-#[derive(Clone)]
 pub struct PreparedAdjustment {
     pub original_setup_msg: BlockchainAgentWithContextMessage,
     pub adjustment: Adjustment,
@@ -53,6 +52,20 @@ impl PreparedAdjustment {
         Self {
             original_setup_msg,
             adjustment,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+
+    impl Clone for PreparedAdjustment {
+        fn clone(&self) -> Self {
+            Self {
+                original_setup_msg: self.original_setup_msg.clone(),
+                adjustment: self.adjustment.clone(),
+            }
         }
     }
 }

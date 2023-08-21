@@ -7,7 +7,6 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use std::rc::Rc;
-use trust_dns::client::ClientHandle;
 use web3::contract::{Contract, Options};
 use web3::transports::Batch;
 use web3::types::BlockNumber;
@@ -18,7 +17,8 @@ where
     T: BatchTransport,
 {
     web3: Rc<Web3<T>>,
-    batch_web3: Rc<Web3<Batch<T>>>,
+    // TODO waiting for GH-707 (note: you can query the balances together with the id)
+    _batch_web3: Rc<Web3<Batch<T>>>,
     contract: Contract<T>,
 }
 
@@ -63,7 +63,7 @@ where
     pub fn new(web3: Rc<Web3<T>>, batch_web3: Rc<Web3<Batch<T>>>, contract: Contract<T>) -> Self {
         Self {
             web3,
-            batch_web3,
+            _batch_web3: batch_web3,
             contract,
         }
     }
@@ -79,15 +79,15 @@ mod tests {
     use web3::contract::Contract;
     use web3::transports::{Batch, Http};
     use web3::types::U256;
-    use web3::{BatchTransport, Transport, Web3};
+    use web3::{BatchTransport, Web3};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use crate::blockchain::blockchain_interface::blockchain_interface_helper::{BlockchainInterfaceHelper, ResultForBalance};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceNonClandestine, CONTRACT_ABI, REQUESTS_IN_PARALLEL};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{CONTRACT_ABI, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::blockchain_interface_helper_web3::BlockchainInterfaceNonClandestineHelper;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::test_utils::{make_fake_event_loop_handle, TestTransport};
+    use crate::blockchain::test_utils::{TestTransport};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_paying_wallet;
@@ -149,7 +149,7 @@ mod tests {
             port,
             vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
         );
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
@@ -170,7 +170,7 @@ mod tests {
     #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn get_transaction_fee_balance_returns_err_for_an_invalid_wallet() {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
@@ -200,7 +200,7 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
@@ -221,7 +221,7 @@ mod tests {
     #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn get_masq_balance_returns_err_for_an_invalid_wallet() {
         let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
@@ -252,7 +252,7 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
