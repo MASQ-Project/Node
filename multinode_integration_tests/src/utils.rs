@@ -5,8 +5,8 @@ use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
-use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::database_access_objects::receivable_dao::{
+use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::db_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoReal,
 };
 use node_lib::database::connection_wrapper::ConnectionWrapper;

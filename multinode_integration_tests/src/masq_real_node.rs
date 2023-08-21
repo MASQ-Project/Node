@@ -14,7 +14,7 @@ use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
-use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -376,7 +376,7 @@ impl NodeStartupConfig {
             EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
             EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::try_from((
+                let keypair = Bip32EncryptionKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
                 ))
@@ -391,12 +391,12 @@ impl NodeStartupConfig {
             ConsumingWalletInfo::None => None,
             ConsumingWalletInfo::PrivateKey(key) => {
                 let key_bytes = key.from_hex::<Vec<u8>>().unwrap();
-                let keypair = Bip32ECKeyProvider::from_raw_secret(&key_bytes).unwrap();
+                let keypair = Bip32EncryptionKeyProvider::from_raw_secret(&key_bytes).unwrap();
                 Some(Wallet::from(keypair))
             }
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::try_from((
+                let keypair = Bip32EncryptionKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
                 ))

@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::database_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::dao_utils::{
     DaoFactoryReal, VigilantRusqliteFlatten,
 };
 use crate::database::connection_wrapper::ConnectionWrapper;

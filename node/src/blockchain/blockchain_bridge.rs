@@ -495,11 +495,11 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::dao_utils::from_time_t;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
@@ -548,7 +548,7 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
+        let consuming_wallet = Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(configure_default_persistent_config(ZERO)),
