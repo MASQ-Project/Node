@@ -2,17 +2,17 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::db_access_objects::payable_dao::{
+use crate::accountant::database_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::accountant::database_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
-use crate::accountant::db_access_objects::pending_payable_dao::{
+use crate::accountant::database_access_objects::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
-use crate::accountant::db_access_objects::receivable_dao::{
+use crate::accountant::database_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{

@@ -6,7 +6,7 @@ pub mod blockchain_interface_web3;
 pub mod test_utils;
 
 use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;

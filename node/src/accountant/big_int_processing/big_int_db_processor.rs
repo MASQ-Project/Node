@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
-use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
+use crate::accountant::database_access_objects::payable_dao::PayableDaoError;
+use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -498,10 +498,10 @@ big_int_db_error_from!(PayableDaoError, ReceivableDaoError);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_big_integer::big_int_db_processor::ByteMagnitude::{High, Low};
-    use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::TestKey;
-    use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
-    use crate::accountant::db_big_integer::test_utils::restricted::{
+    use crate::accountant::big_int_processing::big_int_db_processor::ByteMagnitude::{High, Low};
+    use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::TestKey;
+    use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{Addition, Subtraction};
+    use crate::accountant::big_int_processing::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};

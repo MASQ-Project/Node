@@ -21,7 +21,7 @@ use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{
     config_dao, open_all_file_permissions, receivable_dao, UrlHolder,
 };
-use node_lib::accountant::db_access_objects::utils::CustomQuery;
+use node_lib::accountant::database_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]

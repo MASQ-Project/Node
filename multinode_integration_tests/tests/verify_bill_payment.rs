@@ -12,8 +12,8 @@ use multinode_integration_tests_lib::masq_real_node::{
     NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
-use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::db_access_objects::receivable_dao::{
+use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::database_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoReal,
 };
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;

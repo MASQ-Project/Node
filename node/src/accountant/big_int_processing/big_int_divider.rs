@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_big_integer::big_int_divider::UserDefinedFunctionError::InvalidInputValue;
+use crate::accountant::big_int_processing::big_int_divider::UserDefinedFunctionError::InvalidInputValue;
 use crate::accountant::gwei_to_wei;
 use rusqlite::functions::{Context, FunctionFlags};
 use rusqlite::Connection;
@@ -135,7 +135,7 @@ impl Display for UserDefinedFunctionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_big_integer::test_utils::restricted::create_new_empty_db;
+    use crate::accountant::big_int_processing::test_utils::restricted::create_new_empty_db;
     use rusqlite::Error::SqliteFailure;
     use rusqlite::ErrorCode;
 

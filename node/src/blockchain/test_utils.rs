@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
