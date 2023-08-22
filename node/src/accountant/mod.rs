@@ -1054,7 +1054,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
     use std::vec;
-    use web3::types::{TransactionReceipt, U256};
+    use web3::types::TransactionReceipt;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -3165,14 +3165,9 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let agent = BlockahinAgentMock::default();
-        let transaction_fee_balance = U256::from(444_555_666_777_u64);
-        let token_balance = U256::from(111_111_111_111_111_111_u64);
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
-            .get_token_balance_result(Ok(token_balance))
             .build_blockchain_agent_params(&build_blockchain_agent_params)
             .build_blockchain_agent_result(Ok(Box::new(agent)))
-            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             // there is one component missing in this wholesome test - the part where we send a request for
             // a fingerprint of that payable in the DB - this happens inside send_raw_transaction()

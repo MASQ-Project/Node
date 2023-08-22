@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod blockchain_plain_rpc_null;
+pub mod rpc_helpers_null;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainPlainRPC;
+use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
     ResultForReceipt, RetrievedBlockchainTransactions,
@@ -15,22 +15,22 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use masq_lib::blockchains::chains::Chain;
 
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
 use masq_lib::logger::Logger;
 use web3::types::{Address, H256};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_plain_rpc_null::BlockchainPlainRPCNull;
 
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
-    helper: Box<dyn BlockchainPlainRPC>,
+    helper: Box<dyn RPCHelpers>,
     chain: Chain,
 }
 
 impl BlockchainInterfaceClandestine {
     pub fn new(chain: Chain) -> Self {
         let logger = Logger::new("BlockchainInterface");
-        let helper = Box::new(BlockchainPlainRPCNull::new(&logger));
+        let helper = Box::new(RPCHelpersNull::new(&logger));
         BlockchainInterfaceClandestine {
             logger,
             helper,
@@ -84,7 +84,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Ok(None)
     }
 
-    fn plain_rpc(&self) -> &dyn BlockchainPlainRPC {
+    fn helpers(&self) -> &dyn RPCHelpers {
+        error!(self.logger, "Can provide only RPC helpers null");
         &*self.helper
     }
 }
@@ -93,23 +94,23 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainInterface, PayableTransactionError,
     };
     use crate::blockchain::test_utils::{all_chains, make_tx_hash};
     use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_plain_rpc_null::BlockchainPlainRPCNull;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
         let logger = Logger::new(test_name);
-        let helper = Box::new(BlockchainPlainRPCNull::new(&logger));
+        let helper = Box::new(RPCHelpersNull::new(&logger));
         BlockchainInterfaceClandestine {
             logger,
             helper,
@@ -229,12 +230,11 @@ mod tests {
 
         chains.into_iter().for_each(|chain| {
             let _ = make_clandestine_subject(test_name, chain)
-                .plain_rpc()
+                .helpers()
                 .get_transaction_id(&wallet);
         });
 
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Blockchain helper null can't fetch transaction id");
+        let expected_log_msg = format!("ERROR: {test_name}: Can provide only RPC helpers null");
         TestLogHandler::new()
             .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
     }

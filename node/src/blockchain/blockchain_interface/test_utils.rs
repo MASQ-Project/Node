@@ -2,8 +2,8 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-    BlockchainPlainRPC, ResultForBalance, ResultForNonce,
+use crate::blockchain::blockchain_interface::rpc_helpers::{
+    RPCHelpers, ResultForBalance, ResultForNonce,
 };
 
 use crate::blockchain::blockchain_interface::BlockchainInterface;
@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-pub struct BlockchainPlainRPCallsMock {
+pub struct RPCHelpersMock {
     get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
@@ -26,7 +26,7 @@ pub struct BlockchainPlainRPCallsMock {
     get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
 }
 
-impl BlockchainPlainRPC for BlockchainPlainRPCallsMock {
+impl RPCHelpers for RPCHelpersMock {
     fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_transaction_fee_balance_params
             .lock()
@@ -54,7 +54,7 @@ impl BlockchainPlainRPC for BlockchainPlainRPCallsMock {
     }
 }
 
-impl BlockchainPlainRPCallsMock {
+impl RPCHelpersMock {
     pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_transaction_fee_balance_params = params.clone();
         self
@@ -103,7 +103,7 @@ where
 
     // no assertion for the result, we anticipate an error from a badly formatted response from the server;
     // yet enough to prove we have a proper connection
-    let _ = subject.plain_rpc().get_masq_balance(&wallet);
+    let _ = subject.helpers().get_masq_balance(&wallet);
 
     let requests = test_server.requests_so_far();
     let bodies: Vec<Value> = requests

@@ -20,10 +20,10 @@ use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
-use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
+use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
@@ -327,7 +327,7 @@ fn assert_balances(
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
-        .helper()
+        .helpers()
         .get_transaction_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
@@ -338,7 +338,7 @@ fn assert_balances(
         expected_eth_balance
     );
     let token_balance = blockchain_interface
-        .helper()
+        .helpers()
         .get_masq_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(

@@ -18,13 +18,11 @@ use std::time::SystemTime;
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-    BlockchainPlainRPC, ResultForBalance,
-};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
-    ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions,
+    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
+    ResultForReceipt, RetrievedBlockchainTransactions,
 };
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
@@ -78,14 +76,8 @@ pub struct BlockchainInterfaceMock {
     >,
     send_batch_of_payables_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
-    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
-    get_token_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_token_balance_results: RefCell<Vec<ResultForBalance>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
-    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
@@ -140,13 +132,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn plain_rpc(&self) -> &dyn BlockchainPlainRPC {
-        todo!()
+    fn helpers(&self) -> &dyn RPCHelpers {
+        intentionally_blank!()
     }
 }
 
 impl BlockchainInterfaceMock {
-    //seems like never-used
+    // TODO seems like never-used
     pub fn contract_address_result(mut self, address: Address) -> Self {
         self.contract_address_result.replace(address);
         self
@@ -206,38 +198,6 @@ impl BlockchainInterfaceMock {
         self.send_batch_of_payables_results
             .borrow_mut()
             .push(result);
-        self
-    }
-
-    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_fee_balance_params = params.clone();
-        self
-    }
-
-    pub fn get_transaction_fee_balance_result(self, result: ResultForBalance) -> Self {
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn get_token_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_token_balance_params = params.clone();
-        self
-    }
-
-    pub fn get_token_balance_result(self, result: ResultForBalance) -> Self {
-        self.get_token_balance_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_count_parameters = params.clone();
-        self
-    }
-
-    pub fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
-        self.get_transaction_count_results.borrow_mut().push(result);
         self
     }
 

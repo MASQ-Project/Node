@@ -492,7 +492,7 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use web3::types::{TransactionReceipt, H160, H256, U256};
+    use web3::types::{TransactionReceipt, H160, H256};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -575,24 +575,15 @@ mod tests {
             "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
         let build_blockchain_agent_params_arc = Arc::new(Mutex::new(vec![]));
-        let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
-        let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let transaction_fee_balance = U256::from(4455);
-        let token_balance = U256::from(112233);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
-            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
-            .get_token_balance_params(&get_token_balance_params_arc)
-            .get_token_balance_result(Ok(token_balance))
             .build_blockchain_agent_params(&build_blockchain_agent_params_arc)
             .build_blockchain_agent_result(Ok(Box::new(agent)));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_configuration = PersistentConfigurationMock::default()
-            .gas_price_result(Ok(146))
             .set_arbitrary_id_stamp(persistent_config_id_stamp);
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
@@ -863,10 +854,8 @@ mod tests {
             hashes: vec![hash],
         });
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(U256::from(1u64)))
             .send_batch_of_payables_result(expected_error.clone());
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(123));
+        let persistent_configuration_mock = PersistentConfigurationMock::default();
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
@@ -934,14 +923,12 @@ mod tests {
     fn process_payments_returns_error_from_sending_batch() {
         let transaction_hash = make_tx_hash(789);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .send_batch_of_payables_result(Err(PayableTransactionError::Sending {
                 msg: "failure from chronic exhaustion".to_string(),
                 hashes: vec![transaction_hash],
             }));
         let consuming_wallet = make_wallet("somewallet");
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
+        let persistent_configuration_mock = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
@@ -1673,7 +1660,7 @@ pub mod assertion_messages_with_exposed_private_actor_body {
         AssertionsMessage {
             assertions: Box::new(move |bb: &mut BlockchainBridge| {
                 //the first assertion is made outside, it checks receiving this request
-                let _result = bb.blockchain_interface.plain_rpc().get_masq_balance(&wallet);
+                let _result = bb.blockchain_interface.helpers().get_masq_balance(&wallet);
                 assert_eq!(
                     bb.persistent_config.gas_price().unwrap(),
                     expected_gas_price
