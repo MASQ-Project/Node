@@ -1,17 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-    BlockchainInterfaceHelper, ResultForBalance, ResultForNonce,
+    BlockchainPlainRPC, ResultForBalance, ResultForNonce,
 };
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 use web3::types::U256;
 
-pub struct BlockchainInterfaceHelperNull {
+pub struct BlockchainPlainRPCNull {
     logger: Logger,
 }
 
-impl BlockchainInterfaceHelper for BlockchainInterfaceHelperNull {
+impl BlockchainPlainRPC for BlockchainPlainRPCNull {
     fn get_transaction_fee_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         Ok(self.handle_null_call("transaction fee balance"))
     }
@@ -25,7 +25,7 @@ impl BlockchainInterfaceHelper for BlockchainInterfaceHelperNull {
     }
 }
 
-impl BlockchainInterfaceHelperNull {
+impl BlockchainPlainRPCNull {
     pub fn new(logger: &Logger) -> Self {
         Self {
             logger: logger.clone(),
@@ -35,7 +35,7 @@ impl BlockchainInterfaceHelperNull {
     fn handle_null_call(&self, operation: &str) -> U256 {
         error!(
             self.logger,
-            "Blockchain helper null can't fetch {operation}"
+            "Null version can't fetch {operation}"
         );
         0.into()
     }
@@ -46,57 +46,57 @@ mod tests {
     use web3::types::U256;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
+    use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainPlainRPC;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_plain_rpc_null::BlockchainPlainRPCNull;
     use crate::blockchain::blockchain_interface::BlockchainError;
 
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
 
     #[test]
-    fn helper_null_gets_no_transaction_fee_balance() {
-        let test_name = "helper_null_gets_no_transaction_fee_balance";
-        let act = |subject: &BlockchainInterfaceHelperNull, wallet: &Wallet| {
+    fn rp_calls_null_gets_no_transaction_fee_balance() {
+        let test_name = "rpcs_null_gets_no_transaction_fee_balance";
+        let act = |subject: &BlockchainPlainRPCNull, wallet: &Wallet| {
             subject.get_transaction_fee_balance(wallet)
         };
 
-        test_helper_null_method(test_name, act, "transaction fee balance");
+        test_null_method(test_name, act, "transaction fee balance");
     }
 
     #[test]
-    fn helper_null_gets_no_masq_balance() {
-        let test_name = "helper_null_gets_no_masq_balance";
-        let act = |subject: &BlockchainInterfaceHelperNull, wallet: &Wallet| {
+    fn rp_calls_null_gets_no_masq_balance() {
+        let test_name = "rp_calls_null_gets_no_masq_balance";
+        let act = |subject: &BlockchainPlainRPCNull, wallet: &Wallet| {
             subject.get_masq_balance(wallet)
         };
 
-        test_helper_null_method(test_name, act, "masq balance");
+        test_null_method(test_name, act, "masq balance");
     }
 
     #[test]
-    fn helper_null_gets_no_transaction_id() {
-        let test_name = "helper_null_gets_no_transaction_id";
-        let act = |subject: &BlockchainInterfaceHelperNull, wallet: &Wallet| {
+    fn rp_calls_null_gets_no_transaction_id() {
+        let test_name = "rp_calls_null_gets_no_transaction_id";
+        let act = |subject: &BlockchainPlainRPCNull, wallet: &Wallet| {
             subject.get_transaction_id(wallet)
         };
 
-        test_helper_null_method(test_name, act, "transaction id");
+        test_null_method(test_name, act, "transaction id");
     }
 
-    fn test_helper_null_method(
+    fn test_null_method(
         test_name: &str,
-        act: fn(&BlockchainInterfaceHelperNull, &Wallet) -> Result<U256, BlockchainError>,
+        act: fn(&BlockchainPlainRPCNull, &Wallet) -> Result<U256, BlockchainError>,
         expected_method_name: &str,
     ) {
         init_test_logging();
         let wallet = make_wallet("blah");
-        let subject = BlockchainInterfaceHelperNull::new(&Logger::new(test_name));
+        let subject = BlockchainPlainRPCNull::new(&Logger::new(test_name));
 
         let result = act(&subject, &wallet);
 
         assert_eq!(result, Ok(U256::zero()));
         let _expected_log_msg = TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Blockchain helper null can't fetch {expected_method_name}"
+            "ERROR: {test_name}: Null version can't fetch {expected_method_name}"
         ));
     }
 }

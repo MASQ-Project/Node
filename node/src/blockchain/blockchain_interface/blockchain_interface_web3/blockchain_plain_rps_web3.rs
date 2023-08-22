@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-    BlockchainInterfaceHelper, ResultForBalance, ResultForNonce,
+    BlockchainPlainRPC, ResultForBalance, ResultForNonce,
 };
 use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
@@ -12,7 +12,7 @@ use web3::transports::Batch;
 use web3::types::BlockNumber;
 use web3::{BatchTransport, Web3};
 
-pub struct BlockchainInterfaceNonClandestineHelper<T>
+pub struct BlockchainPlainRPCallsWeb3<T>
 where
     T: BatchTransport,
 {
@@ -22,7 +22,7 @@ where
     contract: Contract<T>,
 }
 
-impl<T> BlockchainInterfaceHelper for BlockchainInterfaceNonClandestineHelper<T>
+impl<T> BlockchainPlainRPC for BlockchainPlainRPCallsWeb3<T>
 where
     T: BatchTransport,
 {
@@ -56,7 +56,7 @@ where
     }
 }
 
-impl<T> BlockchainInterfaceNonClandestineHelper<T>
+impl<T> BlockchainPlainRPCallsWeb3<T>
 where
     T: BatchTransport,
 {
@@ -83,9 +83,9 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
-    use crate::blockchain::blockchain_interface::blockchain_interface_helper::{BlockchainInterfaceHelper, ResultForBalance};
+    use crate::blockchain::blockchain_interface::blockchain_interface_helper::{BlockchainPlainRPC, ResultForBalance};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{CONTRACT_ABI, REQUESTS_IN_PARALLEL};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::blockchain_interface_helper_web3::BlockchainInterfaceNonClandestineHelper;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::blockchain_plain_rps_web3::BlockchainPlainRPCallsWeb3;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::test_utils::{TestTransport};
     use crate::sub_lib::wallet::Wallet;
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn get_transaction_id_handles_err() {
-        let act = |subject: &BlockchainInterfaceNonClandestineHelper<Http>, wallet: &Wallet| {
+        let act = |subject: &BlockchainPlainRPCallsWeb3<Http>, wallet: &Wallet| {
             subject.get_transaction_id(wallet)
         };
 
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn get_transaction_fee_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &BlockchainInterfaceNonClandestineHelper<Http>, wallet: &Wallet| {
+        let act = |subject: &BlockchainPlainRPCallsWeb3<Http>, wallet: &Wallet| {
             subject.get_transaction_fee_balance(wallet)
         };
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn get_masq_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &BlockchainInterfaceNonClandestineHelper<Http>, wallet: &Wallet| {
+        let act = |subject: &BlockchainPlainRPCallsWeb3<Http>, wallet: &Wallet| {
             subject.get_masq_balance(wallet)
         };
 
@@ -246,7 +246,7 @@ mod tests {
 
     fn assert_error_from_unintelligible_response<F>(act: F, expected_err_fragment: &str)
     where
-        F: FnOnce(&BlockchainInterfaceNonClandestineHelper<Http>, &Wallet) -> ResultForBalance,
+        F: FnOnce(&BlockchainPlainRPCallsWeb3<Http>, &Wallet) -> ResultForBalance,
     {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -280,7 +280,7 @@ mod tests {
         )
     }
 
-    fn make_subject<T>(transport: T, chain: Chain) -> BlockchainInterfaceNonClandestineHelper<T>
+    fn make_subject<T>(transport: T, chain: Chain) -> BlockchainPlainRPCallsWeb3<T>
     where
         T: BatchTransport,
     {
@@ -289,6 +289,6 @@ mod tests {
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
-        BlockchainInterfaceNonClandestineHelper::new(Rc::new(web3), Rc::new(web3_batch), contract)
+        BlockchainPlainRPCallsWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
     }
 }

@@ -4,7 +4,7 @@ use crate::blockchain::blockchain_interface::BlockchainResult;
 use crate::sub_lib::wallet::Wallet;
 use web3::types::U256;
 
-pub trait BlockchainInterfaceHelper {
+pub trait BlockchainPlainRPC {
     fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
 
     fn get_masq_balance(&self, wallet: &Wallet) -> ResultForBalance;

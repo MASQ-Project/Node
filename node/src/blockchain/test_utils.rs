@@ -19,7 +19,7 @@ use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use crate::blockchain::blockchain_interface::blockchain_interface_helper::{
-    BlockchainInterfaceHelper, ResultForBalance,
+    BlockchainPlainRPC, ResultForBalance,
 };
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
 use crate::blockchain::blockchain_interface::{
@@ -140,7 +140,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn helper(&self) -> &dyn BlockchainInterfaceHelper {
+    fn plain_rpc(&self) -> &dyn BlockchainPlainRPC {
         todo!()
     }
 }

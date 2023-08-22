@@ -1673,7 +1673,7 @@ pub mod assertion_messages_with_exposed_private_actor_body {
         AssertionsMessage {
             assertions: Box::new(move |bb: &mut BlockchainBridge| {
                 //the first assertion is made outside, it checks receiving this request
-                let _result = bb.blockchain_interface.helper().get_masq_balance(&wallet);
+                let _result = bb.blockchain_interface.plain_rpc().get_masq_balance(&wallet);
                 assert_eq!(
                     bb.persistent_config.gas_price().unwrap(),
                     expected_gas_price

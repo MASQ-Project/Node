@@ -9,7 +9,7 @@ use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainPlainRPC;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -42,9 +42,10 @@ pub trait BlockchainInterface {
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
 
+    //TODO move this into plain RPC
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
-    fn helper(&self) -> &dyn BlockchainInterfaceHelper;
+    fn plain_rpc(&self) -> &dyn BlockchainPlainRPC;
 }
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]

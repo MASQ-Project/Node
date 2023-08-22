@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod blockchain_interface_helper_null;
+pub mod blockchain_plain_rpc_null;
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainInterfaceHelper;
+use crate::blockchain::blockchain_interface::blockchain_interface_helper::BlockchainPlainRPC;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
     ResultForReceipt, RetrievedBlockchainTransactions,
@@ -18,19 +18,19 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use web3::types::{Address, H256};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_plain_rpc_null::BlockchainPlainRPCNull;
 
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
-    helper: Box<dyn BlockchainInterfaceHelper>,
+    helper: Box<dyn BlockchainPlainRPC>,
     chain: Chain,
 }
 
 impl BlockchainInterfaceClandestine {
     pub fn new(chain: Chain) -> Self {
         let logger = Logger::new("BlockchainInterface");
-        let helper = Box::new(BlockchainInterfaceHelperNull::new(&logger));
+        let helper = Box::new(BlockchainPlainRPCNull::new(&logger));
         BlockchainInterfaceClandestine {
             logger,
             helper,
@@ -84,7 +84,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Ok(None)
     }
 
-    fn helper(&self) -> &dyn BlockchainInterfaceHelper {
+    fn plain_rpc(&self) -> &dyn BlockchainPlainRPC {
         &*self.helper
     }
 }
@@ -104,12 +104,12 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_plain_rpc_null::BlockchainPlainRPCNull;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
         let logger = Logger::new(test_name);
-        let helper = Box::new(BlockchainInterfaceHelperNull::new(&logger));
+        let helper = Box::new(BlockchainPlainRPCNull::new(&logger));
         BlockchainInterfaceClandestine {
             logger,
             helper,
@@ -229,7 +229,7 @@ mod tests {
 
         chains.into_iter().for_each(|chain| {
             let _ = make_clandestine_subject(test_name, chain)
-                .helper()
+                .plain_rpc()
                 .get_transaction_id(&wallet);
         });
 
