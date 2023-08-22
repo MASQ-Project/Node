@@ -46,7 +46,6 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
 pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328;
 
 impl BlockchainAgentWeb3 {
-    //TODO should we make another kind of Wallet?
     pub fn new(
         gas_price_gwei: u64,
         gas_limit_const_part: u64,

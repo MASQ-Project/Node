@@ -527,9 +527,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::{
-        BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
-    };
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
@@ -576,6 +574,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::net::Ipv4Addr;
 
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -1067,7 +1066,7 @@ mod tests {
         );
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
-        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6), chain);
+        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6));
         let test_timestamp_before = SystemTime::now();
 
         let result = subject
@@ -1302,7 +1301,7 @@ mod tests {
             second_payment_amount,
             None,
         );
-        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4), chain);
+        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4));
 
         let result = subject.send_batch_of_payables(
             agent,
@@ -1498,7 +1497,7 @@ mod tests {
         let recipient = Recorder::new().start().recipient();
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
-        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4), chain);
+        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4));
         let result = subject.send_batch_of_payables(agent, &recipient, &accounts);
 
         assert_eq!(
@@ -1527,7 +1526,7 @@ mod tests {
             9000,
             None,
         );
-        let agent = make_initialized_agent(123, incomplete_consuming_wallet, U256::from(1), chain);
+        let agent = make_initialized_agent(123, incomplete_consuming_wallet, U256::from(1));
 
         let result = subject.send_batch_of_payables(agent, &recipient, &vec![account]);
 
@@ -1562,7 +1561,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6), chain);
+        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6));
 
         let result = subject.send_batch_of_payables(agent, &unimportant_recipient, &vec![account]);
 
@@ -2011,21 +2010,13 @@ mod tests {
         gas_price_gwei: u64,
         consuming_wallet: Wallet,
         nonce: U256,
-        chain: Chain,
     ) -> Box<dyn BlockchainAgent> {
-        let gas_limit_const_part =
-            BlockchainInterfaceNonClandestine::<Http>::web3_gas_limit_const_part(chain);
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
-        Box::new(BlockchainAgentWeb3::new(
-            gas_price_gwei,
-            gas_limit_const_part,
-            consuming_wallet,
-            consuming_wallet_balances,
-            nonce,
-        ))
+        Box::new(
+            BlockchainAgentMock::default()
+                .consuming_wallet_result(consuming_wallet)
+                .agreed_fee_per_computation_unit_result(gas_price_gwei)
+                .pending_transaction_id_result(nonce),
+        )
     }
 
     #[test]

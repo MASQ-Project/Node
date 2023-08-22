@@ -8,9 +8,14 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use ethereum_types::U256;
+use std::cell::RefCell;
 
 #[derive(Default)]
 pub struct BlockchainAgentMock {
+    consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
+    agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
+    consuming_wallet_result_opt: Option<Wallet>,
+    pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
@@ -20,19 +25,23 @@ impl BlockchainAgent for BlockchainAgentMock {
     }
 
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
-        todo!()
+        self.consuming_wallet_balances_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
-        todo!()
+        self.agreed_fee_per_computation_unit_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
-        todo!()
+        self.consuming_wallet_result_opt.as_ref().unwrap()
     }
 
     fn pending_transaction_id(&self) -> U256 {
-        todo!()
+        self.pending_transaction_id_results.borrow_mut().remove(0)
     }
 
     fn dup(&self) -> Box<dyn BlockchainAgent> {
@@ -43,5 +52,31 @@ impl BlockchainAgent for BlockchainAgentMock {
 }
 
 impl BlockchainAgentMock {
+    pub fn consuming_wallet_balances_result(self, result: ConsumingWalletBalances) -> Self {
+        self.consuming_wallet_balances_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn agreed_fee_per_computation_unit_result(self, result: u64) -> Self {
+        self.agreed_fee_per_computation_unit_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn consuming_wallet_result(mut self, consuming_wallet_result: Wallet) -> Self {
+        self.consuming_wallet_result_opt = Some(consuming_wallet_result);
+        self
+    }
+
+    pub fn pending_transaction_id_result(self, result: U256) -> Self {
+        self.pending_transaction_id_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
     set_arbitrary_id_stamp_in_mock_impl!();
 }

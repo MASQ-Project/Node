@@ -621,7 +621,7 @@ where
     }
 }
 
-pub fn make_agent_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 32] {
+pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 32] {
     [msg.as_ref(), address.as_ref()].concat().keccak256()
 }
 

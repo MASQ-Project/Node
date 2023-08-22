@@ -101,8 +101,8 @@ where
     let chain = Chain::PolyMainnet;
     let subject = subject_factory(port, chain);
 
-    // no result assertion, we anticipate a badly formatted response from the server,
-    // still proving we're connected
+    // no assertion for the result, we anticipate an error from a badly formatted response from the server;
+    // yet enough to prove we have a proper connection
     let _ = subject.helper().get_masq_balance(&wallet);
 
     let requests = test_server.requests_so_far();

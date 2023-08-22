@@ -114,7 +114,7 @@ where
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
 
-    declare_as_any!();
+    as_any_in_trait!();
 }
 
 pub struct ScannerCommon {
@@ -215,7 +215,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let protected_payables = self.make_protected(qualified_payables);
+                let protected_payables = self.protect_payables(qualified_payables);
                 let outgoing_msg =
                     QualifiedPayablesMessage::new(protected_payables, response_skeleton_opt);
                 Ok(outgoing_msg)
@@ -248,7 +248,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
 
     time_marking_methods!(Payables);
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl MidScanPayableHandlingScanner for PayableScanner {
@@ -262,14 +262,13 @@ impl MidScanPayableHandlingScanner for PayableScanner {
             .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => {
-                //TODO will be decoupled with Web3 by GH-696
                 let protected = msg.qualified_payables;
-                let unprotected = self.make_unprotected(protected);
-                Ok(Either::Left(OutboundPaymentsInstructions {
-                    affordable_accounts: unprotected,
-                    agent: msg.agent,
-                    response_skeleton_opt: msg.response_skeleton_opt,
-                }))
+                let unprotected = self.expose_payables(protected);
+                Ok(Either::Left(OutboundPaymentsInstructions::new(
+                    unprotected,
+                    msg.agent,
+                    msg.response_skeleton_opt,
+                )))
             }
             Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment::new(msg, adjustment))),
             Err(_e) => todo!("be implemented with GH-711"),
@@ -499,13 +498,13 @@ impl PayableScanner {
         };
     }
 
-    fn make_protected(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
+    fn protect_payables(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
         #[allow(clippy::unsound_collection_transmute)]
         let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
         ProtectedPayables(bytes)
     }
 
-    fn make_unprotected(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
+    fn expose_payables(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
         #[allow(clippy::unsound_collection_transmute)]
         unsafe {
             transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0)
@@ -582,7 +581,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
 
     time_marking_methods!(PendingPayables);
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl PendingPayableScanner {
@@ -842,7 +841,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
     time_marking_methods!(Receivables);
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl ReceivableScanner {
@@ -997,7 +996,7 @@ pub trait ScanScheduler {
         intentionally_blank!()
     }
 
-    declare_as_any!();
+    as_any_in_trait!();
 
     #[cfg(test)]
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -1013,7 +1012,7 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
         self.interval
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 
     #[cfg(test)]
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -1029,7 +1028,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_protected_in_test, make_receivable_account,
+        make_pending_payable_fingerprint, make_receivable_account, protect_payables_in_test,
         BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
         PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
@@ -1168,8 +1167,8 @@ mod tests {
         let initial_unprotected = vec![make_payable_account(123), make_payable_account(456)];
         let subject = PayableScannerBuilder::new().build();
 
-        let protected = subject.make_protected(initial_unprotected.clone());
-        let again_unprotected: Vec<PayableAccount> = subject.make_unprotected(protected);
+        let protected = subject.protect_payables(initial_unprotected.clone());
+        let again_unprotected: Vec<PayableAccount> = subject.expose_payables(protected);
 
         assert_eq!(initial_unprotected, again_unprotected)
     }
@@ -1194,7 +1193,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: make_protected_in_test(qualified_payable_accounts.clone()),
+                qualified_payables: protect_payables_in_test(qualified_payable_accounts.clone()),
                 response_skeleton_opt: None,
             })
         );

@@ -358,7 +358,7 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! declare_as_any {
+macro_rules! as_any_in_trait {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {
@@ -369,13 +369,23 @@ macro_rules! declare_as_any {
 }
 
 #[macro_export]
-macro_rules! implement_as_any {
+macro_rules! as_any_in_trait_impl {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {
             self
         }
     };
+}
+
+#[macro_export]
+macro_rules! test_only{
+    ($($definition: item),+) => {
+      $(
+        #[cfg(test)]
+        $definition
+      )+
+    }
 }
 
 #[cfg(test)]

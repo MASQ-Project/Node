@@ -1399,7 +1399,7 @@ impl PayableThresholdsGaugeMock {
     }
 }
 
-pub fn make_protected_in_test(payables: Vec<PayableAccount>) -> ProtectedPayables {
+pub fn protect_payables_in_test(payables: Vec<PayableAccount>) -> ProtectedPayables {
     let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
     ProtectedPayables(bytes)
 }
@@ -1532,7 +1532,7 @@ where
         panic!("Called mark_as_ended() from NullScanner");
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);

@@ -11,7 +11,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, short_writeln};
+use masq_lib::{as_any_in_trait, as_any_in_trait_impl, short_writeln};
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
@@ -22,7 +22,7 @@ use std::any::Any;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
-    declare_as_any!();
+    as_any_in_trait!();
 }
 
 pub struct BroadcastHandleInactive;
@@ -30,7 +30,7 @@ pub struct BroadcastHandleInactive;
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 pub struct BroadcastHandleGeneric {

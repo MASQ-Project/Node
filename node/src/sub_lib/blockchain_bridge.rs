@@ -46,6 +46,20 @@ pub struct OutboundPaymentsInstructions {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+impl OutboundPaymentsInstructions {
+    pub fn new(
+        affordable_accounts: Vec<PayableAccount>,
+        agent: Box<dyn BlockchainAgent>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> Self {
+        Self {
+            affordable_accounts,
+            agent,
+            response_skeleton_opt,
+        }
+    }
+}
+
 impl SkeletonOptHolder for OutboundPaymentsInstructions {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt

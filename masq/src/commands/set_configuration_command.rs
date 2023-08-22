@@ -1,7 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
-use masq_lib::implement_as_any;
+use masq_lib::as_any_in_trait_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
@@ -55,7 +55,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 const SET_CONFIGURATION_ABOUT: &str =

@@ -141,7 +141,8 @@ impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
         panic!(
             r#"You requested a stop condition of the "precise match" for
             message that does not implement PartialEq. Consider two other
-            options: matching the type only or using a predicate."#
+            options: matching the type by its TypeId only or using
+            a predicate."#
         )
     }
 }

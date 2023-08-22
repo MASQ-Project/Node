@@ -17,17 +17,23 @@ use masq_lib::blockchains::chains::Chain;
 
 use masq_lib::logger::Logger;
 use web3::types::{Address, H256};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
 
 // TODO: This probably should go away
 pub struct BlockchainInterfaceClandestine {
     logger: Logger,
+    helper: Box<dyn BlockchainInterfaceHelper>,
     chain: Chain,
 }
 
 impl BlockchainInterfaceClandestine {
     pub fn new(chain: Chain) -> Self {
+        let logger = Logger::new("BlockchainInterface");
+        let helper = Box::new(BlockchainInterfaceHelperNull::new(&logger));
         BlockchainInterfaceClandestine {
-            logger: Logger::new("BlockchainInterface"),
+            logger,
+            helper,
             chain,
         }
     }
@@ -53,7 +59,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _consuming_wallet: &Wallet,
         _persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, String> {
-        todo!("fill me up with code when merged with master having the NullScanner and its own test suite")
+        error!(self.logger, "Builds a null blockchain agent only");
+        Ok(Box::new(BlockchainAgentNull::new()))
     }
 
     fn send_batch_of_payables(
@@ -78,7 +85,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 
     fn helper(&self) -> &dyn BlockchainInterfaceHelper {
-        todo!("fill me up with code when merged with master having the NullScanner and its own test suite")
+        &*self.helper
     }
 }
 
@@ -97,10 +104,15 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::blockchain_interface_helper_null::BlockchainInterfaceHelperNull;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
+        let logger = Logger::new(test_name);
+        let helper = Box::new(BlockchainInterfaceHelperNull::new(&logger));
         BlockchainInterfaceClandestine {
-            logger: Logger::new(test_name),
+            logger,
+            helper,
             chain,
         }
     }
@@ -131,6 +143,29 @@ mod tests {
         });
 
         let expected_log_msg = format!("ERROR: {test_name}: {}", expected_msg);
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_builds_null_agent() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_builds_null_agent";
+        let wallet = make_wallet("blah");
+        let persistent_config = PersistentConfigurationMock::new();
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            let result = make_clandestine_subject(test_name, chain)
+                .build_blockchain_agent(&wallet, &persistent_config)
+                .unwrap();
+            result
+                .as_any()
+                .downcast_ref::<BlockchainAgentNull>()
+                .unwrap();
+        });
+
+        let expected_log_msg = format!("ERROR: {test_name}: Builds a null blockchain agent only");
         TestLogHandler::new()
             .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
     }
@@ -181,6 +216,25 @@ mod tests {
 
         let expected_log_msg =
             format!("ERROR: {test_name}: Can't get transaction receipt clandestinely yet");
+        TestLogHandler::new()
+            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    }
+
+    #[test]
+    fn blockchain_interface_clandestine_gives_null_helper() {
+        init_test_logging();
+        let test_name = "blockchain_interface_clandestine_gives_null_helper";
+        let wallet = make_wallet("abc");
+        let chains = all_chains();
+
+        chains.into_iter().for_each(|chain| {
+            let _ = make_clandestine_subject(test_name, chain)
+                .helper()
+                .get_transaction_id(&wallet);
+        });
+
+        let expected_log_msg =
+            format!("ERROR: {test_name}: Blockchain helper null can't fetch transaction id");
         TestLogHandler::new()
             .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
     }

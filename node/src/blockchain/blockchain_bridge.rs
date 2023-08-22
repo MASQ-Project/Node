@@ -456,7 +456,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::{
-        make_pending_payable_fingerprint, make_protected_in_test, BlockahinAgentMock,
+        make_pending_payable_fingerprint, protect_payables_in_test, BlockahinAgentMock,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
@@ -623,7 +623,7 @@ mod tests {
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        let qualified_payables = make_protected_in_test(qualified_payables.clone());
+        let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables: qualified_payables.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -682,7 +682,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = QualifiedPayablesMessage {
-            qualified_payables: make_protected_in_test(vec![PayableAccount {
+            qualified_payables: protect_payables_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
@@ -731,7 +731,7 @@ mod tests {
             None,
         );
         let request = QualifiedPayablesMessage {
-            qualified_payables: make_protected_in_test(vec![PayableAccount {
+            qualified_payables: protect_payables_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
                 last_paid_timestamp: SystemTime::now(),

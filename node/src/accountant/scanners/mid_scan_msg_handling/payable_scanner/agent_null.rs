@@ -6,6 +6,9 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
+use masq_lib::test_only;
+#[cfg(test)]
+use std::any::Any;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -42,10 +45,11 @@ impl BlockchainAgent for BlockchainAgentNull {
         U256::zero()
     }
 
-    #[cfg(test)]
-    fn dup(&self) -> Box<dyn BlockchainAgent> {
-        todo!()
-    }
+    test_only!(fn dup(&self) -> Box<dyn BlockchainAgent> {
+        todo!("implement me if required")
+    },
+        as_any_in_trait_impl!();
+    );
 }
 
 impl BlockchainAgentNull {

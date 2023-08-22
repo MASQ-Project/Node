@@ -50,7 +50,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {

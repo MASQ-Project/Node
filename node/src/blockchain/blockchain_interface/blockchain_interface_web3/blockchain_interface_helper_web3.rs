@@ -17,7 +17,7 @@ where
     T: BatchTransport,
 {
     web3: Rc<Web3<T>>,
-    // TODO waiting for GH-707 (note: you can query the balances together with the id)
+    // TODO waiting for GH-707 (note: consider to query the balances together with the id)
     _batch_web3: Rc<Web3<Batch<T>>>,
     contract: Contract<T>,
 }

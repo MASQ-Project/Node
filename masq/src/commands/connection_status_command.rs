@@ -6,8 +6,8 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
+use masq_lib::as_any_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
@@ -64,7 +64,7 @@ impl Command for ConnectionStatusCommand {
         }
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl ConnectionStatusCommand {

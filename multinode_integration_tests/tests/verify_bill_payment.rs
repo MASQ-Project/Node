@@ -17,14 +17,14 @@ use node_lib::accountant::database_access_objects::receivable_dao::{
     ReceivableDao, ReceivableDaoReal,
 };
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
-use node_lib::blockchain::blockchain_interface_s::{
-    BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
+use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
+use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
 use node_lib::sub_lib::accountant::PaymentThresholds;
-use node_lib::sub_lib::blockchain_bridge::web3_gas_limit_const_part;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -327,6 +327,7 @@ fn assert_balances(
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
+        .helper()
         .get_transaction_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
@@ -337,8 +338,9 @@ fn assert_balances(
         expected_eth_balance
     );
     let token_balance = blockchain_interface
-        .get_token_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve token balance for {}", wallet));
+        .helper()
+        .get_masq_balance(&wallet)
+        .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(
         token_balance,
         web3::types::U256::from_dec_str(expected_token_balance).unwrap(),

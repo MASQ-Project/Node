@@ -7,7 +7,7 @@ use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 use web3::types::U256;
 
-struct BlockchainInterfaceHelperNull {
+pub struct BlockchainInterfaceHelperNull {
     logger: Logger,
 }
 
