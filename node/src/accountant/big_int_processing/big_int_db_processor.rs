@@ -500,7 +500,9 @@ mod tests {
     use super::*;
     use crate::accountant::big_int_processing::big_int_db_processor::ByteMagnitude::{High, Low};
     use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::TestKey;
-    use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{Addition, Subtraction};
+    use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
+        Addition, Subtraction,
+    };
     use crate::accountant::big_int_processing::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };

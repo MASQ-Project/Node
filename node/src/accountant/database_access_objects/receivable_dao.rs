@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::WalletAddress;
-use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{Addition, Subtraction};
+use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
+    Addition, Subtraction,
+};
 use crate::accountant::big_int_processing::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
