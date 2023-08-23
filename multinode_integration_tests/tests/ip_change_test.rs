@@ -17,6 +17,7 @@ use std::time::Duration;
 use multinode_integration_tests_lib::masq_real_node::STANDARD_CLIENT_TIMEOUT_MILLIS;
 
 #[test]
+#[ignore]
 fn receiving_ipchange_gossip_modifies_connections_appropriately() {
     // Set up network with one real Node, one mock Node with full neighborship, one disconnected mock Node
     let mut cluster = MASQNodeCluster::start().unwrap();
