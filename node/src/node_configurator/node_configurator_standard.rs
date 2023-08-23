@@ -738,6 +738,47 @@ mod tests {
     }
 
     #[test]
+    fn server_initializer_collected_params_combine_vlcs_properly () {
+        running_test();
+        let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
+        let data_dir = home_dir.join("data_dir");
+        vec![
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example3.com"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            ("MASQ_CLANDESTINE_PORT", "1234"),
+            ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
+            ("MASQ_CRASH_POINT", "Error"),
+            ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
+            ("MASQ_DB_PASSWORD", "password"),
+            ("MASQ_DNS_SERVERS", "8.8.8.8"),
+            ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
+            ("MASQ_GAS_PRICE", "50"),
+            ("MASQ_IP", "4.3.2.1"),
+            ("MASQ_LOG_LEVEL", "error"),
+            ("MASQ_MAPPING_PROTOCOL", "pmp"),
+            ("MASQ_MIN_HOPS", "2"),
+            ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
+            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
+            ("MASQ_RATE_PACK","1|3|3|8"),
+            #[cfg(not(target_os = "windows"))]
+            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
+            ("MASQ_SCAN_INTERVALS","133|133|111")
+        ].into_iter()
+            .for_each (|(name, value)| std::env::set_var (name, value));
+        let args = ArgsBuilder::new()
+            .param("--chain", "polygon-mainnet");
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir))
+            .data_dir_result(Some(data_dir));
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        println!("full_multi_config: {:#?}",result.unwrap().multi_config);
+
+    }
+
+    #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
         running_test();
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
