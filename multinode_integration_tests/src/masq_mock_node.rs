@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::DataProbeUtils;
 use crate::masq_node::MASQNode;
@@ -41,7 +40,6 @@ use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::thread;
 use std::time::{Duration, Instant};
 
 pub struct MASQMockNode {

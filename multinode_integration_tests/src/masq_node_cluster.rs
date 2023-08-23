@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use crate::mock_router::MockPcpRouter;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -133,6 +134,10 @@ impl MASQNodeCluster {
         let name = mock_node.name().to_string();
         self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()
+    }
+
+    pub fn start_mock_pcp_router(&mut self) -> MockPcpRouter {
+        todo! ()
     }
 
     pub fn stop(self) {

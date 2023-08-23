@@ -3,7 +3,6 @@
 use self::sub_lib::utils::indicates_dead_stream;
 use itertools::Itertools;
 use masq_lib::command::{Command, StdStreams};
-use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use node_lib::sub_lib;
 use node_lib::sub_lib::framer::Framer;
 use node_lib::test_utils::data_hunk::DataHunk;
@@ -26,7 +25,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
 pub const CONTROL_STREAM_PORT: u16 = 42511;
-static DATAPROBE_USAGE: String = format!("Usage: DataProbe <IP address>:<U|T><port>/<U|T><port>/... where <IP address> is the address DataProbe is running on, U means UDP and T means TCP, and <port> is between {LOWEST_USABLE_INSECURE_PORT} and {HIGHEST_USABLE_PORT}");
+pub const DATAPROBE_USAGE: &str = "Usage: DataProbe <IP address>:<U|T><port>/<U|T><port>/... where <IP address> is the address DataProbe is running on, U means UDP and T means TCP, and <port> is between 1025 and 65535";
 const PROBE_TARGET_SYNTAX_MSG: &str = "Syntax: <IP address>:<U|T><port>/<U|T><port>/...";
 const PORT_SPEC_SYNTAX_MSG: &str = "Syntax: <U|T><port>";
 

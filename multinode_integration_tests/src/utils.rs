@@ -17,7 +17,6 @@ use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
-use node_lib::sub_lib::node_addr::NodeAddr;
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
@@ -130,11 +129,11 @@ pub fn open_all_file_permissions(dir: PathBuf) {
 
 pub fn do_docker_run(
     ip_addr: IpAddr,
-    host_node_parent_dir: Option<String>,
+    host_node_parent_dir_opt: Option<String>,
     name: &str,
     data_probe_args: Vec<String>,
 ) {
-    let root = match host_node_parent_dir {
+    let root = match host_node_parent_dir_opt {
         Some(dir) => dir,
         None => DataProbeUtils::find_project_root(),
     };

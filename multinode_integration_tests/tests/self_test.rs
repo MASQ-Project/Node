@@ -7,7 +7,7 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::masq_real_node::{NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -68,7 +68,7 @@ fn server_relays_cores_package() {
     let masquerader = JsonMasquerader::new();
     let server = MASQCoresServer::new(cluster.chain);
     let cryptde = server.main_cryptde();
-    let mut client = MASQNodeClient::new(server.local_addr());
+    let mut client = MASQNodeClient::new(server.local_addr(), STANDARD_CLIENT_TIMEOUT_MILLIS);
     let mut route = Route::one_way(
         RouteSegment::new(
             vec![&cryptde.public_key(), &cryptde.public_key()],

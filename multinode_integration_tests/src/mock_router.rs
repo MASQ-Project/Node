@@ -2,7 +2,6 @@ use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::DataProbeUtils;
 use crate::utils::{do_docker_run, wait_for_startup};
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
-use std::cell::RefCell;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 
 pub trait MockRouter {
@@ -10,8 +9,8 @@ pub trait MockRouter {
 }
 
 pub struct MockPcpRouter {
-    control_stream: TcpStream,
-    framer: DataHunkFramer,
+    _control_stream: TcpStream,
+    _framer: DataHunkFramer,
 }
 
 impl MockRouter for MockPcpRouter {
@@ -21,26 +20,29 @@ impl MockRouter for MockPcpRouter {
 }
 
 impl MockPcpRouter {
-    pub fn new(port: u16) -> Self {
-        let control_stream = Self::start(port);
+    pub fn new(socket_addr: SocketAddr) -> Self {
+        let control_stream = Self::start(socket_addr);
         Self {
-            control_stream,
-            framer: DataHunkFramer::new(),
+            _control_stream: control_stream,
+            _framer: DataHunkFramer::new(),
         }
     }
 
-    fn start(port: u16) -> TcpStream {
+    pub fn start(socket_addr: SocketAddr) -> TcpStream {
         let name = "pcp_router".to_string();
         DataProbeUtils::clean_up_existing_container(&name[..]);
-        let mock_router_args = Self::make_mock_router_args(port);
+        let mock_router_args = Self::make_mock_router_args(socket_addr);
         do_docker_run(
-            node_addr.ip_addr(),
-            host_node_parent_dir,
+            socket_addr.ip(),
+            None,
             &name,
             mock_router_args,
         );
-        let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
-        let control_stream = wait_for_startup(wait_addr, &name);
-        control_stream
+        let wait_addr = SocketAddr::new(socket_addr.ip(), CONTROL_STREAM_PORT);
+        wait_for_startup(wait_addr, &name)
+    }
+
+    fn make_mock_router_args(_socket_addr: SocketAddr) -> Vec<String> {
+        todo!();
     }
 }
