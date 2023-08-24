@@ -1732,7 +1732,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_and_db_patch_size_is_set_inside_neighborhood() {
+    fn min_hops_and_db_patch_size_are_set_inside_neighborhood() {
         let min_hops = Hops::SixHops;
         let mode = NeighborhoodMode::Standard(
             NodeAddr::new(&make_ip(1), &[1234, 2345]),
@@ -5868,7 +5868,7 @@ mod tests {
     }
 
     #[test]
-    fn can_update_new_password_with_configuration_change_msg() {
+    fn new_password_message_works() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
@@ -5881,9 +5881,10 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
+        // GH-728
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateNewPassword("borkety-bork".to_string()),
+            .try_send(NewPasswordMessage {
+                new_password: "borkety-bork".to_string(),
             })
             .unwrap();
 
