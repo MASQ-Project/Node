@@ -74,7 +74,6 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        // TODO: I wish if we would log the body and context_id of each request over here. Is there a security risk?
         if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
@@ -938,6 +937,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.configuration_change_msg_sub_opt = Some(neighborhood_addr.recipient());
+        subject.new_password_subs = Some(vec![]); // GH-728
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
