@@ -13,11 +13,9 @@ use multinode_integration_tests_lib::masq_real_node::{
 use multinode_integration_tests_lib::utils::{
     node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
 };
-use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::database_access_objects::receivable_dao::{
-    ReceivableDao, ReceivableDaoReal,
-};
-use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
@@ -393,7 +391,7 @@ fn make_node_wallet(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
     let secret = extended_priv_key.secret().to_hex::<String>();
 
     (
-        Wallet::from(Bip32ECKeyProvider::from_key(extended_priv_key)),
+        Wallet::from(Bip32EncryptionKeyProvider::from_key(extended_priv_key)),
         secret,
     )
 }

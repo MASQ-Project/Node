@@ -2,9 +2,9 @@
 
 pub mod scanners_utils;
 
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
-use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
@@ -26,7 +26,7 @@ use crate::accountant::{
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
-use crate::accountant::database_access_objects::banned_dao::BannedDao;
+use crate::accountant::db_access_objects::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::PayableTransactionError;
 use crate::sub_lib::accountant::{
@@ -1096,11 +1096,11 @@ mod tests {
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::database_access_objects::payable_dao::{
+    use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PendingPayable,
     };
-    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
