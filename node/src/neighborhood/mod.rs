@@ -40,6 +40,7 @@ use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -362,6 +363,15 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
+// GH-728
+impl Handler<NewPasswordMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_password(msg.new_password);
+    }
+}
+
 impl Handler<StreamShutdownMsg> for Neighborhood {
     type Result = ();
 
@@ -501,6 +511,7 @@ impl Neighborhood {
             configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(), // GH-728
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }
@@ -1581,6 +1592,11 @@ impl Neighborhood {
         self.min_hops = new_min_hops;
         self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         debug!(self.logger, "The value of min_hops ({}-hop -> {}-hop) and db_patch_size ({} -> {}) has been changed", prev_min_hops, self.min_hops, prev_db_patch_size, self.db_patch_size);
+    }
+
+    // GH-728
+    fn handle_new_password(&mut self, new_password: String) {
+        self.db_password_opt = Some(new_password);
     }
 }
 
