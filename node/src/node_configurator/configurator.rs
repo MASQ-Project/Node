@@ -712,11 +712,18 @@ impl Configurator {
             logger,
         ) {
             Ok(message_body) => message_body,
-            Err((code, msg)) => MessageBody {
-                opcode: "setConfiguration".to_string(),
-                path: MessagePath::Conversation(context_id),
-                payload: Err((code, msg)),
-            },
+            Err((code, msg)) => {
+                error!(
+                    logger,
+                    "{}",
+                    format!("The UiSetConfigurationRequest failed with an error {code}: {msg}")
+                );
+                MessageBody {
+                    opcode: "setConfiguration".to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((code, msg)),
+                }
+            }
         }
     }
 
@@ -2225,7 +2232,10 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_throws_err_for_invalid_min_hops() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
+        subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2246,10 +2256,16 @@ mod tests {
                 ))
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+             281474976710668: min hops: \"Invalid value for min hops provided\""
+        ));
     }
 
     #[test]
     fn handle_set_configuration_handles_failure_on_min_hops_database_issue() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_handles_failure_on_min_hops_database_issue";
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_result(Err(PersistentConfigError::TransactionError));
         let system =
@@ -2260,6 +2276,7 @@ mod tests {
             .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
         subject.configuration_change_msg_sub_opt = Some(configuration_change_msg_sub);
+        subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2284,6 +2301,10 @@ mod tests {
                 ))
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+                281474976710658: min hops: TransactionError"
+        ));
     }
 
     #[test]
