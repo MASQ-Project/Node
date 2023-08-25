@@ -144,9 +144,13 @@ mod tests {
         ]);
 
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("Found argument"));
-        assert!(err_msg.contains("--invalid-arg"));
-        assert!(err_msg.contains("which wasn't expected, or isn't valid in this context"));
+        assert!(err_msg.contains("Found argument"), "{}", err_msg);
+        assert!(err_msg.contains("--invalid-arg"), "{}", err_msg);
+        assert!(
+            err_msg.contains("which wasn't expected, or isn't valid in this context"),
+            "{}",
+            err_msg
+        );
     }
 
     fn test_command_execution(name: &str, value: &str) {
