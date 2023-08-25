@@ -147,9 +147,6 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg.change {
-            ConfigurationChange::UpdateNewPassword(new_password) => {
-                self.db_password_opt = Some(new_password)
-            }
             ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
