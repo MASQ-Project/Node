@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
@@ -221,13 +221,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                         "Database corruption {:?}: consuming private key is not hex, but '{}'",
                         e, key
                     ),
-                    Ok(bytes) => match Bip32ECKeyProvider::from_raw_secret(bytes.as_slice()) {
-                        Err(e) => panic!(
-                            "Database corruption {:?}: consuming private key is invalid",
-                            e
-                        ),
-                        Ok(pair) => Wallet::from(pair),
-                    },
+                    Ok(bytes) => {
+                        match Bip32EncryptionKeyProvider::from_raw_secret(bytes.as_slice()) {
+                            Err(e) => panic!(
+                                "Database corruption {:?}: consuming private key is invalid",
+                                e
+                            ),
+                            Ok(pair) => Wallet::from(pair),
+                        }
+                    }
                 })
             })
     }
@@ -1058,7 +1060,7 @@ mod tests {
         let consuming_private_key =
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyProvider::from_raw_secret(
+            Bip32EncryptionKeyProvider::from_raw_secret(
                 consuming_private_key
                     .from_hex::<Vec<u8>>()
                     .unwrap()
@@ -1191,7 +1193,7 @@ mod tests {
         let earning_private_key =
             ExtendedPrivKey::derive(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let earning_key_pair =
-            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
         let earning_wallet = Wallet::from(earning_key_pair);
         let earning_wallet_address = earning_wallet.to_string();
         (

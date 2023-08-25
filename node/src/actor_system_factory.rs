@@ -10,9 +10,7 @@ use super::stream_handler_pool::StreamHandlerPool;
 use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
-use crate::accountant::database_access_objects::banned_dao::{
-    BannedCacheLoader, BannedCacheLoaderReal,
-};
+use crate::accountant::db_access_objects::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -1929,7 +1927,7 @@ mod tests {
         let file_path = current_dir.join(PathBuf::from_iter([
             "src",
             "accountant",
-            "database_access_objects",
+            "db_access_objects",
             "receivable_dao.rs",
         ]));
         let file = match File::open(file_path) {

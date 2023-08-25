@@ -137,3 +137,6 @@ node.log
 lnk*.tmp
 /*/target/
 node_ui/static/binaries/
+
+# VSCode
+.vscode

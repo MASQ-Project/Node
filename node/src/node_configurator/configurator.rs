@@ -18,7 +18,7 @@ use masq_lib::ui_gateway::{
     MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
 };
 
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -485,7 +485,7 @@ impl Configurator {
     }
 
     fn generate_wallet(seed: &Seed, derivation_path: &str) -> Result<Wallet, MessageError> {
-        match Bip32ECKeyProvider::try_from((seed.as_bytes(), derivation_path)) {
+        match Bip32EncryptionKeyProvider::try_from((seed.as_bytes(), derivation_path)) {
             Err(e) => Err((
                 DERIVATION_PATH_ERROR,
                 format!("Bad derivation-path syntax: {}: {}", e, derivation_path),
@@ -570,7 +570,7 @@ impl Configurator {
                                 Ok(bytes) => bytes,
                                 Err(e) => panic! ("Database corruption: consuming wallet private key '{}' cannot be converted from hexadecimal: {:?}", private_key_hex, e),
                             };
-                            let key_pair = match Bip32ECKeyProvider::from_raw_secret(private_key_bytes.as_slice()) {
+                            let key_pair = match Bip32EncryptionKeyProvider::from_raw_secret(private_key_bytes.as_slice()) {
                                 Ok(pair) => pair,
                                 Err(e) => panic!("Database corruption: consuming wallet private key '{}' is invalid: {:?}", private_key_hex, e),
                             };
@@ -891,7 +891,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -1368,7 +1368,7 @@ mod tests {
             ExtendedPrivKey::derive(seed.as_slice(), derivation_path(0, 4).as_str()).unwrap();
         let consuming_private_key = consuming_epk.secret().to_hex::<String>().to_uppercase();
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 4).as_str()))
+            Bip32EncryptionKeyProvider::try_from((seed.as_slice(), derivation_path(0, 4).as_str()))
                 .unwrap(),
         );
         assert_eq!(
@@ -1384,7 +1384,7 @@ mod tests {
             .unwrap()
         );
         let earning_wallet = Wallet::from(
-            Bip32ECKeyProvider::try_from((seed.as_slice(), derivation_path(0, 5).as_str()))
+            Bip32EncryptionKeyProvider::try_from((seed.as_slice(), derivation_path(0, 5).as_str()))
                 .unwrap(),
         );
         assert_eq!(
@@ -1762,7 +1762,7 @@ mod tests {
         )
         .unwrap();
         let earning_keypair =
-            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
         let earning_wallet = Wallet::from(earning_keypair);
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
@@ -2517,7 +2517,7 @@ mod tests {
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let consuming_wallet_address = format!(
             "{:?}",
-            Bip32ECKeyProvider::from_raw_secret(
+            Bip32EncryptionKeyProvider::from_raw_secret(
                 consuming_wallet_private_key
                     .from_hex::<Vec<u8>>()
                     .unwrap()

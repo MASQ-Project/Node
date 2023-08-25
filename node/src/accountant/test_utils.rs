@@ -2,15 +2,15 @@
 
 #![cfg(test)]
 
-use crate::accountant::database_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::database_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::database_access_objects::payable_dao::{
+use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
-use crate::accountant::database_access_objects::pending_payable_dao::{
+use crate::accountant::db_access_objects::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
-use crate::accountant::database_access_objects::receivable_dao::{
+use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
