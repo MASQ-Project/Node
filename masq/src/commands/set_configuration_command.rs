@@ -133,9 +133,7 @@ mod tests {
         test_command_execution("--min-hops", "6");
     }
 
-    // TODO: This test only passes when we run through IDE - make it work even without it
     #[test]
-    #[ignore]
     fn set_configuration_command_throws_err_for_invalid_arg() {
         let (invalid_arg, some_value) = ("--invalid-arg", "123");
 
@@ -146,10 +144,13 @@ mod tests {
         ]);
 
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains(
-            "error: Found argument '--invalid-arg' \
-             which wasn't expected, or isn't valid in this context"
-        ));
+        assert!(err_msg.contains("Found argument"), "{}", err_msg);
+        assert!(err_msg.contains("--invalid-arg"), "{}", err_msg);
+        assert!(
+            err_msg.contains("which wasn't expected, or isn't valid in this context"),
+            "{}",
+            err_msg
+        );
     }
 
     fn test_command_execution(name: &str, value: &str) {

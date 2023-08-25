@@ -40,6 +40,7 @@ use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -93,7 +94,7 @@ pub struct Neighborhood {
     consuming_wallet_opt: Option<Wallet>,
     mode: NeighborhoodModeLight,
     min_hops: Hops,
-    db_patch_size: Hops,
+    db_patch_size: u8,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -146,9 +147,6 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg.change {
-            ConfigurationChange::UpdateNewPassword(new_password) => {
-                self.db_password_opt = Some(new_password)
-            }
             ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
                 self.consuming_wallet_opt = Some(new_wallet)
             }
@@ -362,6 +360,15 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
+// GH-728
+impl Handler<NewPasswordMessage> for Neighborhood {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_password(msg.new_password);
+    }
+}
+
 impl Handler<StreamShutdownMsg> for Neighborhood {
     type Result = ();
 
@@ -501,6 +508,7 @@ impl Neighborhood {
             configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
+            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(), // GH-728
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }
@@ -1566,12 +1574,14 @@ impl Neighborhood {
         );
     }
 
-    fn calculate_db_patch_size(min_hops: Hops) -> Hops {
-        if min_hops <= DEFAULT_MIN_HOPS {
+    fn calculate_db_patch_size(min_hops: Hops) -> u8 {
+        let db_patch_size = if min_hops <= DEFAULT_MIN_HOPS {
             DEFAULT_MIN_HOPS
         } else {
             min_hops
-        }
+        };
+
+        db_patch_size as u8
     }
 
     fn set_min_hops_and_patch_size(&mut self, new_min_hops: Hops) {
@@ -1579,6 +1589,11 @@ impl Neighborhood {
         self.min_hops = new_min_hops;
         self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         debug!(self.logger, "The value of min_hops ({}-hop -> {}-hop) and db_patch_size ({} -> {}) has been changed", prev_min_hops, self.min_hops, prev_db_patch_size, self.db_patch_size);
+    }
+
+    // GH-728
+    fn handle_new_password(&mut self, new_password: String) {
+        self.db_password_opt = Some(new_password);
     }
 }
 
@@ -1714,7 +1729,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_and_db_patch_size_is_set_inside_neighborhood() {
+    fn min_hops_and_db_patch_size_are_set_inside_neighborhood() {
         let min_hops = Hops::SixHops;
         let mode = NeighborhoodMode::Standard(
             NodeAddr::new(&make_ip(1), &[1234, 2345]),
@@ -3020,30 +3035,12 @@ mod tests {
 
     #[test]
     fn can_calculate_db_patch_size_from_min_hops() {
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::OneHop),
-            Hops::ThreeHops
-        );
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::TwoHops),
-            Hops::ThreeHops
-        );
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::ThreeHops),
-            Hops::ThreeHops
-        );
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::FourHops),
-            Hops::FourHops
-        );
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::FiveHops),
-            Hops::FiveHops
-        );
-        assert_eq!(
-            Neighborhood::calculate_db_patch_size(Hops::SixHops),
-            Hops::SixHops
-        );
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::OneHop), 3);
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::TwoHops), 3);
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::ThreeHops), 3);
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::FourHops), 4);
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::FiveHops), 5);
+        assert_eq!(Neighborhood::calculate_db_patch_size(Hops::SixHops), 6);
     }
 
     #[test]
@@ -3981,7 +3978,7 @@ mod tests {
         let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.db_patch_size = Hops::SixHops;
+        subject.db_patch_size = 6;
         let mut peer_2_db = db_from_node(&peer_2);
         peer_2_db.add_node(peer_1.clone()).unwrap();
         peer_2_db.add_arbitrary_full_neighbor(peer_2.public_key(), peer_1.public_key());
@@ -3994,7 +3991,7 @@ mod tests {
         subject.handle_agrs(agrs, peer_2_socket_addr, make_cpm_recipient().0);
 
         let (_, _, _, neighborhood_metadata) = handle_params_arc.lock().unwrap().remove(0);
-        assert_eq!(neighborhood_metadata.db_patch_size, Hops::SixHops);
+        assert_eq!(neighborhood_metadata.db_patch_size, 6);
         TestLogHandler::new()
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
     }
@@ -5868,7 +5865,7 @@ mod tests {
     }
 
     #[test]
-    fn can_update_new_password_with_configuration_change_msg() {
+    fn new_password_message_works() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
@@ -5881,9 +5878,10 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
+        // GH-728
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateNewPassword("borkety-bork".to_string()),
+            .try_send(NewPasswordMessage {
+                new_password: "borkety-bork".to_string(),
             })
             .unwrap();
 

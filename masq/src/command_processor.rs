@@ -75,7 +75,7 @@ impl CommandProcessor for CommandProcessorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::CommandContext;
+    use crate::command_context::{CommandContext, DEFAULT_TRANSACT_TIMEOUT_MILLIS};
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handler::{
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
@@ -94,7 +94,7 @@ mod tests {
 
     impl Command for TestCommand {
         fn execute<'a>(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            match context.transact(UiShutdownRequest {}.tmb(1), 1000) {
+            match context.transact(UiShutdownRequest {}.tmb(1), DEFAULT_TRANSACT_TIMEOUT_MILLIS) {
                 Ok(_) => Ok(()),
                 Err(e) => Err(CommandError::Other(format!("{:?}", e))),
             }

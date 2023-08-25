@@ -26,8 +26,9 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
-use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage, Hops};
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, Hops};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -47,6 +48,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
+    new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>, // GH-728
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -62,6 +64,7 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
+        self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
         self.configuration_change_msg_sub_opt =
             Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
     }
@@ -71,7 +74,6 @@ impl Handler<NodeFromUiMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        // TODO: I wish if we would log the body and context_id of each request over here. Is there a security risk?
         if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
@@ -111,6 +113,7 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
+            new_password_subs: None, // GH-728
             node_to_ui_sub_opt: None,
             configuration_change_msg_sub_opt: None,
             crashable,
@@ -708,11 +711,18 @@ impl Configurator {
             logger,
         ) {
             Ok(message_body) => message_body,
-            Err((code, msg)) => MessageBody {
-                opcode: "setConfiguration".to_string(),
-                path: MessagePath::Conversation(context_id),
-                payload: Err((code, msg)),
-            },
+            Err((code, msg)) => {
+                error!(
+                    logger,
+                    "{}",
+                    format!("The UiSetConfigurationRequest failed with an error {code}: {msg}")
+                );
+                MessageBody {
+                    opcode: "setConfiguration".to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((code, msg)),
+                }
+            }
         }
     }
 
@@ -792,7 +802,7 @@ impl Configurator {
                     .try_send(ConfigurationChangeMessage {
                         change: UpdateMinHops(min_hops),
                     })
-                    .expect("Configurator is unbound");
+                    .expect("Neighborhood is dead");
                 Ok(())
             }
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e))),
@@ -823,14 +833,16 @@ impl Configurator {
     }
 
     fn send_password_changes(&self, new_password: String) {
-        let msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateNewPassword(new_password),
-        };
-        self.configuration_change_msg_sub_opt
+        // GH-728
+        let msg = NewPasswordMessage { new_password };
+        self.new_password_subs
             .as_ref()
             .expect("Configurator is unbound")
-            .try_send(msg)
-            .expect("New password recipient is dead");
+            .iter()
+            .for_each(|sub| {
+                sub.try_send(msg.clone())
+                    .expect("New password recipient is dead")
+            });
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -884,6 +896,7 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::{ConfigurationChange, NodeDescriptor, RatePack};
@@ -924,6 +937,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.configuration_change_msg_sub_opt = Some(neighborhood_addr.recipient());
+        subject.new_password_subs = Some(vec![]); // GH-728
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1087,10 +1101,11 @@ mod tests {
             }
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        // GH-728
         assert_eq!(
-            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
-            &ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateNewPassword("new_password".to_string())
+            neighborhood_recording.get_record::<NewPasswordMessage>(0),
+            &NewPasswordMessage {
+                new_password: "new_password".to_string()
             }
         );
         assert_eq!(neighborhood_recording.len(), 1);
@@ -2217,7 +2232,10 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_throws_err_for_invalid_min_hops() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
+        subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2238,10 +2256,16 @@ mod tests {
                 ))
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+             281474976710668: min hops: \"Invalid value for min hops provided\""
+        ));
     }
 
     #[test]
     fn handle_set_configuration_handles_failure_on_min_hops_database_issue() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_handles_failure_on_min_hops_database_issue";
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_result(Err(PersistentConfigError::TransactionError));
         let system =
@@ -2252,6 +2276,7 @@ mod tests {
             .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
         subject.configuration_change_msg_sub_opt = Some(configuration_change_msg_sub);
+        subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2276,6 +2301,10 @@ mod tests {
                 ))
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+                281474976710658: min hops: TransactionError"
+        ));
     }
 
     #[test]
@@ -2724,6 +2753,7 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
+                new_password_subs: None, // GH-728
                 node_to_ui_sub_opt: None,
                 configuration_change_msg_sub_opt: None,
                 crashable: false,
