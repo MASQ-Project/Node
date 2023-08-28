@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
-use crate::accountant::database_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::dao_utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -241,12 +241,12 @@ impl<'a> PendingPayableDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
     use crate::accountant::checked_conversion;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
-    use crate::accountant::database_access_objects::pending_payable_dao::{
+    use crate::accountant::db_access_objects::dao_utils::from_time_t;
+    use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
+    use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;

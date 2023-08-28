@@ -36,13 +36,8 @@ impl MockPcpRouter {
     fn start(ip_addr: IpAddr) -> TcpStream {
         let name = "pcp_router".to_string();
         DataProbeUtils::clean_up_existing_container(&name[..]);
-        let mock_router_args = vec![format! ("{}:U5351", ip_addr)];
-        do_docker_run(
-            ip_addr,
-            None,
-            &name,
-            mock_router_args,
-        );
+        let mock_router_args = vec![format!("{}:U5351", ip_addr)];
+        do_docker_run(ip_addr, None, &name, mock_router_args);
         let wait_addr = SocketAddr::new(ip_addr, CONTROL_STREAM_PORT);
         wait_for_startup(wait_addr, &name)
     }

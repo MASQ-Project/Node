@@ -7,7 +7,9 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;

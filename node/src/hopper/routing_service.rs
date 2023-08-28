@@ -500,7 +500,7 @@ impl RoutingService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::banned_dao::BAN_CACHE;
+    use crate::accountant::db_access_objects::banned_dao::BAN_CACHE;
     use crate::bootstrapper::Bootstrapper;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;

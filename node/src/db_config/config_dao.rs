@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::database_access_objects::dao_utils::DaoFactoryReal;
+use crate::accountant::db_access_objects::dao_utils::DaoFactoryReal;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};

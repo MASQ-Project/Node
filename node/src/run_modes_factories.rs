@@ -83,7 +83,9 @@ pub trait DaemonInitializer {
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
-        Box::new(DumpConfigRunnerReal)
+        Box::new(DumpConfigRunnerReal {
+            dirs_wrapper: Box::new(DirsWrapperReal),
+        })
     }
 }
 

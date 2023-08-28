@@ -109,8 +109,8 @@ impl IdWrapperMock {
 }
 
 pub struct DirsWrapperMock {
-    data_dir_result: Option<PathBuf>,
-    home_dir_result: Option<PathBuf>,
+    pub(crate) data_dir_result: Option<PathBuf>,
+    pub(crate) home_dir_result: Option<PathBuf>,
 }
 
 impl DirsWrapper for DirsWrapperMock {

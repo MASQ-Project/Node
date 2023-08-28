@@ -7,6 +7,7 @@ use crate::masq_mock_node::{
 use crate::masq_node::{DataProbeUtils, MASQNode};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
+use crate::mock_router::MockPcpRouter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -14,7 +15,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
-use crate::mock_router::MockPcpRouter;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -141,10 +141,7 @@ impl MASQNodeCluster {
         self.next_index += 1;
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         let name = format!("mock_router_{}", index);
-        MockPcpRouter::new(
-            &name,
-            ip_addr,
-        )
+        MockPcpRouter::new(&name, ip_addr)
     }
 
     pub fn stop(self) {

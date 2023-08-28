@@ -19,8 +19,9 @@ use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
+    DATA_DIRECTORY_HELP,
 };
-use masq_lib::utils::{localhost, ExpectValue};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -28,15 +29,15 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-pub fn determine_config_file_path(
+pub fn determine_fundamentals(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool), ConfiguratorError> {
+) -> Result<(PathBuf, bool, PathBuf, RealUser), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
-        .arg(data_directory_arg())
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
         .arg(config_file_arg());
     let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
@@ -54,13 +55,22 @@ pub fn determine_config_file_path(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path = value_m!(multi_config, "config-file", PathBuf).expectv("config-file");
+    let config_file_path = value_m!(multi_config, "config-file", PathBuf)
+        .expect("config-file parameter is not properly defaulted by clap");
     let user_specified = multi_config.occurrences_of("config-file") > 0;
-    let (real_user, data_directory_opt, chain) =
-        real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
-    let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
-    Ok((directory.join(config_file_path), user_specified))
+    let (real_user, data_directory_path, chain) =
+        real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
+    let data_directory = match data_directory_path {
+        Some(data_dir) => data_dir,
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain),
+    };
+    let config_file_path = if config_file_path.is_relative() {
+        data_directory.join(config_file_path)
+    } else {
+        config_file_path
+    };
+
+    Ok((config_file_path, user_specified, data_directory, real_user))
 }
 
 pub fn initialize_database(
@@ -83,17 +93,17 @@ pub fn real_user_from_multi_config_or_populate(
     }
 }
 
-pub fn real_user_data_directory_opt_and_chain(
+pub fn real_user_data_directory_path_and_chain(
     dirs_wrapper: &dyn DirsWrapper,
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
     let chain_name = value_m!(multi_config, "chain", String)
         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
-    let data_directory_opt = value_m!(multi_config, "data-directory", PathBuf);
+    let data_directory_path = value_m!(multi_config, "data-directory", PathBuf);
     (
         real_user,
-        data_directory_opt,
+        data_directory_path,
         Chain::from(chain_name.as_str()),
     )
 }
@@ -101,35 +111,23 @@ pub fn real_user_data_directory_opt_and_chain(
 pub fn data_directory_from_context(
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
-    data_directory_opt: &Option<PathBuf>,
     chain: Chain,
 ) -> PathBuf {
-    match data_directory_opt {
-        Some(data_directory) => data_directory.clone(),
-        None => {
-            let right_home_dir = real_user
-                .home_dir_opt
-                .as_ref()
-                .expect("No real-user home directory; specify --real-user")
-                .to_string_lossy()
-                .to_string();
-            let wrong_home_dir = dirs_wrapper
-                .home_dir()
-                .expect("No privileged home directory; specify --data-directory")
-                .to_string_lossy()
-                .to_string();
-            let wrong_local_data_dir = dirs_wrapper
-                .data_dir()
-                .expect("No privileged local data directory; specify --data-directory")
-                .to_string_lossy()
-                .to_string();
-            let right_local_data_dir =
-                wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            PathBuf::from(right_local_data_dir)
-                .join("MASQ")
-                .join(chain.rec().literal_identifier)
-        }
-    }
+    let right_home_dir = real_user
+        .home_dir_opt
+        .as_ref()
+        .expect("No real-user home directory; specify --real-user");
+    let wrong_home_dir = dirs_wrapper
+        .home_dir()
+        .expect("No privileged home directory; specify --data-directory");
+    let wrong_local_data_dir = dirs_wrapper
+        .data_dir()
+        .expect("No privileged local data directory; specify --data-directory");
+    let adjusted_local_data_dir: &Path = wrong_local_data_dir
+        .strip_prefix(wrong_home_dir)
+        .expect("std lib failed");
+    let homedir = right_home_dir.join(adjusted_local_data_dir);
+    add_masq_and_chain_directories(chain, &homedir)
 }
 
 pub fn port_is_busy(port: u16) -> bool {
@@ -162,12 +160,13 @@ mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
 
     fn determine_config_file_path_app() -> App<'static, 'static> {
         App::new("test")
-            .arg(data_directory_arg())
+            .arg(data_directory_arg(DATA_DIRECTORY_HELP))
             .arg(config_file_arg())
     }
 
@@ -183,15 +182,10 @@ mod tests {
                 "/nonexistent_home/nonexistent_alice".to_string(),
             )),
         );
-        let data_dir_opt = None;
         let chain_name = "polygon-mumbai";
 
-        let result = data_directory_from_context(
-            &dirs_wrapper,
-            &real_user,
-            &data_dir_opt,
-            Chain::from(chain_name),
-        );
+        let result =
+            data_directory_from_context(&dirs_wrapper, &real_user, Chain::from(chain_name));
 
         assert_eq!(
             result,
@@ -203,23 +197,29 @@ mod tests {
 
     #[test]
     fn determine_config_file_path_finds_path_in_args() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "determine_config_file_path_finds_path_in_args",
+        );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--clandestine-port", "2345")
-            .param("--data-directory", "data-dir")
+            .param(
+                "--data-directory",
+                &data_directory.to_string_lossy().to_string(),
+            )
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
         .unwrap();
-
         assert_eq!(
             &format!("{}", config_file_path.parent().unwrap().display()),
-            "data-dir",
+            &data_directory.to_string_lossy().to_string(),
         );
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
@@ -227,22 +227,28 @@ mod tests {
 
     #[test]
     fn determine_config_file_path_finds_path_in_environment() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "determine_config_file_path_finds_path_in_environment",
+        );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
         let args_vec: Vec<String> = args.into();
-        std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
+        std::env::set_var(
+            "MASQ_DATA_DIRECTORY",
+            &data_directory.to_string_lossy().to_string(),
+        );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
         .unwrap();
-
         assert_eq!(
-            "data_dir",
-            &format!("{}", config_file_path.parent().unwrap().display())
+            format!("{}", config_file_path.parent().unwrap().display()),
+            data_directory.to_string_lossy().to_string(),
         );
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
@@ -257,7 +263,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -280,7 +286,7 @@ mod tests {
             .param("--config-file", r"\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -303,7 +309,7 @@ mod tests {
             .param("--config-file", r"c:\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -326,7 +332,7 @@ mod tests {
             .param("--config-file", r"\\TMP\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -350,7 +356,7 @@ mod tests {
             .param("--config-file", r"c:tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified) = determine_config_file_path(
+        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

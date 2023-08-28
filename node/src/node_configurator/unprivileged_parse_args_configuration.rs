@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
@@ -173,8 +173,8 @@ pub fn get_wallets(
                     consuming_private_key
                 )
             });
-        let key_pair =
-            Bip32ECKeyProvider::from_raw_secret(key_bytes.as_slice()).unwrap_or_else(|_| {
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(key_bytes.as_slice())
+            .unwrap_or_else(|_| {
                 panic!(
                     "Wallet corruption: consuming wallet private key in invalid format: {:?}",
                     key_bytes
@@ -615,9 +615,9 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::dao_utils::ThresholdUtils;
     use crate::apps::app_node;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1590,7 +1590,8 @@ mod tests {
         assert_eq!(
             config.consuming_wallet_opt,
             Some(Wallet::from(
-                Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice())
+                    .unwrap()
             )),
         );
         assert_eq!(

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
@@ -746,12 +746,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::from_time_t;
+    use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
@@ -1530,7 +1530,7 @@ mod tests {
         let initiate_fingerprints_recipient = accountant.start().recipient();
         let consuming_wallet_secret = b"consuming_wallet_0123456789abcde";
         let secret_key =
-            (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
+            (&Bip32EncryptionKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
         let chain = Chain::EthMainnet;
@@ -1644,7 +1644,8 @@ mod tests {
         check_web3_origin(&web3);
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
         let (second_transaction_params, web3_from_st_call, secret) =
@@ -1653,7 +1654,8 @@ mod tests {
         check_web3_origin(&web3_from_st_call);
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
         assert!(sign_transaction_params.is_empty());
@@ -1787,8 +1789,10 @@ mod tests {
         assert!(transaction_params.gas <= U256::from(not_above_this_value));
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(
+                &consuming_wallet_secret_raw_bytes.keccak256()
+            )
+            .unwrap())
                 .into()
         );
     }
@@ -1946,7 +1950,7 @@ mod tests {
     }
 
     fn test_consuming_wallet_with_secret() -> Wallet {
-        let key_pair = Bip32ECKeyProvider::from_raw_secret(
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
                 .unwrap(),
         )
@@ -2144,7 +2148,8 @@ mod tests {
             .zip(constant_parts)
         {
             let secret = Wallet::from(
-                Bip32ECKeyProvider::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
+                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
+                    .unwrap(),
             )
             .prepare_secp256k1_secret()
             .unwrap();

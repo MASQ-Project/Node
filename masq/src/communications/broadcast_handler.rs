@@ -193,6 +193,7 @@ mod tests {
         TerminalPassiveMock, TestStreamFactory,
     };
     use crossbeam_channel::{bounded, unbounded, Receiver};
+    use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default};
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
         UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
@@ -211,7 +212,10 @@ mod tests {
         .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
-            values: vec![],
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+            ],
             errors: vec![],
         }
         .tmb(0);
@@ -390,7 +394,10 @@ mod tests {
         };
         let good_message = UiSetupBroadcast {
             running: true,
-            values: vec![],
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+            ],
             errors: vec![],
         }
         .tmb(0);
@@ -468,6 +475,11 @@ mod tests {
                     value: "error".to_string(),
                     status: UiSetupResponseValueStatus::Set,
                 },
+                UiSetupResponseValue {
+                    name: "data-directory".to_string(),
+                    value: "/home/booga".to_string(),
+                    status: UiSetupResponseValueStatus::Default,
+                },
             ],
             errors: vec![],
         };
@@ -478,6 +490,7 @@ mod tests {
 
 NAME                          VALUE                                                            STATUS
 chain                         polygon-mumbai                                                   Configured
+data-directory                /home/booga                                                      Default
 ip                            4.4.4.4                                                          Set
 log-level                     error                                                            Set
 neighborhood-mode             standard                                                         Default

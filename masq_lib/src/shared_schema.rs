@@ -38,8 +38,9 @@ pub const CRASH_POINT_HELP: &str = "The Node is designed not to crash; however, 
      message on startup and then panic. --crash-point Message does not make the Node panic on startup, but it \
      makes the Node vulnerable to the \"crash\" message from a user interface via the MASQNode-UIv2 protocol.";
 pub const DATA_DIRECTORY_HELP: &str =
-    "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well.";
+    "Directory in which the Node will store its persistent state, including at least its database \
+    and by default its configuration file as well.\nNote: any existing database in the data directory \
+    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
@@ -253,7 +254,7 @@ pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
         .help(CONFIG_FILE_HELP)
 }
 
-pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
+pub fn data_directory_arg(help: &str) -> Arg {
     Arg::with_name("data-directory")
         .long("data-directory")
         .value_name("DATA-DIRECTORY")
@@ -261,7 +262,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .min_values(0)
         .max_values(1)
         .empty_values(false)
-        .help(DATA_DIRECTORY_HELP)
+        .help(help)
 }
 
 pub fn chain_arg<'a>() -> Arg<'a, 'a> {
@@ -391,7 +392,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(CRASH_POINT_HELP)
             .hidden(true),
     )
-    .arg(data_directory_arg())
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -743,7 +744,9 @@ mod tests {
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \
-             least its database and by default its configuration file as well."
+             least its database and by default its configuration file as well.\nNote: any existing \
+             database in the data directory must have been created from the same chain this run is using, \
+             or the Node will be terminated."
         );
         assert_eq!(
             DB_PASSWORD_HELP,

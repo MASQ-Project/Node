@@ -4,6 +4,7 @@ use multinode_integration_tests_lib::masq_mock_node::MASQMockNodeGutsBuilder;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
+use multinode_integration_tests_lib::masq_real_node::STANDARD_CLIENT_TIMEOUT_MILLIS;
 use multinode_integration_tests_lib::mock_router::MockRouter;
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::json_masquerader::JsonMasquerader;
@@ -14,7 +15,6 @@ use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_reco
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread;
 use std::time::Duration;
-use multinode_integration_tests_lib::masq_real_node::STANDARD_CLIENT_TIMEOUT_MILLIS;
 
 #[test]
 #[ignore]
@@ -47,7 +47,7 @@ fn receiving_ipchange_gossip_modifies_connections_appropriately() {
     // Connect a client and send a request.
     let mut client = MASQNodeClient::new(
         SocketAddr::new(real_node.ip_address(), 80),
-        STANDARD_CLIENT_TIMEOUT_MILLIS
+        STANDARD_CLIENT_TIMEOUT_MILLIS,
     );
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
     // Verify that the request shows up at the formerly disconnected mock Node.
