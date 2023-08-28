@@ -158,7 +158,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &bad_exit_node_public_key);
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &good_exit_node_public_key);
         let (_, originating_node, mut node_map) =
-            construct_neighborhood(&mut cluster, db, vec![], Hops::OneHop);
+            construct_neighborhood(&mut cluster, db, vec![], |builder| {builder.min_hops(Hops::OneHop).build()} );
         let bad_exit_node = node_map.remove(&bad_exit_node_public_key).unwrap();
         let good_exit_node = node_map.remove(&good_exit_node_public_key).unwrap();
         (originating_node, bad_exit_node, good_exit_node)
@@ -302,7 +302,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             &most_expensive_exit_node_key,
         );
         let (_, originating_node, mut node_map) =
-            construct_neighborhood(&mut cluster, db, vec![], Hops::OneHop);
+            construct_neighborhood(&mut cluster, db, vec![], |builder| {builder.min_hops(Hops::OneHop).build()} );
         let node_list = node_pub_key_list
             .iter()
             .map(|pub_key| node_map.remove(pub_key).unwrap())
