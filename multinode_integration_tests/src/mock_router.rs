@@ -8,9 +8,12 @@ pub trait MockRouter {
     fn announce_ip_change(&self, target_ip: IpAddr, new_ip_address: IpAddr);
 }
 
+#[allow(dead_code)]
 pub struct MockPcpRouter {
-    _control_stream: TcpStream,
-    _framer: DataHunkFramer,
+    name: String,
+    ip_addr: IpAddr,
+    control_stream: TcpStream,
+    framer: DataHunkFramer,
 }
 
 impl MockRouter for MockPcpRouter {
@@ -20,29 +23,27 @@ impl MockRouter for MockPcpRouter {
 }
 
 impl MockPcpRouter {
-    pub fn new(socket_addr: SocketAddr) -> Self {
-        let control_stream = Self::start(socket_addr);
+    pub fn new(name: &str, ip_addr: IpAddr) -> Self {
+        let control_stream = Self::start(ip_addr);
         Self {
-            _control_stream: control_stream,
-            _framer: DataHunkFramer::new(),
+            name: name.to_string(),
+            ip_addr,
+            control_stream,
+            framer: DataHunkFramer::new(),
         }
     }
 
-    pub fn start(socket_addr: SocketAddr) -> TcpStream {
+    fn start(ip_addr: IpAddr) -> TcpStream {
         let name = "pcp_router".to_string();
         DataProbeUtils::clean_up_existing_container(&name[..]);
-        let mock_router_args = Self::make_mock_router_args(socket_addr);
+        let mock_router_args = vec![format! ("{}:U5351", ip_addr)];
         do_docker_run(
-            socket_addr.ip(),
+            ip_addr,
             None,
             &name,
             mock_router_args,
         );
-        let wait_addr = SocketAddr::new(socket_addr.ip(), CONTROL_STREAM_PORT);
+        let wait_addr = SocketAddr::new(ip_addr, CONTROL_STREAM_PORT);
         wait_for_startup(wait_addr, &name)
-    }
-
-    fn make_mock_router_args(_socket_addr: SocketAddr) -> Vec<String> {
-        todo!();
     }
 }

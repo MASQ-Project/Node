@@ -13,7 +13,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 use crate::mock_router::MockPcpRouter;
 
 pub struct MASQNodeCluster {
@@ -137,7 +137,14 @@ impl MASQNodeCluster {
     }
 
     pub fn start_mock_pcp_router(&mut self) -> MockPcpRouter {
-        todo! ()
+        let index = self.next_index;
+        self.next_index += 1;
+        let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
+        let name = format!("mock_router_{}", index);
+        MockPcpRouter::new(
+            &name,
+            ip_addr,
+        )
     }
 
     pub fn stop(self) {
