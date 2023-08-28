@@ -10,7 +10,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
 
 use clap::value_t;
 use log::LevelFilter;
@@ -26,7 +25,6 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
 use crate::node_configurator::{
     data_directory_from_context, determine_fundamentals, real_user_data_directory_path_and_chain,
 };
-use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
@@ -139,10 +137,10 @@ fn collect_externals_from_multi_config(
 pub fn server_initializer_collected_params<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<GatheredParams<'a>, ConfiguratorError> {
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
     let app = app_node();
 
-    let (config_file_path, user_specified, data_directory, real_user) =
+    let (config_file_path, user_specified, data_directory, _real_user) =
         determine_fundamentals(dirs_wrapper, &app, args)?;
 
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
@@ -152,19 +150,15 @@ pub fn server_initializer_collected_params<'a>(
     let full_multi_config = make_new_multi_config(
         &app,
         vec![
-            Box::new(CommandLineVcl::new(args.to_vec())),
             Box::new(EnvironmentVcl::new(&app)),
             config_file_vcl,
+            Box::new(CommandLineVcl::new(args.to_vec())),
+            Box::new(CommandLineVcl::new(vec![
+                "--data-directory ".to_string() + data_directory.to_str().unwrap(),
+            ])),
         ],
     )?;
-    let config_file_path =
-        value_m!(full_multi_config, "config-file", PathBuf).expect("defaulted param");
-    Ok(GatheredParams::new(
-        full_multi_config,
-        config_file_path,
-        real_user,
-        data_directory,
-    ))
+    Ok(full_multi_config)
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -313,7 +307,7 @@ mod tests {
     use masq_lib::utils::{running_test, slice_of_strs_to_vec_of_strings};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -473,13 +467,12 @@ mod tests {
         }
         let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
 
-        let gathered_params = server_initializer_collected_params(
+        let multi_config = server_initializer_collected_params(
             &directory_wrapper,
             &slice_of_strs_to_vec_of_strings(&["", "--data-directory", home_dir.to_str().unwrap()]),
         )
         .unwrap();
 
-        let multi_config = gathered_params.multi_config;
         assert_eq!(
             value_m!(multi_config, "dns-servers", String).unwrap(),
             "111.111.111.111,222.222.222.222".to_string()
@@ -737,45 +730,133 @@ mod tests {
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
 
+    fn fill_up_config_file(mut config_file: File) {
+        {
+            config_file
+                .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"clandestine-port = \"7788\"\n")
+                .unwrap();
+            config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file
+                .write_all(b"dns-servers = \"5.6.7.8\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"earning-wallet = \"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
+                .unwrap();
+            config_file.write_all(b"gas-price = \"77\"\n").unwrap();
+            config_file.write_all(b"log-level = \"trace\"\n").unwrap();
+            config_file
+                .write_all(b"mapping-protocol = \"pcp\"\n")
+                .unwrap();
+            config_file.write_all(b"min-hops = \"6\"\n").unwrap();
+            config_file
+                .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
+            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
+            config_file
+                .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"scan-intervals = \"111|100|99\"\n")
+                .unwrap()
+        }
+    }
+
     #[test]
     fn server_initializer_collected_params_combine_vlcs_properly () {
         running_test();
-        let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
-        let data_dir = home_dir.join("data_dir");
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_combine_vlcs_properly");
+        let data_dir = &home_dir.join("data_dir");
+        let config_file = File::create(home_dir.join("config.toml")).unwrap();
+        let data_dir_vcl = create_dir_all(PathBuf::from("/tmp/cooga/masqhome"));
+        {
+            fill_up_config_file(config_file);
+            match data_dir_vcl {
+                Ok(..) => {
+                    let config_file_vcl = File::create(PathBuf::from("/tmp/cooga/masqhome").join("config.toml")).unwrap();
+                    fill_up_config_file(config_file_vcl);
+                }
+                Err(e) => panic!("unable to create directory {}", e)
+            }
+        }
+
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example3.com"),
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
-            ("MASQ_CLANDESTINE_PORT", "1234"),
-            ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("MASQ_CRASH_POINT", "Error"),
+            ("MASQ_CONFIG_FILE", "config.toml"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            ("MASQ_DB_PASSWORD", "password"),
-            ("MASQ_DNS_SERVERS", "8.8.8.8"),
-            ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
-            ("MASQ_GAS_PRICE", "50"),
-            ("MASQ_IP", "4.3.2.1"),
-            ("MASQ_LOG_LEVEL", "error"),
-            ("MASQ_MAPPING_PROTOCOL", "pmp"),
-            ("MASQ_MIN_HOPS", "2"),
-            ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
-            ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
-            ("MASQ_SCANS", "off"),
-            ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
-        let args = ArgsBuilder::new()
-            .param("--chain", "polygon-mainnet");
+        let args = ArgsBuilder::new();
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir))
-            .data_dir_result(Some(data_dir));
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
-        println!("full_multi_config: {:#?}",result.unwrap().multi_config);
+        let env_multicnfig = result.unwrap();
 
+        let args = ArgsBuilder::new()
+            .param("--config-file", "config.toml")
+            .param("--data-directory", "/tmp/cooga/masqhome")
+            .param("--real-user", "1001:1001:cooga");
+        let args_vec: Vec<String> = args.into();
+        let params = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let result = params.as_ref().expect("REASON");
+        let vcl_multicnfig = result;
+
+        //println!("env_multicnfig: {:#?}", env_multicnfig);
+        assert_eq!(
+            value_m!(env_multicnfig, "config-file", String).unwrap(),
+            "config.toml".to_string()
+        );/*
+        assert_eq!(
+            value_m!(env_multicnfig, "data-directory", String).unwrap(),
+            "generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home".to_string()
+        );*/
+        #[cfg(not(target_os = "windows"))]
+        match env_multicnfig.real_user_specified {
+            true => {
+                assert_eq!(
+                    value_m!(env_multicnfig, "real-user", String).unwrap(),
+                    "9999:9999:booga".to_string()
+                )
+            }
+            false => {
+                println!("real-user is not user specified");
+                ()
+            }
+        }
+
+        //println!("env_multicnfig: {:#?}", vcl_multicnfig);
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            value_m!(vcl_multicnfig, "real-user", String).unwrap(),
+            "1001:1001:cooga".to_string()
+        );
+        match vcl_multicnfig.data_directory_user_specified {
+            true => {
+                assert_eq!(
+                    value_m!(vcl_multicnfig, "data-directory", String).unwrap(),
+                    "/tmp/cooga/masqhome".to_string()
+                )
+            }
+            false => {
+                println!("data-directory is not user specified");
+                ()
+            }
+        }
+        assert_eq!(
+            value_m!(vcl_multicnfig, "config-file", String).unwrap(),
+            "config.toml".to_string()
+        );
+        assert_eq!(
+            value_m!(vcl_multicnfig, "real-user", String).unwrap(),
+            "1001:1001:cooga".to_string()
+        );
     }
 
     #[test]
@@ -1097,12 +1178,12 @@ mod tests {
         };
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
-            .unwrap()
-            .data_directory
-            .to_string_lossy()
-            .to_string();
+            .unwrap();
 
-        assert_eq!(result, expected.unwrap());
+        assert_eq!(
+            value_m!(result, "data-directory", String).unwrap(),
+            expected.unwrap()
+        );
     }
 
     #[test]

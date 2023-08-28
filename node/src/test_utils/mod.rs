@@ -643,7 +643,7 @@ pub mod unshared_test_utils {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
         let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
-        MultiConfig::new_test_only(arg_matches)
+        MultiConfig::new_test_only(arg_matches, false, false, false)
     }
 
     pub const ZERO: u32 = 0b0;

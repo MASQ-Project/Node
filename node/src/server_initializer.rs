@@ -8,6 +8,7 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
+use clap::value_t;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
@@ -37,34 +38,36 @@ pub struct ServerInitializerReal {
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let real_user = value_m!(params, "real-user", RealUser).unwrap();
+        let data_directory = value_m!(params, "data-directory", String).unwrap();
 
         let result: RunModeResult = Ok(())
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&params),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&params),
             );
 
         self.privilege_dropper
-            .chown(&params.data_directory, &params.real_user);
+            .chown(Path::new(data_directory.as_str()), &real_user);
 
-        self.privilege_dropper.drop_privileges(&params.real_user);
+        self.privilege_dropper.drop_privileges(&real_user);
 
-        result
+            result
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&params, streams),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&params, streams),
             )
     }
     implement_as_any!();
@@ -115,6 +118,7 @@ impl ResultsCombiner for RunModeResult {
     }
 }
 
+#[derive(Debug)]
 pub struct GatheredParams<'a> {
     pub multi_config: MultiConfig<'a>,
     pub config_file_path: PathBuf,
