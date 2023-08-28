@@ -226,7 +226,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
 
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (_, masq_real_node, mut node_map) =
-        construct_neighborhood(&mut cluster, db, vec![], |builder| {builder.build()});
+        construct_neighborhood(&mut cluster, db, vec![], |builder| builder.build());
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -266,7 +266,7 @@ fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMock
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
     let (_, masq_real_node, mut node_map) =
-        construct_neighborhood(cluster, db, vec![], |builder| {builder.build()});
+        construct_neighborhood(cluster, db, vec![], |builder| builder.build());
     let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
         masq_real_node,

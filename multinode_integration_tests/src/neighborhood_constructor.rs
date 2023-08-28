@@ -3,8 +3,8 @@
 use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::MASQNode;
 use crate::masq_node_cluster::MASQNodeCluster;
-use crate::masq_real_node::{MASQRealNode, NodeStartupConfig};
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
+use crate::masq_real_node::{MASQRealNode, NodeStartupConfig};
 use crate::multinode_gossip::{Standard, StandardBuilder};
 use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
@@ -55,12 +55,15 @@ pub fn construct_neighborhood<F>(
     cluster: &mut MASQNodeCluster,
     model_db: NeighborhoodDatabase,
     additional_keys_to_mock: Vec<&PublicKey>,
-    modify_config: F
+    modify_config: F,
 ) -> (
     NeighborhoodDatabase,
     MASQRealNode,
     HashMap<PublicKey, MASQMockNode>,
-) where F: FnOnce(NodeStartupConfigBuilder) -> NodeStartupConfig {
+)
+where
+    F: FnOnce(NodeStartupConfigBuilder) -> NodeStartupConfig,
+{
     let config_builder = NodeStartupConfigBuilder::standard()
         .fake_public_key(model_db.root().public_key())
         .consuming_wallet_info(make_consuming_wallet_info(

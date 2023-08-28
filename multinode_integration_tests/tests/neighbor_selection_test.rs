@@ -12,7 +12,7 @@ use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::sub_lib::neighborhood::{GossipFailure_0v1};
+use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
@@ -53,7 +53,7 @@ fn debut_target_does_not_introduce_known_neighbors() {
         another_common_neighbor.public_key(),
     );
     let (_, subject_real_node, _) =
-        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| {builder.build()});
+        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| builder.build());
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
             .node(debuter_mock_node.main_public_key(), true)
@@ -106,7 +106,7 @@ fn debut_target_does_not_pass_to_known_neighbors() {
         src_db.add_arbitrary_full_neighbor(debuter_node_record.public_key(), node.public_key());
     });
     let (_, subject_real_node, _) =
-        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| {builder.build()});
+        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| builder.build());
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
             .node(debuter_mock_node.main_public_key(), true)
@@ -136,7 +136,7 @@ fn node_remembers_its_neighbors_across_a_bounce() {
         dest_db
     };
     let (_, originating_node, _) =
-        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| {builder.build()});
+        construct_neighborhood(&mut cluster, dest_db, vec![], |builder| builder.build());
     let relay1 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
 
     originating_node.kill_node();
