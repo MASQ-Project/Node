@@ -16,8 +16,8 @@ pub trait PaymentAdjusterInner {
         PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance()")
     }
 
-    fn lower_unallocated_cw_balance(&mut self, _subtrahend: u128) {
-        PaymentAdjusterInnerNull::panicking_operation("lower_unallocated_cw_balance()")
+    fn update_unallocated_cw_balance(&mut self, _subtrahend: u128) {
+        PaymentAdjusterInnerNull::panicking_operation("update_unallocated_cw_balance()")
     }
 }
 
@@ -56,7 +56,7 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn unallocated_cw_masq_balance(&self) -> u128 {
         self.unallocated_cw_masq_balance
     }
-    fn lower_unallocated_cw_balance(&mut self, subtrahend: u128) {
+    fn update_unallocated_cw_balance(&mut self, subtrahend: u128) {
         let updated_thought_cw_balance = self
             .unallocated_cw_masq_balance
             .checked_sub(subtrahend)
@@ -144,11 +144,11 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the lower_unallocated_cw_balance() method in PaymentAdjusterInner"
+        expected = "Called the null implementation of the update_unallocated_cw_balance() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_lower_unallocated_cw_balance() {
+    fn inner_null_calling_update_unallocated_cw_balance() {
         let mut subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.lower_unallocated_cw_balance(123);
+        let _ = subject.update_unallocated_cw_balance(123);
     }
 }

@@ -1,17 +1,21 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
-    exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
-    possibly_outweighed_accounts_diagnostics,
+    exhausting_cw_balance_diagnostics, maybe_find_an_account_to_disqualify_diagnostics,
+    not_exhausting_cw_balance_diagnostics, possibly_outweighed_accounts_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_sructures::{
+use crate::accountant::payment_adjuster::log_fns::log_info_for_disqualified_account;
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
     ResolutionAfterFullyDetermined,
 };
-use crate::accountant::payment_adjuster::{diagnostics, AnalysisError, PaymentAdjusterError};
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
+use masq_lib::logger::Logger;
 use std::iter::successors;
+use std::ops::Not;
 use thousands::Separable;
 
 const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
@@ -91,31 +95,30 @@ pub fn possibly_outweighed_accounts_fold_guts(
     }
 }
 
-pub fn find_largest_debt_account_generic<A>(accounts: &[A], balance_fetcher: fn(&A) -> u128) -> &A {
-    struct Largest<'a, A> {
-        account: &'a A,
-        balance: u128,
-    }
-
-    let first_account = accounts.first().expect("collection was empty");
-    let init = Largest {
-        account: first_account,
-        balance: balance_fetcher(first_account),
-    };
+pub fn find_largest_disqualified_account<'a>(
+    accounts: &'a [&'a AdjustedAccountBeforeFinalization],
+) -> &'a AdjustedAccountBeforeFinalization {
+    let first_account = &accounts.first().expect("collection was empty");
     accounts
         .iter()
-        .fold(init, |largest_so_far, current| {
-            let balance = balance_fetcher(current);
-            if balance <= largest_so_far.balance {
+        .fold(**first_account, |largest_so_far, current| {
+            if current.original_account.balance_wei < largest_so_far.original_account.balance_wei {
                 largest_so_far
-            } else {
-                Largest {
-                    account: current,
-                    balance,
+            } else if current.original_account.balance_wei
+                == largest_so_far.original_account.balance_wei
+            {
+                // bigger value means younger
+                if current.original_account.last_paid_timestamp
+                    > largest_so_far.original_account.last_paid_timestamp
+                {
+                    current
+                } else {
+                    largest_so_far
                 }
+            } else {
+                current
             }
         })
-        .account
 }
 
 pub fn exhaust_cw_balance_totally(
@@ -182,6 +185,42 @@ pub fn exhaust_cw_balance_totally(
         .into_iter()
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.balance_wei, &account_a.balance_wei))
         .collect()
+}
+
+pub fn maybe_find_an_account_to_disqualify_in_this_iteration(
+    non_finalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
+    logger: &Logger,
+) -> Option<Wallet> {
+    let disqualification_suspected_accounts =
+        list_accounts_under_the_disqualification_limit(non_finalized_adjusted_accounts);
+    disqualification_suspected_accounts
+        .is_empty()
+        .not()
+        .then(|| {
+            let account_to_disqualify = find_largest_disqualified_account(
+                &disqualification_suspected_accounts
+            );
+
+            let wallet = account_to_disqualify.original_account.wallet.clone();
+
+            maybe_find_an_account_to_disqualify_diagnostics(
+                &disqualification_suspected_accounts,
+                &wallet,
+            );
+
+            debug!(
+                    logger,
+                    "Found accounts {:?} whose proposed adjusted balances didn't get above the limit \
+                    for disqualification. Chose the least desirable disqualified account as the one \
+                    with the biggest balance, which is {}. To be thrown away in this iteration.",
+                    disqualification_suspected_accounts,
+                    wallet
+                );
+
+            log_info_for_disqualified_account(logger, account_to_disqualify);
+
+            wallet
+        })
 }
 
 struct ExhaustionStatus {
@@ -317,23 +356,24 @@ impl
 #[cfg(test)]
 mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        compute_fraction_preventing_mul_coeff, exhaust_cw_balance_totally,
-        find_largest_debt_account_generic, list_accounts_under_the_disqualification_limit, log_10,
-        log_2, possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
+        compute_fraction_preventing_mul_coeff, criteria_total, exhaust_cw_balance_totally,
+        find_largest_disqualified_account, list_accounts_under_the_disqualification_limit, log_10,
+        log_2, maybe_find_an_account_to_disqualify_in_this_iteration,
+        possibly_outweighed_accounts_fold_guts, ExhaustionStatus,
         ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
         MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
-    use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use std::time::SystemTime;
+    use masq_lib::logger::Logger;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn constants_are_correct() {
@@ -497,21 +537,86 @@ mod tests {
         )
     }
 
+    fn envelope_payable_accounts_to_adjusted_accounts_before_finalization(
+        payable_accounts: Vec<(PayableAccount, u128)>,
+    ) -> Vec<AdjustedAccountBeforeFinalization> {
+        payable_accounts
+            .into_iter()
+            .map(|(original_account, proposed_adjusted_balance)| {
+                AdjustedAccountBeforeFinalization {
+                    original_account,
+                    proposed_adjusted_balance,
+                    criteria_sum: 0,
+                }
+            })
+            .collect()
+    }
+
+    fn give_by_reference(
+        adjusted_accounts: &[AdjustedAccountBeforeFinalization],
+    ) -> Vec<&AdjustedAccountBeforeFinalization> {
+        adjusted_accounts.iter().collect()
+    }
+
     #[test]
-    fn find_largest_debt_account_generic_works() {
+    fn find_largest_disqualified_account_works_for_unequal_balances() {
         let account_1 = make_payable_account(111);
         let account_2 = make_payable_account(333);
         let account_3 = make_payable_account(222);
         let account_4 = make_payable_account(332);
-        let accounts = vec![account_1, account_2.clone(), account_3, account_4];
+        let accounts = envelope_payable_accounts_to_adjusted_accounts_before_finalization(vec![
+            (account_1, 100_000_000),
+            (account_2.clone(), 222_000_000),
+            (account_3, 300_000_000),
+            (account_4, 400_000_000),
+        ]);
+        let referenced_accounts = give_by_reference(&accounts);
 
-        let result = find_largest_debt_account_generic(&accounts, |account| account.balance_wei);
+        let result = find_largest_disqualified_account(&referenced_accounts);
 
-        assert_eq!(result, &account_2)
+        assert_eq!(
+            result,
+            &AdjustedAccountBeforeFinalization {
+                original_account: account_2,
+                proposed_adjusted_balance: 222_000_000,
+                criteria_sum: 0
+            }
+        )
     }
 
     #[test]
-    fn find_largest_debt_account_generic_when_accounts_with_equal_balances() {
+    fn find_largest_disqualified_account_for_equal_balances_chooses_younger_account() {
+        // because it will help do the impact on the cw balance that can be spread among less accounts,
+        // yet we prefer to keep the older and so more important account in the game
+        let now = SystemTime::now();
+        let account_1 = make_payable_account(111);
+        let mut account_2 = make_payable_account(333);
+        account_2.last_paid_timestamp = now.checked_sub(Duration::from_secs(10000)).unwrap();
+        let account_3 = make_payable_account(222);
+        let mut account_4 = make_payable_account(333);
+        account_4.last_paid_timestamp = now.checked_sub(Duration::from_secs(9999)).unwrap();
+        let accounts = envelope_payable_accounts_to_adjusted_accounts_before_finalization(vec![
+            (account_1, 100_000_000),
+            (account_2, 200_000_000),
+            (account_3, 300_000_000),
+            (account_4.clone(), 444_000_000),
+        ]);
+        let referenced_accounts = give_by_reference(&accounts);
+
+        let result = find_largest_disqualified_account(&referenced_accounts);
+
+        assert_eq!(
+            result,
+            &AdjustedAccountBeforeFinalization {
+                original_account: account_4,
+                proposed_adjusted_balance: 444_000_000,
+                criteria_sum: 0,
+            }
+        )
+    }
+
+    #[test]
+    fn find_largest_disqualified_account_for_accounts_with_equal_balances_as_well_as_age() {
         let account = make_payable_account(111);
         let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");
@@ -519,15 +624,26 @@ mod tests {
         account_1.wallet = wallet_1.clone();
         let mut account_2 = account;
         account_2.wallet = wallet_2;
-        let accounts = vec![account_1.clone(), account_2];
+        let accounts = envelope_payable_accounts_to_adjusted_accounts_before_finalization(vec![
+            (account_1.clone(), 100_111_000),
+            (account_2, 200_000_000),
+        ]);
+        let referenced_accounts = give_by_reference(&accounts);
 
-        let result = find_largest_debt_account_generic(&accounts, |account| account.balance_wei);
+        let result = find_largest_disqualified_account(&referenced_accounts);
 
-        assert_eq!(result, &account_1)
+        assert_eq!(
+            result,
+            &AdjustedAccountBeforeFinalization {
+                original_account: account_1,
+                proposed_adjusted_balance: 100_111_000,
+                criteria_sum: 0
+            }
+        )
     }
 
     #[test]
-    fn algorithm_is_left_cold_by_accounts_with_original_balance_equal_to_proposed_one() {
+    fn ignores_accounts_with_original_balance_equal_to_the_proposed_ones() {
         let account_info = AdjustedAccountBeforeFinalization {
             original_account: PayableAccount {
                 wallet: make_wallet("blah"),
@@ -544,6 +660,57 @@ mod tests {
 
         assert_eq!(outweighed, vec![]);
         assert_eq!(ok, vec![account_info])
+    }
+
+    #[test]
+    fn pick_only_the_biggest_and_youngest_debt_from_all_disqualified_accounts_in_one_iteration() {
+        let test_name = "pick_only_the_biggest_and_youngest_debt_from_all_disqualified_accounts_in_one_iteration";
+        let now = SystemTime::now();
+        let cw_masq_balance = 2_000_000_000_000;
+        let logger = Logger::new(test_name);
+        let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
+        let wallet_1 = make_wallet("abc");
+        let account_1 = PayableAccount {
+            wallet: wallet_1.clone(),
+            balance_wei: 700_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let wallet_2 = make_wallet("def");
+        let account_2 = PayableAccount {
+            wallet: wallet_2.clone(),
+            balance_wei: 333_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let wallet_3 = make_wallet("ghi");
+        let account_3 = PayableAccount {
+            wallet: wallet_3.clone(),
+            balance_wei: 700_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(99_999)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let wallet_4 = make_wallet("jkl");
+        let account_4 = PayableAccount {
+            wallet: wallet_4.clone(),
+            balance_wei: 120_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(7_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let accounts_with_individual_criteria = subject
+            .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
+        let criteria_total = criteria_total(&accounts_with_individual_criteria);
+        let non_finalized_adjusted_accounts = subject.compute_non_finalized_adjusted_accounts(
+            accounts_with_individual_criteria,
+            criteria_total,
+        );
+
+        let result = maybe_find_an_account_to_disqualify_in_this_iteration(
+            &non_finalized_adjusted_accounts,
+            &logger,
+        );
+
+        assert_eq!(result, Some(wallet_3));
     }
 
     fn make_non_finalized_adjusted_account(

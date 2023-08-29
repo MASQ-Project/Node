@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = false;
+const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -55,7 +55,7 @@ pub mod separately_defined_diagnostic_functions {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::criteria_calculators::NamedCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
-    use crate::accountant::payment_adjuster::miscellaneous::data_sructures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
