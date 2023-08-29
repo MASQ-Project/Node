@@ -18,7 +18,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals, DirsWrapper, DirsWrapperReal,
+    data_directory_from_context, determine_user_specific_data, DirsWrapperReal, DirsWrapper
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
 use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
@@ -495,8 +495,8 @@ impl SetupReporterReal {
                 Some(command_line) => command_line,
                 None => vec![],
             };
-            let (config_file_path, user_specified, _data_directory, _real_user) =
-                determine_fundamentals(dirs_wrapper, &app, &command_line)?;
+            let (config_file_path, user_specified, _data_directory, _data_directory_specified, _real_user, _real_user_specified) =
+                determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
                 Ok(cfv) => cfv,
                 Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),

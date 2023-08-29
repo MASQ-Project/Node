@@ -29,11 +29,11 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-pub fn determine_fundamentals(
+pub fn determine_user_specific_data (
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, PathBuf, RealUser), ConfiguratorError> {
+) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool), ConfiguratorError> {
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
@@ -57,7 +57,9 @@ pub fn determine_fundamentals(
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf)
         .expect("config-file parameter is not properly defaulted by clap");
-    let user_specified = multi_config.occurrences_of("config-file") > 0;
+    let config_user_specified = multi_config.occurrences_of("config-file") > 0;
+    let data_directory_specified = multi_config.occurrences_of("data-directory") > 0;
+    let real_user_specified = multi_config.occurrences_of("real-user") > 0;
     let (real_user, data_directory_path, chain) =
         real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
     let data_directory = match data_directory_path {
@@ -70,7 +72,7 @@ pub fn determine_fundamentals(
         config_file_path
     };
 
-    Ok((config_file_path, user_specified, data_directory, real_user))
+    Ok((config_file_path, config_user_specified, data_directory, data_directory_specified, real_user, real_user_specified))
 }
 
 pub fn initialize_database(
@@ -211,7 +213,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified) = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -240,7 +242,7 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified) = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -263,7 +265,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified) = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),

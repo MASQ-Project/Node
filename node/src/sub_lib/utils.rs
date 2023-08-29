@@ -15,6 +15,7 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crate::node_configurator::node_configurator_standard::VclType;
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -93,7 +94,7 @@ pub fn to_string_s(data: &[u8]) -> String {
 
 pub fn make_new_multi_config<'a>(
     schema: &App<'a, 'a>,
-    vcls: Vec<Box<dyn VirtualCommandLine>>,
+    vcls: Vec<Box<VclType>>,
 ) -> Result<MultiConfig<'a>, ConfiguratorError> {
     MultiConfig::try_new(schema, vcls)
 }
