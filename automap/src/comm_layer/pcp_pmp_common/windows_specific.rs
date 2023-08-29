@@ -47,14 +47,15 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                 .collect::<Vec<IpAddr>>();
             Ok(addresses)
         }
-        Err(stderr) => Err(AutomapError::ProtocolError(stderr)),
+        Err(Either::Left(stderr)) => Err(AutomapError::FindRouterError(stderr)),
+        Err(Either::Right(error)) => Err(AutomapError::FindRouterError(format!("{:?}", error)))
     }
 }
 
 pub struct WindowsFindRoutersCommand {}
 
 impl FindRoutersCommand for WindowsFindRoutersCommand {
-    fn execute(&self) -> Result<String, String> {
+    fn execute(&self) -> Result<CommandOutput, CommandError> {
         self.execute_command("ipconfig /all")
     }
 }
