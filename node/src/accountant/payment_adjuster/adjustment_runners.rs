@@ -52,7 +52,7 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
-                return payment_adjuster.begin_with_adjustment_by_transaction_fees(
+                return payment_adjuster.begin_adjustment_by_transaction_fee(
                     criteria_and_accounts_in_descending_order,
                     limit,
                 )
@@ -62,7 +62,7 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
 
         Ok(Either::Left(
             payment_adjuster
-                .propose_adjustment_recursively(criteria_and_accounts_in_descending_order),
+                .propose_possible_adjustment_recursively(criteria_and_accounts_in_descending_order),
         ))
     }
 }
@@ -85,7 +85,8 @@ impl AdjustmentRunner for MasqOnlyRunner {
         payment_adjuster: &mut PaymentAdjusterReal,
         criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
-        payment_adjuster.propose_adjustment_recursively(criteria_and_accounts_in_descending_order)
+        payment_adjuster
+            .propose_possible_adjustment_recursively(criteria_and_accounts_in_descending_order)
     }
 }
 
@@ -93,7 +94,7 @@ fn adjust_last_one(
     payment_adjuster: &PaymentAdjusterReal,
     last_account: PayableAccount,
 ) -> Option<AdjustedAccountBeforeFinalization> {
-    let cw_balance = payment_adjuster.inner.unallocated_cw_masq_balance();
+    let cw_balance = payment_adjuster.inner.unallocated_cw_masq_balance_minor();
     let proposed_adjusted_balance = if last_account.balance_wei.checked_sub(cw_balance) == None {
         last_account.balance_wei
     } else {
@@ -108,7 +109,6 @@ fn adjust_last_one(
     let mut proposed_adjustment_vec = vec![AdjustedAccountBeforeFinalization::new(
         last_account,
         proposed_adjusted_balance,
-        0,
     )];
 
     let logger = &payment_adjuster.logger;
@@ -186,7 +186,6 @@ mod tests {
             expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
                 original_account: account_1,
                 proposed_adjusted_balance: cw_balance,
-                criteria_sum: 0, //TODO you should delete this field, but when the time is right
             }])
         )
     }
@@ -222,7 +221,6 @@ mod tests {
             Some(AdjustedAccountBeforeFinalization {
                 original_account: account,
                 proposed_adjusted_balance: 4_333_222_111,
-                criteria_sum: 0,
             })
         )
     }
@@ -299,7 +297,6 @@ mod tests {
         let account_info = AdjustedAccountBeforeFinalization {
             original_account: make_payable_account(123),
             proposed_adjusted_balance: 123_456_789,
-            criteria_sum: 987_654_321,
         };
         let result = empty_or_single_element(Some(account_info.clone()));
 

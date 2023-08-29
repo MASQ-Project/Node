@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnos
 use crate::accountant::payment_adjuster::log_fns::log_info_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
-    ResolutionAfterFullyDetermined,
+    ProposedAdjustmentResolution,
 };
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -41,17 +41,17 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     })
 }
 
-pub fn cut_back_by_excessive_transaction_fee(
-    weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+pub fn reduce_collection_size_by_affordable_transaction_fee(
+    criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     limit: u16,
 ) -> Vec<(u128, PayableAccount)> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "keeping {} out of {} accounts",
         limit,
-        weights_and_accounts_in_descending_order.len()
+        criteria_and_accounts_in_descending_order.len()
     );
-    weights_and_accounts_in_descending_order
+    criteria_and_accounts_in_descending_order
         .into_iter()
         .take(limit as usize)
         .collect()
@@ -123,7 +123,7 @@ pub fn find_largest_disqualified_account<'a>(
 
 pub fn exhaust_cw_balance_totally(
     verified_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    original_cw_masq_balance: u128,
+    original_cw_masq_balance_minor: u128,
 ) -> Vec<PayableAccount> {
     fn fold_guts(
         status: ExhaustionStatus,
@@ -162,12 +162,12 @@ pub fn exhaust_cw_balance_totally(
         account_info.proposed_adjusted_balance
     });
 
-    let cw_reminder = original_cw_masq_balance
+    let cw_reminder = original_cw_masq_balance_minor
         .checked_sub(adjusted_balances_total)
         .unwrap_or_else(|| {
             panic!(
                 "remainder should've been a positive number but was not after {} - {}",
-                original_cw_masq_balance, adjusted_balances_total
+                original_cw_masq_balance_minor, adjusted_balances_total
             )
         });
 
@@ -256,7 +256,7 @@ impl ExhaustionStatus {
     fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
         let finalized_account = PayableAccount::from((
             non_finalized_account_info,
-            ResolutionAfterFullyDetermined::Finalize,
+            ProposedAdjustmentResolution::Finalize,
         ));
         self.already_finalized_accounts.push(finalized_account);
         self
@@ -334,21 +334,21 @@ pub fn x_or_1(x: u128) -> u128 {
 impl
     From<(
         AdjustedAccountBeforeFinalization,
-        ResolutionAfterFullyDetermined,
+        ProposedAdjustmentResolution,
     )> for PayableAccount
 {
     fn from(
         (account_info, resolution): (
             AdjustedAccountBeforeFinalization,
-            ResolutionAfterFullyDetermined,
+            ProposedAdjustmentResolution,
         ),
     ) -> Self {
         match resolution {
-            ResolutionAfterFullyDetermined::Finalize => PayableAccount {
+            ProposedAdjustmentResolution::Finalize => PayableAccount {
                 balance_wei: account_info.proposed_adjusted_balance,
                 ..account_info.original_account
             },
-            ResolutionAfterFullyDetermined::Revert => account_info.original_account,
+            ProposedAdjustmentResolution::Revert => account_info.original_account,
         }
     }
 }
@@ -546,7 +546,6 @@ mod tests {
                 AdjustedAccountBeforeFinalization {
                     original_account,
                     proposed_adjusted_balance,
-                    criteria_sum: 0,
                 }
             })
             .collect()
@@ -578,8 +577,7 @@ mod tests {
             result,
             &AdjustedAccountBeforeFinalization {
                 original_account: account_2,
-                proposed_adjusted_balance: 222_000_000,
-                criteria_sum: 0
+                proposed_adjusted_balance: 222_000_000
             }
         )
     }
@@ -609,8 +607,7 @@ mod tests {
             result,
             &AdjustedAccountBeforeFinalization {
                 original_account: account_4,
-                proposed_adjusted_balance: 444_000_000,
-                criteria_sum: 0,
+                proposed_adjusted_balance: 444_000_000
             }
         )
     }
@@ -636,8 +633,7 @@ mod tests {
             result,
             &AdjustedAccountBeforeFinalization {
                 original_account: account_1,
-                proposed_adjusted_balance: 100_111_000,
-                criteria_sum: 0
+                proposed_adjusted_balance: 100_111_000
             }
         )
     }
@@ -652,7 +648,6 @@ mod tests {
                 pending_payable_opt: None,
             },
             proposed_adjusted_balance: 9_000_000_000,
-            criteria_sum: 123456789,
         };
 
         let (outweighed, ok) =
@@ -700,7 +695,7 @@ mod tests {
         let accounts_with_individual_criteria = subject
             .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
         let criteria_total = criteria_total(&accounts_with_individual_criteria);
-        let non_finalized_adjusted_accounts = subject.compute_non_finalized_adjusted_accounts(
+        let non_finalized_adjusted_accounts = subject.compute_adjusted_but_non_finalized_accounts(
             accounts_with_individual_criteria,
             criteria_total,
         );
@@ -726,7 +721,6 @@ mod tests {
                 pending_payable_opt: None,
             },
             proposed_adjusted_balance,
-            criteria_sum: 123456,
         }
     }
 
@@ -916,26 +910,20 @@ mod tests {
         let payable_account_1 = prepare_account(1);
         let payable_account_2 = prepare_account(2);
         let payable_account_3 = prepare_account(3);
-        const IRRELEVANT_CRITERIA_SUM: u128 = 1111;
         let edge = account_balance / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
             * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
         let proposed_ok_balance = edge + 1;
-        let account_info_1 = AdjustedAccountBeforeFinalization::new(
-            payable_account_1,
-            proposed_ok_balance,
-            IRRELEVANT_CRITERIA_SUM,
-        );
+        let account_info_1 =
+            AdjustedAccountBeforeFinalization::new(payable_account_1, proposed_ok_balance);
         let proposed_bad_balance_because_equal = edge;
         let account_info_2 = AdjustedAccountBeforeFinalization::new(
             payable_account_2,
             proposed_bad_balance_because_equal,
-            IRRELEVANT_CRITERIA_SUM,
         );
         let proposed_bad_balance_because_smaller = edge - 1;
         let account_info_3 = AdjustedAccountBeforeFinalization::new(
             payable_account_3,
             proposed_bad_balance_because_smaller,
-            IRRELEVANT_CRITERIA_SUM,
         );
         let accounts_with_unchecked_adjustment = vec![
             account_info_1,

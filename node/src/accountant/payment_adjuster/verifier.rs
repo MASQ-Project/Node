@@ -31,7 +31,7 @@ impl MasqAdjustmentPossibilityVerifier {
             Ok(())
         } else {
             Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
+                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: accounts.len(),
                     cw_masq_balance_minor,
                 },
@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfAdjustmentWithTooLowMASQBalances {
+                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
                     cw_masq_balance_minor: cw_masq_balance
                 }

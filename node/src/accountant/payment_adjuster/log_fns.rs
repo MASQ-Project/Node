@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, DisqualifiedPayableAccount,
-};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
