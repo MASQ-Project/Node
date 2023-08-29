@@ -48,7 +48,7 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
             Ok(addresses)
         }
         Err(Either::Left(stderr)) => Err(AutomapError::FindRouterError(stderr)),
-        Err(Either::Right(error)) => Err(AutomapError::FindRouterError(format!("{:?}", error)))
+        Err(Either::Right(error)) => Err(AutomapError::FindRouterError(format!("{:?}", error))),
     }
 }
 
