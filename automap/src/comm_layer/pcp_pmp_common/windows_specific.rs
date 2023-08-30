@@ -1,11 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "windows")]
 
-use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, CommandOutput, CommandError};
+use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
+use itertools::Either;
 use std::net::IpAddr;
 use std::str::FromStr;
-use itertools::Either;
 
 pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     match command.execute() {
@@ -75,11 +75,11 @@ impl WindowsFindRoutersCommand {
 
 #[cfg(test)]
 mod tests {
-    use std::io::ErrorKind;
     use super::*;
     use crate::test_utils::FindRoutersCommandMock;
-    use std::str::FromStr;
     use itertools::Either::{Left, Right};
+    use std::io::ErrorKind;
+    use std::str::FromStr;
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {
@@ -111,8 +111,8 @@ Ethernet adapter Ethernet:
    DNS Servers . . . . . . . . . . . : 192.168.0.1
    NetBIOS over Tcpip. . . . . . . . : Enabled
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -168,8 +168,8 @@ Ethernet adapter Ethernet 2:
    DNS Servers . . . . . . . . . . . : 192.168.0.1
    NetBIOS over Tcpip. . . . . . . . : Enabled
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -227,8 +227,8 @@ Ethernet adapter Ethernet 2:
    Default Gateway . . . . . . . . . : 192.168.10.5
    DHCP Server . . . . . . . . . . . : 192.168.1.1
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -280,8 +280,8 @@ Wireless LAN adapter WiFi:
    Default Gateway . . . . . . . . . : fe80::5555:6666:7777:8888%21
                                        192.168.1.1
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -331,8 +331,8 @@ Wireless LAN adapter WiFi:
    Subnet Mask . . . . . . . . . . . : 255.255.255.0
    Default Gateway . . . . . . . . . : fe80::5555:6666:7777:8888%21
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -372,8 +372,8 @@ Ethernet adapter Ethernet:
    DNS Servers . . . . . . . . . . . : 192.168.0.1
    NetBIOS over Tcpip. . . . . . . . : Enabled
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = windows_find_routers(&find_routers_command).unwrap();
 
@@ -388,8 +388,8 @@ Ethernet adapter Ethernet:
    Default Gateway. . . . . . . . . . : wibblety-poo
    Booga
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let _ = windows_find_routers(&find_routers_command);
     }
@@ -398,8 +398,7 @@ Ethernet adapter Ethernet:
     fn find_routers_command_handles_bad_command() {
         let error = std::io::Error::from(ErrorKind::InvalidInput);
         let expected_error_msg = format!("{:?}", error);
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Err(Right(error)));
+        let find_routers_command = FindRoutersCommandMock::new().execute_result(Err(Right(error)));
 
         let result = windows_find_routers(&find_routers_command);
 
@@ -411,8 +410,8 @@ Ethernet adapter Ethernet:
 
     #[test]
     fn find_routers_command_handles_unhappy_command() {
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Err(Left("Booga!".to_string())));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Err(Left("Booga!".to_string())));
 
         let result = windows_find_routers(&find_routers_command);
 
