@@ -5,7 +5,7 @@ use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::multi_config::{ComputedVcl, MultiConfig};
+use masq_lib::multi_config::{ComputedVcl, MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
@@ -134,48 +134,48 @@ fn collect_externals_from_multi_config(
     )
 }
 
-#[derive(Clone)]
-pub enum VclType {
-    Environment(EnvironmentVcl),
-    ConfigFile(ConfigFileVcl),
-    CommandLine(CommandLineVcl),
-    Computed(ComputedVcl),
-}
-
 pub fn server_initializer_collected_params<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
 ) -> Result<MultiConfig<'a>, ConfiguratorError> {
     let app = app_node();
-
     let (config_file_path, config_user_specified, data_directory, data_directory_specified, real_user, real_user_specified) =
         determine_user_specific_data(dirs_wrapper, &app, args)?;
-    println!("determine_user_specific_data data-dir: {}", data_directory.to_string_lossy());
-    let config_file_vcl = match ConfigFileVcl::new(&config_file_path, real_user_specified) {
-        Ok(cfv) => Box::new(VclType::ConfigFile(cfv)),
+    let config_file_vcl = match ConfigFileVcl::new(&config_file_path, config_user_specified) {
+        Ok(cfv) => Box::new(cfv),
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
 
     // let config_file_path_from_multiconfig =
     //     value_m!(multi_config, "config-file", PathBuf).expect("defaulted param");
-    let mut vcl_vec: Vec<Box<VclType>> = vec![];
-    vcl_vec.push(Box::new(VclType::Environment(EnvironmentVcl::new(&app))));
-    vcl_vec.push(config_file_vcl);
-    vcl_vec.push(Box::new(VclType::CommandLine(CommandLineVcl::new(args.to_vec()))));
-    if data_directory_specified {
-        vcl_vec.push(Box::new(VclType::CommandLine(CommandLineVcl::new(vec![
-            "--data-directory ".to_string() + data_directory.to_str().unwrap(),
-        ]))));
-    } else {
-        vcl_vec.push(Box::new(VclType::Computed(ComputedVcl::new(vec![
-            "--data-directory ".to_string() + data_directory.to_str().unwrap(),
-        ]))));
+    let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
+            Box::new(EnvironmentVcl::new(&app)),
+            config_file_vcl,
+            Box::new(CommandLineVcl::new(args.to_vec())),
+        ];
 
-    }
-    let full_multi_config = make_new_multi_config(
-        &app,
-        vcl_vec
-    )?;
+    let data_directory_spcified_box: Box<dyn VirtualCommandLine> = Box::new(CommandLineVcl::new(vec![
+        "".to_string(), "--data-directory".to_string(), data_directory.to_string_lossy().to_string(),
+    ]));
+    let data_directory_unspcified_box: Box<dyn VirtualCommandLine> = Box::new(ComputedVcl::new(vec![
+        "".to_string(), "--data-directory".to_string(), data_directory.to_string_lossy().to_string(),
+    ]));
+    match data_directory_specified {
+        true => full_multi_config_vec.push(data_directory_spcified_box),
+        false => full_multi_config_vec.push(data_directory_unspcified_box)
+    };
+    let real_user_spcified_box: Box<dyn VirtualCommandLine> = Box::new(CommandLineVcl::new(vec![
+        "".to_string(), "--real-user".to_string(), real_user.to_string(),
+    ]));
+    let real_user_unspcified_box: Box<dyn VirtualCommandLine> = Box::new(ComputedVcl::new(vec![
+        "".to_string(), "--real-user".to_string(), real_user.to_string(),
+    ]));
+    match real_user_specified {
+        true => full_multi_config_vec.push(real_user_spcified_box),
+        false => full_multi_config_vec.push(real_user_unspcified_box)
+    };
+    let full_multi_config = make_new_multi_config(&app,full_multi_config_vec)?;
+    //println!("full_multi_config: {:#?}", full_multi_config);
     Ok(full_multi_config)
 }
 
@@ -789,13 +789,13 @@ mod tests {
         running_test();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_combine_vlcs_properly");
         let data_dir = &home_dir.join("data_dir");
-        let config_file = File::create(home_dir.join("config.toml")).unwrap();
-        let data_dir_vcl = create_dir_all(PathBuf::from("booga/data_dir/MASQ/polygon-mainnet"));
+        let config_file = File::create(&home_dir.join("config.toml")).unwrap();
+        let data_dir_vcl = create_dir_all(PathBuf::from(home_dir.to_string_lossy().as_ref().to_owned() + "/data_dir/MASQ/polygon-mainnet"));
         {
             fill_up_config_file(config_file);
             match data_dir_vcl {
                 Ok(..) => {
-                    let config_file_vcl = File::create(PathBuf::from("booga/data_dir/MASQ/polygon-mainnet").join("config.toml")).unwrap();
+                    let config_file_vcl = File::create(PathBuf::from(home_dir.to_string_lossy().as_ref().to_owned() + "/data_dir/MASQ/polygon-mainnet").join("config.toml")).unwrap();
                     fill_up_config_file(config_file_vcl);
                 }
                 Err(e) => panic!("unable to create directory {}", e)
@@ -805,8 +805,9 @@ mod tests {
         vec![
             //("MASQ_CONFIG_FILE", "config.toml"),
             //("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            #[cfg(not(target_os = "windows"))]
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            //#[cfg(not(target_os = "windows"))]
+            //("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_MIN_HOPS", "3"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let args = ArgsBuilder::new();
@@ -817,27 +818,21 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let env_multicnfig = result.unwrap();
 
-        let args = ArgsBuilder::new()
+        let args = ArgsBuilder::new();
             //.param("--config-file", "config.toml")
             //.param("--data-directory", "/tmp/cooga/masqhome")
-            .param("--real-user", "1001:1001:cooga");
+            //.param("--real-user", "1001:1001:cooga");
         let args_vec: Vec<String> = args.into();
         let params = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let result = params.as_ref().expect("REASON");
-        let vcl_multicnfig = result;
-
-        //println!("env_multicnfig: {:#?}", env_multicnfig);
+        let vcl_multiconfig = result;
+        
         assert_eq!(
             value_m!(env_multicnfig, "config-file", String).unwrap(),
             "config.toml".to_string()
-        );/*
-        assert_eq!(
-            value_m!(env_multicnfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home".to_string()
-        );*/
+        );
         #[cfg(not(target_os = "windows"))]
-        //let real_user = value_m!(env_multicnfig, "real-user", String).unwrap();
-        match env_multicnfig.is_user_specified("real-user") {
+        match env_multicnfig.is_user_specified("--real-user") {
             true => {
                 assert_eq!(
                     value_m!(env_multicnfig, "real-user", String).unwrap(),
@@ -845,36 +840,39 @@ mod tests {
                 )
             }
             false => {
-                println!("real-user is not user specified");
+                println!("real-user is not user specified in Environment");
                 ()
             }
         }
 
-        //println!("env_multicnfig: {:#?}", vcl_multicnfig);
         #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(vcl_multicnfig, "real-user", String).unwrap(),
-            "1001:1001:cooga".to_string()
-        );
-        match vcl_multicnfig.is_user_specified("data-directory") {
+        match vcl_multiconfig.is_user_specified("--real-user") {
             true => {
                 assert_eq!(
-                    value_m!(vcl_multicnfig, "data-directory", String).unwrap(),
+                    value_m!(vcl_multiconfig, "real-user", String).unwrap(),
+                    "9999:9999:booga".to_string()
+                )
+            }
+            false => {
+                println!("real-user is not user specified in Command-line");
+                ()
+            }
+        }
+        match vcl_multiconfig.is_user_specified("--data-directory") {
+            true => {
+                assert_eq!(
+                    value_m!(vcl_multiconfig, "data-directory", String).unwrap(),
                     "/tmp/cooga/masqhome".to_string()
                 )
             }
             false => {
-                println!("data-directory is not user specified");
+                println!("data-directory is not user specified in Command-line");
                 ()
             }
         }
         assert_eq!(
-            value_m!(vcl_multicnfig, "config-file", String).unwrap(),
+            value_m!(vcl_multiconfig, "config-file", String).unwrap(),
             "config.toml".to_string()
-        );
-        assert_eq!(
-            value_m!(vcl_multicnfig, "real-user", String).unwrap(),
-            "1001:1001:cooga".to_string()
         );
     }
 
