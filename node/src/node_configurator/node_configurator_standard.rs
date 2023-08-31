@@ -145,9 +145,11 @@ pub fn server_initializer_collected_params<'a>(
         Ok(cfv) => Box::new(cfv),
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
-
+    println!("config_file_path: {} {:#?}", config_user_specified, &config_file_path);
+    println!("config_file_vcl: {:#?}", config_file_vcl);
     // let config_file_path_from_multiconfig =
     //     value_m!(multi_config, "config-file", PathBuf).expect("defaulted param");
+    //let multi_config_vec = create_multi_config_vec(dirs_wrapper, &app, args);
     let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(EnvironmentVcl::new(&app)),
             config_file_vcl,
@@ -174,6 +176,7 @@ pub fn server_initializer_collected_params<'a>(
         true => full_multi_config_vec.push(real_user_spcified_box),
         false => full_multi_config_vec.push(real_user_unspcified_box)
     };
+    println!("full_multi_config_vec: {:#?}", full_multi_config_vec);
     let full_multi_config = make_new_multi_config(&app,full_multi_config_vec)?;
     //println!("full_multi_config: {:#?}", full_multi_config);
     Ok(full_multi_config)
@@ -751,7 +754,10 @@ mod tests {
     fn fill_up_config_file(mut config_file: File) {
         {
             config_file
-                .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
+                .write_all(b"real-user = \"1002:1002:wooga\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"blockchain-service-url = \"https://www.mainnet2.com\"\n")
                 .unwrap();
             config_file
                 .write_all(b"clandestine-port = \"7788\"\n")
@@ -803,7 +809,7 @@ mod tests {
         }
 
         vec![
-            //("MASQ_CONFIG_FILE", "config.toml"),
+            ("MASQ_CONFIG_FILE", "config.toml"),
             //("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
             //#[cfg(not(target_os = "windows"))]
             //("MASQ_REAL_USER", "9999:9999:booga"),
@@ -816,7 +822,7 @@ mod tests {
             .home_dir_result(Some(home_dir.clone()))
             .data_dir_result(Some(data_dir.to_path_buf()));
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
-        let env_multicnfig = result.unwrap();
+        let env_multiconfig = result.unwrap();
 
         let args = ArgsBuilder::new();
             //.param("--config-file", "config.toml")
@@ -828,14 +834,27 @@ mod tests {
         let vcl_multiconfig = result;
         
         assert_eq!(
-            value_m!(env_multicnfig, "config-file", String).unwrap(),
+            value_m!(env_multiconfig, "config-file", String).unwrap(),
             "config.toml".to_string()
         );
-        #[cfg(not(target_os = "windows"))]
-        match env_multicnfig.is_user_specified("--real-user") {
+        match env_multiconfig.is_user_specified("--data-directory") {
             true => {
                 assert_eq!(
-                    value_m!(env_multicnfig, "real-user", String).unwrap(),
+                    value_m!(env_multiconfig, "data-directory", String).unwrap(),
+                    "generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home".to_string()
+                )
+            }
+            false => {
+                println!("data-directory is not user specified in Environment");
+                ()
+            }
+        }
+        println!("env_multiconfig: {:#?}", env_multiconfig);
+        #[cfg(not(target_os = "windows"))]
+        match env_multiconfig.is_user_specified("--real-user") {
+            true => {
+                assert_eq!(
+                    value_m!(env_multiconfig, "real-user", String).unwrap(),
                     "9999:9999:booga".to_string()
                 )
             }
@@ -848,10 +867,21 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         match vcl_multiconfig.is_user_specified("--real-user") {
             true => {
-                assert_eq!(
-                    value_m!(vcl_multiconfig, "real-user", String).unwrap(),
-                    "9999:9999:booga".to_string()
-                )
+                match env_multiconfig.is_user_specified("--real-user") {
+                    true => {
+                        println!("real-user is inherited from Environment {}", value_m!(vcl_multiconfig, "real-user", String).unwrap());
+                        assert_eq!(
+                            value_m!(vcl_multiconfig, "real-user", String).unwrap(),
+                            "9999:9999:booga".to_string()
+                        )
+                    }
+                    false => {
+                        assert_eq!(
+                            value_m!(vcl_multiconfig, "real-user", String).unwrap(),
+                            "1001:1001:cooga".to_string()
+                        )
+                    }
+                }
             }
             false => {
                 println!("real-user is not user specified in Command-line");
@@ -860,10 +890,21 @@ mod tests {
         }
         match vcl_multiconfig.is_user_specified("--data-directory") {
             true => {
-                assert_eq!(
-                    value_m!(vcl_multiconfig, "data-directory", String).unwrap(),
-                    "/tmp/cooga/masqhome".to_string()
-                )
+                match env_multiconfig.is_user_specified("--data-directory") {
+                    true => {
+                        println!("data-directory is inherited from Environment");
+                        assert_eq!(
+                            value_m!(vcl_multiconfig, "data-directory", String).unwrap(),
+                            "generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home".to_string()
+                        )
+                    }
+                    false => {
+                        assert_eq!(
+                            value_m!(vcl_multiconfig, "data-directory", String).unwrap(),
+                            "/tmp/cooga/masqhome".to_string()
+                        )
+                    }
+                }
             }
             false => {
                 println!("data-directory is not user specified in Command-line");

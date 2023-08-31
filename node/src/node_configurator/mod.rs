@@ -54,6 +54,7 @@ pub fn determine_user_specific_data (
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
+    println!("determine_user_specific_data");
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
     let config_file_path = value_m!(multi_config, "config-file", PathBuf)
         .expect("config-file parameter is not properly defaulted by clap");
