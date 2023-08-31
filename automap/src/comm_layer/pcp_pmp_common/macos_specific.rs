@@ -3,9 +3,9 @@
 
 use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
+use itertools::Either::{Left, Right};
 use std::net::IpAddr;
 use std::str::FromStr;
-use itertools::Either::{Left, Right};
 
 pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
@@ -52,9 +52,9 @@ impl MacOsFindRoutersCommand {
 mod tests {
     use super::*;
     use crate::test_utils::FindRoutersCommandMock;
+    use itertools::Either::Left;
     use std::collections::HashSet;
     use std::str::FromStr;
-    use itertools::Either::Left;
 
     #[test]
     fn find_routers_works_when_there_are_multiple_routers_to_find() {
@@ -68,8 +68,8 @@ destination: default
  recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
        0         0         0         0         0         0      1500         0
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
@@ -93,8 +93,8 @@ destination: default
  recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
        0         0         0         0         0         0      1500         0
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
@@ -103,8 +103,8 @@ destination: default
 
     #[test]
     fn find_routers_works_when_command_writes_to_stderr() {
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Err(Left("Booga!".to_string())));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Err(Left("Booga!".to_string())));
 
         let result = macos_find_routers(&find_routers_command);
 
