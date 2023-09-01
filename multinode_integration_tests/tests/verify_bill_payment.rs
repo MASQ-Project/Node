@@ -5,7 +5,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::masq_node::{DataProbeUtils, MASQNode};
+use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
