@@ -14,7 +14,10 @@ impl MasqAdjustmentPossibilityVerifier {
         accounts: &[&PayableAccount],
         cw_masq_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
-        // the reasoning is that if the cw balance is extremely low compared to the set of accounts, the real adjustment algorithm will proceed by eliminating the biggest account in each iteration
+        // The reasoning is that the real adjustment algorithm will proceed by eliminating the biggest
+        // account in each iteration, reaching out the smallest one eventually; if the smallest one
+        // reduced by the disqualification margin turned out possible to be paid by the available
+        // balance, we can state the Node is going to perform at least one blockchain transaction
 
         let sorted = accounts
             .iter()

@@ -31,7 +31,7 @@ pub enum StageData {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FinancialAndTechDetails {
     pub consuming_wallet_balances: ConsumingWalletBalances,
-    pub desired_transaction_fee_price_major: u64,
+    pub agreed_transaction_fee_per_computed_unit_major: u64,
     //rather technical stuff below
     pub estimated_gas_limit_per_transaction: u64,
 }

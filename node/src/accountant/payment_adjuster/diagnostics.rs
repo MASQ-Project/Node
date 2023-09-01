@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = false;
+const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 

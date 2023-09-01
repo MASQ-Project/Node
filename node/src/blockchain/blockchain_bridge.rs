@@ -302,7 +302,7 @@ impl BlockchainBridge {
         let this_stage_data = StageData::FinancialAndTechDetails(FinancialAndTechDetails {
             consuming_wallet_balances,
             estimated_gas_limit_per_transaction,
-            desired_transaction_fee_price_major: desired_gas_price_gwei,
+            agreed_transaction_fee_per_computed_unit_major: desired_gas_price_gwei,
         });
         let msg = PayablePaymentSetup::from((msg, this_stage_data));
 
@@ -733,7 +733,7 @@ mod tests {
             StageData::FinancialAndTechDetails(FinancialAndTechDetails {
                 consuming_wallet_balances: wallet_balances_found,
                 estimated_gas_limit_per_transaction: 51_546,
-                desired_transaction_fee_price_major: 146,
+                agreed_transaction_fee_per_computed_unit_major: 146,
             }),
         )
             .into();

@@ -13,8 +13,11 @@ use std::ops::Not;
 use thousands::Separable;
 
 const REFILL_RECOMMENDATION: &str = "\
-In order to continue using services of other Nodes and avoid delinquency \
-bans you will need to put more funds into your consuming wallet.";
+In order to continue consuming services from other Nodes and avoid delinquency bans it is necessary \
+to allocate more funds in your consuming wallet.";
+const LATER_DETECTED_MASQ_SCARCITY: &str = "\
+Passing successful payment adjustment by the transaction fee, but facing critical scarcity of MASQ \
+balance. Operation will abort.";
 
 const BLANK_SPACE: &str = "";
 
@@ -48,7 +51,7 @@ pub fn format_brief_adjustment_summary(
     fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
         let title = once(format!(
             "\n{:<length$} Original\n",
-            "Ruled Out in Favor of the Others",
+            "Ruled Out",
             length = WALLET_ADDRESS_LENGTH
         ));
         let list = excluded
@@ -159,23 +162,26 @@ pub fn log_insufficient_transaction_fee_balance(
 }
 
 pub fn log_error_for_transaction_fee_adjustment_ok_but_masq_balance_insufficient(logger: &Logger) {
-    error!(
-        logger,
-        "Passing successful payment adjustment by the transaction fee, \
-                but facing critical scarcity of MASQ balance. Operation will abort."
-    )
+    error!(logger, "{}", LATER_DETECTED_MASQ_SCARCITY)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::log_fns::REFILL_RECOMMENDATION;
+    use crate::accountant::payment_adjuster::log_fns::{
+        LATER_DETECTED_MASQ_SCARCITY, REFILL_RECOMMENDATION,
+    };
 
     #[test]
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "In order to continue using services of other Nodes and avoid delinquency \
-            bans you will need to put more funds into your consuming wallet."
+            "In order to continue consuming services from other Nodes and avoid delinquency bans it \
+            is necessary to allocate more funds in your consuming wallet."
+        );
+        assert_eq!(
+            LATER_DETECTED_MASQ_SCARCITY,
+            "Passing successful payment adjustment by the \
+        transaction fee, but facing critical scarcity of MASQ balance. Operation will abort."
         )
     }
 }

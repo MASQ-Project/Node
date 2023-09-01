@@ -89,36 +89,33 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let qualified_payables = msg.qualified_payables.as_slice();
         let required_tx_count = qualified_payables.len();
 
-        let this_stage_data = match msg
-            .this_stage_data_opt
-            .as_ref()
-            .expect("always some at this stage")
-        {
+        let this_stage_data = match msg.this_stage_data_opt.as_ref().expectv("collected data") {
             StageData::FinancialAndTechDetails(details) => details,
         };
 
-        let transaction_fee_adjustment_opt =
-            Self::determine_transaction_count_limit_by_transaction_fee(
-                &this_stage_data,
-                required_tx_count,
-                &self.logger,
-            )?;
+        match Self::determine_transaction_count_limit_by_transaction_fee(
+            &this_stage_data,
+            required_tx_count,
+            &self.logger,
+        ) {
+            Ok(None) => (),
+            Ok(Some(affordable_transaction_count)) => {
+                return Ok(Some(Adjustment::PriorityTransactionFee {
+                    affordable_transaction_count,
+                }))
+            }
+            Err(e) => return Err(e),
+        };
 
-        let is_masq_adjustment_needed = Self::check_need_of_masq_adjustment(
+        match Self::check_need_of_masq_adjustment(
             &self.logger,
             Either::Left(qualified_payables),
             this_stage_data.consuming_wallet_balances.masq_tokens_minor,
-        )?;
-
-        let adjustment_opt = match (transaction_fee_adjustment_opt, is_masq_adjustment_needed) {
-            (Some(affordable_transaction_count), _) => Some(Adjustment::PriorityTransactionFee {
-                affordable_transaction_count,
-            }),
-            (None, true) => Some(Adjustment::MasqToken),
-            _ => None,
-        };
-
-        Ok(adjustment_opt)
+        ) {
+            Ok(false) => Ok(None),
+            Ok(true) => Ok(Some(Adjustment::MasqToken)),
+            Err(e) => Err(e),
+        }
     }
 
     fn adjust_payments(
@@ -176,7 +173,7 @@ impl PaymentAdjusterReal {
     ) -> Result<Option<u16>, PaymentAdjusterError> {
         let transaction_fee_required_per_transaction_major =
             tech_info.estimated_gas_limit_per_transaction as u128
-                * tech_info.desired_transaction_fee_price_major as u128;
+                * tech_info.agreed_transaction_fee_per_computed_unit_major as u128;
 
         let per_transaction_requirement_minor: u128 =
             gwei_to_wei(transaction_fee_required_per_transaction_major);
@@ -188,7 +185,7 @@ impl PaymentAdjusterReal {
             cw_transaction_fee_balance_minor / per_transaction_requirement_minor;
 
         let (max_doable_tx_count_u16, required_tx_count_u16) =
-            Self::put_big_unsigned_integers_under_u16_ceiling(
+            Self::put_bigger_unsigned_integers_under_u16_ceiling(
                 max_doable_tx_count,
                 required_tx_count,
             );
@@ -214,7 +211,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn put_big_unsigned_integers_under_u16_ceiling(
+    fn put_bigger_unsigned_integers_under_u16_ceiling(
         max_doable_tx_count: u128,
         required_tx_count: usize,
     ) -> (u16, u16) {
@@ -655,23 +652,39 @@ pub enum AnalysisError {
 impl Display for PaymentAdjusterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PaymentAdjusterError::AnalysisError(analysis_error) => match analysis_error{
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {number_of_accounts,per_transaction_requirement_minor, cw_transaction_fee_balance_minor } =>
-                    write!(f, "Found less transaction fee balance than required by one payment. \
+            PaymentAdjusterError::AnalysisError(analysis_error) => match analysis_error {
+                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts,
+                    per_transaction_requirement_minor,
+                    cw_transaction_fee_balance_minor,
+                } => write!(
+                    f,
+                    "Found smaller transaction fee balance than does for a single payment. \
                  Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
-                 Current consuming wallet balance: {} wei", number_of_accounts,
-                           per_transaction_requirement_minor.separate_with_commas(),
-                           cw_transaction_fee_balance_minor.separate_with_commas()),
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {number_of_accounts, cw_masq_balance_minor } =>
-                    write!(f,"Analysis has projected likely unacceptable adjustment leaving all \
-                    accounts with too low resulted balances. Please, provide more funds instead. \
-                    Number of canceled payments: {}. Current consuming wallet balance: {} wei of MASQ",
-                           number_of_accounts.separate_with_commas(),
-                           cw_masq_balance_minor.separate_with_commas())
+                 Current consuming wallet balance: {} wei",
+                    number_of_accounts,
+                    per_transaction_requirement_minor.separate_with_commas(),
+                    cw_transaction_fee_balance_minor.separate_with_commas()
+                ),
+                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                    number_of_accounts,
+                    cw_masq_balance_minor,
+                } => write!(
+                    f,
+                    "Analysis has projected a likely unacceptable adjustment leaving each \
+                of the payable accounts with too a low adjusted amount to pay. Please, proceed by \
+                sending funds to your wallet. Number of canceled payments: {}. Current consuming \
+                wallet balance: {} wei of MASQ",
+                    number_of_accounts.separate_with_commas(),
+                    cw_masq_balance_minor.separate_with_commas()
+                ),
             },
-            PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(f, "Despite \
+            PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
+                f,
+                "Despite \
             the preliminary analysis had expected a possibility to compute some executable \
-            adjusted payments, the algorithm eventually rejected them all")
+            adjusted payments, the algorithm eventually rejected them all"
+            ),
         }
     }
 }
@@ -717,8 +730,8 @@ mod tests {
         let _ = result.inner.unallocated_cw_masq_balance_minor();
     }
 
-    struct PayableBalancesAndCWBalanceInTest {
-        balances_of_accounts_major: Vec<u64>,
+    struct PayableBalancesAndCWBalanceTestConfig {
+        balances_of_accounts: Either<Vec<u64>, Vec<u128>>,
         cw_balance_major: u64,
     }
 
@@ -729,37 +742,40 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
         subject.logger = logger;
-        //masq balance > payments
-        let msg_1 = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(PayableBalancesAndCWBalanceInTest {
-                balances_of_accounts_major: vec![85, 14],
+        // MASQ balance > payments
+        let msg_1 = make_payable_setup_msg_sent_from_blockchain_bridge(
+            Some(PayableBalancesAndCWBalanceTestConfig {
+                balances_of_accounts: Either::Right(vec![
+                    gwei_to_wei::<u128, u64>(85),
+                    gwei_to_wei::<u128, u64>(15) - 1,
+                ]),
                 cw_balance_major: 100,
             }),
             None,
         );
-        //masq balance = payments
-        let msg_2 = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(PayableBalancesAndCWBalanceInTest {
-                balances_of_accounts_major: vec![85, 15],
+        // MASQ balance == payments
+        let msg_2 = make_payable_setup_msg_sent_from_blockchain_bridge(
+            Some(PayableBalancesAndCWBalanceTestConfig {
+                balances_of_accounts: Either::Left(vec![85, 15]),
                 cw_balance_major: 100,
             }),
             None,
         );
-        //transaction_fee balance > payments
-        let msg_3 = make_payable_setup_msg_coming_from_blockchain_bridge(
+        // transaction fee balance > payments
+        let msg_3 = make_payable_setup_msg_sent_from_blockchain_bridge(
             None,
-            Some(TransactionFeeConditionsInTest {
-                desired_transaction_fee_price_per_major: 111,
-                number_of_accounts: 5,
+            Some(TransactionFeeTestConfig {
+                agreed_transaction_fee_per_computed_unit_major: 100,
+                number_of_accounts: 6,
                 estimated_transaction_fee_units_limit_per_transaction: 53_000,
-                cw_transaction_fee_balance_major: (111 * 5 * 53_000) + 1,
+                cw_transaction_fee_balance_major: (100 * 6 * 53_000) + 1,
             }),
         );
-        //transaction_fee balance = payments
-        let msg_4 = make_payable_setup_msg_coming_from_blockchain_bridge(
+        // transaction fee balance == payments
+        let msg_4 = make_payable_setup_msg_sent_from_blockchain_bridge(
             None,
-            Some(TransactionFeeConditionsInTest {
-                desired_transaction_fee_price_per_major: 100,
+            Some(TransactionFeeTestConfig {
+                agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts: 6,
                 estimated_transaction_fee_units_limit_per_transaction: 53_000,
                 cw_transaction_fee_balance_major: 100 * 6 * 53_000,
@@ -779,15 +795,57 @@ mod tests {
     }
 
     #[test]
+    fn search_for_indispensable_adjustment_positive_for_transaction_fee() {
+        init_test_logging();
+        let test_name = "search_for_indispensable_adjustment_positive_for_transaction_fee";
+        // means a confidently big balance is picked in the behind
+        let masq_balances_setup_opt = None;
+        let logger = Logger::new(test_name);
+        let mut subject = PaymentAdjusterReal::new();
+        subject.logger = logger;
+        let number_of_accounts = 3;
+        let msg = make_payable_setup_msg_sent_from_blockchain_bridge(
+            masq_balances_setup_opt,
+            Some(TransactionFeeTestConfig {
+                agreed_transaction_fee_per_computed_unit_major: 100,
+                number_of_accounts,
+                estimated_transaction_fee_units_limit_per_transaction: 55_000,
+                cw_transaction_fee_balance_major: 100 * 3 * 55_000 - 1,
+            }),
+        );
+
+        let result = subject.search_for_indispensable_adjustment(&msg);
+
+        assert_eq!(
+            result,
+            Ok(Some(Adjustment::PriorityTransactionFee {
+                affordable_transaction_count: 2
+            }))
+        );
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Gas amount 16,499,999,000,000,000 wei \
+        cannot cover anticipated fees from sending 3 transactions. Maximum is 2. \
+        The payments need to be adjusted in their count."
+        ));
+        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue consuming \
+        services from other Nodes and avoid delinquency bans it is necessary to allocate more funds in \
+        your consuming wallet."));
+    }
+
+    #[test]
     fn search_for_indispensable_adjustment_positive_for_masq_token() {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_positive_for_masq_token";
         let logger = Logger::new(test_name);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
-        let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(PayableBalancesAndCWBalanceInTest {
-                balances_of_accounts_major: vec![85, 16],
+        let msg = make_payable_setup_msg_sent_from_blockchain_bridge(
+            Some(PayableBalancesAndCWBalanceTestConfig {
+                balances_of_accounts: Either::Right(vec![
+                    gwei_to_wei::<u128, u64>(85),
+                    gwei_to_wei::<u128, u64>(15) + 1,
+                ]),
                 cw_balance_major: 100,
             }),
             None,
@@ -797,98 +855,28 @@ mod tests {
 
         assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 101,000,000,000 \
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,000,001 \
         wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of the MASQ token. \
         Adjustment in their count or the amounts is required."));
-        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue using services \
-        of other Nodes and avoid delinquency bans you will need to put more funds into your consuming wallet."));
-    }
-
-    fn test_positive_transaction_fee_check_vs_masq_check(
-        test_name: &str,
-        masq_balances_setup_opt: Option<PayableBalancesAndCWBalanceInTest>,
-    ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
-        init_test_logging();
-        let logger = Logger::new(test_name);
-        let mut subject = PaymentAdjusterReal::new();
-        subject.logger = logger;
-        let number_of_accounts = 3;
-        let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
-            masq_balances_setup_opt,
-            Some(TransactionFeeConditionsInTest {
-                desired_transaction_fee_price_per_major: 100,
-                number_of_accounts,
-                estimated_transaction_fee_units_limit_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: 100 * 3 * 55_000 - 1,
-            }),
-        );
-
-        subject.search_for_indispensable_adjustment(&msg)
-    }
-
-    fn assert_logs(test_name: &str) {
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Gas amount 16,499,999,000,000,000 wei \
-        cannot cover anticipated fees from sending 3 transactions. Maximum is 2. \
-        The payments need to be adjusted in their count."
-        ));
-        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue using services \
-        of other Nodes and avoid delinquency bans you will need to put more funds into your consuming wallet."));
+        log_handler.exists_log_containing(&format!("INFO: {test_name}: In order to continue consuming services \
+        from other Nodes and avoid delinquency bans it is necessary to allocate more funds in your consuming \
+        wallet."));
     }
 
     #[test]
-    fn search_on_three_accounts_positive_for_transaction_fee_when_masq_balance_is_enough() {
-        let test_name =
-            "search_on_three_accounts_positive_for_transaction_fee_when_masq_balance_is_enough";
-        // means there is plenty of masq
-        let masq_balances_setup_opt = None;
-
-        let result =
-            test_positive_transaction_fee_check_vs_masq_check(test_name, masq_balances_setup_opt);
-
-        assert_eq!(
-            result,
-            Ok(Some(Adjustment::PriorityTransactionFee {
-                affordable_transaction_count: 2
-            }))
-        );
-        assert_logs(test_name)
-    }
-
-    #[test]
-    fn search_on_three_accounts_positive_for_transaction_fee_but_masq_balance_is_feasibly_adjustable(
-    ) {
-        let test_name = "search_on_three_accounts_positive_for_transaction_fee_but_masq_balance_is_feasibly_adjustable";
-        let masq_low_but_ok_major = 300 + 500;
-        let masq_balances_setup_opt = Some(PayableBalancesAndCWBalanceInTest {
-            balances_of_accounts_major: vec![120, 300, 500],
-            cw_balance_major: masq_low_but_ok_major,
-        });
-
-        let result =
-            test_positive_transaction_fee_check_vs_masq_check(test_name, masq_balances_setup_opt);
-
-        assert_eq!(
-            result,
-            Ok(Some(Adjustment::PriorityTransactionFee {
-                affordable_transaction_count: 2
-            }))
-        );
-        assert_logs(test_name)
-    }
-
-    #[test]
-    fn search_on_three_accounts_positive_for_transaction_fee_but_mask_balance_is_desperately_low() {
-        let test_name = "search_on_three_accounts_positive_for_transaction_fee_but_mask_balance_is_desperately_low";
-        let masq_too_low_major = 120 / 2 - 1; // this will kick the limit
-        let masq_balances_setup_opt = Some(PayableBalancesAndCWBalanceInTest {
-            balances_of_accounts_major: vec![120, 300, 500],
+    fn checking_three_accounts_positive_for_transaction_fee_but_mask_balance_is_unbearably_low() {
+        let test_name = "checking_three_accounts_positive_for_transaction_fee_but_mask_balance_is_unbearably_low";
+        let masq_too_low_major = 120 / 2 - 1; // this would normally kick a serious error
+        let masq_balances_setup_opt = Some(PayableBalancesAndCWBalanceTestConfig {
+            balances_of_accounts: Either::Left(vec![120, 300, 500]),
             cw_balance_major: masq_too_low_major,
         });
+        let msg = make_payable_setup_msg_sent_from_blockchain_bridge(masq_balances_setup_opt, None);
+        let mut subject = PaymentAdjusterReal::new();
+        let logger = Logger::new(test_name);
+        subject.logger = logger;
 
-        let result =
-            test_positive_transaction_fee_check_vs_masq_check(test_name, masq_balances_setup_opt);
+        let result = subject.search_for_indispensable_adjustment(&msg);
 
         assert_eq!(
             result,
@@ -899,21 +887,19 @@ mod tests {
                 }
             ))
         );
-        assert_logs(test_name)
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_unable_to_pay_even_for_a_single_transaction_because_of_transaction_fee(
-    ) {
+    fn not_enough_transaction_fee_balance_for_even_a_single_transaction() {
         let subject = PaymentAdjusterReal::new();
         let number_of_accounts = 3;
-        let msg = make_payable_setup_msg_coming_from_blockchain_bridge(
-            Some(PayableBalancesAndCWBalanceInTest {
-                balances_of_accounts_major: vec![123],
+        let msg = make_payable_setup_msg_sent_from_blockchain_bridge(
+            Some(PayableBalancesAndCWBalanceTestConfig {
+                balances_of_accounts: Either::Left(vec![123]),
                 cw_balance_major: 444,
             }),
-            Some(TransactionFeeConditionsInTest {
-                desired_transaction_fee_price_per_major: 100,
+            Some(TransactionFeeTestConfig {
+                agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts,
                 estimated_transaction_fee_units_limit_per_transaction: 55_000,
                 cw_transaction_fee_balance_major: 54_000 * 100,
@@ -927,8 +913,8 @@ mod tests {
             Err(PaymentAdjusterError::AnalysisError(
                 AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts,
-                    per_transaction_requirement_minor: 55_000 * 100 * 1_000_000_000,
-                    cw_transaction_fee_balance_minor: 54_000 * 100 * 1_000_000_000
+                    per_transaction_requirement_minor: 55_000 * gwei_to_wei::<u128, u64>(100),
+                    cw_transaction_fee_balance_minor: 54_000 * gwei_to_wei::<u128, u64>(100)
                 }
             ))
         );
@@ -944,10 +930,10 @@ mod tests {
                         cw_masq_balance_minor: 333_000_000,
                     },
                 ),
-                "Analysis has projected likely unacceptable adjustment leaving all accounts \
-                with too low resulted balances. Please, provide more funds instead. Number \
-                of canceled payments: 5. Current consuming wallet balance: 333,000,000 wei \
-                of MASQ",
+                "Analysis has projected a likely unacceptable adjustment leaving each of the payable \
+                accounts with too a low adjusted amount to pay. Please, proceed by sending funds to \
+                your wallet. Number of canceled payments: 5. Current consuming wallet balance: \
+                333,000,000 wei of MASQ",
             ),
             (
                 PaymentAdjusterError::AnalysisError(
@@ -957,7 +943,7 @@ mod tests {
                         cw_transaction_fee_balance_minor: 90_000,
                     },
                 ),
-                "Found less transaction fee balance than required by one payment. \
+                "Found smaller transaction fee balance than does for a single payment. \
                 Number of canceled payments: 4. Transaction fee for a single account: \
                 70,000,000,000,000 wei. Current consuming wallet balance: 90,000 wei",
             ),
@@ -971,20 +957,22 @@ mod tests {
         .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg))
     }
 
+    fn u16_max_plus_minus_correction(correction: i8) -> usize {
+        if correction < 0 {
+            (u16::MAX - correction.abs() as u16) as usize
+        } else {
+            u16::MAX as usize + correction as usize
+        }
+    }
+
     #[test]
-    fn there_is_u16_max_ceiling_for_doable_txs_count() {
+    fn there_is_u16_ceiling_for_doable_txs_count() {
         let result = [-3_i8, -1, 0, 1, 10]
             .into_iter()
-            .map(|correction| {
-                if correction < 0 {
-                    (u16::MAX - correction.abs() as u16) as u128
-                } else {
-                    u16::MAX as u128 + correction as u128
-                }
-            })
+            .map(|correction| u16_max_plus_minus_correction(correction) as u128)
             .map(|max_doable_txs_count_u256| {
                 let (doable_txs_count, _) =
-                    PaymentAdjusterReal::put_big_unsigned_integers_under_u16_ceiling(
+                    PaymentAdjusterReal::put_bigger_unsigned_integers_under_u16_ceiling(
                         max_doable_txs_count_u256,
                         123,
                     );
@@ -999,19 +987,13 @@ mod tests {
     }
 
     #[test]
-    fn there_is_u16_max_ceiling_for_required_txs_count() {
+    fn there_is_u16_ceiling_for_required_txs_count() {
         let result = [-9_i8, -1, 0, 1, 5]
             .into_iter()
-            .map(|correction| {
-                if correction < 0 {
-                    (u16::MAX - (correction.abs() as u16)) as usize
-                } else {
-                    u16::MAX as usize + correction as usize
-                }
-            })
+            .map(|correction| u16_max_plus_minus_correction(correction))
             .map(|required_tx_count_usize| {
                 let (_, required_tx_count) =
-                    PaymentAdjusterReal::put_big_unsigned_integers_under_u16_ceiling(
+                    PaymentAdjusterReal::put_bigger_unsigned_integers_under_u16_ceiling(
                         123,
                         required_tx_count_usize,
                     );
@@ -1026,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_criteria_returns_accounts_sorted_by_final_weights_in_descending_order() {
+    fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
         let now = SystemTime::now();
         let subject = make_initialized_subject(now, None, None);
         let account_1 = PayableAccount {
@@ -1048,20 +1030,30 @@ mod tests {
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
+
         let criteria_and_accounts =
             subject.calculate_criteria_sums_for_accounts(qualified_payables);
 
+        let mut previous_criteria_sum = u128::MAX;
         let only_accounts = criteria_and_accounts
-            .iter()
-            .map(|(_, account)| account)
-            .collect::<Vec<&PayableAccount>>();
-        assert_eq!(only_accounts, vec![&account_3, &account_1, &account_2])
+            .into_iter()
+            .map(|(criteria_sum, account)| {
+                assert!(
+                    previous_criteria_sum > criteria_sum,
+                    "Previous criteria {} wasn't larger than {} but should've been",
+                    previous_criteria_sum,
+                    criteria_sum
+                );
+                previous_criteria_sum = criteria_sum;
+                account
+            })
+            .collect::<Vec<PayableAccount>>();
+        assert_eq!(only_accounts, vec![account_3, account_1, account_2])
     }
 
     #[test]
-    fn smaller_debt_with_extreme_age_is_picked_prioritized_as_outweighed_but_not_with_more_money_than_required(
+    fn minor_but_highly_aged_debt_takes_priority_as_called_outweighed_and_stays_at_its_original_balance(
     ) {
-        const SAFETY_MULTIPLIER: u128 = 1_000_000_000_000_000;
         let now = SystemTime::now();
         let cw_masq_balance = 1_500_000_000_000_u128 - 25_000_000 - 1000;
         let mut subject = make_initialized_subject(now, Some(cw_masq_balance), None);
@@ -1092,19 +1084,17 @@ mod tests {
             .left()
             .unwrap();
 
-        //first a presentation of why this test is important
+        // First, a presentation of why this test is important
         let criteria_and_accounts =
             subject.calculate_criteria_sums_for_accounts(qualified_payables);
         let criteria_total = criteria_total(&criteria_and_accounts);
-        let account_2_criterion = criteria_and_accounts[1].0;
-        let cw_balance_fractional_safe = cw_masq_balance * SAFETY_MULTIPLIER;
-        let proportional_fragment_of_cw_balance = cw_balance_fractional_safe / criteria_total;
-        let proposed_adjusted_balance_2 =
-            (account_2_criterion * proportional_fragment_of_cw_balance) / SAFETY_MULTIPLIER;
-        //the weight of the second account grew very progressively due to the effect of the long age;
-        //consequences are that redistributing the new balances according to the computed weights would've attributed
-        //the second account with more tokens to pay than it'd had before the test started;
-        //to prevent it, we've got a rule that no account can ever demand more than its 100%
+        let proposed_adjustments = subject
+            .compute_adjusted_but_non_finalized_accounts(criteria_and_accounts, criteria_total);
+        let proposed_adjusted_balance_2 = proposed_adjustments[1].proposed_adjusted_balance;
+        // The criteria sum of the second account grew very progressively due to the effect of the greater age;
+        // consequences would've been that redistributing the new balances according to the computed criteria would've
+        // attributed the second account with more tokens to pay than it would've had before the test started;
+        // to prevent it, we set a logical rule that no account can ever demand more than the 100% of itself
         assert!(
             proposed_adjusted_balance_2 > 10 * balance_2,
             "we expected the proposed balance \
@@ -1112,48 +1102,43 @@ mod tests {
             balance_2,
             proposed_adjusted_balance_2
         );
-        let first_account = result.remove(0);
-        //outweighed account takes the first place
-        assert_eq!(first_account.original_account, account_2);
-        assert_eq!(first_account.proposed_adjusted_balance, balance_2);
-        let second_account = result.remove(0);
-        assert_eq!(second_account.original_account, account_1);
+        let first_returned_account = result.remove(0);
+        // Outweighed accounts always take the first places
+        assert_eq!(first_returned_account.original_account, account_2);
+        assert_eq!(first_returned_account.proposed_adjusted_balance, balance_2);
+        let second_returned_account = result.remove(0);
+        assert_eq!(second_returned_account.original_account, account_1);
         let upper_limit = 1_500_000_000_000_u128 - 25_000_000 - 25_000_000 - 1000;
         let lower_limit = (upper_limit * 9) / 10;
         assert!(
-            lower_limit <= second_account.proposed_adjusted_balance
-                && second_account.proposed_adjusted_balance <= upper_limit,
+            lower_limit <= second_returned_account.proposed_adjusted_balance
+                && second_returned_account.proposed_adjusted_balance <= upper_limit,
             "we expected the roughly adjusted account to be between {} and {} but was {}",
             lower_limit,
             upper_limit,
-            second_account.proposed_adjusted_balance
+            second_returned_account.proposed_adjusted_balance
         );
         assert!(result.is_empty());
     }
 
     #[test]
-    fn an_account_never_becomes_outweighed_and_needing_more_than_the_cw_balance_has_because_disqualified_accounts_need_to_be_eliminated_first(
+    fn account_never_becomes_outweighed_and_stuck_with_balance_higher_than_the_cw_balance_has_because_there_are_accounts_to_disqualify_first(
     ) {
-        // NOTE that the same is true for more outweighed accounts together that would require more than the whole cw balance, therefore there is no such a test at all.
+        // NOTE that the same is true for more outweighed accounts together that would require more than the whole cw balance, therefore there is no such a test either.
         // This test answers what is happening when the cw MASQ balance cannot cover the outweighed accounts at the first try but if there are outweighed accounts
-        // some other accounts must be also around of which one would definitely be heading to disqualification.
-        // With enough money, the other account might not need to meet disqualification which means the concern about an outweighed account that
-        // could not be paid by its full volume turns out to be groundless. Also meaning, that the algorithm strives not to cause another form of
-        // insufficient, different from that one we had at the beginning
+        // some other accounts must be also around of which some are under the disqualification limit and one of these would definitely be heading to disqualification.
+        // With enough money, the other account might not need to meet disqualification which means the initial concern is still groundless: there must be enough money
+        // to cover the outweighed account if there is other one which is qualified neither as outweighed or disqualified.
         const SECONDS_IN_3_DAYS: u64 = 259_200;
         let test_name =
-            "an_account_never_becomes_outweighed_and_balance_full_while_cw_balance_smaller_than_that_because_disqualified_accounts_will_be_eliminated_first";
+            "account_never_becomes_outweighed_and_stuck_with_balance_higher_than_the_cw_balance_has_because_there_are_accounts_to_disqualify_first";
         let now = SystemTime::now();
         let consuming_wallet_balance = 1_000_000_000_000_u128 - 1;
-        let subject = make_initialized_subject(
-            now,
-            Some(consuming_wallet_balance),
-            Some(Logger::new(test_name)),
-        );
         let account_1 = PayableAccount {
             wallet: make_wallet("blah"),
             balance_wei: 1_000_000_000_000,
             last_paid_timestamp: now
+                // Greater age like this together with smaller balance usually causes the account to be qualified as outweighed
                 .checked_sub(Duration::from_secs(SECONDS_IN_3_DAYS))
                 .unwrap(),
             pending_payable_opt: None,
@@ -1167,6 +1152,11 @@ mod tests {
             pending_payable_opt: None,
         };
         let accounts = vec![account_1.clone(), account_2.clone()];
+        let subject = make_initialized_subject(
+            now,
+            Some(consuming_wallet_balance),
+            Some(Logger::new(test_name)),
+        );
         let accounts_with_individual_criteria =
             subject.calculate_criteria_sums_for_accounts(accounts);
 
@@ -1183,10 +1173,10 @@ mod tests {
     }
 
     #[test]
-    fn there_are_safe_doors_leading_out_if_we_happen_to_end_up_with_disqualified_account_while_no_remaining_accounts(
+    fn there_are_doors_leading_out_if_we_happen_to_end_up_with_disqualified_account_while_no_remaining_accounts(
     ) {
         init_test_logging();
-        let test_name = "there_are_safe_doors_leading_out_if_we_happen_to_end_up_with_disqualified_account_while_no_remaining_accounts";
+        let test_name = "there_are_doors_leading_out_if_we_happen_to_end_up_with_disqualified_account_while_no_remaining_accounts";
         let mut subject =
             make_initialized_subject(SystemTime::now(), Some(123), Some(Logger::new(test_name)));
         let adjustment_iteration_result = AdjustmentIterationResult::SpecialTreatmentNeeded {
@@ -1199,19 +1189,19 @@ mod tests {
 
         assert!(here_decided_accounts.is_empty());
         assert!(downstream_decided_accounts.is_empty());
-        //Even though we normally don't assert on DEBUG logs, this one hardens the test
+        // Even though we normally don't assert on DEBUG logs, this one hardens the test
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Last remaining account ended up disqualified"
         ));
     }
 
     #[test]
-    fn loading_the_complete_process_with_exaggerated_debt_conditions_without_blowing_up_on_math_operations(
+    fn loading_the_entire_process_with_exaggerated_debt_conditions_to_see_if_it_handles_such_big_numbers(
     ) {
         init_test_logging();
-        let test_name = "loading_the_complete_process_with_exaggerated_debt_conditions_without_blowing_up_on_math_operations";
+        let test_name = "loading_the_entire_process_with_exaggerated_debt_conditions_to_see_if_it_handles_such_big_numbers";
         let now = SystemTime::now();
-        //each of 3 accounts contains the full token supply and a 10-years-old debt which generates extremely big numbers in the criteria
+        // each of 3 accounts contains the full token supply is 10 years old which generates extremely big numbers in the criteria
         let qualified_payables = {
             let debt_age_in_months = vec![120, 120, 120];
             make_extreme_accounts(
@@ -1221,7 +1211,7 @@ mod tests {
         };
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        //for change extremely small cw balance
+        // for change extremely small cw balance
         let cw_masq_balance = 1_000;
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
@@ -1232,7 +1222,7 @@ mod tests {
                         masq_tokens_minor: cw_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 70_000,
-                    desired_transaction_fee_price_major: 120,
+                    agreed_transaction_fee_per_computed_unit_major: 120,
                 },
             )),
             response_skeleton_opt: None,
@@ -1244,7 +1234,8 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        //because the proposed final balances all all way lower than (at least) the half of the original balances
+        // None on the output, because the proposed final balances are way lower than (at least) the half of the original balances;
+        // normally, the initial feasibility check wouldn't allow this
         assert_eq!(result.accounts, vec![]);
         let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
             format!(
@@ -1257,7 +1248,7 @@ mod tests {
             )
         };
         let log_handler = TestLogHandler::new();
-        // notice that the proposals grow by dropping one disqualified account in each iteration
+        // Notice that the proposals grow as one disqualified account drops in each iteration
         log_handler.exists_log_containing(&expected_log(
             "0x000000000000000000000000000000626c616830",
             333,
@@ -1310,7 +1301,7 @@ mod tests {
                         masq_tokens_minor: consuming_wallet_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 70_000,
-                    desired_transaction_fee_price_major: 120,
+                    agreed_transaction_fee_per_computed_unit_major: 120,
                 },
             )),
             response_skeleton_opt: None,
@@ -1362,10 +1353,10 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_masq_will_do_after_the_transaction_fee_cut(
+    fn adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_the_masq_balance_is_comfortably_large(
     ) {
         init_test_logging();
-        let test_name = "adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_masq_will_do_after_the_transaction_fee_cut";
+        let test_name = "adjust_payments_when_only_transaction_fee_limits_the_final_transaction_count_and_the_masq_balance_is_comfortably_large";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
@@ -1398,7 +1389,7 @@ mod tests {
                         masq_tokens_minor: 10_u128.pow(22),
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1431,7 +1422,7 @@ mod tests {
 |0x0000000000000000000000000000000000676869 222000000000000
 |                                           222000000000000
 |
-|Ruled Out in Favor of the Others           Original
+|Ruled Out                                  Original
 |
 |0x0000000000000000000000000000000000616263 111000000000000"
         );
@@ -1439,8 +1430,7 @@ mod tests {
     }
 
     #[test]
-    fn both_balances_are_insufficient_but_adjustment_by_masq_cuts_down_no_accounts_it_just_adjusts_their_balances(
-    ) {
+    fn both_balances_are_insufficient_but_adjustment_by_masq_will_not_affect_the_accounts_count() {
         init_test_logging();
         let now = SystemTime::now();
         let account_1 = PayableAccount {
@@ -1478,7 +1468,7 @@ mod tests {
                         masq_tokens_minor: consuming_wallet_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt,
@@ -1511,9 +1501,9 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_only_masq_token_limits_the_final_transaction_count() {
+    fn adjust_payments_when_only_masq_balance_limits_the_final_transaction_count() {
         init_test_logging();
-        let test_name = "adjust_payments_when_only_masq_token_limits_the_final_transaction_count";
+        let test_name = "adjust_payments_when_only_masq_balance_limits_the_final_transaction_count";
         let now = SystemTime::now();
         let wallet_1 = make_wallet("def");
         // account to be adjusted up to maximum
@@ -1540,7 +1530,7 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(6000)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
+        let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let consuming_wallet_masq_balance_minor = 333_000_000_000 + 50_000_000_000;
@@ -1554,7 +1544,7 @@ mod tests {
                         masq_tokens_minor: consuming_wallet_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -1590,10 +1580,10 @@ mod tests {
         would not be at least half of the original debt 600,000,000,000"));
     }
 
-    struct CompetitiveAccountsTestInput<'a> {
+    struct CompetitiveAccountsTestInputs<'a> {
         common: WalletsSetup<'a>,
-        balance_correction_account_1: u128,
-        balance_correction_account_2: u128,
+        balance_correction_minor_account_1: u128,
+        balance_correction_minor_account_2: u128,
         age_correction_secs_account_1: u64,
         age_correction_secs_account_2: u64,
     }
@@ -1604,48 +1594,47 @@ mod tests {
         wallet_2: &'a Wallet,
     }
 
-    fn test_competitive_accounts<'a>(
+    fn test_two_competitive_accounts_with_one_disqualified<'a>(
         test_scenario_name: &str,
-        inputs: CompetitiveAccountsTestInput,
-        expected_winning_account: &'a Wallet,
+        inputs: CompetitiveAccountsTestInputs,
+        expected_winning_account_wallet: &'a Wallet,
     ) {
-        let consuming_wallet_balance_minor = 100_000_000_000_000_u128 - 1;
-        let common_balance_account = 100_000_000_000_000;
-        let common_age_secs_account = 12000;
         let now = SystemTime::now();
+        let consuming_wallet_balance_minor = 100_000_000_000_000_u128 - 1;
+        let standard_balance_per_account = 100_000_000_000_000;
+        let standard_age_per_account = 12000;
         let account_1 = PayableAccount {
             wallet: inputs.common.wallet_1.clone(),
-            balance_wei: inputs.balance_correction_account_1 + common_balance_account,
+            balance_wei: standard_balance_per_account + inputs.balance_correction_minor_account_1,
             last_paid_timestamp: now
                 .checked_sub(Duration::from_secs(
-                    inputs.age_correction_secs_account_1 + common_age_secs_account,
+                    standard_age_per_account + inputs.age_correction_secs_account_1,
                 ))
                 .unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: inputs.common.wallet_2.clone(),
-            balance_wei: inputs.balance_correction_account_2 + common_balance_account,
+            balance_wei: standard_balance_per_account + inputs.balance_correction_minor_account_2,
             last_paid_timestamp: now
                 .checked_sub(Duration::from_secs(
-                    inputs.age_correction_secs_account_2 + common_age_secs_account,
+                    standard_age_per_account + inputs.age_correction_secs_account_2,
                 ))
                 .unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1.clone(), account_2.clone()];
+        let qualified_payables = vec![account_1, account_2];
         let mut subject = PaymentAdjusterReal::new();
-        let consuming_wallet_masq_balance_wei = consuming_wallet_balance_minor;
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
                         transaction_fee_minor: u128::MAX,
-                        masq_tokens_minor: consuming_wallet_masq_balance_wei,
+                        masq_tokens_minor: consuming_wallet_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 55_000,
-                    desired_transaction_fee_price_major: 150,
+                    agreed_transaction_fee_per_computed_unit_major: 150,
                 },
             )),
             response_skeleton_opt: None,
@@ -1662,9 +1651,9 @@ mod tests {
 
         let winning_account = result.remove(0);
         assert_eq!(
-            &winning_account.wallet, expected_winning_account,
-            "{}: expected {} but got {}",
-            test_scenario_name, winning_account.wallet, expected_winning_account
+            &winning_account.wallet, expected_winning_account_wallet,
+            "{}: expected wallet {} but got {}",
+            test_scenario_name, winning_account.wallet, expected_winning_account_wallet
         );
         assert_eq!(
             winning_account.balance_wei, consuming_wallet_balance_minor,
@@ -1680,10 +1669,10 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_not_enough_masq_to_pay_at_least_half_of_each_account() {
-        fn merge_main_test_name_with_test_case(description: &str) -> String {
+    fn adjust_payments_when_not_enough_masq_to_pay_both_at_least_by_their_half() {
+        fn merge_test_name_with_test_case(description: &str) -> String {
             format!(
-                "adjust_payments_when_not_enough_masq_to_pay_at_least_half_of_each_account_{}",
+                "adjust_payments_when_not_enough_masq_to_pay_both_at_least_by_their_half{}",
                 description
             )
         }
@@ -1695,15 +1684,15 @@ mod tests {
             wallet_2: &wallet_2,
         };
         // scenario A
-        let first_scenario_name = merge_main_test_name_with_test_case("when equal");
+        let first_scenario_name = merge_test_name_with_test_case("when equal");
         let expected_winning_account = &wallet_2;
 
-        test_competitive_accounts(
+        test_two_competitive_accounts_with_one_disqualified(
             &first_scenario_name,
-            CompetitiveAccountsTestInput {
+            CompetitiveAccountsTestInputs {
                 common: common_input,
-                balance_correction_account_1: 0,
-                balance_correction_account_2: 0,
+                balance_correction_minor_account_1: 0,
+                balance_correction_minor_account_2: 0,
                 age_correction_secs_account_1: 0,
                 age_correction_secs_account_2: 0,
             },
@@ -1711,15 +1700,15 @@ mod tests {
         );
 
         // scenario B
-        let second_scenario_name = merge_main_test_name_with_test_case("first heavier by balance");
+        let second_scenario_name = merge_test_name_with_test_case("first heavier by balance");
         let expected_winning_account = &wallet_2;
 
-        test_competitive_accounts(
+        test_two_competitive_accounts_with_one_disqualified(
             &second_scenario_name,
-            CompetitiveAccountsTestInput {
+            CompetitiveAccountsTestInputs {
                 common: common_input,
-                balance_correction_account_1: 1,
-                balance_correction_account_2: 0,
+                balance_correction_minor_account_1: 1,
+                balance_correction_minor_account_2: 0,
                 age_correction_secs_account_1: 0,
                 age_correction_secs_account_2: 0,
             },
@@ -1727,15 +1716,15 @@ mod tests {
         );
 
         // scenario C
-        let third_scenario_name = merge_main_test_name_with_test_case("second heavier by age");
+        let third_scenario_name = merge_test_name_with_test_case("second heavier by age");
         let expected_winning_account = &wallet_1;
 
-        test_competitive_accounts(
+        test_two_competitive_accounts_with_one_disqualified(
             &third_scenario_name,
-            CompetitiveAccountsTestInput {
+            CompetitiveAccountsTestInputs {
                 common: common_input,
-                balance_correction_account_1: 0,
-                balance_correction_account_2: 0,
+                balance_correction_minor_account_1: 0,
+                balance_correction_minor_account_2: 0,
                 age_correction_secs_account_1: 1,
                 age_correction_secs_account_2: 0,
             },
@@ -1744,18 +1733,18 @@ mod tests {
     }
 
     #[test]
-    fn adjust_payments_when_masq_as_well_as_transaction_fee_will_limit_the_count() {
+    fn adjust_payments_when_masq_as_well_as_transaction_fee_limits_the_count() {
         init_test_logging();
-        let test_name = "adjust_payments_when_masq_as_well_as_transaction_fee_will_limit_the_count";
+        let test_name = "adjust_payments_when_masq_as_well_as_transaction_fee_limits_the_count";
         let now = SystemTime::now();
-        //thrown away as the second one because of its insignificance (proposed adjusted balance is smaller than half the original)
+        // Thrown away as the second for the proposed balance insignificance
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: 10_000_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
             pending_payable_opt: None,
         };
-        //thrown away as the first one for insufficient transaction_fee
+        // Thrown away as the first one for the proposed balance insignificance
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
             balance_wei: 55_000_000_000,
@@ -1770,7 +1759,7 @@ mod tests {
             last_paid_timestamp: last_paid_timestamp_3,
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let qualified_payables = vec![account_1, account_2, account_3.clone()];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let consuming_wallet_masq_balance = 300_000_000_000_000_u128;
@@ -1784,7 +1773,7 @@ mod tests {
                         masq_tokens_minor: consuming_wallet_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1818,7 +1807,7 @@ mod tests {
 |0x0000000000000000000000000000000000676869 333000000000000
 |                                           300000000000000
 |
-|Ruled Out in Favor of the Others           Original
+|Ruled Out                                  Original
 |
 |0x0000000000000000000000000000000000616263 10000000000000
 |0x0000000000000000000000000000000000646566 55000000000"
@@ -1827,10 +1816,10 @@ mod tests {
     }
 
     #[test]
-    fn error_returns_after_transaction_fee_adjustment_done_but_mask_balance_is_found_completely_insufficient(
+    fn error_from_the_depths_after_transaction_fee_adjusted_but_masq_balance_is_rechecked_and_found_fully_insufficient(
     ) {
         init_test_logging();
-        let test_name = "error_returns_after_transaction_fee_adjustment_done_but_mask_balance_is_found_completely_insufficient";
+        let test_name = "error_from_the_depths_after_transaction_fee_adjusted_but_masq_balance_is_rechecked_and_found_fully_insufficient";
         let now = SystemTime::now();
         //this account gets eliminated in the transaction-fee cut
         let account_1 = PayableAccount {
@@ -1851,9 +1840,10 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let qualified_payables = vec![account_1, account_2, account_3];
         let mut subject = PaymentAdjusterReal::new();
-        let cw_masq_balance_minor = (111_000_000_000_000 / 2) - 1; //this is exactly the amount which will provoke an error
+        // This is exactly the amount which will provoke an error
+        let cw_masq_balance_minor = (111_000_000_000_000 / 2) - 1;
         subject.logger = Logger::new(test_name);
         let setup_msg = PayablePaymentSetup {
             qualified_payables,
@@ -1861,11 +1851,11 @@ mod tests {
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
                         transaction_fee_minor: 5_544_000_000_000_000_u128 - 1,
-                        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
+                        // Gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
                         masq_tokens_minor: cw_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1889,29 +1879,31 @@ mod tests {
             ))
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Passing successful \
-        payment adjustment by the transaction fee, but facing critical scarcity of MASQ balance. \
-        Operation will abort."
+            "ERROR: {test_name}: Passing successful payment adjustment by the transaction fee, but \
+            facing critical scarcity of MASQ balance. Operation will abort."
         ));
     }
 
     #[test]
-    fn strategies_for_the_initial_check_and_the_actual_adjustment_algorithm_complement_each_other()
-    {
-        let test_name = "strategies_for_the_initial_check_and_the_actual_adjustment_algorithm_complement_each_other";
+    fn the_entry_check_and_the_account_eliminating_adjustment_algorithm_use_opposite_evaluation_strategies(
+    ) {
+        let test_name = "the_entry_check_and_the_account_eliminating_adjustment_algorithm_use_opposite_evaluation_strategies";
         let now = SystemTime::now();
+        // Disqualified in the first iteration
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: 10_000_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
             pending_payable_opt: None,
         };
+        // Disqualified in the second iteration
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
             balance_wei: 550_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(15000)).unwrap(),
             pending_payable_opt: None,
         };
+        // Eventually picked fulfilling the keep condition and returned
         let wallet_3 = make_wallet("ghi");
         let last_paid_timestamp_3 = now.checked_sub(Duration::from_secs(29000)).unwrap();
         let balance_3 = 100_000_000_000;
@@ -1925,7 +1917,13 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         let logger = Logger::new(test_name);
         subject.logger = logger.clone();
-        // this should fulfill the initial check, but after that the win of the third account will be really tight
+        // This cw balance should be enough to fulfill the entry check. After eliminating two accounts,
+        // the final winning resolution of the third account will work out because of the only
+        // additional one.
+        // The strategies advance reversed. The initial check seeks the smallest account,
+        // the disqualification strategy always takes from the largest accounts first.
+        // As a result, we can forecast the chances if the adjustment would succeed, not having to
+        // move forward beyond the entry check.
         let consuming_wallet_masq_balance = (balance_3 / 2) + 1;
         let setup_msg = PayablePaymentSetup {
             qualified_payables: qualified_payables.clone(),
@@ -1936,7 +1934,7 @@ mod tests {
                         masq_tokens_minor: consuming_wallet_masq_balance,
                     },
                     estimated_gas_limit_per_transaction: 77_000,
-                    desired_transaction_fee_price_major: 24,
+                    agreed_transaction_fee_per_computed_unit_major: 24,
                 },
             )),
             response_skeleton_opt: None,
@@ -1966,32 +1964,45 @@ mod tests {
         assert_eq!(adjustment_result.response_skeleton_opt, None);
     }
 
-    struct TransactionFeeConditionsInTest {
-        desired_transaction_fee_price_per_major: u64,
+    struct TransactionFeeTestConfig {
+        agreed_transaction_fee_per_computed_unit_major: u64,
         number_of_accounts: usize,
         estimated_transaction_fee_units_limit_per_transaction: u64,
         cw_transaction_fee_balance_major: u64,
     }
 
-    fn make_payable_setup_msg_coming_from_blockchain_bridge(
-        masq_balances_opt: Option<PayableBalancesAndCWBalanceInTest>,
-        transaction_fee_conditions_opt: Option<TransactionFeeConditionsInTest>,
+    fn make_payable_setup_msg_sent_from_blockchain_bridge(
+        masq_balances_config_opt: Option<PayableBalancesAndCWBalanceTestConfig>,
+        transaction_fee_config_opt: Option<TransactionFeeTestConfig>,
     ) -> PayablePaymentSetup {
-        let masq_balances_setup = masq_balances_opt.unwrap_or(PayableBalancesAndCWBalanceInTest {
-            balances_of_accounts_major: vec![1, 1],
-            cw_balance_major: u64::MAX,
-        });
+        let masq_balances_setup = match masq_balances_config_opt {
+            Some(config) => config,
+            None => PayableBalancesAndCWBalanceTestConfig {
+                balances_of_accounts: Either::Left(vec![1, 1]),
+                cw_balance_major: u64::MAX,
+            },
+        };
 
-        let accounts_count = masq_balances_setup.balances_of_accounts_major.len();
+        let cw_masq_balance_minor: u128 = gwei_to_wei(masq_balances_setup.cw_balance_major);
+
+        let balances_of_accounts_minor = match masq_balances_setup.balances_of_accounts {
+            Either::Left(in_major) => in_major
+                .into_iter()
+                .map(|major| gwei_to_wei(major))
+                .collect(),
+            Either::Right(in_minor) => in_minor,
+        };
+
+        let accounts_count = balances_of_accounts_minor.len();
 
         let (
             desired_transaction_fee_price,
             number_of_payments,
             estimated_transaction_fee_limit_per_tx,
             cw_balance_transaction_fee_major,
-        ) = match transaction_fee_conditions_opt {
+        ) = match transaction_fee_config_opt {
             Some(conditions) => (
-                conditions.desired_transaction_fee_price_per_major,
+                conditions.agreed_transaction_fee_per_computed_unit_major,
                 conditions.number_of_accounts,
                 conditions.estimated_transaction_fee_units_limit_per_transaction,
                 conditions.cw_transaction_fee_balance_major,
@@ -1999,27 +2010,34 @@ mod tests {
             None => (120, accounts_count, 55_000, u64::MAX),
         };
 
-        let qualified_payables: Vec<_> = match number_of_payments != accounts_count {
-            true => (0..number_of_payments)
+        let qualified_payables: Vec<_> = if number_of_payments != accounts_count {
+            (0..number_of_payments)
                 .map(|idx| make_payable_account(idx as u64))
-                .collect(),
-            false => masq_balances_setup
-                .balances_of_accounts_major
+                .collect()
+        } else {
+            balances_of_accounts_minor
                 .into_iter()
-                .map(|balance| make_payable_account(balance))
-                .collect(),
+                .enumerate()
+                .map(|(idx, balance)| {
+                    let mut account = make_payable_account(idx as u64);
+                    account.balance_wei = balance;
+                    account
+                })
+                .collect()
         };
+
+        let cw_transaction_fee_minor = gwei_to_wei(cw_balance_transaction_fee_major);
 
         PayablePaymentSetup {
             qualified_payables,
             this_stage_data_opt: Some(StageData::FinancialAndTechDetails(
                 FinancialAndTechDetails {
                     consuming_wallet_balances: ConsumingWalletBalances {
-                        transaction_fee_minor: gwei_to_wei(cw_balance_transaction_fee_major),
-                        masq_tokens_minor: gwei_to_wei(masq_balances_setup.cw_balance_major),
+                        transaction_fee_minor: cw_transaction_fee_minor,
+                        masq_tokens_minor: cw_masq_balance_minor,
                     },
                     estimated_gas_limit_per_transaction: estimated_transaction_fee_limit_per_tx,
-                    desired_transaction_fee_price_major: desired_transaction_fee_price,
+                    agreed_transaction_fee_per_computed_unit_major: desired_transaction_fee_price,
                 },
             )),
             response_skeleton_opt: None,

@@ -152,7 +152,7 @@ mod tests {
                 transaction_fee_minor: 0,
                 masq_tokens_minor: cw_balance,
             },
-            desired_transaction_fee_price_major: 30,
+            agreed_transaction_fee_per_computed_unit_major: 30,
             estimated_gas_limit_per_transaction: 100,
         };
         let adjustment = Adjustment::MasqToken;
@@ -252,7 +252,7 @@ mod tests {
                 transaction_fee_minor: 0,
                 masq_tokens_minor: cw_balance,
             },
-            desired_transaction_fee_price_major: 30,
+            agreed_transaction_fee_per_computed_unit_major: 30,
             estimated_gas_limit_per_transaction: 100,
         };
         let wallet_1 = make_wallet("abc");
