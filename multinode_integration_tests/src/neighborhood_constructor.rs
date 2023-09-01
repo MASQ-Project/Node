@@ -85,6 +85,10 @@ where
     (modified_db, real_node, mock_node_map)
 }
 
+pub fn do_not_modify_config() -> impl FnOnce(NodeStartupConfigBuilder) -> NodeStartupConfig {
+    |builder: NodeStartupConfigBuilder| builder.build()
+}
+
 fn make_mock_node_map(
     cluster: &mut MASQNodeCluster,
     model_db: &NeighborhoodDatabase,

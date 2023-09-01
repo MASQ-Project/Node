@@ -22,7 +22,7 @@ pub struct StreamReaderReal {
     reception_port: Option<u16>,
     ibcd_sub: Recipient<dispatcher::InboundClientData>,
     remove_sub: Recipient<RemoveStreamMsg>,
-    dispatcher_sub: Recipient<StreamShutdownMsg>,
+    dispatcher_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     discriminators: Vec<Discriminator>,
     is_clandestine: bool,
     logger: Logger,
@@ -110,7 +110,7 @@ impl StreamReaderReal {
             reception_port,
             ibcd_sub,
             remove_sub,
-            dispatcher_sub,
+            dispatcher_stream_shutdown_sub: dispatcher_sub,
             discriminators,
             is_clandestine,
             logger: Logger::new(&name),
@@ -196,7 +196,7 @@ impl StreamReaderReal {
                         sequence_number: self.sequencer.next_sequence_number(),
                     })
                 },
-                dispatcher_sub: self.dispatcher_sub.clone(),
+                dispatcher_sub: self.dispatcher_stream_shutdown_sub.clone(),
             })
             .expect("StreamHandlerPool is dead");
     }

@@ -190,7 +190,7 @@ impl Handler<RouteResultMessage> for ProxyServer {
                 // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
-                error!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
+                warning!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
             }
         }
     }
@@ -278,7 +278,10 @@ impl ProxyServer {
         }
     }
 
-    fn pop_dns_failure_retry(&mut self, stream_key: &StreamKey) -> Result<DNSFailureRetry, String> {
+    fn remove_dns_failure_retry(
+        &mut self,
+        stream_key: &StreamKey,
+    ) -> Result<DNSFailureRetry, String> {
         match self.dns_failure_retries.remove(stream_key) {
             None => Err(format!(
                 "No entry found inside dns_failure_retries hashmap for the stream_key: {:?}",
@@ -288,8 +291,11 @@ impl ProxyServer {
         }
     }
 
-    fn retry_dns_resolution(&mut self, mut retry: DNSFailureRetry, source_addr: SocketAddr) {
-        let stream_key = retry.unsuccessful_request.stream_key;
+    fn retry_dns_resolution(
+        &mut self,
+        retry: DNSFailureRetry,
+        source_addr: SocketAddr,
+    ) -> DNSFailureRetry {
         let args = self.try_transmit_to_hopper_args_msg(
             retry.unsuccessful_request.clone(),
             source_addr,
@@ -303,8 +309,7 @@ impl ProxyServer {
             .expect("IBCDHelper uninitialized");
 
         inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
-        retry.retries_left -= 1;
-        self.dns_failure_retries.insert(stream_key, retry);
+        retry
     }
 
     fn retire_stream_key(&mut self, stream_key: &StreamKey) {
@@ -381,14 +386,17 @@ impl ProxyServer {
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
-                let retry = match self.pop_dns_failure_retry(&response.stream_key) {
+                let retry = match self.remove_dns_failure_retry(&response.stream_key) {
                     Ok(retry) => retry,
                     Err(error_msg) => {
                         panic!("{}", error_msg);
                     }
                 };
                 if retry.retries_left > 0 {
-                    self.retry_dns_resolution(retry, socket_addr);
+                    let mut returned_retry = self.retry_dns_resolution(retry, socket_addr);
+                    returned_retry.retries_left -= 1;
+                    self.dns_failure_retries
+                        .insert(response.stream_key, returned_retry);
                 } else {
                     self.retire_stream_key(&response.stream_key);
                     self.send_dns_failure_response_to_the_browser(
@@ -434,7 +442,7 @@ impl ProxyServer {
             response.sequenced_packet.data.len(),
             payload_data_len,
         );
-        match self.pop_dns_failure_retry(&response.stream_key) {
+        match self.remove_dns_failure_retry(&response.stream_key) {
             Ok(_) => {
                 debug!(self.logger, "Successful attempt of DNS resolution, removing DNS retry entry for stream key: {}", &response.stream_key)
             }
@@ -993,7 +1001,7 @@ trait RouteQueryResponseResolver: Send {
         &self,
         args: TryTransmitToHopperArgs,
         proxy_server_sub: Recipient<RouteResultMessage>,
-        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+        route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     );
 }
 struct RouteQueryResponseResolverReal {}
@@ -1003,10 +1011,10 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         &self,
         args: TryTransmitToHopperArgs,
         proxy_server_sub: Recipient<RouteResultMessage>,
-        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+        route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         let stream_key = args.payload.stream_key;
-        let result = match route_result {
+        let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
                 match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
                     Ok(()) => Ok(route_query_response),
@@ -3112,7 +3120,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
+            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3288,7 +3296,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
+            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3636,7 +3644,7 @@ mod tests {
         assert_eq!(record, &expected_msg);
 
         TestLogHandler::new().exists_log_containing(
-            &format!("ERROR: {test_name}: No route found for hostname: Some(\"server.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to server.com")
+            &format!("WARN: {test_name}: No route found for hostname: Some(\"server.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to server.com")
         );
     }
 

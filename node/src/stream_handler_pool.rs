@@ -245,7 +245,7 @@ impl StreamHandlerPool {
             .expect("StreamHandlerPool is unbound")
             .remove_sub
             .clone();
-        let dispatcher_sub: Recipient<StreamShutdownMsg> = self
+        let dispatcher_shutdown_sub: Recipient<StreamShutdownMsg> = self
             .dispatcher_subs_opt
             .as_ref()
             .expect("Dispatcher is unbound")
@@ -256,7 +256,7 @@ impl StreamHandlerPool {
             origin_port,
             ibcd_sub,
             remove_sub,
-            dispatcher_sub,
+            dispatcher_shutdown_sub,
             port_configuration.discriminator_factories.clone(),
             port_configuration.is_clandestine,
             peer_addr,
