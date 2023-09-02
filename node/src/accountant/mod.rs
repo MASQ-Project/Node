@@ -1660,7 +1660,7 @@ mod tests {
         log_handler.exists_log_containing(&format!("WARN: {test_name}: The current balances do not \
         suffice for a payment for any of the recently qualified payables by the larger part of each. \
         Please fund your consuming wallet in order to avoid being banned from your creditors. Failure \
-        reason: Found less transaction fee balance than required by one payment. Number of canceled \
+        reason: Found smaller transaction fee balance than does for a single payment. Number of canceled \
         payments: 1. Transaction fee for a single account: 3,300,000 wei. Current consuming wallet \
         balance: 123,000,000,000 wei."));
         log_handler

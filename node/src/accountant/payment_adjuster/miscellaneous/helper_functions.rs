@@ -600,11 +600,7 @@ mod tests {
 
         let result = calculate_disqualification_edge(account.balance_wei);
 
-        assert_eq!(
-            result,
-            (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account.balance_wei)
-                / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
-        )
+        assert_eq!(result, calculate_disqualification_edge(account.balance_wei))
     }
 
     #[test]
@@ -919,8 +915,7 @@ mod tests {
         let payable_account_1 = prepare_account(1);
         let payable_account_2 = prepare_account(2);
         let payable_account_3 = prepare_account(3);
-        let edge = account_balance / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
-            * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier;
+        let edge = calculate_disqualification_edge(account_balance);
         let proposed_ok_balance = edge + 1;
         let account_info_1 =
             AdjustedAccountBeforeFinalization::new(payable_account_1, proposed_ok_balance);

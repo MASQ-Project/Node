@@ -139,7 +139,7 @@ mod tests {
         MasqOnlyRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scan_setup_msgs::FinancialAndTechDetails;
     use crate::accountant::test_utils::make_payable_account;
@@ -210,9 +210,7 @@ mod tests {
     fn adjust_last_one_for_requested_balance_smaller_than_cw_but_not_needed_disqualified() {
         let now = SystemTime::now();
         let account_balance = 4_500_600;
-        let cw_balance = ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
-            + 1;
+        let cw_balance = calculate_disqualification_edge(account_balance) + 1;
         let account = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: account_balance,
@@ -227,7 +225,7 @@ mod tests {
             result,
             Some(AdjustedAccountBeforeFinalization {
                 original_account: account,
-                proposed_adjusted_balance: account_balance,
+                proposed_adjusted_balance: cw_balance,
             })
         )
     }
@@ -250,8 +248,7 @@ mod tests {
     #[test]
     fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_on_edge() {
         let account_balance = 4_000_444;
-        let cw_balance = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor;
+        let cw_balance = calculate_disqualification_edge(account_balance);
 
         test_adjust_last_one_when_disqualified(cw_balance, account_balance)
     }
@@ -260,9 +257,7 @@ mod tests {
     fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_slightly_under()
     {
         let account_balance = 4_000_444;
-        let cw_balance = ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
-            - 1;
+        let cw_balance = calculate_disqualification_edge(account_balance) - 1;
 
         test_adjust_last_one_when_disqualified(cw_balance, account_balance)
     }
