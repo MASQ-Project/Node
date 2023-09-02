@@ -399,6 +399,11 @@ pub mod tests {
 
         let result = subject.execute_command("dir booga");
 
+        match result {
+            Err(Either::Right(e)) if e.kind() == ErrorKind::NotFound => (),
+            Err(Either::Left(stderr)) => panic!("Unexpected content in stderr: '{}'", stderr),
+            x => panic!("Expected error message in stderr; got {:?}", x),
+        }
         assert!(
             stderr.contains("The system cannot find the file specified")
                 || stderr.contains("No such file or directory"),
