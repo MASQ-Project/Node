@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, NamedCalculator,
+    CriterionCalculator, CalculatorWithNamedMainParameter,
 };
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     DiagnosticsConfig,
@@ -111,8 +111,8 @@ impl CriterionCalculator for AgeCriterionCalculator {
     }
 }
 
-impl NamedCalculator for AgeCriterionCalculator {
-    fn parameter_name(&self) -> &'static str {
+impl CalculatorWithNamedMainParameter for AgeCriterionCalculator {
+    fn main_parameter_name(&self) -> &'static str {
         "AGE"
     }
 }
@@ -139,7 +139,7 @@ pub mod characteristics_config {
     lazy_static! {
         pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<AgeInput>>> = {
             let now = SystemTime::now();
-            let x_axis_supply = {
+            let horisontal_axis_data_suply = {
                 [
                     Left(1),
                     Left(5),
@@ -169,14 +169,15 @@ pub mod characteristics_config {
                 .collect()
             };
             Mutex::new(Some(DiagnosticsConfig {
-                label: "AGE",
-                x_axis_progressive_supply: x_axis_supply,
-                x_axis_native_type_formatter: Box::new(move |secs_since_last_paid_payable| {
-                    let native_time = now
-                        .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-                        .expect("time travelling");
-                    AgeInput(native_time)
-                }),
+                horizontal_axis_progressive_supply: horisontal_axis_data_suply,
+                horizontal_axis_native_type_formatter: Box::new(
+                    move |secs_since_last_paid_payable| {
+                        let native_time = now
+                            .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
+                            .expect("time travelling");
+                        AgeInput(native_time)
+                    },
+                ),
             }))
         };
     }
@@ -191,7 +192,7 @@ mod tests {
         AGE_MAIN_EXPONENT, AGE_MULTIPLIER,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
-        CriterionCalculator, NamedCalculator,
+        CalculatorWithNamedMainParameter, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use std::time::{Duration, SystemTime};
@@ -221,6 +222,7 @@ mod tests {
     fn nonzero_elapsed_works() {
         let now = SystemTime::now();
         let result: Vec<_> = [
+            // The first entry is normally considered 0 s
             now.checked_sub(Duration::from_nanos(55)).unwrap(),
             now.checked_sub(Duration::from_secs(1)).unwrap(),
             now.checked_sub(Duration::from_secs(2)).unwrap(),
@@ -264,11 +266,11 @@ mod tests {
     }
 
     #[test]
-    fn calculator_has_the_right_name() {
+    fn calculator_returns_the_right_main_param_name() {
         let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
         let subject = AgeCriterionCalculator::new(&payment_adjuster);
 
-        let result = subject.parameter_name();
+        let result = subject.main_parameter_name();
 
         assert_eq!(result, "AGE")
     }
@@ -278,16 +280,19 @@ mod tests {
         let now = SystemTime::now();
         let payment_adjuster = make_initialized_subject(now, None, None);
         let subject = AgeCriterionCalculator::new(&payment_adjuster);
-        let last_paid_timestamp = AgeInput(
+        let last_paid_timestamp_wrapped = AgeInput(
             SystemTime::now()
                 .checked_sub(Duration::from_secs(1500))
                 .unwrap(),
         );
 
-        let result = subject.formula()(last_paid_timestamp);
+        let result = subject.formula()(last_paid_timestamp_wrapped);
 
         let expected_criterion = {
-            let elapsed_secs: u64 = now.duration_since(last_paid_timestamp.0).unwrap().as_secs();
+            let elapsed_secs: u64 = now
+                .duration_since(last_paid_timestamp_wrapped.0)
+                .unwrap()
+                .as_secs();
             let divisor = AgeCriterionCalculator::nonzero_compute_divisor(elapsed_secs);
             let log_multiplier =
                 AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);

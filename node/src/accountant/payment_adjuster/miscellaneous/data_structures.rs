@@ -6,13 +6,13 @@ use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 pub enum AdjustmentIterationResult {
     AllAccountsProcessedSmoothly(Vec<AdjustedAccountBeforeFinalization>),
     SpecialTreatmentNeeded {
-        special_case: SpecialTreatment,
+        case: AfterAdjustmentSpecialTreatment,
         remaining: Vec<PayableAccount>,
     },
 }
 
 #[derive(Debug)]
-pub enum SpecialTreatment {
+pub enum AfterAdjustmentSpecialTreatment {
     TreatInsignificantAccount,
     TreatOutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
 }
@@ -30,16 +30,6 @@ impl AdjustedAccountBeforeFinalization {
             proposed_adjusted_balance,
         }
     }
-
-    pub fn finalize_collection(
-        account_infos: Vec<Self>,
-        resolution: ProposedAdjustmentResolution,
-    ) -> Vec<PayableAccount> {
-        account_infos
-            .into_iter()
-            .map(|account_info| PayableAccount::from((account_info, resolution)))
-            .collect()
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -48,11 +38,11 @@ pub enum ProposedAdjustmentResolution {
     Revert,
 }
 
-// sets the minimal percentage of the original balance that must be
-// proposed after the adjustment or the account will be eliminated for insignificance
+// Sets the minimal percentage of the original balance that must be proposed after the adjustment
+// or the account will be eliminated for insignificance
 #[derive(Debug, PartialEq, Eq)]
 pub struct PercentageAccountInsignificance {
-    // using integers means we have to represent accurate percentage
+    // Using integers means we have to represent accurate percentage
     // as set of two constants
     pub multiplier: u128,
     pub divisor: u128,

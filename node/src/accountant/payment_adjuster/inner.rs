@@ -3,22 +3,11 @@
 use std::time::SystemTime;
 
 pub trait PaymentAdjusterInner {
-    fn now(&self) -> SystemTime {
-        PaymentAdjusterInnerNull::panicking_operation("now()")
-    }
-    fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
-        PaymentAdjusterInnerNull::panicking_operation("transaction_fee_count_limit_opt()")
-    }
-    fn original_cw_masq_balance_minor(&self) -> u128 {
-        PaymentAdjusterInnerNull::panicking_operation("original_cw_masq_balance_minor()")
-    }
-    fn unallocated_cw_masq_balance_minor(&self) -> u128 {
-        PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance_minor()")
-    }
-
-    fn update_unallocated_cw_balance_minor(&mut self, _subtrahend: u128) {
-        PaymentAdjusterInnerNull::panicking_operation("update_unallocated_cw_balance_minor()")
-    }
+    fn now(&self) -> SystemTime;
+    fn transaction_fee_count_limit_opt(&self) -> Option<u16>;
+    fn original_cw_masq_balance_minor(&self) -> u128;
+    fn unallocated_cw_masq_balance_minor(&self) -> u128;
+    fn update_unallocated_cw_balance_minor(&mut self, _subtrahend: u128);
 }
 
 pub struct PaymentAdjusterInnerReal {
@@ -32,13 +21,13 @@ impl PaymentAdjusterInnerReal {
     pub fn new(
         now: SystemTime,
         transaction_fee_count_limit_opt: Option<u16>,
-        cw_masq_balance: u128,
+        cw_masq_balance_minor: u128,
     ) -> Self {
         Self {
             now,
             transaction_fee_count_limit_opt,
-            original_cw_masq_balance_minor: cw_masq_balance,
-            unallocated_cw_masq_balance_minor: cw_masq_balance,
+            original_cw_masq_balance_minor: cw_masq_balance_minor,
+            unallocated_cw_masq_balance_minor: cw_masq_balance_minor,
         }
     }
 }
@@ -60,7 +49,7 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
         let updated_thought_cw_balance = self
             .unallocated_cw_masq_balance_minor
             .checked_sub(subtrahend)
-            .expect("subtracting a small enough number");
+            .expect("got into negative numbers");
         self.unallocated_cw_masq_balance_minor = updated_thought_cw_balance
     }
 }
@@ -70,13 +59,29 @@ pub struct PaymentAdjusterInnerNull {}
 impl PaymentAdjusterInnerNull {
     fn panicking_operation(operation: &str) -> ! {
         panic!(
-            "Called the null implementation of the {} method in PaymentAdjusterInner",
+            "Broken code: Broken code: Called the null implementation of the {} method in PaymentAdjusterInner",
             operation
         )
     }
 }
 
-impl PaymentAdjusterInner for PaymentAdjusterInnerNull {}
+impl PaymentAdjusterInner for PaymentAdjusterInnerNull {
+    fn now(&self) -> SystemTime {
+        PaymentAdjusterInnerNull::panicking_operation("now()")
+    }
+    fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
+        PaymentAdjusterInnerNull::panicking_operation("transaction_fee_count_limit_opt()")
+    }
+    fn original_cw_masq_balance_minor(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("original_cw_masq_balance_minor()")
+    }
+    fn unallocated_cw_masq_balance_minor(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance_minor()")
+    }
+    fn update_unallocated_cw_balance_minor(&mut self, _subtrahend: u128) {
+        PaymentAdjusterInnerNull::panicking_operation("update_unallocated_cw_balance_minor()")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -104,7 +109,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the now() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the now() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_now() {
         let subject = PaymentAdjusterInnerNull {};
@@ -114,7 +119,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the transaction_fee_count_limit_opt() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the transaction_fee_count_limit_opt() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_transaction_fee_count_limit_opt() {
         let subject = PaymentAdjusterInnerNull {};
@@ -124,7 +129,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the original_cw_masq_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the original_cw_masq_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_original_cw_masq_balance_minor() {
         let subject = PaymentAdjusterInnerNull {};
@@ -134,7 +139,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_unallocated_cw_balance() {
         let subject = PaymentAdjusterInnerNull {};
@@ -144,7 +149,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the update_unallocated_cw_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the update_unallocated_cw_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_update_unallocated_cw_balance_minor() {
         let mut subject = PaymentAdjusterInnerNull {};

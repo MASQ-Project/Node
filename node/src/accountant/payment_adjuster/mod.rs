@@ -26,21 +26,16 @@ use crate::accountant::payment_adjuster::inner::{
 };
 use crate::accountant::payment_adjuster::log_fns::{
     before_and_after_debug_msg, log_adjustment_by_masq_required,
-    log_error_for_transaction_fee_adjustment_ok_but_masq_balance_insufficient,
+    log_transaction_fee_adjustment_ok_but_masq_balance_undoable,
     log_insufficient_transaction_fee_balance,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::SpecialTreatment::{
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution,
 };
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    compute_fraction_preventing_mul_coeff, criteria_total, exhaust_cw_balance_totally,
-    maybe_find_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts,
-    rebuild_accounts, reduce_collection_size_by_affordable_transaction_fee,
-    sort_in_descendant_order_by_weights, sum_as,
-};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{compute_fractional_numbers_preventing_mul_coefficient, criteria_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, drop_criteria_sums_and_leave_accounts, keep_only_transaction_fee_affordable_count_of_accounts_and_drop_the_rest, sort_in_descendant_order_by_criteria_sums, sum_as};
 use crate::accountant::payment_adjuster::verifier::MasqAdjustmentPossibilityVerifier;
 use crate::accountant::scanners::payable_scan_setup_msgs::{
     FinancialAndTechDetails, PayablePaymentSetup, StageData,
@@ -279,7 +274,7 @@ impl PaymentAdjusterReal {
         )?;
         match accounts {
             Either::Left(non_exhausted_accounts) => {
-                let accounts_by_fully_exhausted_cw = exhaust_cw_balance_totally(
+                let accounts_by_fully_exhausted_cw = exhaust_cw_till_the_last_drop(
                     non_exhausted_accounts,
                     self.inner.original_cw_masq_balance_minor(),
                 );
@@ -322,7 +317,7 @@ impl PaymentAdjusterReal {
         PaymentAdjusterError,
     > {
         let weighted_accounts_affordable_by_transaction_fee =
-            reduce_collection_size_by_affordable_transaction_fee(
+            keep_only_transaction_fee_affordable_count_of_accounts_and_drop_the_rest(
                 criteria_and_accounts_in_descending_order,
                 already_known_affordable_transaction_count,
             );
@@ -335,9 +330,7 @@ impl PaymentAdjusterReal {
         ) {
             Ok(answer) => answer,
             Err(e) => {
-                log_error_for_transaction_fee_adjustment_ok_but_masq_balance_insufficient(
-                    &self.logger,
-                );
+                log_transaction_fee_adjustment_ok_but_masq_balance_undoable(&self.logger);
                 return Err(e);
             }
         };
@@ -351,8 +344,9 @@ impl PaymentAdjusterReal {
                 Ok(Either::Left(adjustment_result_before_verification))
             }
             false => {
-                let finalized_accounts =
-                    rebuild_accounts(weighted_accounts_affordable_by_transaction_fee);
+                let finalized_accounts = drop_criteria_sums_and_leave_accounts(
+                    weighted_accounts_affordable_by_transaction_fee,
+                );
                 Ok(Either::Right(finalized_accounts))
             }
         }
@@ -396,7 +390,7 @@ impl PaymentAdjusterReal {
                 (decided_accounts, vec![])
             }
             AdjustmentIterationResult::SpecialTreatmentNeeded {
-                special_case,
+                case: special_case,
                 remaining,
             } => {
                 let here_decided_accounts = match special_case {
@@ -449,7 +443,7 @@ impl PaymentAdjusterReal {
             .iterate_for_criteria(BalanceCriterionCalculator::new());
 
         let collected_accounts_with_criteria =
-            sort_in_descendant_order_by_weights(criteria_and_accounts);
+            sort_in_descendant_order_by_criteria_sums(criteria_and_accounts);
 
         // effective only if the iterator is collected
         print_formulas_characteristics_for_diagnostics();
@@ -490,7 +484,8 @@ impl PaymentAdjusterReal {
         criteria_total: u128,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
         let cw_masq_balance = self.inner.unallocated_cw_masq_balance_minor();
-        let cpm_coeff = compute_fraction_preventing_mul_coeff(cw_masq_balance, criteria_total);
+        let cpm_coeff =
+            compute_fractional_numbers_preventing_mul_coefficient(cw_masq_balance, criteria_total);
         let multiplication_coeff_u256 = U256::from(cpm_coeff);
 
         let proportional_fragment_of_cw_balance = Self::compute_proportional_fragment(
@@ -542,7 +537,7 @@ impl PaymentAdjusterReal {
         logger: &Logger,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
         if let Some(disqualified_account_wallet) =
-            maybe_find_an_account_to_disqualify_in_this_iteration(
+            try_finding_an_account_to_disqualify_in_this_iteration(
                 &non_finalized_adjusted_accounts,
                 logger,
             )
@@ -562,7 +557,7 @@ impl PaymentAdjusterReal {
                 .collect();
 
             Either::Right(AdjustmentIterationResult::SpecialTreatmentNeeded {
-                special_case: TreatInsignificantAccount,
+                case: TreatInsignificantAccount,
                 remaining: remaining_reverted,
             })
         } else {
@@ -582,12 +577,10 @@ impl PaymentAdjusterReal {
         if outweighed.is_empty() {
             Either::Left(passing_through)
         } else {
-            let remaining = AdjustedAccountBeforeFinalization::finalize_collection(
-                passing_through,
-                ProposedAdjustmentResolution::Revert,
-            );
+            let remaining =
+                finalize_collection(passing_through, ProposedAdjustmentResolution::Revert);
             Either::Right(AdjustmentIterationResult::SpecialTreatmentNeeded {
-                special_case: TreatOutweighedAccounts(outweighed),
+                case: TreatOutweighedAccounts(outweighed),
                 remaining,
             })
         }
@@ -694,7 +687,7 @@ mod tests {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::MasqAndTransactionFeeRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::SpecialTreatment::TreatInsignificantAccount;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::criteria_total;
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
@@ -722,7 +715,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Called the null implementation of the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner"
     )]
     fn payment_adjuster_new_is_created_with_inner_null() {
         let result = PaymentAdjusterReal::new();
@@ -1164,7 +1157,7 @@ mod tests {
 
         let remaining = match result {
             AdjustmentIterationResult::SpecialTreatmentNeeded {
-                special_case: TreatInsignificantAccount,
+                case: TreatInsignificantAccount,
                 remaining,
             } => remaining,
             x => panic!("we expected to see a disqualified account but got: {:?}", x),
@@ -1180,7 +1173,7 @@ mod tests {
         let mut subject =
             make_initialized_subject(SystemTime::now(), Some(123), Some(Logger::new(test_name)));
         let adjustment_iteration_result = AdjustmentIterationResult::SpecialTreatmentNeeded {
-            special_case: TreatInsignificantAccount,
+            case: TreatInsignificantAccount,
             remaining: vec![],
         };
 

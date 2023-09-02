@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::sync::Mutex;
 
 // Caution: always remember to use checked math operations in the formula!
-pub trait CriterionCalculator: NamedCalculator {
+pub trait CriterionCalculator: CalculatorWithNamedMainParameter {
     // The additional trait constrain comes from efforts convert write the API more Rust-like.
     // This implementation has its own pros and cons; the little cons for you are that whenever
     // you must see the pattern of defining a wrapper for the input of your calculator. Refrain
@@ -58,7 +58,11 @@ pub trait CriterionCalculator: NamedCalculator {
         <Self as CriterionCalculator>::Input: Debug,
     {
         if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
-            compute_progressive_characteristics(self.diagnostics_config_opt(), self.formula())
+            compute_progressive_characteristics(
+                self.main_parameter_name(),
+                self.diagnostics_config_opt(),
+                self.formula(),
+            )
         }
     }
 }
@@ -101,6 +105,6 @@ impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
     }
 }
 
-pub trait NamedCalculator {
-    fn parameter_name(&self) -> &'static str;
+pub trait CalculatorWithNamedMainParameter {
+    fn main_parameter_name(&self) -> &'static str;
 }

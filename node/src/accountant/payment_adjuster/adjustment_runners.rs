@@ -3,7 +3,7 @@
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::maybe_find_an_account_to_disqualify_in_this_iteration;
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_finding_an_account_to_disqualify_in_this_iteration;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use itertools::Either;
 use std::vec;
@@ -41,8 +41,10 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: PayableAccount,
     ) -> Self::ReturnType {
-        let adjusted_account_vec = adjust_last_one(payment_adjuster, last_account);
-        Ok(Either::Left(empty_or_single_element(adjusted_account_vec)))
+        Ok(Either::Left(empty_or_single_element(adjust_last_one(
+            payment_adjuster,
+            last_account,
+        ))))
     }
 
     fn adjust_multiple(
@@ -95,12 +97,13 @@ fn adjust_last_one(
     last_account: PayableAccount,
 ) -> Option<AdjustedAccountBeforeFinalization> {
     let cw_balance = payment_adjuster.inner.unallocated_cw_masq_balance_minor();
+    eprintln!("cw balance: {}", cw_balance);
     let proposed_adjusted_balance = if last_account.balance_wei.checked_sub(cw_balance) == None {
         last_account.balance_wei
     } else {
         diagnostics!(
             "LAST REMAINING ACCOUNT",
-            "Balance adjusted to {} by exhausting the cw balance",
+            "Balance adjusted to {} by exhausting the cw balance fully",
             cw_balance
         );
 
@@ -113,7 +116,7 @@ fn adjust_last_one(
 
     let logger = &payment_adjuster.logger;
 
-    match maybe_find_an_account_to_disqualify_in_this_iteration(&proposed_adjustment_vec, logger) {
+    match try_finding_an_account_to_disqualify_in_this_iteration(&proposed_adjustment_vec, logger) {
         Some(_) => None,
         None => Some(proposed_adjustment_vec.remove(0)),
     }
@@ -136,6 +139,7 @@ mod tests {
         MasqOnlyRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scan_setup_msgs::FinancialAndTechDetails;
     use crate::accountant::test_utils::make_payable_account;
@@ -203,12 +207,15 @@ mod tests {
     }
 
     #[test]
-    fn adjust_last_one_for_requested_balance_smaller_than_cw_balance() {
+    fn adjust_last_one_for_requested_balance_smaller_than_cw_but_not_needed_disqualified() {
         let now = SystemTime::now();
-        let cw_balance = 8_645_123_505;
+        let account_balance = 4_500_600;
+        let cw_balance = ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
+            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
+            + 1;
         let account = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 4_333_222_111,
+            balance_wei: account_balance,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
@@ -220,22 +227,19 @@ mod tests {
             result,
             Some(AdjustedAccountBeforeFinalization {
                 original_account: account,
-                proposed_adjusted_balance: 4_333_222_111,
+                proposed_adjusted_balance: account_balance,
             })
         )
     }
 
-    #[test]
-    fn adjust_last_one_decides_for_adjusted_account_disqualification() {
+    fn test_adjust_last_one_when_disqualified(cw_balance: u128, account_balance: u128) {
         let now = SystemTime::now();
-        let account_balance = 4_000_444;
         let account = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: account_balance,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
-        let cw_balance = 4_000_444 / 2;
         let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
         let result = adjust_last_one(&payment_adjuster, account.clone());
@@ -244,17 +248,28 @@ mod tests {
     }
 
     #[test]
-    fn masq_only_adjust_multiple_is_not_supposed_to_care_about_transaction_fee() {
+    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_on_edge() {
+        let account_balance = 4_000_444;
+        let cw_balance = (ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
+            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor;
+
+        test_adjust_last_one_when_disqualified(cw_balance, account_balance)
+    }
+
+    #[test]
+    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_slightly_under()
+    {
+        let account_balance = 4_000_444;
+        let cw_balance = ((ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier * account_balance)
+            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
+            - 1;
+
+        test_adjust_last_one_when_disqualified(cw_balance, account_balance)
+    }
+
+    #[test]
+    fn adjust_multiple_for_the_masq_only_runner_is_not_supposed_to_care_about_transaction_fee() {
         let now = SystemTime::now();
-        let cw_balance = 9_000_000;
-        let details = FinancialAndTechDetails {
-            consuming_wallet_balances: ConsumingWalletBalances {
-                transaction_fee_minor: 0,
-                masq_tokens_minor: cw_balance,
-            },
-            agreed_transaction_fee_per_computed_unit_major: 30,
-            estimated_gas_limit_per_transaction: 100,
-        };
         let wallet_1 = make_wallet("abc");
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
@@ -270,19 +285,28 @@ mod tests {
             affordable_transaction_count: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
+        let cw_balance = 9_000_000;
+        let details = FinancialAndTechDetails {
+            consuming_wallet_balances: ConsumingWalletBalances {
+                transaction_fee_minor: 0,
+                masq_tokens_minor: cw_balance,
+            },
+            agreed_transaction_fee_per_computed_unit_major: 30,
+            estimated_gas_limit_per_transaction: 100,
+        };
         payment_adjuster.initialize_inner(details, adjustment, now);
         let subject = MasqOnlyRunner {};
-        let seeds = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
+        let criteria_and_accounts = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
 
-        let result = subject.adjust_multiple(&mut payment_adjuster, seeds);
+        let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);
 
-        let returned_accounts_accounts = result
+        let returned_accounts = result
             .into_iter()
             .map(|account| account.original_account.wallet)
             .collect::<Vec<Wallet>>();
-        assert_eq!(returned_accounts_accounts, vec![wallet_1, wallet_2])
-        // if the transaction_fee adjustment had been available to perform, only one account would've been
-        // returned, therefore test passes
+        assert_eq!(returned_accounts, vec![wallet_1, wallet_2])
+        // If the transaction fee adjustment had been available to perform, only one account would've been
+        // returned. This test passes
     }
 
     #[test]

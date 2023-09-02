@@ -23,33 +23,35 @@ pub fn make_initialized_subject(
     cw_masq_balance_minor_opt: Option<u128>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
+    let cw_masq_balance_minor = cw_masq_balance_minor_opt.unwrap_or(0);
+    let logger = logger_opt.unwrap_or(Logger::new("test"));
     PaymentAdjusterReal {
         inner: Box::new(PaymentAdjusterInnerReal::new(
             now,
             None,
-            cw_masq_balance_minor_opt.unwrap_or(0),
+            cw_masq_balance_minor,
         )),
-        logger: logger_opt.unwrap_or(Logger::new("test")),
+        logger,
     }
 }
 
 pub fn make_extreme_accounts(
-    months_of_debt_vs_balance_setup: Either<(Vec<usize>, u128), Vec<(usize, u128)>>,
+    months_of_debt_and_balance_minor: Either<(Vec<usize>, u128), Vec<(usize, u128)>>,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
-    let accounts_seed: Vec<(usize, u128)> = match months_of_debt_vs_balance_setup {
+    let accounts_seeds: Vec<(usize, u128)> = match months_of_debt_and_balance_minor {
         Either::Left((vec, constant_balance)) => vec
             .into_iter()
             .map(|months| (months, constant_balance))
             .collect(),
-        Either::Right(vec_of_pairs) => vec_of_pairs,
+        Either::Right(specific_months_and_specific_balance) => specific_months_and_specific_balance,
     };
-    accounts_seed
+    accounts_seeds
         .into_iter()
         .enumerate()
-        .map(|(idx, (months_count, balance_wei))| PayableAccount {
+        .map(|(idx, (months_count, balance_minor))| PayableAccount {
             wallet: make_wallet(&format!("blah{}", idx)),
-            balance_wei,
+            balance_wei: balance_minor,
             last_paid_timestamp: now
                 .checked_sub(Duration::from_secs(
                     months_count as u64 * (*ONE_MONTH_LONG_DEBT_SEC),

@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, NamedCalculator,
+    CriterionCalculator, CalculatorWithNamedMainParameter,
 };
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     DiagnosticsConfig,
@@ -11,7 +11,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{log_2
 use std::sync::Mutex;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::characteristics_config::BALANCE_DIAGNOSTICS_CONFIG_OPT;
 
-// this parameter affects the steepness (sensitivity on balance increase)
+// This parameter affects the steepness (sensitivity to balance increase)
 const BALANCE_LOG_2_ARG_DIVISOR: u128 = 33;
 
 pub struct BalanceCriterionCalculator {
@@ -20,8 +20,8 @@ pub struct BalanceCriterionCalculator {
 
 impl BalanceCriterionCalculator {
     pub fn new() -> Self {
-        let formula = Box::new(|wrapped_balance_wei: BalanceInput| {
-            let balance_minor = wrapped_balance_wei.0;
+        let formula = Box::new(|wrapped_balance_minor: BalanceInput| {
+            let balance_minor = wrapped_balance_minor.0;
             let binary_weight = log_2(Self::calculate_binary_argument(balance_minor));
             balance_minor
                 .checked_mul(binary_weight as u128)
@@ -57,8 +57,8 @@ impl CriterionCalculator for BalanceCriterionCalculator {
     }
 }
 
-impl NamedCalculator for BalanceCriterionCalculator {
-    fn parameter_name(&self) -> &'static str {
+impl CalculatorWithNamedMainParameter for BalanceCriterionCalculator {
+    fn main_parameter_name(&self) -> &'static str {
         "BALANCE"
     }
 }
@@ -81,14 +81,15 @@ pub mod characteristics_config {
 
     lazy_static! {
         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<BalanceInput>>> = {
-            let x_axis_decimal_exponens = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
+            let horisontal_axis_decimal_exponents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
                 .into_iter()
                 .map(|exp| 10_u128.pow(exp))
                 .collect();
             Mutex::new(Some(DiagnosticsConfig {
-                label: "BALANCE",
-                x_axis_progressive_supply: x_axis_decimal_exponens,
-                x_axis_native_type_formatter: Box::new(|balance_wei| BalanceInput(balance_wei)),
+                horizontal_axis_progressive_supply: horisontal_axis_decimal_exponents,
+                horizontal_axis_native_type_formatter: Box::new(|balance_wei| {
+                    BalanceInput(balance_wei)
+                }),
             }))
         };
     }
@@ -100,7 +101,7 @@ mod tests {
         BalanceCriterionCalculator, BalanceInput, BALANCE_LOG_2_ARG_DIVISOR,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
-        CriterionCalculator, NamedCalculator,
+        CalculatorWithNamedMainParameter, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
 
@@ -111,7 +112,7 @@ mod tests {
 
     #[test]
     fn compute_binary_argument_works() {
-        let inputs = [
+        let arg_values = [
             1,
             BALANCE_LOG_2_ARG_DIVISOR - 1,
             BALANCE_LOG_2_ARG_DIVISOR,
@@ -119,7 +120,7 @@ mod tests {
             BALANCE_LOG_2_ARG_DIVISOR + 1000,
         ];
 
-        let result: Vec<_> = inputs
+        let result: Vec<_> = arg_values
             .into_iter()
             .map(|arg| BalanceCriterionCalculator::calculate_binary_argument(arg))
             .collect();
@@ -147,10 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn calculator_has_the_right_name() {
+    fn calculator_returns_the_right_main_param_name() {
         let subject = BalanceCriterionCalculator::new();
 
-        let result = subject.parameter_name();
+        let result = subject.main_parameter_name();
 
         assert_eq!(result, "BALANCE")
     }
@@ -158,15 +159,15 @@ mod tests {
     #[test]
     fn balance_criteria_calculation_works() {
         let subject = BalanceCriterionCalculator::new();
-        let balance_wei = BalanceInput(111_333_555_777);
+        let balance_wei_wrapped = BalanceInput(111_333_555_777);
 
-        let result = subject.formula()(balance_wei);
+        let result = subject.formula()(balance_wei_wrapped);
 
         let expected_result = {
             let binary_weight = log_2(BalanceCriterionCalculator::calculate_binary_argument(
-                balance_wei.0,
+                balance_wei_wrapped.0,
             ));
-            balance_wei
+            balance_wei_wrapped
                 .0
                 .checked_mul(binary_weight as u128)
                 .expect("mul overflow")

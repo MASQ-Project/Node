@@ -53,7 +53,7 @@ pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
 
 pub mod separately_defined_diagnostic_functions {
     use crate::accountant::database_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::criteria_calculators::NamedCalculator;
+    use crate::accountant::payment_adjuster::criteria_calculators::CalculatorWithNamedMainParameter;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::sub_lib::wallet::Wallet;
@@ -73,6 +73,20 @@ pub mod separately_defined_diagnostic_functions {
             account_info
                 .proposed_adjusted_balance
                 .separate_with_commas()
+        );
+    }
+
+    pub fn account_nominated_for_disqualification_diagnostics(
+        account_info: &AdjustedAccountBeforeFinalization,
+        proposed_adjusted_balance: u128,
+        disqualification_edge: u128,
+    ) {
+        diagnostics!(
+            account_info.original_account.wallet,
+            "ACCOUNT NOMINATED FOR DISQUALIFICATION FOR INSIGNIFICANCE AFTER ADJUSTMENT",
+            "Proposed: {}, disqualification limit: {}",
+            proposed_adjusted_balance.separate_with_commas(),
+            disqualification_edge.separate_with_commas()
         );
     }
 
@@ -113,7 +127,7 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn maybe_find_an_account_to_disqualify_diagnostics(
+    pub fn try_finding_an_account_to_disqualify_diagnostics(
         disqualification_suspected_accounts: &[&AdjustedAccountBeforeFinalization],
         wallet: &Wallet,
     ) {
@@ -125,7 +139,7 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn calculator_local_diagnostics<N: NamedCalculator + ?Sized>(
+    pub fn calculator_local_diagnostics<N: CalculatorWithNamedMainParameter + ?Sized>(
         wallet_ref: &Wallet,
         calculator: &N,
         criterion: u128,
@@ -136,7 +150,7 @@ pub mod separately_defined_diagnostic_functions {
             wallet_ref,
             "PARTIAL CRITERION CALCULATED",
             "{:<width$} {} and summed up as {}",
-            calculator.parameter_name(),
+            calculator.main_parameter_name(),
             criterion.separate_with_commas(),
             added_in_the_sum.separate_with_commas(),
             width = FIRST_COLUMN_WIDTH
@@ -158,9 +172,8 @@ pub mod formulas_progressive_characteristics {
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
     pub struct DiagnosticsConfig<A> {
-        pub label: &'static str,
-        pub x_axis_progressive_supply: Vec<u128>,
-        pub x_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
+        pub horizontal_axis_progressive_supply: Vec<u128>,
+        pub horizontal_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
     }
 
     pub fn print_formulas_characteristics_for_diagnostics() {
@@ -176,25 +189,30 @@ pub mod formulas_progressive_characteristics {
     }
 
     pub fn compute_progressive_characteristics<A>(
+        main_param_name: &'static str,
         config_opt: Option<DiagnosticsConfig<A>>,
         formula: &dyn Fn(A) -> u128,
     ) where
         A: Debug,
     {
         config_opt.map(|config| {
-            let config_x_axis_type_formatter = config.x_axis_native_type_formatter;
-            let characteristics = config.x_axis_progressive_supply.into_iter().map(|input| {
-                let correctly_formatted_input = config_x_axis_type_formatter(input);
-                format!(
-                    "x: {:<length$} y: {}",
-                    input,
-                    formula(correctly_formatted_input).separate_with_commas(),
-                    length = 40
-                )
-            });
+            let config_x_axis_type_formatter = config.horizontal_axis_native_type_formatter;
+            let characteristics =
+                config
+                    .horizontal_axis_progressive_supply
+                    .into_iter()
+                    .map(|input| {
+                        let correctly_formatted_input = config_x_axis_type_formatter(input);
+                        format!(
+                            "x: {:<length$} y: {}",
+                            input,
+                            formula(correctly_formatted_input).separate_with_commas(),
+                            length = 40
+                        )
+                    });
             let head = once(format!(
                 "CHARACTERISTICS OF THE FORMULA FOR {}",
-                config.label
+                main_param_name
             ));
             let full_text = head.into_iter().chain(characteristics).join("\n");
             STRINGS_WITH_FORMULAS_CHARACTERISTICS

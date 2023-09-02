@@ -15,7 +15,7 @@ use thousands::Separable;
 const REFILL_RECOMMENDATION: &str = "\
 In order to continue consuming services from other Nodes and avoid delinquency bans it is necessary \
 to allocate more funds in your consuming wallet.";
-const LATER_DETECTED_MASQ_SCARCITY: &str = "\
+const LATER_DETECTED_MASQ_SEVERE_SCARCITY: &str = "\
 Passing successful payment adjustment by the transaction fee, but facing critical scarcity of MASQ \
 balance. Operation will abort.";
 
@@ -117,7 +117,7 @@ pub fn before_and_after_debug_msg(
     )
 }
 
-pub fn log_info_for_disqualified_account(
+pub fn info_log_for_disqualified_account(
     logger: &Logger,
     account: &AdjustedAccountBeforeFinalization,
 ) {
@@ -161,14 +161,14 @@ pub fn log_insufficient_transaction_fee_balance(
     info!(logger, "{}", REFILL_RECOMMENDATION)
 }
 
-pub fn log_error_for_transaction_fee_adjustment_ok_but_masq_balance_insufficient(logger: &Logger) {
-    error!(logger, "{}", LATER_DETECTED_MASQ_SCARCITY)
+pub fn log_transaction_fee_adjustment_ok_but_masq_balance_undoable(logger: &Logger) {
+    error!(logger, "{}", LATER_DETECTED_MASQ_SEVERE_SCARCITY)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::log_fns::{
-        LATER_DETECTED_MASQ_SCARCITY, REFILL_RECOMMENDATION,
+        LATER_DETECTED_MASQ_SEVERE_SCARCITY, REFILL_RECOMMENDATION,
     };
 
     #[test]
@@ -179,7 +179,7 @@ mod tests {
             is necessary to allocate more funds in your consuming wallet."
         );
         assert_eq!(
-            LATER_DETECTED_MASQ_SCARCITY,
+            LATER_DETECTED_MASQ_SEVERE_SCARCITY,
             "Passing successful payment adjustment by the \
         transaction fee, but facing critical scarcity of MASQ balance. Operation will abort."
         )
