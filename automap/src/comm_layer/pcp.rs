@@ -1,12 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(not(target_os = "windows"))]
-use crate::comm_layer::pcp_pmp_common::ANNOUNCEMENT_PORT;
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_announcement_socket, make_local_socket_address, FreePortFactory,
     FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory,
-    UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
-    ROUTER_PORT,
+    UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT,
+    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
