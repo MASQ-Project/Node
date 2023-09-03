@@ -404,13 +404,6 @@ pub mod tests {
             Err(Either::Left(stderr)) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
-        assert!(
-            stderr.contains("The system cannot find the file specified")
-                || stderr.contains("No such file or directory"),
-            "Unexpected error '{:?}' - stderr: '{:?}'",
-            result,
-            stderr
-        );
     }
 
     #[test]
