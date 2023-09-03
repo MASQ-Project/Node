@@ -96,7 +96,7 @@ pub trait ReceivableDaoFactory {
 impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
         let init_config = self.init_config.clone().add_special_conn_setup(
-            BigIntDivider::register_big_int_deconstruction_fn_for_sqlite_connection,
+            BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
         );
         let conn = connection_or_panic(
             &DbInitializerReal::default(),
@@ -828,7 +828,7 @@ mod tests {
         home_dir: &Path,
     ) -> Box<dyn ConnectionWrapper> {
         let init_config = DbInitializationConfig::test_default().add_special_conn_setup(
-            BigIntDivider::register_big_int_deconstruction_fn_for_sqlite_connection,
+            BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
         );
         DbInitializerReal::default()
             .initialize(home_dir, init_config)

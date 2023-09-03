@@ -28,7 +28,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
             .params
-            .merge_with_main_clause_params((&config.params.wei_change_params).into());
+            .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(1) => Ok(()),
             Ok(x) => Err(BigIntDbError(format!("Expected 1 row to be changed for the unique key {} but got this count: {}", config.key_param_value(), x))),
@@ -110,17 +110,17 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
                         former_low_bytes,
                         requested_wei_change,
                     );
-
-                    let wei_update_array = Self::wei_update_array(
-                        requested_wei_change.high.name.as_str(),
-                        &high_bytes_corrected,
-                        requested_wei_change.low.name.as_str(),
-                        &low_bytes_corrected,
-                    );
+                    let wei_update_array: [(&str, &dyn ToSql); 2] = [
+                        (
+                            requested_wei_change.high.name.as_str(),
+                            &high_bytes_corrected,
+                        ),
+                        (requested_wei_change.low.name.as_str(), &low_bytes_corrected),
+                    ];
 
                     let execute_params = config
                         .params
-                        .merge_with_overflow_clause_params(wei_update_array);
+                        .merge_other_and_wei_params_with_conditional_participants(wei_update_array);
 
                     Self::execute_update(conn, &config, &execute_params);
                     Ok(())
@@ -173,18 +173,6 @@ impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
             + requested_wei_change.low.value as i128)
             & 0x7FFFFFFFFFFFFFFF) as i64;
         (high_bytes_correction, low_bytes_correction)
-    }
-
-    fn wei_update_array<'a>(
-        high_byte_param_name: &'a str,
-        high_byte_value: &'a i64,
-        low_byte_param_name: &'a str,
-        low_byte_value: &'a i64,
-    ) -> [(&'a str, &'a dyn ToSql); 2] {
-        [
-            (high_byte_param_name, high_byte_value),
-            (low_byte_param_name, low_byte_value),
-        ]
     }
 
     fn return_first_error(two_results: [rusqlite::Result<i64>; 2]) -> rusqlite::Result<()> {
@@ -451,14 +439,14 @@ impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] 
 }
 
 impl<'a> SQLParams<'a> {
-    fn merge_with_main_clause_params(
+    fn merge_other_and_wei_params(
         &'a self,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
         Self::merge_params(self.params_except_wei_change.iter(), wei_change_params)
     }
 
-    fn merge_with_overflow_clause_params(
+    fn merge_other_and_wei_params_with_conditional_participants(
         &'a self,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
@@ -723,7 +711,8 @@ mod tests {
     }
 
     #[test]
-    fn merge_overflow_clause_params_can_filter_out_correct_params() {
+    fn merge_other_and_wei_params_with_conditional_participants_can_filter_out_just_update_params()
+    {
         let tuple_matrix = [
             ("blah", &456_i64 as &dyn ExtendedParamsMarker),
             ("super key", &"abcxy"),
@@ -754,7 +743,7 @@ mod tests {
             ],
         };
 
-        let result = subject.merge_with_overflow_clause_params([
+        let result = subject.merge_other_and_wei_params_with_conditional_participants([
             ("always_present_1", &12),
             ("always_present_2", &77),
         ]);
