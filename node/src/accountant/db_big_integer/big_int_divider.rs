@@ -135,7 +135,7 @@ impl Display for UserDefinedFunctionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_big_integer::test_utils::restricted::create_new_empty_db;
+    use crate::accountant::db_big_integer::test_utils::create_new_empty_db;
     use rusqlite::Error::SqliteFailure;
     use rusqlite::ErrorCode;
 

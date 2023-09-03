@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::{
-    PendingPayableRowid, WalletAddress,
+    PendingPayableRowId, WalletAddress,
 };
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
@@ -178,7 +178,7 @@ impl PayableDao for PayableDaoReal {
                 main_sql,
                 overflow_update_clause,
                 SQLParamsBuilder::default()
-                    .key( PendingPayableRowid(&checked_conversion::<u64, i64>(fgp.rowid)))
+                    .key( PendingPayableRowId(&checked_conversion::<u64, i64>(fgp.rowid)))
                     .wei_change(Subtraction("balance",fgp.amount))
                     .other_params(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
                     .build()))?)
