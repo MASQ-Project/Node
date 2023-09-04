@@ -46,7 +46,6 @@ use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
-use crate::type_id;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -223,12 +222,6 @@ impl Recorder {
             panic!("Stop conditions must be set by a single method call. Consider to use StopConditions::All")
         };
         self
-    }
-
-    pub fn stop_on_message(self, type_id: TypeId) -> Recorder {
-        self.system_stop_conditions(StopConditions::All(vec![StopCondition::StopOnType(
-            type_id,
-        )]))
     }
 
     fn start_system_killer(&mut self) {
@@ -558,6 +551,7 @@ mod tests {
     use super::*;
     use actix::Message;
     use actix::System;
+    use crate::match_every_type_id;
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct FirstMessageType {
@@ -617,7 +611,7 @@ mod tests {
     #[test]
     fn recorder_can_be_stopped_on_a_particular_message() {
         let system = System::new("recorder_can_be_stopped_on_a_particular_message");
-        let recorder = Recorder::new().stop_on_message(type_id!(FirstMessageType));
+        let recorder = Recorder::new().system_stop_conditions(match_every_type_id!(FirstMessageType));
         let recording_arc = recorder.get_recording();
         let rec_addr: Addr<Recorder> = recorder.start();
 

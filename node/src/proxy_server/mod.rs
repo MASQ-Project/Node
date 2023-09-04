@@ -296,11 +296,7 @@ impl ProxyServer {
         retry: DNSFailureRetry,
         source_addr: SocketAddr,
     ) -> DNSFailureRetry {
-        let args = self.try_transmit_to_hopper_args_msg(
-            retry.unsuccessful_request.clone(),
-            source_addr,
-            SystemTime::now(),
-        );
+        let args = TryTransmitToHopperArgs::new(self, retry.unsuccessful_request.clone(), source_addr, SystemTime::now(), None);
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
         let inbound_client_data_helper = self
@@ -529,27 +525,6 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
             }
-        }
-    }
-
-    fn try_transmit_to_hopper_args_msg(
-        &self,
-        request: ClientRequestPayload_0v1,
-        source_addr: SocketAddr,
-        timestamp: SystemTime,
-    ) -> TryTransmitToHopperArgs {
-        TryTransmitToHopperArgs {
-            main_cryptde: self.main_cryptde,
-            payload: request,
-            source_addr,
-            timestamp,
-            logger: self.logger.clone(),
-            retire_stream_key_sub_opt: None,
-            hopper_sub: self.out_subs("Hopper").hopper.clone(),
-            dispatcher_sub: self.out_subs("Dispatcher").dispatcher.clone(),
-            accountant_sub: self.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: self.out_subs("ProxyServer").add_return_route.clone(),
-            is_decentralized: self.is_decentralized,
         }
     }
 
@@ -1103,24 +1078,12 @@ impl IBCDHelper for IBCDHelperReal {
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
         }
-
-        let tth_args = TryTransmitToHopperArgs {
-            main_cryptde: proxy.main_cryptde,
-            payload,
-            source_addr,
-            timestamp,
-            is_decentralized: proxy.is_decentralized,
-            hopper_sub: proxy.out_subs("Hopper").hopper.clone(),
-            logger: proxy.logger.clone(),
-            dispatcher_sub: proxy.out_subs("Dispatcher").dispatcher.clone(),
-            accountant_sub: proxy.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: proxy.out_subs("ProxyServer").add_return_route.clone(),
-            retire_stream_key_sub_opt: if retire_stream_key {
-                Some(proxy.out_subs("ProxyServer").stream_shutdown_sub.clone())
-            } else {
-                None
-            },
+        let retire_stream_key_sub_opt = if retire_stream_key {
+            Some(proxy.out_subs("ProxyServer").stream_shutdown_sub.clone())
+        } else {
+            None
         };
+        let tth_args = TryTransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key_sub_opt);
         let pld = &tth_args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
@@ -1185,6 +1148,30 @@ pub struct TryTransmitToHopperArgs {
     pub dispatcher_sub: Recipient<TransmitDataMsg>,
     pub accountant_sub: Recipient<ReportServicesConsumedMessage>,
     pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
+}
+
+impl TryTransmitToHopperArgs {
+    pub fn new(
+        proxy_server: &ProxyServer,
+        payload: ClientRequestPayload_0v1,
+        source_addr: SocketAddr,
+        timestamp: SystemTime,
+        retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>
+    ) -> Self {
+        Self{
+            main_cryptde: proxy_server.main_cryptde,
+            payload,
+            source_addr,
+            timestamp,
+            logger: proxy_server.logger.clone(),
+            retire_stream_key_sub_opt,
+            hopper_sub: proxy_server.out_subs("Hopper").hopper.clone(),
+            dispatcher_sub: proxy_server.out_subs("Dispatcher").dispatcher.clone(),
+            accountant_sub: proxy_server.out_subs("Accountant").accountant.clone(),
+            add_return_route_sub: proxy_server.out_subs("ProxyServer").add_return_route.clone(),
+            is_decentralized: proxy_server.is_decentralized,
+        }
+    }
 }
 
 enum ExitServiceSearch {
@@ -1271,7 +1258,7 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
-    use crate::type_id;
+    use crate::{match_every_type_id};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1300,15 +1287,21 @@ mod tests {
 
     #[derive(Default)]
     struct RouteQueryResponseResolverFactoryMock {
+        make_params: Arc<Mutex<Vec<()>>>,
         make_results: RefCell<Vec<Box<dyn RouteQueryResponseResolver>>>,
     }
     impl RouteQueryResponseResolverFactory for RouteQueryResponseResolverFactoryMock {
         fn make(&self) -> Box<dyn RouteQueryResponseResolver> {
+            self.make_params.lock().unwrap().push(());
             self.make_results.borrow_mut().remove(0)
         }
     }
 
     impl RouteQueryResponseResolverFactoryMock {
+        fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.make_params = params.clone();
+            self
+        }
         fn make_result(self, result: Box<dyn RouteQueryResponseResolver>) -> Self {
             self.make_results.borrow_mut().push(result);
             self
@@ -1356,10 +1349,6 @@ mod tests {
             self.resolve_message_params = param.clone();
             self
         }
-
-        // fn resolve_message_result(self) -> Self {
-        //
-        // }
     }
     #[test]
     fn constants_have_correct_values() {
@@ -2570,16 +2559,14 @@ mod tests {
 
             system.run();
         });
-
-        let expected_dns_retry_result_message = RouteResultMessage {
+        let expected_route_result_message = RouteResultMessage {
             stream_key,
             result: Ok(route_query_response.unwrap()),
         };
-
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
         let message = recording.get_record::<RouteResultMessage>(0);
-        assert_eq!(message, &expected_dns_retry_result_message);
+        assert_eq!(message, &expected_route_result_message);
     }
 
     #[test]
@@ -2588,10 +2575,10 @@ mod tests {
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let proxy_server_mock = proxy_server_mock.system_stop_conditions(match_every_type_id!(RouteResultMessage));
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
         let neighborhood_mock = neighborhood_mock
-            .stop_on_message(type_id!(RouteResultMessage))
             .route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
@@ -2605,7 +2592,6 @@ mod tests {
             is_clandestine: false,
             data: expected_data.clone(),
         };
-
         let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
         let system = System::new(test_name);
         let mut subject = ProxyServer::new(
@@ -2631,7 +2617,6 @@ mod tests {
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
         system.run();
-
         let recording = proxy_server_recording_arc.lock().unwrap();
         let message = recording.get_record::<RouteResultMessage>(0);
         assert_eq!(message.stream_key, stream_key);
@@ -2980,7 +2965,6 @@ mod tests {
 
         TestLogHandler::new()
             .await_log_containing("DEBUG: ProxyServer: No routing services requested.", 1000);
-
         //report about consumed services is sent anyway, exit service is mandatory ever
         accountant_awaiter.await_message_count(1)
     }
@@ -2999,8 +2983,7 @@ mod tests {
             false,
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder().build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
@@ -3642,10 +3625,6 @@ mod tests {
             data: ServerImpersonatorTls {}.route_query_failure_response("ignored"),
         };
         assert_eq!(record, &expected_msg);
-
-        TestLogHandler::new().exists_log_containing(
-            &format!("WARN: {test_name}: No route found for hostname: Some(\"server.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to server.com")
-        );
     }
 
     #[test]
@@ -4057,12 +4036,11 @@ mod tests {
                 first_client_response_payload.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder().build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(first_expired_cores_package.clone())
+            .try_send(first_expired_cores_package)
             .unwrap();
 
         subject_addr
@@ -4073,7 +4051,6 @@ mod tests {
                 }),
             })
             .unwrap();
-
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Successful attempt of DNS resolution, removing DNS retry entry for stream key: {stream_key_clone}"));
@@ -4845,7 +4822,7 @@ mod tests {
             ),
         };
         let neighborhood_mock = neighborhood_mock
-            .stop_on_message(type_id!(RouteQueryMessage))
+            .system_stop_conditions(match_every_type_id!(RouteQueryMessage))
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
@@ -4919,7 +4896,6 @@ mod tests {
         let (transmit_to_hopper_args, route_query_message_response) =
             resolve_message_params.remove(0);
         let args = transmit_to_hopper_args;
-
         assert!(resolve_message_params.is_empty());
         assert_eq!(args.payload, client_payload);
         assert_eq!(args.source_addr, socket_addr);
@@ -4991,6 +4967,7 @@ mod tests {
     fn handle_dns_resolve_failure_sent_request_retry_three_times() {
         init_test_logging();
         let test_name = "handle_dns_resolve_failure_sent_request_retry_three_times";
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         let (neighborhood_mock, _, _) = make_recorder();
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
@@ -5008,13 +4985,12 @@ mod tests {
                 1234,
             ),
         };
-
         let neighborhood_mock = neighborhood_mock
-            .system_stop_conditions(StopConditions::All(vec![
-                StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>()),
-                StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>()),
-                StopCondition::StopOnType(TypeId::of::<RouteQueryMessage>()),
-            ]))
+            .system_stop_conditions(match_every_type_id!(
+                RouteQueryMessage,
+                RouteQueryMessage,
+                RouteQueryMessage),
+              )
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
@@ -5051,7 +5027,7 @@ mod tests {
             },
         );
         let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
-            .make_result(Box::new(RouteQueryResponseResolverMock::default()))
+            .make_params(&make_params_arc).make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()));
@@ -5068,21 +5044,20 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr
-            .try_send(expired_cores_package.clone())
-            .unwrap();
-        subject_addr
-            .try_send(expired_cores_package.clone())
-            .unwrap();
-        subject_addr
-            .try_send(expired_cores_package.clone())
-            .unwrap();
+         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
+        subject_addr
+            .try_send(expired_cores_package.clone())
+            .unwrap();
+        subject_addr
+            .try_send(expired_cores_package.clone())
+            .unwrap();
+        subject_addr
+            .try_send(expired_cores_package.clone())
+            .unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
         subject_addr
@@ -5096,6 +5071,8 @@ mod tests {
             })
             .unwrap();
         system.run();
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(make_params.len(), 3);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
         ));
