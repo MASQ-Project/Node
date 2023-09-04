@@ -16,7 +16,7 @@ use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
+use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg, VirtualCommandLine, ConfigFileVcl};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
     DATA_DIRECTORY_HELP,
@@ -29,19 +29,58 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
+fn config_file_and_data_dir_from_enumerate(configs: Vec<String>) -> (String, String) {
+    let mut config_match = "".to_string();
+    let mut datadir_match = "".to_string();
+    for (i, arg) in configs.iter().enumerate() {
+        if arg.as_str() == "--config-file" {
+            config_match = configs[i + 1].to_string()
+        }
+        if arg.as_str() == "--data-directory".to_string() {
+            datadir_match = configs[i + 1].to_string()
+        }
+    };
+    (config_match, datadir_match)
+}
+
 pub fn determine_user_specific_data (
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool), ConfiguratorError> {
+) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool), ConfiguratorError> { //, Box<ConfigFileVcl>
     let orientation_schema = App::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
         .arg(data_directory_arg(DATA_DIRECTORY_HELP))
         .arg(config_file_arg());
-    let orientation_args: Vec<Box<dyn VclArg>> = merge(
+    println!("ENV");
+    let configargs = Box::new(EnvironmentVcl::new(&app)).args();
+    let (env_config_file, env_data_dir) = config_file_and_data_dir_from_enumerate(configargs);
+    println!("ENV configargs: {} - {}", env_config_file, env_data_dir);
+    println!("CMD");
+    let argstovec = args.to_vec();
+    //println!("args to vec: {:#?}", argstovec);
+    let (cmd_config_file, cmd_data_dir) = config_file_and_data_dir_from_enumerate(argstovec);
+    println!("CMD configargs: {} - {}", cmd_config_file, cmd_data_dir);
+
+    let mut combined_vcl = vec![];
+    if !cmd_data_dir.is_empty() {combined_vcl.push(cmd_data_dir); }
+    else if !env_data_dir.is_empty() { combined_vcl.push(env_data_dir); }
+    if !cmd_config_file.is_empty() { combined_vcl.push(cmd_config_file); }
+    else if !env_config_file.is_empty() { combined_vcl.push(env_config_file); }
+
+    let config_file_path = Path::new(&combined_vcl[0].to_string()).join(Path::new(&combined_vcl[1].to_string()));
+    let config_file_vcl = match ConfigFileVcl::new(&config_file_path, true) {
+        Ok(cfv) => Box::new(cfv),
+        Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
+    };
+    let preorientation_args: Box<dyn VirtualCommandLine> = merge(
         Box::new(EnvironmentVcl::new(app)),
-        Box::new(CommandLineVcl::new(args.to_vec())),
+        config_file_vcl,
+    );
+    let orientation_args: Vec<Box<dyn VclArg>> = merge(
+        preorientation_args,
+        Box::new(CommandLineVcl::new(args.to_vec()))
     )
     .vcl_args()
     .into_iter()
