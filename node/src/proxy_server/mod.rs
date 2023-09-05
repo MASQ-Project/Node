@@ -385,7 +385,8 @@ impl ProxyServer {
                 let retry = match self.remove_dns_failure_retry(&response.stream_key) {
                     Ok(retry) => retry,
                     Err(error_msg) => {
-                        panic!("{}", error_msg);
+                        error!(self.logger, "While handling ExpiredCoresPackage: {}", error_msg);
+                        return;
                     }
                 };
                 if retry.retries_left > 0 {
@@ -4909,12 +4910,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "No entry found inside dns_failure_retries hashmap for the stream_key: +dKB2Lsh3ET2TS/J/cexaanFQz4"
-    )]
-    fn handle_dns_resolve_failure_panics_when_there_is_no_entry_in_the_hashmap_for_the_stream_key()
+    fn handle_dns_resolve_failure_logs_error_when_there_is_no_entry_in_the_hashmap_for_the_stream_key()
     {
-        let system = System::new("test");
+        init_test_logging();
+        let test_name = "handle_dns_resolve_failure_logs_error_when_there_is_no_entry_in_the_hashmap_for_the_stream_key";
+        let system = System::new(test_name);
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
         let exit_wallet = make_wallet("exit wallet");
         let expected_services = vec![ExpectedService::Exit(
@@ -4932,6 +4932,7 @@ mod tests {
         );
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject.logger = Logger::new(test_name);
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
@@ -4961,6 +4962,7 @@ mod tests {
 
         System::current().stop();
         system.run();
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: While handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for the stream_key: +dKB2Lsh3ET2TS/J/cexaanFQz4"));
     }
 
     #[test]

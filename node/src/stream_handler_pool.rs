@@ -295,7 +295,6 @@ impl StreamHandlerPool {
     }
 
     fn handle_transmit_data_msg(&mut self, msg: TransmitDataMsg) {
-        // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358/GH-96
         debug!(
             self.logger,
             "Handling order to transmit {} bytes to {:?}",
