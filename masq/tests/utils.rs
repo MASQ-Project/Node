@@ -107,10 +107,12 @@ impl StdinHandle {
     }
     pub fn type_command(&mut self, command: &str) {
         match self.stdin.write_fmt(format_args!("{}\n", command)) {
-            Ok(_) => (),
+            Ok(_) => match self.stdin.flush() {
+                Ok(_) => (),
+                Err(e) => panic!("flush failed in type_command: {}", e),
+            },
             Err(e) => {
-                eprintln!("{}", e);
-                panic!("type_command failed: {}", e)
+                panic!("type_command write failed: {}", e)
             }
         }
     }

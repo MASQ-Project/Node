@@ -52,6 +52,7 @@ impl ServerInitializer for ServerInitializerReal {
 
         self.privilege_dropper
             .chown(&params.data_directory, &params.real_user);
+
         self.privilege_dropper.drop_privileges(&params.real_user);
 
         result
@@ -116,20 +117,23 @@ impl ResultsCombiner for RunModeResult {
 
 pub struct GatheredParams<'a> {
     pub multi_config: MultiConfig<'a>,
-    pub data_directory: PathBuf,
+    pub config_file_path: PathBuf,
     pub real_user: RealUser,
+    pub data_directory: PathBuf,
 }
 
 impl<'a> GatheredParams<'a> {
     pub fn new(
         multi_config: MultiConfig<'a>,
-        data_directory: PathBuf,
+        config_file_path: PathBuf,
         real_user: RealUser,
+        data_directory: PathBuf,
     ) -> Self {
         Self {
             multi_config,
-            data_directory,
+            config_file_path,
             real_user,
+            data_directory,
         }
     }
 }
