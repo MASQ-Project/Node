@@ -130,6 +130,7 @@ impl Default for ConfigDaoNull {
             "scan_intervals".to_string(),
             (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
         );
+        data.insert("max_block_count".to_string(), (None, false));
         Self { data }
     }
 }
@@ -273,6 +274,7 @@ mod tests {
                 "schema_version",
                 Some(format!("{}", CURRENT_SCHEMA_VERSION).as_str()),
             ),
+            ("max_block_count", None),
         ]
         .into_iter()
         .map(|(k, v_opt)| (k.to_string(), v_opt.map(|v| v.to_string())))

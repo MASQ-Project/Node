@@ -111,6 +111,7 @@ where
 pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
     pub payment_thresholds: Rc<PaymentThresholds>,
+    timeout: Duration,
 }
 
 impl ScannerCommon {
@@ -118,6 +119,7 @@ impl ScannerCommon {
         Self {
             initiated_at_opt: None,
             payment_thresholds,
+            timeout: Duration::from_secs(30u64),
         }
     }
 
@@ -771,8 +773,15 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
     ) -> Result<RetrieveTransactions, BeginScanError> {
-        if let Some(timestamp) = self.scan_started_at() {
-            return Err(BeginScanError::ScanAlreadyRunning(timestamp));
+        if let Some(scan_started_at) = self.scan_started_at() {
+            return match scan_started_at.elapsed() {
+                Ok(elapsed) if elapsed.as_secs() >= self.common.timeout.as_secs() => {
+                    info!(logger, "Receivables scan timed out");
+                    self.mark_as_ended(logger);
+                    Err(BeginScanError::NothingToProcess)
+                }
+                _ => Err(BeginScanError::ScanAlreadyRunning(scan_started_at)),
+            };
         }
         self.mark_as_started(timestamp);
         info!(

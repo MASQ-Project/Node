@@ -484,6 +484,8 @@ pub struct UiConfigurationResponse {
     pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "gasPrice")]
     pub gas_price: u64,
+    #[serde(rename = "maxBlockCount")]
+    pub max_block_count_opt: Option<u64>,
     #[serde(rename = "neighborhoodMode")]
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
