@@ -31,7 +31,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol, RouteResultMessage};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol, AddRouteResultMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -65,7 +65,7 @@ struct ProxyServerOutSubs {
     update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    route_result_sub: Recipient<RouteResultMessage>,
+    route_result_sub: Recipient<AddRouteResultMessage>,
 }
 
 pub struct ProxyServer {
@@ -164,15 +164,15 @@ impl AddReturnRouteMessage {
     }
 }
 
-impl Handler<RouteResultMessage> for ProxyServer {
+impl Handler<AddRouteResultMessage> for ProxyServer {
     type Result = ();
 
-    fn handle(&mut self, msg: RouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddRouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
         let dns_failure = self
             .dns_failure_retries
             .get(&msg.stream_key)
             .unwrap_or_else(|| {
-                panic!("RouteResultMessage Handler: stream key: {} not found within dns_failure_retries", msg.stream_key);
+                panic!("AddRouteResultMessage Handler: stream key: {} not found within dns_failure_retries", msg.stream_key);
             });
 
         match msg.result {
@@ -190,7 +190,7 @@ impl Handler<RouteResultMessage> for ProxyServer {
                 // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
-                warning!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - RouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
+                warning!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - AddRouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
             }
         }
     }
@@ -274,7 +274,7 @@ impl ProxyServer {
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
-            route_result_sub: recipient!(addr, RouteResultMessage),
+            route_result_sub: recipient!(addr, AddRouteResultMessage),
         }
     }
 
@@ -968,7 +968,7 @@ pub trait IBCDHelper {
         &self,
         tth_args: TryTransmitToHopperArgs,
         route_source: Recipient<RouteQueryMessage>,
-        proxy_server_sub: Recipient<RouteResultMessage>,
+        proxy_server_sub: Recipient<AddRouteResultMessage>,
     );
 }
 
@@ -976,7 +976,7 @@ trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
         args: TryTransmitToHopperArgs,
-        proxy_server_sub: Recipient<RouteResultMessage>,
+        proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     );
 }
@@ -986,7 +986,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
         args: TryTransmitToHopperArgs,
-        proxy_server_sub: Recipient<RouteResultMessage>,
+        proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         let stream_key = args.payload.stream_key;
@@ -1008,7 +1008,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
             )),
         };
         proxy_server_sub
-            .try_send(RouteResultMessage { stream_key, result })
+            .try_send(AddRouteResultMessage { stream_key, result })
             .expect("ProxyServer is dead");
     }
 }
@@ -1108,7 +1108,7 @@ impl IBCDHelper for IBCDHelperReal {
         &self,
         tth_args: TryTransmitToHopperArgs,
         neighborhood_sub: Recipient<RouteQueryMessage>,
-        proxy_server_sub: Recipient<RouteResultMessage>,
+        proxy_server_sub: Recipient<AddRouteResultMessage>,
     ) {
         let pld = &tth_args.payload;
         let hostname_opt = pld.target_hostname.clone();
@@ -1325,7 +1325,7 @@ mod tests {
         fn resolve_message(
             &self,
             args: TryTransmitToHopperArgs,
-            _proxy_server_sub: Recipient<RouteResultMessage>,
+            _proxy_server_sub: Recipient<AddRouteResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
             self.resolve_message_params
@@ -1370,7 +1370,7 @@ mod tests {
             update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            route_result_sub: recipient!(addr, RouteResultMessage),
+            route_result_sub: recipient!(addr, AddRouteResultMessage),
         }
     }
 
@@ -1463,7 +1463,7 @@ mod tests {
             &self,
             _tth_args: TryTransmitToHopperArgs,
             _route_source: Recipient<RouteQueryMessage>,
-            _proxy_server_sub: Recipient<RouteResultMessage>,
+            _proxy_server_sub: Recipient<AddRouteResultMessage>,
         ) {
             unimplemented!();
         }
@@ -2560,13 +2560,13 @@ mod tests {
 
             system.run();
         });
-        let expected_route_result_message = RouteResultMessage {
+        let expected_route_result_message = AddRouteResultMessage {
             stream_key,
             result: Ok(route_query_response.unwrap()),
         };
         proxy_server_awaiter.await_message_count(1);
         let recording = proxy_server_recording_arc.lock().unwrap();
-        let message = recording.get_record::<RouteResultMessage>(0);
+        let message = recording.get_record::<AddRouteResultMessage>(0);
         assert_eq!(message, &expected_route_result_message);
     }
 
@@ -2576,7 +2576,7 @@ mod tests {
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-        let proxy_server_mock = proxy_server_mock.system_stop_conditions(match_every_type_id!(RouteResultMessage));
+        let proxy_server_mock = proxy_server_mock.system_stop_conditions(match_every_type_id!(AddRouteResultMessage));
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
         let neighborhood_mock = neighborhood_mock
@@ -2619,7 +2619,7 @@ mod tests {
 
         system.run();
         let recording = proxy_server_recording_arc.lock().unwrap();
-        let message = recording.get_record::<RouteResultMessage>(0);
+        let message = recording.get_record::<AddRouteResultMessage>(0);
         assert_eq!(message.stream_key, stream_key);
         assert_eq!(
             message.result,
@@ -2691,8 +2691,7 @@ mod tests {
                 .stream_key_routes
                 .insert(stream_key, route_query_response);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
@@ -2972,7 +2971,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "RouteResultMessage Handler: stream key: +dKB2Lsh3ET2TS/J/cexaanFQz4 not found within dns_failure_retries"
+        expected = "AddRouteResultMessage Handler: stream key: +dKB2Lsh3ET2TS/J/cexaanFQz4 not found within dns_failure_retries"
     )]
     fn route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key() {
         let system = System::new("route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key");
@@ -2988,7 +2987,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(RouteResultMessage {
+            .try_send(AddRouteResultMessage {
                 stream_key: make_meaningless_stream_key(),
                 result: Err("Some Error".to_string()),
             })
@@ -3104,7 +3103,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
+            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -3280,7 +3279,7 @@ mod tests {
             &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - RouteResultMessage Error: Failed to find route to nowhere.com"
+            "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"
         ));
     }
 
@@ -5775,7 +5774,7 @@ mod tests {
         let stream_key = payload.stream_key;
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let addr = proxy_server.start();
-        let proxy_server_sub = recipient!(&addr, RouteResultMessage);
+        let proxy_server_sub = recipient!(&addr, AddRouteResultMessage);
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
@@ -5797,11 +5796,11 @@ mod tests {
         System::current().stop();
         system.run();
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        let message = proxy_server_recording.get_record::<RouteResultMessage>(0);
+        let message = proxy_server_recording.get_record::<AddRouteResultMessage>(0);
         let expected_error_message = "Neighborhood refused to answer route request: MailboxError(Message delivery timed out)";
         assert_eq!(
             message,
-            &RouteResultMessage {
+            &AddRouteResultMessage {
                 stream_key,
                 result: Err(expected_error_message.to_string())
             }
