@@ -554,6 +554,11 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let max_block_count_opt =
+            match Self::value_required(persistent_config.max_block_count(), "maxBlockCount") {
+                Ok(value) => Some(value),
+                _ => None,
+            };
         let neighborhood_mode =
             Self::value_required(persistent_config.neighborhood_mode(), "neighborhoodMode")?
                 .to_string();
@@ -623,6 +628,7 @@ impl Configurator {
             clandestine_port,
             chain_name,
             gas_price,
+            max_block_count_opt,
             neighborhood_mode,
             consuming_wallet_private_key_opt,
             consuming_wallet_address_opt,
@@ -2417,6 +2423,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(100000))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
@@ -2442,6 +2449,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: Some(100000),
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
                 consuming_wallet_address_opt: None,
@@ -2545,6 +2553,7 @@ mod tests {
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(100000))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -2572,6 +2581,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: Some(100000),
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
@@ -2647,6 +2657,7 @@ mod tests {
                 "0x0123456789012345678901234567890123456789".to_string(),
             )))
             .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(100000))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .consuming_wallet_private_key_result(cwpk);

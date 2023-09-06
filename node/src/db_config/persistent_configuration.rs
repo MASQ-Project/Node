@@ -416,7 +416,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn max_block_count(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "max_block_count")
+        match self.get("max_block_count") {
+            Ok(max_block_count) => match decode_u64(max_block_count) {
+                Ok(Some(mbc)) => Ok(mbc),
+                Err(e) => Err(PersistentConfigError::from(e)),
+                Ok(None) => Err(PersistentConfigError::NotPresent),
+            },
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
     }
 
     fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError> {
@@ -1942,6 +1949,14 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_set_method!(
             "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works() {
+        persistent_config_plain_data_assertions_for_simple_set_method!(
+            "max_block_count",
+            100000u64
         );
     }
 

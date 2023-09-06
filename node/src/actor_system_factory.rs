@@ -222,6 +222,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
+        send_start_message!(peer_actors.accountant);
 
         stream_handler_pool_subs
     }
