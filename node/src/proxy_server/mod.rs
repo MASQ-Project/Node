@@ -379,6 +379,7 @@ impl ProxyServer {
                         })
                         .expect("Neighborhood is dead");
                 } else {
+                    error!(self.logger, "A bad exit node lied to us about the DNS failure");
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
@@ -2695,6 +2696,7 @@ mod tests {
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
+            System::current().stop();
             system.run();
         });
 
@@ -4427,7 +4429,9 @@ mod tests {
     #[test]
     fn handle_dns_resolve_failure_does_not_send_message_to_neighborhood_when_server_is_not_specified(
     ) {
-        let system = System::new("test");
+        init_test_logging();
+        let test_name = "handle_dns_resolve_failure_does_not_send_message_to_neighborhood_when_server_is_not_specified";
+        let system = System::new(test_name);
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
@@ -4448,6 +4452,7 @@ mod tests {
                 retries_left: 0,
             },
         );
+        subject.logger = Logger::new(test_name);
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4488,6 +4493,7 @@ mod tests {
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: A bad exit node lied to us about the DNS failure"));
     }
 
     #[test]
