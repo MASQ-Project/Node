@@ -1676,12 +1676,11 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher_mock)
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -1773,8 +1772,7 @@ mod tests {
                 0,
             );
 
-        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(inbound_client_data).unwrap();
 
@@ -1836,12 +1834,11 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher_mock)
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -1908,12 +1905,11 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher_mock)
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -1962,12 +1958,11 @@ mod tests {
         subject.stream_key_factory = Box::new(stream_key_factory);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .hopper(hopper)
             .neighborhood(neighborhood)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2022,12 +2017,11 @@ mod tests {
         subject.stream_key_factory = Box::new(stream_key_factory);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .hopper(hopper)
             .neighborhood(neighborhood)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2086,12 +2080,11 @@ mod tests {
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .hopper(hopper)
                 .neighborhood(neighborhood)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2166,12 +2159,11 @@ mod tests {
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .hopper(hopper)
                 .neighborhood(neighborhood)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2279,11 +2271,10 @@ mod tests {
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2357,8 +2348,7 @@ mod tests {
                 .stream_key_routes
                 .insert(stream_key, route_query_response);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr
@@ -2477,11 +2467,10 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -2612,7 +2601,6 @@ mod tests {
             .build();
         // Get the dns_retry_result recipient so we can partially mock it...
         let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -2955,11 +2943,10 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .accountant(accountant_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
             subject_addr.try_send(msg_from_dispatcher).unwrap();
             system.run();
@@ -3366,11 +3353,10 @@ mod tests {
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -3452,11 +3438,10 @@ mod tests {
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key.clone()));
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -3534,11 +3519,10 @@ mod tests {
             );
             let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
                 .neighborhood(neighborhood_mock)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -3606,11 +3590,10 @@ mod tests {
             subject.stream_key_factory =
                 Box::new(StreamKeyFactoryMock::new().make_result(stream_key));
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder()
+            let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
                 .neighborhood(neighborhood)
                 .build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
@@ -3674,8 +3657,7 @@ mod tests {
             0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
-        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(first_expired_cores_package).unwrap();
@@ -3869,11 +3851,10 @@ mod tests {
                 second_client_response_payload.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
             .accountant(accountant)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let before = SystemTime::now();
 
@@ -4201,8 +4182,7 @@ mod tests {
                 0,
             );
 
-        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr
             .try_send(AddReturnRouteMessage {
@@ -4306,8 +4286,7 @@ mod tests {
                 0,
             );
         let routing_size = expired_cores_package.payload_len;
-        let mut peer_actors = peer_actors_builder().accountant(accountant).build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let before = SystemTime::now();
 
@@ -4403,10 +4382,9 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -4482,8 +4460,7 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -4551,10 +4528,9 @@ mod tests {
                 0,
             );
         let already_used_expired_cores_package = expired_cores_package.clone();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -4628,10 +4604,9 @@ mod tests {
                 0,
             );
         let already_used_expired_cores_package = expired_cores_package.clone();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -4771,11 +4746,10 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -4879,10 +4853,9 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -5187,11 +5160,10 @@ mod tests {
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -5238,11 +5210,10 @@ mod tests {
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         let client_response_payload = ClientResponsePayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -5303,8 +5274,7 @@ mod tests {
                 },
             );
             let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+            let peer_actors = peer_actors_builder().build();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
             tx.send(subject_addr).unwrap();
 
@@ -5919,10 +5889,9 @@ mod tests {
         );
         subject.stream_key_factory = Box::new(stream_key_factory);
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
+        let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
