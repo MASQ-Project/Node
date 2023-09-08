@@ -37,7 +37,7 @@ use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
-use crate::sub_lib::proxy_server::{ProxyServerSubs, AddRouteResultMessage};
+use crate::sub_lib::proxy_server::{AddRouteResultMessage, ProxyServerSubs};
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -549,9 +549,9 @@ impl PeerActorsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use actix::Message;
     use actix::System;
-    use crate::match_every_type_id;
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct FirstMessageType {
@@ -611,7 +611,8 @@ mod tests {
     #[test]
     fn recorder_can_be_stopped_on_a_particular_message() {
         let system = System::new("recorder_can_be_stopped_on_a_particular_message");
-        let recorder = Recorder::new().system_stop_conditions(match_every_type_id!(FirstMessageType));
+        let recorder =
+            Recorder::new().system_stop_conditions(match_every_type_id!(FirstMessageType));
         let recording_arc = recorder.get_recording();
         let rec_addr: Addr<Recorder> = recorder.start();
 

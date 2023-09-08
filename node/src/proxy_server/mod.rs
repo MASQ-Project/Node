@@ -31,7 +31,9 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol, AddRouteResultMessage};
+use crate::sub_lib::proxy_server::{
+    AddRouteResultMessage, ClientRequestPayload_0v1, ProxyProtocol,
+};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -296,7 +298,13 @@ impl ProxyServer {
         retry: DNSFailureRetry,
         source_addr: SocketAddr,
     ) -> DNSFailureRetry {
-        let args = TryTransmitToHopperArgs::new(self, retry.unsuccessful_request.clone(), source_addr, SystemTime::now(), None);
+        let args = TryTransmitToHopperArgs::new(
+            self,
+            retry.unsuccessful_request.clone(),
+            source_addr,
+            SystemTime::now(),
+            None,
+        );
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
         let inbound_client_data_helper = self
@@ -379,14 +387,20 @@ impl ProxyServer {
                         })
                         .expect("Neighborhood is dead");
                 } else {
-                    error!(self.logger, "A bad exit node lied to us about the DNS failure");
+                    error!(
+                        self.logger,
+                        "A bad exit node lied to us about the DNS failure"
+                    );
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
                 let retry = match self.remove_dns_failure_retry(&response.stream_key) {
                     Ok(retry) => retry,
                     Err(error_msg) => {
-                        error!(self.logger, "While handling ExpiredCoresPackage: {}", error_msg);
+                        error!(
+                            self.logger,
+                            "While handling ExpiredCoresPackage: {}", error_msg
+                        );
                         return;
                     }
                 };
@@ -1085,7 +1099,13 @@ impl IBCDHelper for IBCDHelperReal {
         } else {
             None
         };
-        let tth_args = TryTransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key_sub_opt);
+        let tth_args = TryTransmitToHopperArgs::new(
+            proxy,
+            payload,
+            source_addr,
+            timestamp,
+            retire_stream_key_sub_opt,
+        );
         let pld = &tth_args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
@@ -1158,9 +1178,9 @@ impl TryTransmitToHopperArgs {
         payload: ClientRequestPayload_0v1,
         source_addr: SocketAddr,
         timestamp: SystemTime,
-        retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>
+        retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>,
     ) -> Self {
-        Self{
+        Self {
             main_cryptde: proxy_server.main_cryptde,
             payload,
             source_addr,
@@ -1170,7 +1190,10 @@ impl TryTransmitToHopperArgs {
             hopper_sub: proxy_server.out_subs("Hopper").hopper.clone(),
             dispatcher_sub: proxy_server.out_subs("Dispatcher").dispatcher.clone(),
             accountant_sub: proxy_server.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: proxy_server.out_subs("ProxyServer").add_return_route.clone(),
+            add_return_route_sub: proxy_server
+                .out_subs("ProxyServer")
+                .add_return_route
+                .clone(),
             is_decentralized: proxy_server.is_decentralized,
         }
     }
@@ -1226,6 +1249,7 @@ impl Hostname {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -1260,7 +1284,6 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
-    use crate::{match_every_type_id};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -2566,11 +2589,12 @@ mod tests {
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-        let proxy_server_mock = proxy_server_mock.system_stop_conditions(match_every_type_id!(AddRouteResultMessage));
+        let proxy_server_mock =
+            proxy_server_mock.system_stop_conditions(match_every_type_id!(AddRouteResultMessage));
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
-        let neighborhood_mock = neighborhood_mock
-            .route_query_response(route_query_response.clone());
+        let neighborhood_mock =
+            neighborhood_mock.route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
@@ -4022,9 +4046,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr
-            .try_send(first_expired_cores_package)
-            .unwrap();
+        subject_addr.try_send(first_expired_cores_package).unwrap();
 
         subject_addr
             .try_send(AssertionsMessage {
@@ -4470,7 +4492,9 @@ mod tests {
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: A bad exit node lied to us about the DNS failure"));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: A bad exit node lied to us about the DNS failure"
+        ));
     }
 
     #[test]
@@ -4888,8 +4912,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_dns_resolve_failure_logs_error_when_there_is_no_entry_in_the_hashmap_for_the_stream_key()
-    {
+    fn handle_dns_resolve_failure_logs_error_when_there_is_no_entry_in_the_hashmap_for_the_stream_key(
+    ) {
         init_test_logging();
         let test_name = "handle_dns_resolve_failure_logs_error_when_there_is_no_entry_in_the_hashmap_for_the_stream_key";
         let system = System::new(test_name);
@@ -4969,8 +4993,8 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(
                 RouteQueryMessage,
                 RouteQueryMessage,
-                RouteQueryMessage),
-              )
+                RouteQueryMessage
+            ))
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
@@ -5007,7 +5031,8 @@ mod tests {
             },
         );
         let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
-            .make_params(&make_params_arc).make_result(Box::new(RouteQueryResponseResolverMock::default()))
+            .make_params(&make_params_arc)
+            .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()))
             .make_result(Box::new(RouteQueryResponseResolverMock::default()));
@@ -5027,7 +5052,7 @@ mod tests {
         let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
             .build();
-         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
             .try_send(expired_cores_package.clone())
