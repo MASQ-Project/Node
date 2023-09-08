@@ -4883,8 +4883,8 @@ mod tests {
             .neighborhood(neighborhood_mock)
             .build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
         subject_addr.try_send(expired_cores_package).unwrap();
 
         subject_addr
