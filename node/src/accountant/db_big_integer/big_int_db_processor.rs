@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::checked_conversion;
-use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -12,6 +10,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 
 #[derive(Debug)]
 pub struct BigIntDbProcessor<T: TableNameDAO> {
@@ -31,13 +30,13 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(1) => Ok(()),
-            Ok(x) => Err(BigIntDbError(format!("Expected 1 row to be changed for the unique key {} but got this count: {}", config.key_param_value(), x))),
+            Ok(x) => Err(BigIntDbError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed: x}),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
                 self.overflow_handler.update_with_overflow(conn, config)
             }
-            Err(e) => Err(BigIntDbError(format!(
+            Err(e) => Err(BigIntDbError::General(format!(
                 "Error from invalid {} command for {} table and change of {} wei to '{} = {}' with error '{}'",
                 config.determine_command(),
                 T::table_name(),
@@ -133,7 +132,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
         match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
-            Err(e) => Err(BigIntDbError(format!(
+            Err(e) => Err(BigIntDbError::General(format!(
                 "Updating balance for {} table and change of {} wei to '{} = {}' with error '{}'",
                 T::table_name(),
                 config.balance_change(),
@@ -481,19 +480,29 @@ pub enum WeiChange {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct BigIntDbError(pub String);
-
-macro_rules! big_int_db_error_from {
-    ($($implementer: ident),+) => {
-        $(impl From<BigIntDbError> for $implementer {
-            fn from(iu_err: BigIntDbError) -> Self {
-                $implementer::RusqliteError(iu_err.0)
-            }
-        })+
-    }
+pub enum BigIntDbError {
+    General(String),
+    RowChangeMismatch {
+        row_key: String,
+        detected_count_changed: usize,
+    },
 }
 
-big_int_db_error_from!(PayableDaoError, ReceivableDaoError);
+impl Display for BigIntDbError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            BigIntDbError::General(msg) => write!(f, "{}", msg),
+            BigIntDbError::RowChangeMismatch {
+                row_key,
+                detected_count_changed,
+            } => write!(
+                f,
+                "Expected 1 row to be changed for the unique key {} but got this count: {}",
+                row_key, detected_count_changed
+            ),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -524,33 +533,25 @@ mod tests {
     }
 
     #[test]
-    fn conversion_from_local_error_to_particular_payable_dao_error_works() {
-        let subject = BigIntDbError(String::from("whatever"));
-
-        let result: PayableDaoError = subject.into();
-
-        assert_eq!(
-            result,
-            PayableDaoError::RusqliteError("whatever".to_string())
-        )
-    }
-
-    #[test]
-    fn conversion_from_local_error_to_particular_receivable_dao_error_works() {
-        let subject = BigIntDbError(String::from("whatever"));
-
-        let result: ReceivableDaoError = subject.into();
-
-        assert_eq!(
-            result,
-            ReceivableDaoError::RusqliteError("whatever".to_string())
-        )
-    }
-
-    #[test]
     fn display_for_byte_magnitude_works() {
         assert_eq!(High.to_string(), "high".to_string());
         assert_eq!(Low.to_string(), "low".to_string())
+    }
+
+    #[test]
+    fn display_for_big_int_error_works() {
+        assert_eq!(
+            BigIntDbError::General("This is a general message".to_string()).to_string(),
+            "This is a general message".to_string()
+        );
+        assert_eq!(
+            BigIntDbError::RowChangeMismatch {
+                row_key: "Wallet123".to_string(),
+                detected_count_changed: 0
+            }
+            .to_string(),
+            "Expected 1 row to be changed for the unique key Wallet123 but got this count: 0"
+        )
     }
 
     #[test]
@@ -1357,7 +1358,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BigIntDbError(
+            Err(BigIntDbError::General(
                 "Error from invalid upsert command for test_table table and change of 4879898145125 \
                 wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
@@ -1386,10 +1387,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BigIntDbError(
-                "Expected 1 row to be changed for the unique key Joe but got this count: 0"
-                    .to_string()
-            ))
+            Err(BigIntDbError::RowChangeMismatch {
+                row_key: "Joe".to_string(),
+                detected_count_changed: 0
+            })
         );
     }
 
@@ -1519,7 +1520,7 @@ mod tests {
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
         assert_eq!(
             result,
-            Err(BigIntDbError(
+            Err(BigIntDbError::General(
                 "Updating balance for test_table table and change of 100 wei to 'name = Joe' with \
          error 'Query returned no rows'"
                     .to_string()
@@ -1585,7 +1586,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BigIntDbError(
+            Err(BigIntDbError::General(
                 "Updating balance for test_table table and change of 100 wei to 'name = Joe' with error \
         'Invalid column type Text at index: 1, name: balance_low_b'"
                     .to_string()

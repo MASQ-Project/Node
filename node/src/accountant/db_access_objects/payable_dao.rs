@@ -33,6 +33,7 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::db_access_objects::payable_dao::PayableDaoError::RusqliteError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -120,21 +121,22 @@ impl PayableDao for PayableDaoReal {
         let overflow_update_clause = "update payable set \
                 balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet";
 
-        Ok(self.big_int_db_processor.execute(
+        let last_paid = to_time_t(timestamp);
+        let params = SQLParamsBuilder::default()
+            .key(WalletAddress(wallet))
+            .wei_change(Addition("balance", amount))
+            .other_params(vec![Param::new(
+                (":last_paid_timestamp", &last_paid),
+                false,
+            )])
+            .build();
+        match self.big_int_db_processor.execute(
             Left(self.conn.as_ref()),
-            BigIntSqlConfig::new(
-                main_sql,
-                overflow_update_clause,
-                SQLParamsBuilder::default()
-                    .key(WalletAddress(wallet))
-                    .wei_change(Addition("balance", amount))
-                    .other_params(vec![Param::new(
-                        (":last_paid_timestamp", &to_time_t(timestamp)),
-                        false,
-                    )])
-                    .build(),
-            ),
-        )?)
+            BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => todo!(),
+        }
     }
 
     fn mark_pending_payables_rowids(
@@ -173,15 +175,20 @@ impl PayableDao for PayableDaoReal {
                     balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
                     pending_payable_rowid = null where pending_payable_rowid = :rowid";
 
-            let conn = Left(self.conn.as_ref());
-            Ok(self.big_int_db_processor.execute(conn, BigIntSqlConfig::new(
+            let i64_rowid = checked_conversion::<u64, i64>(fgp.rowid);
+            let last_paid = to_time_t(fgp.timestamp);
+            let params = SQLParamsBuilder::default()
+                .key( PendingPayableRowid(&i64_rowid))
+                .wei_change(Subtraction("balance",fgp.amount))
+                .other_params(vec![Param::new((":last_paid", &last_paid),true)])
+                .build();
+            match self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
                 overflow_update_clause,
-                SQLParamsBuilder::default()
-                    .key( PendingPayableRowid(&checked_conversion::<u64, i64>(fgp.rowid)))
-                    .wei_change(Subtraction("balance",fgp.amount))
-                    .other_params(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
-                    .build()))?)
+                params)){
+                Ok(_) => Ok(()),
+                Err(e) => Err(RusqliteError(e.to_string()))
+            }
         })
     }
 

@@ -647,6 +647,11 @@ pub mod test_utils {
             Self::default()
         }
 
+        pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>)->Self{
+            self.prepare_params = params.clone();
+            self
+        }
+
         pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
             self.prepare_results.borrow_mut().push(result);
             self
