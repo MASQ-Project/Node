@@ -2,6 +2,8 @@
 
 use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::PayableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -10,7 +12,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 
 #[derive(Debug)]
 pub struct BigIntDbProcessor<T: TableNameDAO> {
@@ -488,6 +489,18 @@ pub enum BigIntDbError {
     },
 }
 
+impl From<BigIntDbError> for PayableDaoError {
+    fn from(err: BigIntDbError) -> Self {
+        PayableDaoError::RusqliteError(err.to_string())
+    }
+}
+
+impl From<BigIntDbError> for ReceivableDaoError {
+    fn from(err: BigIntDbError) -> Self {
+        ReceivableDaoError::RusqliteError(err.to_string())
+    }
+}
+
 impl Display for BigIntDbError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
@@ -507,6 +520,7 @@ impl Display for BigIntDbError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
     use crate::accountant::db_big_integer::big_int_db_processor::ByteMagnitude::{High, Low};
     use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::TestKey;
     use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
@@ -533,12 +547,6 @@ mod tests {
     }
 
     #[test]
-    fn display_for_byte_magnitude_works() {
-        assert_eq!(High.to_string(), "high".to_string());
-        assert_eq!(Low.to_string(), "low".to_string())
-    }
-
-    #[test]
     fn display_for_big_int_error_works() {
         assert_eq!(
             BigIntDbError::General("This is a general message".to_string()).to_string(),
@@ -552,6 +560,50 @@ mod tests {
             .to_string(),
             "Expected 1 row to be changed for the unique key Wallet123 but got this count: 0"
         )
+    }
+
+    #[test]
+    fn conversion_from_local_error_to_particular_payable_dao_error_works() {
+        assert_eq!(
+            PayableDaoError::from(BigIntDbError::General(String::from("booga"))),
+            PayableDaoError::RusqliteError("booga".to_string())
+        );
+        assert_eq!(
+            PayableDaoError::from(BigIntDbError::RowChangeMismatch {
+                row_key: "booga_key".to_string(),
+                detected_count_changed: 2
+            }),
+            PayableDaoError::RusqliteError(
+                "Expected 1 row to be changed for the unique key \
+            booga_key but got this count: 2"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn conversion_from_local_error_to_particular_receivable_dao_error_works() {
+        assert_eq!(
+            ReceivableDaoError::from(BigIntDbError::General(String::from("blah"))),
+            ReceivableDaoError::RusqliteError("blah".to_string())
+        );
+        assert_eq!(
+            ReceivableDaoError::from(BigIntDbError::RowChangeMismatch {
+                row_key: "blah_key".to_string(),
+                detected_count_changed: 2
+            }),
+            ReceivableDaoError::RusqliteError(
+                "Expected 1 row to be changed for the unique key \
+            blah_key but got this count: 2"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn display_for_byte_magnitude_works() {
+        assert_eq!(High.to_string(), "high".to_string());
+        assert_eq!(Low.to_string(), "low".to_string())
     }
 
     #[test]

@@ -6,9 +6,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
-};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::dao_utils;
 use crate::accountant::db_access_objects::dao_utils::{
@@ -33,7 +31,6 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::db_access_objects::payable_dao::PayableDaoError::RusqliteError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -130,13 +127,11 @@ impl PayableDao for PayableDaoReal {
                 false,
             )])
             .build();
-        match self.big_int_db_processor.execute(
+
+        Ok(self.big_int_db_processor.execute(
             Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
-        ) {
-            Ok(_) => Ok(()),
-            Err(e) => todo!(),
-        }
+        )?)
     }
 
     fn mark_pending_payables_rowids(
@@ -182,13 +177,11 @@ impl PayableDao for PayableDaoReal {
                 .wei_change(Subtraction("balance",fgp.amount))
                 .other_params(vec![Param::new((":last_paid", &last_paid),true)])
                 .build();
-            match self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
+
+            Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
                 overflow_update_clause,
-                params)){
-                Ok(_) => Ok(()),
-                Err(e) => Err(RusqliteError(e.to_string()))
-            }
+                params))?)
         })
     }
 
@@ -562,10 +555,7 @@ mod tests {
     use crate::accountant::db_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
-    use crate::accountant::test_utils::{
-        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
-        make_pending_payable_fingerprint,
-    };
+    use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
@@ -576,7 +566,7 @@ mod tests {
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use rusqlite::{Connection as RusqliteConnection, ToSql};
+    use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
 
@@ -683,10 +673,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn more_money_payable_works_for_overflow() {
+    fn more_money_payable_works_for_128_bits_value_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "more_money_payable_works_for_overflow",
+            "more_money_payable_works_for_128_bits_value_overflow",
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
@@ -696,6 +686,26 @@ mod tests {
         );
 
         let _ = subject.more_money_payable(SystemTime::now(), &wallet, u128::MAX);
+    }
+
+    #[test]
+    fn more_money_payable_handles_error() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "more_money_payable_handles_error");
+        let wallet = make_wallet("booga");
+        let conn = payable_read_only_conn(&home_dir);
+        let wrapped_conn = ConnectionWrapperReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.more_money_payable(SystemTime::now(), &wallet, 123456);
+
+        assert_eq!(
+            result,
+            Err(PayableDaoError::RusqliteError("Error from invalid upsert command for payable table \
+            and change of 123456 wei to 'wallet_address = 0x000000000000000000000000000000626f6f6761' \
+            with error 'attempt to write a readonly database'".to_string())
+            )
+        )
     }
 
     #[test]
@@ -863,7 +873,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
-        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
+        let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
@@ -1059,7 +1069,7 @@ mod tests {
             "payable_dao",
             "transaction_confirmed_works_for_generic_sql_error",
         );
-        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
+        let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = Box::new(ConnectionWrapperReal::new(conn));
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         let hash = make_tx_hash(12345);
@@ -1148,27 +1158,6 @@ mod tests {
         assert_eq!(account_1_opt, Some(expected_account));
         let account_2_opt = subject.account_status(&setup_holder.wallet_2);
         assert_eq!(account_2_opt, None);
-    }
-
-    fn trick_rusqlite_with_read_only_conn(path: &Path) -> Connection {
-        let db_path = path.join("experiment.db");
-        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
-        conn.prepare(
-            "
-            create table payable (
-                wallet_address text primary key,
-                balance_high_b integer not null,
-                balance_low_b integer not null,
-                last_paid_timestamp integer not null,
-                pending_payable_rowid integer null)",
-        )
-        .unwrap()
-        .execute([])
-        .unwrap();
-        conn.close().unwrap();
-        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
-        conn
     }
 
     #[test]
@@ -1684,6 +1673,10 @@ mod tests {
     #[test]
     fn payable_dao_implements_dao_table_identifier() {
         assert_eq!(PayableDaoReal::table_name(), "payable")
+    }
+
+    fn payable_read_only_conn(path: &Path) -> Connection {
+        trick_rusqlite_with_read_only_conn(path, DbInitializerReal::create_payable_table)
     }
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal

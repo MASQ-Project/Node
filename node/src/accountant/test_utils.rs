@@ -31,10 +31,11 @@ use actix::System;
 use ethereum_types::H256;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
-use rusqlite::{Connection, Row};
+use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -1360,4 +1361,16 @@ impl PayableThresholdsGaugeMock {
             .push(result);
         self
     }
+}
+
+pub fn trick_rusqlite_with_read_only_conn(
+    path: &Path,
+    create_table: fn(&Connection),
+) -> Connection {
+    let db_path = path.join("experiment.db");
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
+    create_table(&conn);
+    conn.close().unwrap();
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    conn
 }

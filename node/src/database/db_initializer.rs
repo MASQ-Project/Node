@@ -132,15 +132,15 @@ impl DbInitializerReal {
     }
 
     fn create_database_tables(&self, conn: &Connection, external_params: ExternalData) {
-        self.create_config_table(conn);
-        self.initialize_config(conn, external_params);
-        self.create_payable_table(conn);
-        self.create_pending_payable_table(conn);
-        self.create_receivable_table(conn);
-        self.create_banned_table(conn);
+        Self::create_config_table(conn);
+        Self::initialize_config(conn, external_params);
+        Self::create_payable_table(conn);
+        Self::create_pending_payable_table(conn);
+        Self::create_receivable_table(conn);
+        Self::create_banned_table(conn);
     }
 
-    fn create_config_table(&self, conn: &Connection) {
+    pub fn create_config_table(conn: &Connection) {
         conn.execute(
             "create table if not exists config (
                     name text primary key,
@@ -151,7 +151,7 @@ impl DbInitializerReal {
         )
         .expect("Can't create config table");
     }
-    fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
+    fn initialize_config(conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -263,7 +263,7 @@ impl DbInitializerReal {
         );
     }
 
-    fn create_pending_payable_table(&self, conn: &Connection) {
+    pub fn create_pending_payable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists pending_payable (
                     rowid integer primary key,
@@ -284,7 +284,7 @@ impl DbInitializerReal {
         .expect("Can't create transaction hash index in pending payments");
     }
 
-    fn create_payable_table(&self, conn: &Connection) {
+    pub fn create_payable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
                     wallet_address text primary key,
@@ -298,7 +298,7 @@ impl DbInitializerReal {
         .expect("Can't create payable table");
     }
 
-    fn create_receivable_table(&self, conn: &Connection) {
+    pub fn create_receivable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
                     wallet_address text primary key,
@@ -311,7 +311,7 @@ impl DbInitializerReal {
         .expect("Can't create receivable table");
     }
 
-    fn create_banned_table(&self, conn: &Connection) {
+    pub fn create_banned_table(conn: &Connection) {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
             [],
@@ -647,7 +647,7 @@ pub mod test_utils {
             Self::default()
         }
 
-        pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>)->Self{
+        pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
             self.prepare_params = params.clone();
             self
         }
