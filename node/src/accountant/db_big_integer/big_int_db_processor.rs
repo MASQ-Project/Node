@@ -21,11 +21,11 @@ pub struct BigIntDbProcessor<T: TableNameDAO> {
 impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
     pub fn execute(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.main_sql;
-        let mut stm = Self::prepare_statement(conn, main_sql);
+        let mut stm = conn.prepare(main_sql).expect("internal sqlite error");
         let params = config
             .params
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
@@ -58,23 +58,10 @@ impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
     }
 }
 
-impl<T: TableNameDAO> BigIntDbProcessor<T> {
-    fn prepare_statement<'a>(
-        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
-        sql: &'a str,
-    ) -> Statement<'a> {
-        match form_of_conn {
-            Either::Left(conn) => conn.prepare(sql),
-            Either::Right(tx) => tx.prepare(sql),
-        }
-        .expect("internal rusqlite error")
-    }
-}
-
 pub trait UpdateOverflowHandler<T>: Debug + Send {
     fn update_with_overflow<'a>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
 }
@@ -95,7 +82,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'a>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -130,7 +117,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         };
 
         let select_sql = config.select_sql();
-        let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
+        let mut select_stm = conn.prepare(&select_sql).expect("internal sqlite error");
         match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
             Err(e) => Err(BigIntDbError::General(format!(
@@ -147,11 +134,13 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'a>(
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: &dyn ConnectionWrapper,
         config: &BigIntSqlConfig<'a, T>,
         execute_params: &[(&str, &dyn ToSql)],
     ) {
-        match BigIntDbProcessor::<T>::prepare_statement(conn, config.overflow_update_clause)
+        match conn
+            .prepare(config.overflow_update_clause)
+            .expect("internal sqlite error")
             .execute(execute_params)
             .expect("logic broken given the previous non-overflow call accepted right")
         {
@@ -939,7 +928,7 @@ mod tests {
     impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock {
         fn update_with_overflow<'a>(
             &self,
-            _conn: Either<&dyn ConnectionWrapper, &Transaction>,
+            _conn: &dyn ConnectionWrapper,
             _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDbError> {
             self.update_with_overflow_params.lock().unwrap().push(());
@@ -987,7 +976,7 @@ mod tests {
 
         let act = |conn: &mut dyn ConnectionWrapper| {
             subject.execute(
-                Left(conn),
+                conn,
                 BigIntSqlConfig::new(
                     main_sql,
                     "",
@@ -1348,47 +1337,6 @@ mod tests {
     }
 
     #[test]
-    fn update_alone_works_also_for_transaction_instead_of_connection() {
-        let initial = BigIntDivider::reconstitute(10, 20);
-        let wei_change = BigIntDivider::reconstitute(0, 30);
-        let subject = BigIntDbProcessor::<DummyDao>::default();
-        let act = |conn: &mut dyn ConnectionWrapper| {
-            let tx = conn.transaction().unwrap();
-            let result = subject.execute(
-                Either::Right(&tx),
-                BigIntSqlConfig::new(
-                    STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-                    "",
-                    SQLParamsBuilder::default()
-                        .key(test_database_key(&"Joe"))
-                        .wei_change(Addition("balance", wei_change as u128))
-                        .build(),
-                ),
-            );
-            tx.commit().unwrap();
-            result
-        };
-        let result = precise_upsert_or_update_assertion_test_environment(
-            "update_alone_works_also_for_transaction_instead_of_connection",
-            initial,
-            act,
-            Arc::new(Mutex::new(vec![])),
-        );
-
-        assert_eq!(
-            result,
-            ConventionalUpsertUpdateAnalysisData {
-                was_update_with_overflow: false,
-                final_database_values: ReadFinalRow {
-                    high_bytes: 10,
-                    low_bytes: 50,
-                    as_i128: initial + wei_change
-                }
-            }
-        )
-    }
-
-    #[test]
     fn main_sql_clause_error_handled() {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
@@ -1406,7 +1354,7 @@ mod tests {
                 .build(),
         );
 
-        let result = subject.execute(Left(conn.as_ref()), config);
+        let result = subject.execute(conn.as_ref(), config);
 
         assert_eq!(
             result,
@@ -1435,7 +1383,7 @@ mod tests {
                 .build(),
         );
 
-        let result = subject.execute(Left(conn.as_ref()), config);
+        let result = subject.execute(conn.as_ref(), config);
 
         assert_eq!(
             result,
@@ -1465,7 +1413,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(&*conn), update_config);
+            .update_with_overflow(&*conn, update_config);
 
         assert_eq!(result, Ok(()));
         let (final_high_bytes, final_low_bytes) = conn
@@ -1567,7 +1515,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(conn.as_ref(), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
         assert_eq!(
@@ -1604,7 +1552,7 @@ mod tests {
 
         let _ = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(conn.as_ref(), update_config);
     }
 
     #[test]
@@ -1634,7 +1582,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(conn.as_ref(), update_config);
 
         assert_eq!(
             result,
