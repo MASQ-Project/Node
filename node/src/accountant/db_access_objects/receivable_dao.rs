@@ -311,21 +311,32 @@ impl ReceivableDaoReal {
                 match e {
                     BigIntDbError::General(err_msg) => panic!("{}", err_msg),
                     BigIntDbError::RowChangeMismatch { .. } => {
-                        if Self::check_row_presence(conn, &received_payment.from) {
-                            todo!()
-                        } else {
-                            info!(
-                                logger,
-                                "Received a transaction with {} wei from address {} that does not \
-                                belong to any of the known debtors. Ignoring",
-                                received_payment.wei_amount,
-                                received_payment.from
-                            )
-                        }
+                        Self::log_or_panic(conn, received_payment, logger)
                     }
                 }
             }
         })
+    }
+
+    fn log_or_panic(
+        conn: &dyn ConnectionWrapper,
+        received_payment: &BlockchainTransaction,
+        logger: &Logger,
+    ) {
+        if Self::check_row_presence(conn, &received_payment.from) {
+            panic!("Update for received payment with {} wei was run without producing a data \
+            change, despite the account for wallet address {} is present",
+                   received_payment.wei_amount,
+                   received_payment.from)
+        } else {
+            info!(
+                logger,
+                "Received a transaction with {} wei from address {} that does not belong to any of \
+                the known debtors. Ignoring",
+                received_payment.wei_amount,
+                received_payment.from
+            )
+        }
     }
 
     fn check_row_presence(conn: &dyn ConnectionWrapper, wallet: &Wallet) -> bool {
@@ -822,9 +833,9 @@ mod tests {
     }
 
     #[test]
-    fn multi_row_update_from_received_payments_handles_an_isolated_general_error() {
+    fn multi_row_update_for_received_payments_handles_isolated_general_error() {
         init_test_logging();
-        let test_name = "multi_row_update_from_received_payments_handles_an_isolated_general_error";
+        let test_name = "multi_row_update_for_received_payments_handles_isolated_general_error";
         let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let previous_timestamp = UNIX_EPOCH;
@@ -908,6 +919,32 @@ mod tests {
             vec![expected_prepare_params, expected_prepare_params]
         );
         TestLogHandler::new().exists_no_log_containing(&format!("INFO: {test_name}: "));
+    }
+
+    #[test]
+    #[should_panic(expected = "Update for received payment with 1000000000 wei was run without \
+    producing a data change, despite the account for wallet address 0x0000000000000000000000000\
+    0000000626c6168 is present")]
+    fn log_or_panic_is_fatal_when_the_row_is_missing() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable",
+            "log_or_panic_is_fatal_when_the_row_is_missing",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let wallet = make_wallet("blah");
+        conn.prepare("insert into receivable \
+        ( wallet_address, balance_high_b, balance_low_b, last_received_timestamp ) values \
+        ( ?, 111, 222, 111222333 )").unwrap().execute(&[&wallet]).unwrap();
+        let received_payment = BlockchainTransaction {
+            block_number: 1234,
+            from: wallet,
+            wei_amount: 1_000_000_000,
+        };
+        let logger = Logger::new("test");
+
+        ReceivableDaoReal::log_or_panic(&*conn, &received_payment, &logger)
     }
 
     #[test]
