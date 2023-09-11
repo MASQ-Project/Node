@@ -106,10 +106,11 @@ where
 
 #[test]
 fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
+    // TODO: A new attempt with the new URLs are done even though the first one passes
     let blockchain_urls = vec![
-        "https://matic-mumbai.chainstacklabs.com",
         "https://rpc-mumbai.maticvigil.com",
-        "https://matic-testnet-archive-rpc.bwarelabs.com",
+        // "https://matic-mumbai.chainstacklabs.com",
+        // "https://matic-testnet-archive-rpc.bwarelabs.com",
     ];
     let chain = Chain::PolyMumbai;
 
@@ -121,9 +122,9 @@ fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
 fn masq_erc20_contract_exists_on_polygon_mainnet_integration() {
     let blockchain_urls = vec![
         "https://polygon-rpc.com/",
-        "https://rpc-mainnet.maticvigil.com",
-        "https://rpc-mainnet.matic.network",
-        "https://rpc-mainnet.matic.quiknode.pro",
+        // "https://rpc-mainnet.maticvigil.com",
+        // "https://rpc-mainnet.matic.network",
+        // "https://rpc-mainnet.matic.quiknode.pro",
     ];
     let chain = Chain::PolyMainnet;
 
