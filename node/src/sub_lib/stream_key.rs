@@ -9,6 +9,7 @@ use serde::Serializer;
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use uuid::Uuid;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
@@ -77,15 +78,19 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 impl StreamKey {
     pub fn new(public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
         let mut hash = sha1::Sha1::new();
-        match peer_addr.ip() {
-            IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
-            IpAddr::V6(_ipv6) => unimplemented!(),
-        }
-        hash.update(&[
-            (peer_addr.port() >> 8) as u8,
-            (peer_addr.port() & 0xFF) as u8,
-        ]);
-        hash.update(public_key.as_slice());
+        let uuid = Uuid::new_v4();
+        eprintln!("This is how UUID looks: {}", uuid);
+        let uuid_bytes: &[u8] = uuid.as_bytes();
+        hash.update(uuid_bytes);
+        // match peer_addr.ip() {
+        //     IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
+        //     IpAddr::V6(_ipv6) => unimplemented!(),
+        // }
+        // hash.update(&[
+        //     (peer_addr.port() >> 8) as u8,
+        //     (peer_addr.port() & 0xFF) as u8,
+        // ]);
+        // hash.update(public_key.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
         }
