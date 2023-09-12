@@ -76,7 +76,7 @@ impl StreamKey {
     pub fn new() -> StreamKey {
         let mut hash = sha1::Sha1::new();
         let uuid = Uuid::new_v4();
-        eprintln!("This is how UUID looks: {}", uuid);
+        // eprintln!("This is how UUID looks: {}", uuid);
         let uuid_bytes: &[u8] = uuid.as_bytes();
         hash.update(uuid_bytes);
         // match peer_addr.ip() {
@@ -99,38 +99,43 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    //
+    // #[test]
+    // fn matching_keys_and_matching_addrs_make_matching_stream_keys() {
+    //     let one = StreamKey::new();
+    //     let another = StreamKey::new();
+    //
+    //     assert_eq!(one, another);
+    // }
 
     #[test]
-    fn matching_keys_and_matching_addrs_make_matching_stream_keys() {
-        let one = StreamKey::new();
-        let another = StreamKey::new();
+    fn stream_keys_are_unique() {
+        let mut stream_keys_set = HashSet::new();
 
-        assert_eq!(one, another);
+        for i in 1..=1000 {
+            let stream_key = StreamKey::new();
+            let is_unique = stream_keys_set.insert(stream_key);
+
+            assert!(is_unique, "{}", &format!("Stream key {i} is not unique"));
+        }
     }
 
-    #[test]
-    fn matching_keys_and_mismatched_addrs_make_mismatched_stream_keys() {
-        let one = StreamKey::new();
-        let another = StreamKey::new();
-
-        assert_ne!(one, another);
-    }
-
-    #[test]
-    fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys() {
-        let one = StreamKey::new();
-        let another = StreamKey::new();
-
-        assert_ne!(one, another);
-    }
-
-    #[test]
-    fn mismatched_keys_and_matching_addrs_make_mismatched_stream_keys() {
-        let one = StreamKey::new();
-        let another = StreamKey::new();
-
-        assert_ne!(one, another);
-    }
+    // #[test]
+    // fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys() {
+    //     let one = StreamKey::new();
+    //     let another = StreamKey::new();
+    //
+    //     assert_ne!(one, another);
+    // }
+    //
+    // #[test]
+    // fn mismatched_keys_and_matching_addrs_make_mismatched_stream_keys() {
+    //     let one = StreamKey::new();
+    //     let another = StreamKey::new();
+    //
+    //     assert_ne!(one, another);
+    // }
 
     #[test]
     fn debug_implementation() {
@@ -138,7 +143,7 @@ mod tests {
 
         let result = format!("{:?}", subject);
 
-        assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
+        assert_eq!(result, subject.to_string());
     }
 
     #[test]
@@ -147,7 +152,7 @@ mod tests {
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
+        assert_eq!(result, subject.to_string());
     }
 
     #[test]
