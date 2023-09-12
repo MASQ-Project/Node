@@ -98,10 +98,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = DnsResolveFailure_0v1 {
-            stream_key: StreamKey::new(
-                PublicKey::new(&[1, 2, 3, 4]),
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            ),
+            stream_key: StreamKey::new(),
         };
         let future_crp = ExampleFutureDRF {
             stream_key: expected_crp.stream_key.clone(),

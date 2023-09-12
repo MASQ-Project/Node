@@ -141,10 +141,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = ClientRequestPayload_0v1 {
-            stream_key: StreamKey::new(
-                PublicKey::new(&[1, 2, 3, 4]),
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            ),
+            stream_key: StreamKey::new(),
             sequenced_packet: SequencedPacket::new(vec![4, 3, 2, 1], 4321, false),
             target_hostname: Some("target.hostname.com".to_string()),
             target_port: 1234,

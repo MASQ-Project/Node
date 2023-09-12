@@ -76,7 +76,7 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 }
 
 impl StreamKey {
-    pub fn new(public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
+    pub fn new() -> StreamKey {
         let mut hash = sha1::Sha1::new();
         let uuid = Uuid::new_v4();
         eprintln!("This is how UUID looks: {}", uuid);
@@ -106,56 +106,39 @@ mod tests {
 
     #[test]
     fn matching_keys_and_matching_addrs_make_matching_stream_keys() {
-        let key = PublicKey::new(&b"These are the times"[..]);
-        let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-
-        let one = StreamKey::new(key.clone(), addr);
-        let another = StreamKey::new(key, addr);
+        let one = StreamKey::new();
+        let another = StreamKey::new();
 
         assert_eq!(one, another);
     }
 
     #[test]
     fn matching_keys_and_mismatched_addrs_make_mismatched_stream_keys() {
-        let key = PublicKey::new(&b"These are the times"[..]);
-        let one_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let another_addr = SocketAddr::from_str("3.4.5.6:6789").unwrap();
-
-        let one = StreamKey::new(key.clone(), one_addr);
-        let another = StreamKey::new(key, another_addr);
+        let one = StreamKey::new();
+        let another = StreamKey::new();
 
         assert_ne!(one, another);
     }
 
     #[test]
     fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys() {
-        let key = PublicKey::new(&b"These are the times"[..]);
-        let one_addr = SocketAddr::from_str("3.4.5.6:6789").unwrap();
-        let another_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-
-        let one = StreamKey::new(key.clone(), one_addr);
-        let another = StreamKey::new(key, another_addr);
+        let one = StreamKey::new();
+        let another = StreamKey::new();
 
         assert_ne!(one, another);
     }
 
     #[test]
     fn mismatched_keys_and_matching_addrs_make_mismatched_stream_keys() {
-        let one_key = PublicKey::new(&b"These are the times"[..]);
-        let another_key = PublicKey::new(&b"that try men's souls"[..]);
-        let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-
-        let one = StreamKey::new(one_key.clone(), addr);
-        let another = StreamKey::new(another_key, addr);
+        let one = StreamKey::new();
+        let another = StreamKey::new();
 
         assert_ne!(one, another);
     }
 
     #[test]
     fn debug_implementation() {
-        let key = PublicKey::new(&b"These are the times"[..]);
-        let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let subject = StreamKey::new(key, addr);
+        let subject = StreamKey::new();
 
         let result = format!("{:?}", subject);
 
@@ -164,9 +147,7 @@ mod tests {
 
     #[test]
     fn display_implementation() {
-        let key = PublicKey::new(&b"These are the times"[..]);
-        let addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let subject = StreamKey::new(key, addr);
+        let subject = StreamKey::new();
 
         let result = format!("{}", subject);
 
@@ -175,10 +156,7 @@ mod tests {
 
     #[test]
     fn serialization_and_deserialization_can_talk() {
-        let subject = StreamKey::new(
-            PublicKey::new(&b"booga"[..]),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        );
+        let subject = StreamKey::new();
 
         let serial = serde_cbor::ser::to_vec(&subject).unwrap();
 

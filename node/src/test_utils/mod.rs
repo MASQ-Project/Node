@@ -174,10 +174,7 @@ impl Waiter {
 }
 
 pub fn make_meaningless_stream_key() -> StreamKey {
-    StreamKey::new(
-        PublicKey::new(&[]),
-        SocketAddr::from_str("4.3.2.1:8765").unwrap(),
-    )
+    StreamKey::new()
 }
 
 pub fn make_meaningless_message_type() -> MessageType {
@@ -282,10 +279,7 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
     ClientRequestPayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
+        stream_key: StreamKey::new(),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
@@ -296,10 +290,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
 
 pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
     ClientResponsePayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
+        stream_key: StreamKey::new(),
         sequenced_packet: SequencedPacket {
             data: make_garbage_data(bytes),
             sequence_number: 0,
