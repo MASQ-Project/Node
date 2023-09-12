@@ -21,8 +21,6 @@ use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
-use itertools::Either;
-use itertools::Either::Left;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
@@ -129,7 +127,10 @@ impl ReceivableDao for ReceivableDaoReal {
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
             .wei_change(Addition("balance", amount))
-            .other_params(vec![Param::new((":last_received", &last_received), false)])
+            .other_params(vec![Param::MainClauseLimited((
+                ":last_received",
+                &last_received,
+            ))])
             .build();
 
         Ok(self.big_int_db_processor.execute(
@@ -299,7 +300,7 @@ impl ReceivableDaoReal {
             let params = SQLParamsBuilder::default()
                 .key(WalletAddress(&received_payment.from))
                 .wei_change(Subtraction("balance", received_payment.wei_amount))
-                .other_params(vec![Param::new((":last_received", &last_received), true)])
+                .other_params(vec![Param::BothClauses((":last_received", &last_received))])
                 .build();
 
             let write_result = big_int_db_processor.execute(

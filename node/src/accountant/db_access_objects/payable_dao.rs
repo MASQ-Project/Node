@@ -22,7 +22,6 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
-use itertools::Either::Left;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
@@ -122,10 +121,10 @@ impl PayableDao for PayableDaoReal {
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
             .wei_change(Addition("balance", amount))
-            .other_params(vec![Param::new(
-                (":last_paid_timestamp", &last_paid),
-                false,
-            )])
+            .other_params(vec![Param::MainClauseLimited((
+                ":last_paid_timestamp",
+                &last_paid,
+            ))])
             .build();
 
         Ok(self.big_int_db_processor.execute(
@@ -175,7 +174,7 @@ impl PayableDao for PayableDaoReal {
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
                 .wei_change(Subtraction("balance",fgp.amount))
-                .other_params(vec![Param::new((":last_paid", &last_paid),true)])
+                .other_params(vec![Param::BothClauses((":last_paid", &last_paid))])
                 .build();
 
             Ok(self.big_int_db_processor.execute(self.conn.as_ref(), BigIntSqlConfig::new(

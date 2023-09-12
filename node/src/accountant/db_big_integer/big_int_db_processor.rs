@@ -6,8 +6,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use itertools::Either;
-use rusqlite::{Error, Row, Statement, ToSql, Transaction};
+use rusqlite::{Error, Row, ToSql};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
@@ -209,7 +208,7 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     }
 
     fn key_param_value(&self) -> &'a dyn ExtendedParamsMarker {
-        self.params.params_except_wei_change[0].value_pair.1
+        self.params.params_except_wei_change[0].param_pair().1
     }
 
     fn balance_change(&self) -> i128 {
@@ -291,7 +290,7 @@ impl<'a> SQLParamsBuilder<'a> {
         let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
             Self::expand_wei_params(wei_change_spec);
         let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
-        let params = once(Param::new(key_as_the_first_param, true))
+        let params = once(Param::BothClauses(key_as_the_first_param))
             .chain(self.other_params.into_iter())
             .collect();
         SQLParams {
@@ -397,24 +396,22 @@ impl StdNumParamFormNamed {
     }
 }
 
-pub struct Param<'a> {
-    value_pair: (&'a str, &'a dyn ExtendedParamsMarker),
-    participates_in_overflow_clause: bool,
+pub enum Param<'a> {
+    BothClauses((&'a str, &'a dyn ExtendedParamsMarker)),
+    MainClauseLimited((&'a str, &'a dyn ExtendedParamsMarker)),
 }
 
 impl<'a> Param<'a> {
-    pub fn new(
-        value_pair: (&'a str, &'a (dyn ExtendedParamsMarker + 'a)),
-        participates_in_overflow_clause: bool,
-    ) -> Self {
-        Self {
-            value_pair,
-            participates_in_overflow_clause,
+    fn param_pair(&self) -> &(&'a str, &'a dyn ExtendedParamsMarker) {
+        match self {
+            Param::BothClauses(pair) => pair,
+            Param::MainClauseLimited(pair) => pair,
         }
     }
 
-    fn as_rusqlite_params(&'a self) -> (&'a str, &'a dyn ToSql) {
-        (self.value_pair.0, &self.value_pair.1 as &dyn ToSql)
+    fn as_rusqlite_param_pair(&'a self) -> (&'a str, &'a dyn ToSql) {
+        let pair = self.param_pair();
+        (pair.0, &pair.1 as &dyn ToSql)
     }
 }
 
@@ -442,7 +439,7 @@ impl<'a> SQLParams<'a> {
         let preselection = self
             .params_except_wei_change
             .iter()
-            .filter(|param| param.participates_in_overflow_clause);
+            .filter(|param| matches!(param, Param::BothClauses(_)));
         Self::merge_params(preselection, wei_change_params)
     }
 
@@ -451,7 +448,7 @@ impl<'a> SQLParams<'a> {
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
         params
-            .map(|param| param.as_rusqlite_params())
+            .map(|param| param.as_rusqlite_param_pair())
             .chain(wei_change_params.into_iter())
             .collect()
     }
@@ -520,8 +517,6 @@ mod tests {
     };
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
-    use itertools::Either;
-    use itertools::Either::Left;
     use rusqlite::{Connection, ToSql};
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
@@ -622,7 +617,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other_params(vec![Param::new(("other_thing", &46565), true)]);
+            .other_params(vec![Param::BothClauses(("other_thing", &46565))]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
         let key_spec = result.key_spec_opt.unwrap();
@@ -630,7 +625,7 @@ mod tests {
         assert_eq!(key_spec.substitution_name_in_sql, ":some_key");
         assert_eq!(key_spec.value_itself.to_string(), "blah".to_string());
         assert!(matches!(
-            result.other_params[0].value_pair,
+            result.other_params[0].param_pair(),
             ("other_thing", _)
         ));
         assert_eq!(result.other_params.len(), 1)
@@ -647,7 +642,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other_params(vec![Param::new((":other_thing", &11111), true)])
+            .other_params(vec![Param::BothClauses((":other_thing", &11111))])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -658,17 +653,26 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898)
             }
         );
-        assert_eq!(result.params_except_wei_change[0].value_pair.0, ":some_key");
         assert_eq!(
-            result.params_except_wei_change[0].value_pair.1.to_string(),
+            result.params_except_wei_change[0].param_pair().0,
+            ":some_key"
+        );
+        assert_eq!(
+            result.params_except_wei_change[0]
+                .param_pair()
+                .1
+                .to_string(),
             "blah".to_string()
         );
         assert_eq!(
-            result.params_except_wei_change[1].value_pair.0,
+            result.params_except_wei_change[1].param_pair().0,
             ":other_thing"
         );
         assert_eq!(
-            result.params_except_wei_change[1].value_pair.1.to_string(),
+            result.params_except_wei_change[1]
+                .param_pair()
+                .1
+                .to_string(),
             "11111".to_string()
         );
         assert_eq!(result.params_except_wei_change.len(), 2)
@@ -685,7 +689,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"wooow",
             })
-            .other_params(vec![Param::new((":other_thing", &46565), true)])
+            .other_params(vec![Param::BothClauses((":other_thing", &46565))])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -696,17 +700,26 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
             }
         );
-        assert_eq!(result.params_except_wei_change[0].value_pair.0, ":some_key");
         assert_eq!(
-            result.params_except_wei_change[0].value_pair.1.to_string(),
+            result.params_except_wei_change[0].param_pair().0,
+            ":some_key"
+        );
+        assert_eq!(
+            result.params_except_wei_change[0]
+                .param_pair()
+                .1
+                .to_string(),
             "wooow".to_string()
         );
         assert_eq!(
-            result.params_except_wei_change[1].value_pair.0,
+            result.params_except_wei_change[1].param_pair().0,
             ":other_thing"
         );
         assert_eq!(
-            result.params_except_wei_change[1].value_pair.1.to_string(),
+            result.params_except_wei_change[1]
+                .param_pair()
+                .1
+                .to_string(),
             "46565".to_string()
         );
         assert_eq!(result.params_except_wei_change.len(), 2)
@@ -719,7 +732,7 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .other_params(vec![Param::new(("laughter", &"hahaha"), true)])
+            .other_params(vec![Param::BothClauses(("laughter", &"hahaha"))])
             .build();
     }
 
@@ -734,7 +747,7 @@ mod tests {
                 sub_name: ":wallet",
                 val: &make_wallet("wallet"),
             })
-            .other_params(vec![Param::new(("other_thing", &46565), true)])
+            .other_params(vec![Param::BothClauses(("other_thing", &46565))])
             .build();
     }
 
@@ -778,10 +791,10 @@ mod tests {
                 },
             },
             params_except_wei_change: vec![
-                Param::new(update_positive_2, true),
-                Param::new(update_negative_1, false),
-                Param::new(update_positive_1, true),
-                Param::new(update_negative_2, false),
+                Param::BothClauses(update_positive_2),
+                Param::MainClauseLimited(update_negative_1),
+                Param::BothClauses(update_positive_1),
+                Param::MainClauseLimited(update_negative_2),
             ],
         };
 
