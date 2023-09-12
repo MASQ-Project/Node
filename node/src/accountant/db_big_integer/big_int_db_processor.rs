@@ -252,6 +252,9 @@ macro_rules! impl_of_extended_params_marker{
 
 impl_of_extended_params_marker!(i64, &str, Wallet);
 
+type DisplayableParamPair<'a> = (&'a str, &'a dyn ExtendedParamsMarker);
+type RusqliteParamPair<'a> = (&'a str, &'a dyn ToSql);
+
 #[derive(Default)]
 pub struct SQLParamsBuilder<'a> {
     key_spec_opt: Option<UniqueKeySpec<'a>>,
@@ -397,25 +400,25 @@ impl StdNumParamFormNamed {
 }
 
 pub enum Param<'a> {
-    BothClauses((&'a str, &'a dyn ExtendedParamsMarker)),
-    MainClauseLimited((&'a str, &'a dyn ExtendedParamsMarker)),
+    BothClauses(DisplayableParamPair<'a>),
+    MainClauseLimited(DisplayableParamPair<'a>),
 }
 
 impl<'a> Param<'a> {
-    fn param_pair(&self) -> &(&'a str, &'a dyn ExtendedParamsMarker) {
+    fn param_pair(&self) -> &DisplayableParamPair<'a> {
         match self {
             Param::BothClauses(pair) => pair,
             Param::MainClauseLimited(pair) => pair,
         }
     }
 
-    fn as_rusqlite_param_pair(&'a self) -> (&'a str, &'a dyn ToSql) {
+    fn as_rusqlite_param_pair(&'a self) -> RusqliteParamPair<'a> {
         let pair = self.param_pair();
         (pair.0, &pair.1 as &dyn ToSql)
     }
 }
 
-impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] {
+impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [RusqliteParamPair<'a>; 2] {
     fn from(wei_change: &'a WeiChangeAsHighAndLowBytes) -> Self {
         [
             (wei_change.high.name.as_str(), &wei_change.high.value),
@@ -427,15 +430,15 @@ impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] 
 impl<'a> SQLParams<'a> {
     fn merge_other_and_wei_params(
         &'a self,
-        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
-    ) -> Vec<(&'a str, &'a dyn ToSql)> {
+        wei_change_params: [RusqliteParamPair<'a>; 2],
+    ) -> Vec<RusqliteParamPair<'a>> {
         Self::merge_params(self.params_except_wei_change.iter(), wei_change_params)
     }
 
     fn merge_other_and_wei_params_with_conditional_participants(
         &'a self,
-        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
-    ) -> Vec<(&'a str, &'a dyn ToSql)> {
+        wei_change_params: [RusqliteParamPair<'a>; 2],
+    ) -> Vec<RusqliteParamPair<'a>> {
         let preselection = self
             .params_except_wei_change
             .iter()
@@ -445,8 +448,8 @@ impl<'a> SQLParams<'a> {
 
     fn merge_params(
         params: impl Iterator<Item = &'a Param<'a>>,
-        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
-    ) -> Vec<(&'a str, &'a dyn ToSql)> {
+        wei_change_params: [RusqliteParamPair<'a>; 2],
+    ) -> Vec<RusqliteParamPair<'a>> {
         params
             .map(|param| param.as_rusqlite_param_pair())
             .chain(wei_change_params.into_iter())
