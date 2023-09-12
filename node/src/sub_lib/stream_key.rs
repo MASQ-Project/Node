@@ -100,14 +100,6 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    //
-    // #[test]
-    // fn matching_keys_and_matching_addrs_make_matching_stream_keys() {
-    //     let one = StreamKey::new();
-    //     let another = StreamKey::new();
-    //
-    //     assert_eq!(one, another);
-    // }
 
     #[test]
     fn stream_keys_are_unique() {
@@ -120,22 +112,6 @@ mod tests {
             assert!(is_unique, "{}", &format!("Stream key {i} is not unique"));
         }
     }
-
-    // #[test]
-    // fn matching_keys_and_mismatched_port_numbers_make_mismatched_stream_keys() {
-    //     let one = StreamKey::new();
-    //     let another = StreamKey::new();
-    //
-    //     assert_ne!(one, another);
-    // }
-    //
-    // #[test]
-    // fn mismatched_keys_and_matching_addrs_make_mismatched_stream_keys() {
-    //     let one = StreamKey::new();
-    //     let another = StreamKey::new();
-    //
-    //     assert_ne!(one, another);
-    // }
 
     #[test]
     fn debug_implementation() {
