@@ -493,9 +493,7 @@ impl ProxyServer {
                 stream_key
             }
             None => {
-                let stream_key = self
-                    .stream_key_factory
-                    .make(self.main_cryptde.public_key(), ibcd.peer_addr);
+                let stream_key = self.stream_key_factory.make();
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
@@ -1008,13 +1006,13 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey;
+    fn make(&self) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
+    fn make(&self) -> StreamKey {
         // TODO: Replace this implementation
         StreamKey::new()
     }
@@ -1091,16 +1089,13 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+        make_parameters: Arc<Mutex<Vec<()>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
-            self.make_parameters
-                .lock()
-                .unwrap()
-                .push((key.clone(), peer_addr));
+        fn make(&self) -> StreamKey {
+            self.make_parameters.lock().unwrap().push(());
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1113,10 +1108,7 @@ mod tests {
             }
         }
 
-        fn make_parameters(
-            mut self,
-            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
-        ) -> StreamKeyFactoryMock {
+        fn make_parameters(mut self, params: &Arc<Mutex<Vec<()>>>) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
         }
@@ -1278,10 +1270,7 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(record, &expected_pkg);
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
-        assert_eq!(
-            make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
-        );
+        assert_eq!(make_parameters.remove(0), ());
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
@@ -1393,10 +1382,7 @@ mod tests {
         let dispatcher_record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(dispatcher_record, &expected_tdm);
         let mut make_parameters = make_parameters_arc.lock().unwrap();
-        assert_eq!(
-            make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
-        );
+        assert_eq!(make_parameters.remove(0), ());
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let hopper_record = hopper_recording.get_record::<IncipientCoresPackage>(0);

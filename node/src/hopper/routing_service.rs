@@ -873,7 +873,7 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
-        let payload = make_response_payload(0, alias_cryptde);
+        let payload = make_response_payload(0);
         let lcp = LiveCoresPackage::new(
             route,
             encodex::<MessageType>(

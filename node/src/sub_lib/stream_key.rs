@@ -1,14 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::cryptde::PublicKey;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
 use std::fmt;
-use std::net::IpAddr;
-use std::net::SocketAddr;
 use uuid::Uuid;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
@@ -102,7 +99,6 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     #[test]
     fn matching_keys_and_matching_addrs_make_matching_stream_keys() {

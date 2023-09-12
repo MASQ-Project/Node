@@ -53,7 +53,6 @@ use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
-use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -288,7 +287,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
     }
 }
 
-pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
+pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
     ClientResponsePayload_0v1 {
         stream_key: StreamKey::new(),
         sequenced_packet: SequencedPacket {
