@@ -185,16 +185,17 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
+        let stream_key = make_meaningless_stream_key();
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 0,
