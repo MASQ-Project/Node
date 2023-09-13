@@ -299,8 +299,7 @@ pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
 pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("min-hops")
         .long("min-hops")
-        .value_name("MIN_HOPS")
-        .required(false)
+        .value_name("MIN-HOPS")
         .min_values(0)
         .max_values(1)
         .possible_values(&["1", "2", "3", "4", "5", "6"])

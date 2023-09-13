@@ -63,11 +63,15 @@ const SET_CONFIGURATION_ABOUT: &str =
 const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
+pub fn set_configurationify<'a>(shared_schema_arg: Arg<'a, 'a>) -> Arg<'a, 'a> {
+    shared_schema_arg.takes_value(true).required(false)
+}
+
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("set-configuration")
         .about(SET_CONFIGURATION_ABOUT)
-        .arg(gas_price_arg())
-        .arg(min_hops_arg())
+        .arg(set_configurationify(gas_price_arg()))
+        .arg(set_configurationify(min_hops_arg()))
         .arg(
             Arg::with_name("start-block")
                 .help(START_BLOCK_HELP)
