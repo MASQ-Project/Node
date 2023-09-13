@@ -13,7 +13,7 @@ use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainTransaction, PayableTransactionError,
     ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions,
-    RpcFailurePayables,
+    RpcPayablesFailure,
 };
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::masq_lib::utils::ExpectValue;
@@ -161,7 +161,7 @@ where
     ) -> Result<Box<dyn BlockchainAgent>, String> {
         macro_rules! err {
             ($($arg: tt)*) => {
-                Err(format!("Blockchain agent build failed to fetch {}", format!($($arg)*)))
+                Err(format!("Blockchain agent construction failed at fetching {}", format!($($arg)*)))
             };
         }
 
@@ -397,7 +397,7 @@ where
                     recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcFailurePayables {
+                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayablesFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
                     hash,
@@ -551,7 +551,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainInterface, BlockchainTransaction, PayableTransactionError,
-        RetrievedBlockchainTransactions, RpcFailurePayables,
+        RetrievedBlockchainTransactions, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::{
         all_chains, make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
@@ -686,7 +686,7 @@ mod tests {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         #[rustfmt::skip]
-            let test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"{
                 "jsonrpc":"2.0",
                 "id":3,
@@ -946,7 +946,7 @@ mod tests {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
         };
-        let expected_err_msg = "Blockchain agent build failed to fetch gas price: \
+        let expected_err_msg = "Blockchain agent construction failed at fetching gas price: \
         UninterpretableValue(\"booga\")";
         assert_eq!(err, expected_err_msg)
     }
@@ -979,7 +979,7 @@ mod tests {
         let blockchain_interface_helper = RPCHelpersMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::InvalidAddress));
         let expected_err_msg =
-            "Blockchain agent build failed to fetch transaction fee balance for \
+            "Blockchain agent construction failed at fetching transaction fee balance for \
         0x0000000000000000000000000000000000626364: Blockchain error: Invalid address";
 
         build_of_blockchain_agent_fails_on_blockchain_interface_error(
@@ -994,8 +994,9 @@ mod tests {
         let blockchain_interface_helper = RPCHelpersMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Err(BlockchainError::InvalidAddress));
-        let expected_err_msg = "Blockchain agent build failed to fetch masq balance for \
-        0x0000000000000000000000000000000000626364: Blockchain error: Invalid address";
+        let expected_err_msg = "Blockchain agent construction failed at fetching masq \
+        balance for 0x0000000000000000000000000000000000626364: Blockchain error: Invalid \
+        address";
 
         build_of_blockchain_agent_fails_on_blockchain_interface_error(
             blockchain_interface_helper,
@@ -1011,8 +1012,8 @@ mod tests {
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_result(Err(BlockchainError::InvalidResponse));
-        let expected_err_msg = "Blockchain agent build failed to fetch transaction id for \
-        0x0000000000000000000000000000000000626364: Blockchain error: Invalid response";
+        let expected_err_msg = "Blockchain agent construction failed at fetching transaction \
+        id for 0x0000000000000000000000000000000000626364: Blockchain error: Invalid response";
 
         build_of_blockchain_agent_fails_on_blockchain_interface_error(
             blockchain_interface_helper,
@@ -1124,7 +1125,7 @@ mod tests {
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
             let pending_payable = match &result[idx]{
                 Correct(pp) => pp,
-                Failed(RpcFailurePayables{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
+                Failed(RpcPayablesFailure { rpc_error, recipient_wallet: recipient, hash }) => panic!(
                     "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                     rpc_error, hash, recipient
                 ),
@@ -1144,7 +1145,7 @@ mod tests {
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
-            Failed(RpcFailurePayables {
+            Failed(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet: recipient,
                 hash,
@@ -1467,13 +1468,13 @@ mod tests {
         assert!(sign_transaction_params.is_empty());
         assert!(
             transaction_params.gas >= U256::from(not_under_this_value),
-            "actual gas limit {} isn't above {}",
+            "actual gas limit {} isn't above or equal {}",
             transaction_params.gas,
             not_under_this_value
         );
         assert!(
             transaction_params.gas <= U256::from(not_above_this_value),
-            "actual gas limit {} isn't below {}",
+            "actual gas limit {} isn't below or equal {}",
             transaction_params.gas,
             not_above_this_value
         );
@@ -1503,6 +1504,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
         let agent = make_initialized_agent(123, consuming_wallet, U256::from(4));
+
         let result = subject.send_batch_of_payables(agent, &recipient, &accounts);
 
         assert_eq!(
@@ -1998,7 +2000,7 @@ mod tests {
                     recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
-                Failed(RpcFailurePayables {
+                Failed(RpcPayablesFailure {
                     rpc_error: web3::Error::Rpc(RPCError {
                         code: ErrorCode::ParseError,
                         message: "I guess we've got a problem".to_string(),
@@ -2027,8 +2029,8 @@ mod tests {
     #[test]
     fn hash_the_smartcontract_transfer_function_signature() {
         assert_eq!(
+            "transfer(address,uint256)".keccak256()[0..4],
             TRANSFER_METHOD_ID,
-            "transfer(address,uint256)".keccak256()[0..4]
         );
     }
 }

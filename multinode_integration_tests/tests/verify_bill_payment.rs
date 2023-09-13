@@ -20,10 +20,10 @@ use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
+use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
-use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
@@ -49,7 +49,7 @@ fn verify_bill_payment() {
     blockchain_server.start();
     blockchain_server.wait_until_ready();
     let url = blockchain_server.url().to_string();
-    let (_event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
+    let (event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
@@ -62,7 +62,7 @@ fn verify_bill_payment() {
         contract_addr
     );
     let blockchain_interface =
-        BlockchainInterfaceNonClandestine::new(http, _event_loop_handle, cluster.chain);
+        BlockchainInterfaceNonClandestine::new(http, event_loop_handle, cluster.chain);
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,

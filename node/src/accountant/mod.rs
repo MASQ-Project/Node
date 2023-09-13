@@ -30,7 +30,7 @@ use crate::accountant::database_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{ScanSchedulers, Scanners};
@@ -62,6 +62,7 @@ use actix::Message;
 use actix::Recipient;
 use itertools::Either;
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -94,7 +95,7 @@ pub struct Accountant {
     scan_schedulers: ScanSchedulers,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     outbound_payments_instructions_sub_opt: Option<Recipient<OutboundPaymentsInstructions>>,
-    payable_payments_setup_msg_payload_sub_opt: Option<Recipient<QualifiedPayablesMessage>>,
+    qualified_payables_sub_opt: Option<Recipient<QualifiedPayablesMessage>>,
     retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
@@ -434,7 +435,7 @@ impl Accountant {
             scan_schedulers: ScanSchedulers::new(scan_intervals),
             financial_statistics: Rc::clone(&financial_statistics),
             outbound_payments_instructions_sub_opt: None,
-            payable_payments_setup_msg_payload_sub_opt: None,
+            qualified_payables_sub_opt: None,
             report_sent_payables_sub_opt: None,
             retrieve_transactions_sub_opt: None,
             report_inbound_payments_sub_opt: None,
@@ -552,8 +553,8 @@ impl Accountant {
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
         self.report_inbound_payments_sub_opt =
             Some(msg.peer_actors.accountant.report_inbound_payments);
-        self.payable_payments_setup_msg_payload_sub_opt =
-            Some(msg.peer_actors.blockchain_bridge.qualified_paybles_message);
+        self.qualified_payables_sub_opt =
+            Some(msg.peer_actors.blockchain_bridge.qualified_payables);
         self.report_sent_payables_sub_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
@@ -813,7 +814,7 @@ impl Accountant {
             &self.logger,
         ) {
             Ok(scan_message) => {
-                self.payable_payments_setup_msg_payload_sub_opt
+                self.qualified_payables_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
@@ -994,16 +995,17 @@ mod tests {
     use crate::accountant::database_access_objects::utils::from_time_t;
     use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        protect_payables_in_test, BannedDaoFactoryMock, BlockahinAgentMock, MessageIdGeneratorMock,
-        NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
+        PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1322,7 +1324,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(vec![payable_account]),
+                protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1401,10 +1403,10 @@ mod tests {
         let account_2 = make_payable_account(333_333);
         let system = System::new("test");
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
-        let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            qualified_payables: protect_payables_in_test(accounts.clone()),
+        let msg = BlockchainAgentWithContextMessage {
+            protected_qualified_payables: protect_payables_in_test(accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1412,14 +1414,14 @@ mod tests {
             }),
         };
 
-        subject_addr.try_send(payable_payments_setup_msg).unwrap();
+        subject_addr.try_send(msg).unwrap();
 
         system.run();
         let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
         let (blockchain_agent_with_context_msg_actual, logger_clone) =
             is_adjustment_required_params.remove(0);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual.qualified_payables,
+            blockchain_agent_with_context_msg_actual.protected_qualified_payables,
             protect_payables_in_test(accounts.clone())
         );
         assert_eq!(
@@ -1496,9 +1498,9 @@ mod tests {
         };
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
-            BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
+            BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            qualified_payables: protect_payables_in_test(vec![
+            protected_qualified_payables: protect_payables_in_test(vec![
                 unadjusted_account_1.clone(),
                 unadjusted_account_2.clone(),
             ]),
@@ -1509,7 +1511,7 @@ mod tests {
         // so that we can watch their journey better
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
-            BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
+            BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
         let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),
@@ -1541,7 +1543,7 @@ mod tests {
         assert_eq!(
             actual_prepared_adjustment
                 .original_setup_msg
-                .qualified_payables,
+                .protected_qualified_payables,
             protect_payables_in_test(affordable_accounts.clone())
         );
         assert_eq!(
@@ -1803,7 +1805,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(qualified_payables),
+                protected_qualified_payables: protect_payables_in_test(qualified_payables),
                 response_skeleton_opt: None,
             }
         );
@@ -2111,7 +2113,9 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(vec![make_payable_account(123)]),
+                protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
+                    123,
+                )]),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2343,7 +2347,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(qualified_payables),
+                protected_qualified_payables: protect_payables_in_test(qualified_payables),
                 response_skeleton_opt: None,
             }
         );
@@ -2393,7 +2397,7 @@ mod tests {
                 context_id: 444,
             }),
         };
-        subject.payable_payments_setup_msg_payload_sub_opt = Some(pps_for_blockchain_bridge_sub);
+        subject.qualified_payables_sub_opt = Some(pps_for_blockchain_bridge_sub);
         let addr = subject.start();
         addr.try_send(message_before.clone()).unwrap();
 
@@ -3164,7 +3168,7 @@ mod tests {
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
-        let agent = BlockahinAgentMock::default();
+        let agent = BlockchainAgentMock::default();
         let blockchain_interface = BlockchainInterfaceMock::default()
             .build_blockchain_agent_params(&build_blockchain_agent_params)
             .build_blockchain_agent_result(Ok(Box::new(agent)))
@@ -3193,8 +3197,7 @@ mod tests {
         let system = System::new("pending_transaction");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_config = PersistentConfigurationMock::default()
-            .set_arbitrary_id_stamp(persistent_config_id_stamp)
-            .gas_price_result(Ok(130));
+            .set_arbitrary_id_stamp(persistent_config_id_stamp);
         let blockchain_bridge = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -3420,10 +3423,17 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            "WARN: Accountant: Broken transactions 0x000000000000000000000000000000000000000000000000000000000000007b marked as an error. \
-             You should take over the care of those to make sure your debts are going to be settled properly. At the moment, there is no automated process fixing that without your assistance");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
-        log_handler.exists_log_containing("INFO: Accountant: Transactions 0x0000000000000000000000000000000000000000000000000000000000000237 completed their confirmation process succeeding");
+            "WARN: Accountant: Broken transactions 0x00000000000000000000000000000000000000000000000\
+            0000000000000007b marked as an error. You should take over the care of those to make sure \
+            your debts are going to be settled properly. At the moment, there is no automated process \
+            fixing that without your assistance");
+        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x000000000000000000000000000\
+        0000000000000000000000000000000000237 has been added to the blockchain; detected locally at \
+        attempt 4 at \\d{2,}ms after its sending");
+        log_handler.exists_log_containing(
+            "INFO: Accountant: Transactions 0x000000000000000000000000\
+        0000000000000000000000000000000000000237 completed their confirmation process succeeding",
+        );
     }
 
     #[test]
@@ -4458,24 +4468,43 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod assertion_messages_with_exposed_private_actor_body {
+pub mod assertion_messages {
     use super::*;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::unshared_test_utils::AssertionsMessage;
+    use crate::test_utils::AssertionsMsgConstructor;
     use actix::System;
+    use std::any::Any;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
-    pub fn assertion_msg_to_test_registration_of_our_sqlite_fns() -> AssertionsMessage<Accountant> {
+    fn first_msg_constructor(_params_opt: Option<Box<dyn Any>>) -> AssertionsMessage<Accountant> {
         AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
                 // Will crash a test if our user-defined SQLite fns have been unreachable;
                 // We cannot rely on failures in the DAO tests, because Account's database connection
-                // has to be set up specially so as to register the extra sqlite functions
+                // has to be set up specially first (we teach it about the extra functions) as we're
+                // creating the actor
 
                 accountant
                     .receivable_dao
                     .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
+
                 System::current().stop();
             }),
         }
+    }
+
+    lazy_static! {
+        pub static ref ACCOUNTANT_SHARED_ASSERTIONS_MSGS: Mutex<HashMap<&'static str, AssertionsMsgConstructor<Accountant>>> = {
+            //TODO this code should involve Utkarshe's macro to initialize hashmaps
+            let mut hash_map = HashMap::new();
+
+            let first_test_name = "accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions";
+            let first_msg_constructor = Box::new(first_msg_constructor) as AssertionsMsgConstructor<Accountant>;
+            hash_map.insert(first_test_name, first_msg_constructor);
+
+            Mutex::new(hash_map)
+        };
     }
 }

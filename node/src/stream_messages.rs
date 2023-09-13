@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from_recorder;
     use crate::test_utils::recorder::{
-        make_dispatcher_subs_from, make_recorder, peer_actors_builder,
+        make_dispatcher_subs_from_recorder, make_recorder, peer_actors_builder,
     };
     use actix::{Actor, System};
 
@@ -87,7 +87,7 @@ mod tests {
     fn pool_bind_message_is_debug() {
         let _system = System::new("test");
         let (dispatcher, _, _) = make_recorder();
-        let dispatcher_subs = make_dispatcher_subs_from(&dispatcher.start());
+        let dispatcher_subs = make_dispatcher_subs_from_recorder(&dispatcher.start());
         let (stream_handler_pool, _, _) = make_recorder();
         let stream_handler_pool_subs =
             make_stream_handler_pool_subs_from_recorder(&stream_handler_pool.start());

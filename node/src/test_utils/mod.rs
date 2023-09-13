@@ -37,6 +37,7 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::unshared_test_utils::AssertionsMessage;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
@@ -47,6 +48,7 @@ use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
@@ -1050,15 +1052,15 @@ pub mod unshared_test_utils {
                         // capture and examine these args in assertions is to receive the ArbitraryIdStamp of the given
                         // argument.
                         // If such strategy is once decided for, transfers of this id will have to happen in all the tests
-                        // relying on this mock, while also calling the meant method. So even in cases where we certainly
-                        // are not really interested in checking that id.
-                        // If we ignored that the call of this method would blow up because the field that stores it is
-                        // likely optional, with the value defaulted to None.
-                        // As prevention of confusion that might stem from putting a requirement on devs to set the id stamp
-                        // even though they're not planning to use it, we have a null type of that stamp to be there at most
-                        // cases. As a result, we don't risk a direct punishment (for the None value being the problem)
-                        // but also we'll set the assertion on fire if it doesn't match the expected id in tests where
-                        // we suddenly do care
+                        // relying on this mock, while also calling the intended method. So even in cases where we certainly
+                        // are not really interested in checking that id, if we ignored that, the call of this method would
+                        // blow up because the field that stores it is likely optional, with the value defaulted to None.
+                        //
+                        // As prevention of confusion from putting a requirement on devs to set the id stamp even though
+                        // they're not planning to use it, we have a null type of that stamp to be there at most cases.
+                        // As a result, we don't risk a direct punishment (for the None value being the problem) but also
+                        // we'll set the assertion on fire if it doesn't match the expected id in tests where we suddenly
+                        // do care
                         None => ArbitraryIdStamp::null(),
                     }
                 }
@@ -1195,6 +1197,9 @@ pub mod unshared_test_utils {
         }
     }
 }
+
+pub type AssertionsMsgConstructor<A> =
+    Box<dyn Fn(Option<Box<dyn Any>>) -> AssertionsMessage<A> + Send>;
 
 #[cfg(test)]
 mod tests {

@@ -12,7 +12,6 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
 use actix::Recipient;
 use itertools::Either;
 use std::fmt;
@@ -47,7 +46,7 @@ pub trait BlockchainInterface {
     fn helpers(&self) -> &dyn RPCHelpers;
 }
 
-#[derive(Clone, Debug, Eq, Message, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {
     pub block_number: u64,
     pub from: Wallet,
@@ -106,11 +105,9 @@ impl Display for PayableTransactionError {
             Self::GasPriceQueryFailed(msg) => {
                 write!(f, "Unsuccessful gas price query: \"{}\"", msg)
             }
-            Self::TransactionCount(blockchain_err) => write!(
-                f,
-                "Transaction count fetching failed for: {}",
-                blockchain_err
-            ),
+            Self::TransactionCount(blockchain_err) => {
+                write!(f, "Transaction count fetching failed: {}", blockchain_err)
+            }
             Self::UnusableWallet(msg) => write!(
                 f,
                 "Unusable wallet for signing payable transactions: \"{}\"",
@@ -136,11 +133,11 @@ pub struct RetrievedBlockchainTransactions {
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProcessedPayableFallible {
     Correct(PendingPayable),
-    Failed(RpcFailurePayables),
+    Failed(RpcPayablesFailure),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct RpcFailurePayables {
+pub struct RpcPayablesFailure {
     pub rpc_error: Error,
     pub recipient_wallet: Wallet,
     pub hash: H256,
@@ -252,7 +249,7 @@ mod tests {
             slice_of_strs_to_vec_of_strings(&[
                 "Missing consuming wallet to pay payable from",
                 "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
-                "Transaction count fetching failed for: Blockchain error: Invalid response",
+                "Transaction count fetching failed: Blockchain error: Invalid response",
                 "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
                 LEDGER wallet, stupid.\"",
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",

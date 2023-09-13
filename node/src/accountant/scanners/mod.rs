@@ -2,6 +2,7 @@
 
 pub mod mid_scan_msg_handling;
 pub mod scanners_utils;
+pub mod test_utils;
 
 use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
@@ -55,8 +56,8 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, MidScanPayableHandlingScanner, ProtectedPayables};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor, ProtectedPayables};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::PayableTransactionError;
 
 pub struct Scanners {
@@ -251,7 +252,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
     as_any_in_trait_impl!();
 }
 
-impl MidScanPayableHandlingScanner for PayableScanner {
+impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
         msg: BlockchainAgentWithContextMessage,
@@ -262,7 +263,7 @@ impl MidScanPayableHandlingScanner for PayableScanner {
             .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => {
-                let protected = msg.qualified_payables;
+                let protected = msg.protected_qualified_payables;
                 let unprotected = self.expose_payables(protected);
                 Ok(Either::Left(OutboundPaymentsInstructions::new(
                     unprotected,
@@ -499,6 +500,10 @@ impl PayableScanner {
     }
 
     fn protect_payables(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
+        Self::protect_payables_shared(payables)
+    }
+
+    pub fn protect_payables_shared(payables: Vec<PayableAccount>) -> ProtectedPayables {
         #[allow(clippy::unsound_collection_transmute)]
         let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
         ProtectedPayables(bytes)
@@ -1028,11 +1033,11 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, protect_payables_in_test,
-        BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
-        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
-        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, ReceivableScannerBuilder,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
+        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        ReceivableScannerBuilder,
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
@@ -1048,11 +1053,12 @@ mod tests {
     };
     use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        BlockchainTransaction, PayableTransactionError, RpcFailurePayables,
+        BlockchainTransaction, PayableTransactionError, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
@@ -1193,7 +1199,9 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(qualified_payable_accounts.clone()),
+                protected_qualified_payables: protect_payables_in_test(
+                    qualified_payable_accounts.clone()
+                ),
                 response_skeleton_opt: None,
             })
         );
@@ -1260,7 +1268,7 @@ mod tests {
         let failure_payable_hash_2 = make_tx_hash(0xde);
         let failure_payable_rowid_2 = 126;
         let failure_payable_wallet_2 = make_wallet("hihihi");
-        let failure_payable_2 = RpcFailurePayables {
+        let failure_payable_2 = RpcPayablesFailure {
             rpc_error: Error::InvalidResponse(
                 "Learn how to write before you send your garbage!".to_string(),
             ),
@@ -1645,12 +1653,12 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Failed(RpcFailurePayables {
+        let failed_payment_1 = Failed(RpcPayablesFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = Failed(RpcFailurePayables {
+        let failed_payment_2 = Failed(RpcPayablesFailure {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,

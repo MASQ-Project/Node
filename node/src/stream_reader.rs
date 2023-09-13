@@ -217,7 +217,7 @@ mod tests {
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
-    use crate::test_utils::recorder::make_dispatcher_subs_from;
+    use crate::test_utils::recorder::make_dispatcher_subs_from_recorder;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
@@ -247,7 +247,7 @@ mod tests {
     fn dispatcher_stuff() -> (Arc<Mutex<Recording>>, DispatcherSubs) {
         let (dispatcher, _, recording) = make_recorder();
         let addr: Addr<Recorder> = dispatcher.start();
-        (recording, make_dispatcher_subs_from(&addr))
+        (recording, make_dispatcher_subs_from_recorder(&addr))
     }
 
     #[test]

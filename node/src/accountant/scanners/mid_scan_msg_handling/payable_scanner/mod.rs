@@ -3,11 +3,11 @@
 pub mod agent_null;
 pub mod agent_web3;
 pub mod blockchain_agent;
-pub mod setup_msg;
+pub mod msgs;
 pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
@@ -15,14 +15,14 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 
 pub trait MultistagePayableScanner<BeginMessage, EndMessage>:
-    Scanner<BeginMessage, EndMessage> + MidScanPayableHandlingScanner
+    Scanner<BeginMessage, EndMessage> + SolvencySensitivePaymentInstructor
 where
     BeginMessage: Message,
     EndMessage: Message,
 {
 }
 
-pub trait MidScanPayableHandlingScanner {
+pub trait SolvencySensitivePaymentInstructor {
     fn try_skipping_payment_adjustment(
         &self,
         msg: BlockchainAgentWithContextMessage,

@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::QualifiedPayablesMessage;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -391,7 +391,7 @@ pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
     (recorder, awaiter, recording)
 }
 
-pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
+pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: recipient!(addr, BindMessage),
         from_dispatcher: recipient!(addr, InboundClientData),
@@ -405,7 +405,7 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
     }
 }
 
-pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
+pub fn make_dispatcher_subs_from_recorder(addr: &Addr<Recorder>) -> DispatcherSubs {
     DispatcherSubs {
         ibcd_sub: recipient!(addr, InboundClientData),
         bind: recipient!(addr, BindMessage),
@@ -416,7 +416,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
     }
 }
 
-pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
+pub fn make_hopper_subs_from_recorder(addr: &Addr<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper_client: recipient!(addr, IncipientCoresPackage),
@@ -426,7 +426,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
     }
 }
 
-pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
+pub fn make_proxy_client_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientRequestPayload_0v1>),
@@ -436,7 +436,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
     }
 }
 
-pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
+pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
         start: recipient!(addr, StartMessage),
@@ -480,18 +480,18 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
     }
 }
 
-pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
+pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        qualified_paybles_message: recipient!(addr, QualifiedPayablesMessage),
+        qualified_payables: recipient!(addr, QualifiedPayablesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
     }
 }
 
-pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
+pub fn make_configurator_subs_from_recorder(addr: &Addr<Recorder>) -> ConfiguratorSubs {
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -588,15 +588,15 @@ impl PeerActorsBuilder {
         let configurator_addr = self.configurator.start();
 
         PeerActors {
-            proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
-            dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
-            hopper: make_hopper_subs_from(&hopper_addr),
-            proxy_client_opt: Some(make_proxy_client_subs_from(&proxy_client_addr)),
-            neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
+            proxy_server: make_proxy_server_subs_from_recorder(&proxy_server_addr),
+            dispatcher: make_dispatcher_subs_from_recorder(&dispatcher_addr),
+            hopper: make_hopper_subs_from_recorder(&hopper_addr),
+            proxy_client_opt: Some(make_proxy_client_subs_from_recorder(&proxy_client_addr)),
+            neighborhood: make_neighborhood_subs_from_recorder(&neighborhood_addr),
             accountant: make_accountant_subs_from_recorder(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
-            blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
-            configurator: make_configurator_subs_from(&configurator_addr),
+            blockchain_bridge: make_blockchain_bridge_subs_from_recorder(&blockchain_bridge_addr),
+            configurator: make_configurator_subs_from_recorder(&configurator_addr),
         }
     }
 }

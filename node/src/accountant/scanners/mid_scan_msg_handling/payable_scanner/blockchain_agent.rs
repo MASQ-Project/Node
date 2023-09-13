@@ -1,14 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
-use crate::arbitrary_id_stamp_in_trait;
+test_only_use!(
+    use crate::arbitrary_id_stamp_in_trait;,
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;,
+    use std::any::Any;
+);
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use masq_lib::test_only;
-#[cfg(test)]
-use std::any::Any;
 use web3::types::U256;
 
 // Table of chains by
@@ -34,11 +32,12 @@ pub trait BlockchainAgent: Send {
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;
 
-    test_only!(
-        fn dup(&self) -> Box<dyn BlockchainAgent> {
-            intentionally_blank!()
-        },
-        as_any_in_trait!();,
-        arbitrary_id_stamp_in_trait!();
-    );
+    #[cfg(test)]
+    fn dup(&self) -> Box<dyn BlockchainAgent> {
+        intentionally_blank!()
+    }
+    #[cfg(test)]
+    as_any_in_trait!();
+    #[cfg(test)]
+    arbitrary_id_stamp_in_trait!();
 }

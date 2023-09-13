@@ -8,17 +8,17 @@ use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub qualified_payables: ProtectedPayables,
+    pub protected_qualified_payables: ProtectedPayables,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
-        qualified_payables: ProtectedPayables,
+        protected_qualified_payables: ProtectedPayables,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
-            qualified_payables,
+            protected_qualified_payables,
             response_skeleton_opt,
         }
     }
@@ -32,7 +32,7 @@ impl SkeletonOptHolder for QualifiedPayablesMessage {
 
 #[derive(Message)]
 pub struct BlockchainAgentWithContextMessage {
-    pub qualified_payables: ProtectedPayables,
+    pub protected_qualified_payables: ProtectedPayables,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -44,7 +44,7 @@ impl BlockchainAgentWithContextMessage {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
-            qualified_payables,
+            protected_qualified_payables: qualified_payables,
             agent: blockchain_agent,
             response_skeleton_opt,
         }
@@ -54,7 +54,7 @@ impl BlockchainAgentWithContextMessage {
 #[cfg(test)]
 mod tests {
 
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 
     impl Clone for BlockchainAgentWithContextMessage {
@@ -63,7 +63,7 @@ mod tests {
             let cloned_agent =
                 BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);
             Self {
-                qualified_payables: self.qualified_payables.clone(),
+                protected_qualified_payables: self.protected_qualified_payables.clone(),
                 agent: Box::new(cloned_agent),
                 response_skeleton_opt: self.response_skeleton_opt,
             }

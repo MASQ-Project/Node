@@ -2,7 +2,7 @@
 
 use crate::accountant::database_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::{
@@ -239,7 +239,7 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-            qualified_paybles_message: recipient!(addr, QualifiedPayablesMessage),
+            qualified_payables: recipient!(addr, QualifiedPayablesMessage),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
@@ -266,7 +266,7 @@ impl BlockchainBridge {
             .build_blockchain_agent(consuming_wallet, &*self.persistent_config)?;
 
         let outgoing_message = BlockchainAgentWithContextMessage::new(
-            incoming_message.qualified_payables,
+            incoming_message.protected_qualified_payables,
             agent,
             incoming_message.response_skeleton_opt,
         );
@@ -442,9 +442,9 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
-pub struct BlockchainBridgeSubsFactory {}
+pub struct BlockchainBridgeSubsFactoryReal {}
 
-impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSubsFactory {
+impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSubsFactoryReal {
     fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridge::make_subs_from(addr)
     }
@@ -455,15 +455,15 @@ mod tests {
     use super::*;
     use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::test_utils::{
-        make_pending_payable_fingerprint, protect_payables_in_test, BlockahinAgentMock,
-    };
+    use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
 
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
@@ -577,7 +577,7 @@ mod tests {
         let build_blockchain_agent_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let blockchain_interface = BlockchainInterfaceMock::default()
             .build_blockchain_agent_params(&build_blockchain_agent_params_arc)
             .build_blockchain_agent_result(Ok(Box::new(agent)));
@@ -616,7 +616,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: qualified_payables.clone(),
+            protected_qualified_payables: qualified_payables.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -638,7 +638,7 @@ mod tests {
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual.qualified_payables,
+            blockchain_agent_with_context_msg_actual.protected_qualified_payables,
             qualified_payables
         );
         assert_eq!(
@@ -673,7 +673,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = QualifiedPayablesMessage {
-            qualified_payables: protect_payables_in_test(vec![PayableAccount {
+            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
@@ -722,7 +722,7 @@ mod tests {
             None,
         );
         let request = QualifiedPayablesMessage {
-            qualified_payables: protect_payables_in_test(vec![PayableAccount {
+            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
                 last_paid_timestamp: SystemTime::now(),
@@ -792,7 +792,7 @@ mod tests {
             },
         ];
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = BlockahinAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
+        let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -872,7 +872,7 @@ mod tests {
             last_paid_timestamp: from_time_t(150_000_000),
             pending_payable_opt: None,
         }];
-        let agent = BlockahinAgentMock::default();
+        let agent = BlockchainAgentMock::default();
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -941,7 +941,7 @@ mod tests {
             last_paid_timestamp: SystemTime::now(),
             pending_payable_opt: None,
         }];
-        let agent = Box::new(BlockahinAgentMock::default());
+        let agent = Box::new(BlockchainAgentMock::default());
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
         subject
@@ -1648,25 +1648,58 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod assertion_messages_with_exposed_private_actor_body {
+pub mod assertion_messages {
     use super::*;
     use crate::test_utils::unshared_test_utils::AssertionsMessage;
+    use crate::test_utils::AssertionsMsgConstructor;
     use actix::System;
+    use lazy_static::lazy_static;
+    use std::any::Any;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
-    pub fn assertion_msg_to_test_blockchain_bridge_connectivity(
-        wallet: Wallet,
-        expected_gas_price: u64,
+    pub struct WalletAndGasPriceHolder {
+        pub wallet: Wallet,
+        pub expected_gas_price: u64,
+    }
+
+    fn first_msg_constructor(
+        params_opt: Option<Box<dyn Any>>,
     ) -> AssertionsMessage<BlockchainBridge> {
+        let holder = params_opt
+            .unwrap()
+            .downcast::<WalletAndGasPriceHolder>()
+            .unwrap();
+
         AssertionsMessage {
             assertions: Box::new(move |bb: &mut BlockchainBridge| {
-                //the first assertion is made outside, it checks receiving this request
-                let _result = bb.blockchain_interface.helpers().get_masq_balance(&wallet);
+                // the assertion on this call is made outside and checks
+                // the received request
+                let _result = bb
+                    .blockchain_interface
+                    .helpers()
+                    .get_masq_balance(&holder.wallet);
+
                 assert_eq!(
                     bb.persistent_config.gas_price().unwrap(),
-                    expected_gas_price
+                    holder.expected_gas_price
                 );
+
                 System::current().stop();
             }),
         }
+    }
+
+    lazy_static! {
+        pub static ref BLOCKCHAINBRIDGE_SHARED_ASSERTIONS_MSGS: Mutex<HashMap<&'static str, AssertionsMsgConstructor<BlockchainBridge>>> = {
+            //TODO this code should involve Utkarshe's macro to initialize hashmaps
+            let mut hash_map = HashMap::new();
+
+            let first_test_name = "blockchain_bridge_sets_up_functioning_connections_during_its_construction";
+            let first_msg_constructor = Box::new(first_msg_constructor) as AssertionsMsgConstructor<BlockchainBridge>;
+            hash_map.insert(first_test_name, first_msg_constructor);
+
+            Mutex::new(hash_map)
+        };
     }
 }

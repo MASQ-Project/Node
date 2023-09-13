@@ -21,13 +21,14 @@ pub struct BlockchainAgentMock {
 
 impl BlockchainAgent for BlockchainAgentMock {
     fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
-        todo!()
+        todo!("to be implemented by GH-711")
     }
 
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
-        self.consuming_wallet_balances_results
-            .borrow_mut()
-            .remove(0)
+        todo!("to be implemented by GH-711")
+        // self.consuming_wallet_balances_results
+        //     .borrow_mut()
+        //     .remove(0)
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
@@ -45,7 +46,7 @@ impl BlockchainAgent for BlockchainAgentMock {
     }
 
     fn dup(&self) -> Box<dyn BlockchainAgent> {
-        todo!()
+        intentionally_blank!()
     }
 
     arbitrary_id_stamp_in_trait_impl!();

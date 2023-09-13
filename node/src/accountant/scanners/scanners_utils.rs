@@ -19,7 +19,7 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
-    use crate::blockchain::blockchain_interface::{PayableTransactionError, ProcessedPayableFallible, RpcFailurePayables};
+    use crate::blockchain::blockchain_interface::{PayableTransactionError, ProcessedPayableFallible, RpcPayablesFailure};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
@@ -156,7 +156,7 @@ pub mod payable_scanner_utils {
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
             Correct(pending_payable) => add_pending_payable(acc, pending_payable),
-            Failed(RpcFailurePayables {
+            Failed(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -433,7 +433,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
-    use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError, RpcFailurePayables};
+    use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError, RpcPayablesFailure};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
 
     #[test]
@@ -546,8 +546,8 @@ mod tests {
             recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
-        let bad_rpc_call = RpcFailurePayables {
-            rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
+        let bad_rpc_call = RpcPayablesFailure {
+            rpc_error: web3::Error::InvalidResponse("That jackass screwed it up".to_string()),
             recipient_wallet: make_wallet("whooa"),
             hash: make_tx_hash(0x315),
         };
@@ -563,9 +563,10 @@ mod tests {
 
         assert_eq!(oks, vec![&payable_ok]);
         assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: 'Got invalid response: \
-         that donkey screwed it up' for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
-          0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
+        'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
+        00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\
+        000000000315. Please check your blockchain service URL configuration.");
     }
 
     #[test]

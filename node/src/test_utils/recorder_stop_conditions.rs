@@ -139,9 +139,9 @@ where
 impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
     fn eq(&self, _other: &Self) -> bool {
         panic!(
-            r#"You requested a stop condition of the "precise match" for
-            message that does not implement PartialEq. Consider two other
-            options: matching the type by its TypeId only or using
+            r#"You requested StopCondition::StopOnMatch for message
+            that does not implement PartialEq. Consider two other
+            options: matching the type simply by its TypeId or using
             a predicate."#
         )
     }

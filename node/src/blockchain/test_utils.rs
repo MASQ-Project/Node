@@ -59,7 +59,6 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    contract_address_result: Option<Address>,
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
@@ -83,7 +82,7 @@ pub struct BlockchainInterfaceMock {
 
 impl BlockchainInterface for BlockchainInterfaceMock {
     fn contract_address(&self) -> Address {
-        *self.contract_address_result.as_ref().unwrap()
+        unimplemented!("not needed so far")
     }
 
     fn retrieve_transactions(
@@ -138,12 +137,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 }
 
 impl BlockchainInterfaceMock {
-    // TODO seems like never-used
-    pub fn contract_address_result(mut self, address: Address) -> Self {
-        self.contract_address_result.replace(address);
-        self
-    }
-
     pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self

@@ -14,12 +14,11 @@ use crate::accountant::database_access_objects::receivable_dao::{
 };
 use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::{
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
-    MidScanPayableHandlingScanner, MultistagePayableScanner, PreparedAdjustment, ProtectedPayables,
+    MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -37,13 +36,11 @@ use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
-use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
+use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
-use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use actix::{Message, System};
 use ethereum_types::H256;
 use itertools::Either;
@@ -55,11 +52,9 @@ use std::any::type_name;
 use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::mem::transmute;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use web3::types::U256;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -1399,11 +1394,6 @@ impl PayableThresholdsGaugeMock {
     }
 }
 
-pub fn protect_payables_in_test(payables: Vec<PayableAccount>) -> ProtectedPayables {
-    let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
-    ProtectedPayables(bytes)
-}
-
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params:
@@ -1480,7 +1470,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
     ($scanner:ty) => {
         impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for $scanner {}
 
-        impl MidScanPayableHandlingScanner for $scanner {
+        impl SolvencySensitivePaymentInstructor for $scanner {
             fn try_skipping_payment_adjustment(
                 &self,
                 _msg: BlockchainAgentWithContextMessage,
@@ -1669,59 +1659,4 @@ impl ScanSchedulers {
             scheduler.interval = new_interval
         }
     }
-}
-
-#[derive(Default)]
-pub struct BlockahinAgentMock {
-    agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
-    pending_transaction_id_results: RefCell<Vec<U256>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-}
-
-impl BlockchainAgent for BlockahinAgentMock {
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
-        todo!("to be implemented by GH-711")
-    }
-
-    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
-        todo!("to be implemented by GH-711")
-    }
-
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn consuming_wallet(&self) -> &Wallet {
-        todo!()
-    }
-
-    fn pending_transaction_id(&self) -> U256 {
-        self.pending_transaction_id_results.borrow_mut().remove(0)
-    }
-
-    fn dup(&self) -> Box<dyn BlockchainAgent> {
-        todo!()
-    }
-
-    arbitrary_id_stamp_in_trait_impl!();
-}
-
-impl BlockahinAgentMock {
-    pub fn agreed_fee_per_computation_unit_result(self, result: u64) -> Self {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn pending_transaction_id_result(self, result: U256) -> Self {
-        self.pending_transaction_id_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    set_arbitrary_id_stamp_in_mock_impl!();
 }

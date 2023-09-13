@@ -146,9 +146,9 @@ mod tests {
     #[test]
     fn transaction_fee_balance_works() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
+        let test_server = TestServer::start(
             port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec()],
         );
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -164,7 +164,18 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result, U256::from(65_535));
+        assert_eq!(result, U256::from(3_735_928_559_u64));
+        let requests = test_server.requests_so_far();
+        let bodies: Vec<Value> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .collect();
+        assert_eq!(bodies[0]["method"].to_string(), "\"eth_getBalance\"",);
+        assert_eq!(
+            bodies[0]["params"][0].to_string(),
+            "\"0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc\"",
+        );
+        assert_eq!(bodies.len(), 1)
     }
 
     #[test]
@@ -179,9 +190,7 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
-        let result = subject.get_transaction_fee_balance(&Wallet::new(
-            "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ",
-        ));
+        let result = subject.get_transaction_fee_balance(&Wallet::new("0x_invalid_wallet_address"));
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
@@ -198,8 +207,8 @@ mod tests {
     #[test]
     fn get_masq_balance_works() {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
+        let test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"}"#.to_vec()
         ]);
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -215,7 +224,19 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result, U256::from(65_535));
+        assert_eq!(result, U256::from(3_735_928_559_u64));
+        let requests = test_server.requests_so_far();
+        let bodies: Vec<Value> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .collect();
+        assert_eq!(bodies[0]["method"].to_string(), "\"eth_call\"",);
+        let contract_address = chain.rec().contract;
+        assert_eq!(
+            bodies[0]["params"][0]["to"].to_string(),
+            format!("\"{:?}\"", contract_address),
+        );
+        assert_eq!(bodies.len(), 1)
     }
 
     #[test]
@@ -230,8 +251,7 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
-        let result =
-            subject.get_masq_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
+        let result = subject.get_masq_balance(&Wallet::new("0x_invalid_wallet_address"));
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }

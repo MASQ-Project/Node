@@ -3,7 +3,7 @@ use crate::accountant::database_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::database_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoFactory;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::setup_msg::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
@@ -111,9 +111,9 @@ impl Debug for AccountantSubs {
     }
 }
 
-pub struct AccountantSubsFactory {}
+pub struct AccountantSubsFactoryReal {}
 
-impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactory {
+impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
         Accountant::make_subs_from(addr)
     }
@@ -194,7 +194,7 @@ mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
+        AccountantSubsFactoryReal, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
         ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
         DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn accountant_subs_factory_produces_proper_subs() {
-        let subject = AccountantSubsFactory {};
+        let subject = AccountantSubsFactoryReal {};
         let accountant = AccountantBuilder::default().build();
         let addr = accountant.start();
 
