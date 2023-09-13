@@ -64,7 +64,7 @@ const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
 pub fn set_configurationify<'a>(shared_schema_arg: Arg<'a, 'a>) -> Arg<'a, 'a> {
-    shared_schema_arg.takes_value(true).required(false)
+    shared_schema_arg.takes_value(true)
 }
 
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
