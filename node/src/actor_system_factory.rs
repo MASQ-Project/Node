@@ -678,7 +678,7 @@ mod tests {
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::{bounded, unbounded, Sender};
+    use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -2192,22 +2192,25 @@ mod tests {
             )
         }
         fn assert_on_persistent_config_connection(
-            addr: Addr<BlockchainBridge>,
+            blockchain_bridge_addr_rv: Receiver<Addr<BlockchainBridge>>,
             test_name: &str,
             wallet: Wallet,
             expected_gas_price: u64,
         ) {
+            let blockchain_bridge_addr = blockchain_bridge_addr_rv.try_recv().unwrap();
             let assertions_msg_constructor = BLOCKCHAINBRIDGE_SHARED_ASSERTIONS_MSGS
                 .lock()
                 .unwrap()
                 .remove(test_name)
                 .unwrap();
-            let constructor_inputs = Box::new(WalletAndGasPriceHolder {
+            let input_holder = WalletAndGasPriceHolder {
                 wallet,
                 expected_gas_price,
-            });
+            };
+            let constructor_inputs = Box::new(input_holder);
             let msg = assertions_msg_constructor(Some(constructor_inputs));
-            addr.try_send(msg).unwrap();
+            //this assertion message will eventually stop the system
+            blockchain_bridge_addr.try_send(msg).unwrap();
         }
         fn assert_on_blockchain_interface_connection(test_server: &TestServer, wallet: Wallet) {
             let requests = test_server.requests_so_far();
@@ -2237,17 +2240,15 @@ mod tests {
             .blockchain_service_url_opt = Some(server_url);
         bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         bootstrapper_config.data_directory = data_dir;
-        let (tx, rv) = bounded(1);
+        let (tx, blockchain_bridge_addr_rv) = bounded(1);
         let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
         let system = System::new(test_name);
         let subject = ActorFactoryReal {};
 
         subject.make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
 
-        let blockchain_addr = rv.try_recv().unwrap();
-        //this assertion message will eventually stop the system
         assert_on_persistent_config_connection(
-            blockchain_addr,
+            blockchain_bridge_addr_rv,
             test_name,
             wallet.clone(),
             gas_price,
