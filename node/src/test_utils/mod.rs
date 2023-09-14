@@ -1196,10 +1196,29 @@ pub mod unshared_test_utils {
             }
         }
     }
-}
 
-pub type AssertionsMsgConstructor<A> =
-    Box<dyn Fn(Option<Box<dyn Any>>) -> AssertionsMessage<A> + Send>;
+    pub struct SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub address_leaker: Sender<Addr<A>>,
+    }
+
+    impl<A> SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub fn send_leaker_msg_and_return_meaningless_subs<S>(
+            &self,
+            addr: &Addr<A>,
+            make_subs_from_recorder_fn: fn(&Addr<Recorder>) -> S,
+        ) -> S {
+            self.address_leaker.try_send(addr.clone()).unwrap();
+            let meaningless_addr = Recorder::new().start();
+            make_subs_from_recorder_fn(&meaningless_addr)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

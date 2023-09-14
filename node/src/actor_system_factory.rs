@@ -632,9 +632,7 @@ mod tests {
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
-    use crate::blockchain::blockchain_bridge::assertion_messages::{
-        WalletAndGasPriceHolder, BLOCKCHAINBRIDGE_SHARED_ASSERTIONS_MSGS,
-    };
+    use crate::blockchain::blockchain_bridge::assertion_messages::test_blockchain_bridge_sets_up_functioning_connections_during_its_construction;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
@@ -667,8 +665,10 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
+    };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -1981,28 +1981,6 @@ mod tests {
         );
     }
 
-    struct SubsFactoryTestAddrLeaker<A>
-    where
-        A: actix::Actor,
-    {
-        address_leaker: Sender<Addr<A>>,
-    }
-
-    impl<A> SubsFactoryTestAddrLeaker<A>
-    where
-        A: actix::Actor,
-    {
-        fn send_leaker_msg_and_return_meaningless_subs<S>(
-            &self,
-            addr: &Addr<A>,
-            make_subs_from_recorder_fn: fn(&Addr<Recorder>) -> S,
-        ) -> S {
-            self.address_leaker.try_send(addr.clone()).unwrap();
-            let meaningless_addr = Recorder::new().start();
-            make_subs_from_recorder_fn(&meaningless_addr)
-        }
-    }
-
     impl SubsFactory<Accountant, AccountantSubs> for SubsFactoryTestAddrLeaker<Accountant> {
         fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
             self.send_leaker_msg_and_return_meaningless_subs(
@@ -2158,103 +2136,19 @@ mod tests {
         //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
 
-    impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-        for SubsFactoryTestAddrLeaker<BlockchainBridge>
-    {
-        fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
-            self.send_leaker_msg_and_return_meaningless_subs(
-                addr,
-                make_blockchain_bridge_subs_from_recorder,
-            )
-        }
-    }
-
     #[test]
     fn blockchain_bridge_sets_up_functioning_connections_during_its_construction() {
-        fn arrange_db(data_dir: &Path, gas_price: u64) {
-            let mut persistent_config = {
-                let conn = DbInitializerReal::default()
-                    .initialize(data_dir, DbInitializationConfig::test_default())
-                    .unwrap();
-                PersistentConfigurationReal::from(conn)
-            };
-            persistent_config.set_gas_price(gas_price).unwrap()
-        }
-        fn launch_prepared_test_server() -> (TestServer, String) {
-            let port = find_free_port();
-            let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
-            (
-                TestServer::start(
-                    port,
-                    vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-                ),
-                server_url,
-            )
-        }
-        fn assert_on_persistent_config_connection(
-            blockchain_bridge_addr_rv: Receiver<Addr<BlockchainBridge>>,
-            test_name: &str,
-            wallet: Wallet,
-            expected_gas_price: u64,
-        ) {
-            let blockchain_bridge_addr = blockchain_bridge_addr_rv.try_recv().unwrap();
-            let assertions_msg_constructor = BLOCKCHAINBRIDGE_SHARED_ASSERTIONS_MSGS
-                .lock()
-                .unwrap()
-                .remove(test_name)
-                .unwrap();
-            let input_holder = WalletAndGasPriceHolder {
-                wallet,
-                expected_gas_price,
-            };
-            let constructor_inputs = Box::new(input_holder);
-            let msg = assertions_msg_constructor(Some(constructor_inputs));
-            //this assertion message will eventually stop the system
-            blockchain_bridge_addr.try_send(msg).unwrap();
-        }
-        fn assert_on_blockchain_interface_connection(test_server: &TestServer, wallet: Wallet) {
-            let requests = test_server.requests_so_far();
-            let bodies: Vec<Value> = requests
-                .into_iter()
-                .map(|request| serde_json::from_slice(&request.body()).unwrap())
-                .collect();
-            assert_eq!(
-                bodies[0]["params"][0]["data"].to_string()[35..75],
-                wallet.to_string()[2..]
-            );
-            assert_eq!(
-                bodies[0]["params"][0]["to"],
-                format!("{:?}", TEST_DEFAULT_CHAIN.rec().contract)
-            );
-        }
+        let act = |bootstrapper_config: BootstrapperConfig,
+                   address_leaker: SubsFactoryTestAddrLeaker<BlockchainBridge>| {
+            ActorFactoryReal {}
+                .make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker)
+        };
 
-        let test_name = "blockchain_bridge_sets_up_functioning_connections_during_its_construction";
-        let data_dir = ensure_node_home_directory_exists("actor_system_factory", test_name);
-        let gas_price = 444;
-        arrange_db(&data_dir, gas_price);
-        let (test_server, server_url) = launch_prepared_test_server();
-        let wallet = make_wallet("abc");
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config
-            .blockchain_bridge_config
-            .blockchain_service_url_opt = Some(server_url);
-        bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
-        bootstrapper_config.data_directory = data_dir;
-        let (tx, blockchain_bridge_addr_rv) = bounded(1);
-        let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
-        let system = System::new(test_name);
-        let subject = ActorFactoryReal {};
-
-        subject.make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
-
-        assert_on_persistent_config_connection(
-            blockchain_bridge_addr_rv,
-            test_name,
-            wallet.clone(),
-            gas_price,
-        );
-        assert_eq!(system.run(), 0);
-        assert_on_blockchain_interface_connection(&test_server, wallet)
+        test_blockchain_bridge_sets_up_functioning_connections_during_its_construction(
+            "actor_system_factory",
+            "blockchain_bridge_sets_up_functioning_connections_during_its_construction",
+            act,
+        )
     }
 
     #[test]
