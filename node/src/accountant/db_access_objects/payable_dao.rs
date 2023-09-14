@@ -128,7 +128,7 @@ impl PayableDao for PayableDaoReal {
             .build();
 
         Ok(self.big_int_db_processor.execute(
-            self.conn.as_ref(),
+            Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
         )?)
     }
@@ -177,7 +177,7 @@ impl PayableDao for PayableDaoReal {
                 .other_params(vec![Param::BothClauses((":last_paid", &last_paid))])
                 .build();
 
-            Ok(self.big_int_db_processor.execute(self.conn.as_ref(), BigIntSqlConfig::new(
+            Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
                 overflow_update_clause,
                 params))?)

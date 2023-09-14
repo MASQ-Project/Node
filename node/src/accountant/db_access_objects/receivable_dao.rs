@@ -134,7 +134,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .build();
 
         Ok(self.big_int_db_processor.execute(
-            self.conn.as_ref(),
+            Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
         )?)
     }
@@ -304,7 +304,7 @@ impl ReceivableDaoReal {
                 .build();
 
             let write_result = big_int_db_processor.execute(
-                conn,
+                Either::Left(conn),
                 BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
             );
 
@@ -325,11 +325,10 @@ impl ReceivableDaoReal {
         logger: &Logger,
     ) {
         if Self::check_row_presence(conn, &received_payment.from) {
-            panic!(
-                "Update for received payment with {} wei was run without producing a data \
+            panic!("Update for received payment with {} wei was run without producing a data \
             change, despite the account for wallet address {} is present",
-                received_payment.wei_amount, received_payment.from
-            )
+                   received_payment.wei_amount,
+                   received_payment.from)
         } else {
             info!(
                 logger,
@@ -924,11 +923,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Update for received payment with 1000000000 wei was run without \
+    #[should_panic(expected = "Update for received payment with 1000000000 wei was run without \
     producing a data change, despite the account for wallet address 0x0000000000000000000000000\
-    0000000626c6168 is present"
-    )]
+    0000000626c6168 is present")]
     fn log_or_panic_is_fatal_when_the_row_is_missing() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable",
@@ -938,14 +935,9 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let wallet = make_wallet("blah");
-        conn.prepare(
-            "insert into receivable \
+        conn.prepare("insert into receivable \
         ( wallet_address, balance_high_b, balance_low_b, last_received_timestamp ) values \
-        ( ?, 111, 222, 111222333 )",
-        )
-        .unwrap()
-        .execute(&[&wallet])
-        .unwrap();
+        ( ?, 111, 222, 111222333 )").unwrap().execute(&[&wallet]).unwrap();
         let received_payment = BlockchainTransaction {
             block_number: 1234,
             from: wallet,
