@@ -62,7 +62,6 @@ use actix::Message;
 use actix::Recipient;
 use itertools::Either;
 use itertools::Itertools;
-use lazy_static::lazy_static;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -4470,16 +4469,176 @@ mod tests {
 #[cfg(test)]
 pub mod assertion_messages {
     use super::*;
+    use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::actor_system_factory::SubsFactory;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
-    use crate::test_utils::unshared_test_utils::AssertionsMessage;
-    use crate::test_utils::AssertionsMsgConstructor;
+    use crate::test_utils::actor_system_factory::BannedCacheLoaderMock;
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::recorder::make_accountant_subs_from_recorder;
+    use crate::test_utils::unshared_test_utils::{AssertionsMessage, SubsFactoryTestAddrLeaker};
     use actix::System;
-    use std::any::Any;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
+    use crossbeam_channel::bounded;
+    use masq_lib::test_utils::utils::ShouldWeRunTheTest::{GoAhead, Skip};
+    use masq_lib::test_utils::utils::{
+        check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
+    };
+    use regex::Regex;
+    use std::env::current_dir;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::path::PathBuf;
 
-    fn first_msg_constructor(_params_opt: Option<Box<dyn Any>>) -> AssertionsMessage<Accountant> {
-        AssertionsMessage {
+    impl SubsFactory<Accountant, AccountantSubs> for SubsFactoryTestAddrLeaker<Accountant> {
+        fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
+            self.send_leaker_msg_and_return_meaningless_subs(
+                addr,
+                make_accountant_subs_from_recorder,
+            )
+        }
+    }
+
+    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao(
+    ) -> ShouldWeRunTheTest {
+        fn skip_down_to_first_line_saying_new_delinquencies(
+            previous: impl Iterator<Item = String>,
+        ) -> impl Iterator<Item = String> {
+            previous
+                .skip_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn new_delinquencies(")
+                })
+                .skip(1)
+        }
+        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item = String>) -> String {
+            fn yield_if_contains_semicolon(line: &str) -> Option<String> {
+                line.contains(';').then(|| line.to_string())
+            }
+            let mut semicolon_line_opt = None;
+            let line_undivided_fn_body = body_lines
+                .map(|line| {
+                    if semicolon_line_opt.is_none() {
+                        if let Some(result) = yield_if_contains_semicolon(&line) {
+                            semicolon_line_opt = Some(result)
+                        }
+                    }
+                    line
+                })
+                .collect::<String>();
+            if let Some(line) = semicolon_line_opt {
+                let regex = Regex::new(r"Vec<\w+>;").unwrap();
+                if regex.is_match(&line) {
+                    // The important part of the regex is the ending semicolon. Trait implementations don't use it;
+                    // they just go on with an opening bracket of the function body. Its presence therefore signifies
+                    // we have to do with a trait definition
+                    panic!("the second parsed chunk of code is a trait definition and the implementation lies first")
+                }
+            } else {
+                () //means is a clean function body without semicolon
+            }
+            line_undivided_fn_body
+        }
+        fn scope_fn_new_delinquency_alone(reader: BufReader<File>) -> String {
+            let all_lines_in_the_file = reader.lines().flatten();
+            let lines_with_cut_fn_trait_definition =
+                skip_down_to_first_line_saying_new_delinquencies(all_lines_in_the_file);
+            let assumed_implemented_function_body =
+                skip_down_to_first_line_saying_new_delinquencies(
+                    lines_with_cut_fn_trait_definition,
+                )
+                .take_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn")
+                });
+            assert_is_not_trait_definition(assumed_implemented_function_body)
+        }
+        fn user_defined_functions_detected(line_undivided_fn_body: &str) -> bool {
+            line_undivided_fn_body.contains(" slope_drop_high_bytes(")
+                && line_undivided_fn_body.contains(" slope_drop_low_bytes(")
+        }
+
+        let current_dir = current_dir().unwrap();
+        let file_path = current_dir.join(PathBuf::from_iter([
+            "src",
+            "accountant",
+            "database_access_objects",
+            "receivable_dao.rs",
+        ]));
+        let file = match File::open(file_path) {
+            Ok(file) => file,
+            Err(_) => match check_if_source_code_is_attached(&current_dir) {
+                Skip => return Skip,
+                _ => panic!(
+                    "if panics, the file receivable_dao.rs probably doesn't exist or \
+                has moved to an unexpected location"
+                ),
+            },
+        };
+        let reader = BufReader::new(file);
+        let function_body_ready_for_final_check = scope_fn_new_delinquency_alone(reader);
+        if user_defined_functions_detected(&function_body_ready_for_final_check) {
+            GoAhead
+        } else {
+            panic!(
+                "was about to test user-defined SQLite functions (slope_drop_high_bytes and
+            slope_drop_low_bytes) in new_delinquencies() but found out those are absent at the
+            expected place and would leave falsely positive results"
+            )
+        }
+    }
+
+    pub fn test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions<
+        A,
+    >(
+        test_module: &str,
+        test_name: &str,
+        act: A,
+    ) where
+        A: FnOnce(
+            BootstrapperConfig,
+            DbInitializerReal,
+            BannedCacheLoaderMock,
+            SubsFactoryTestAddrLeaker<Accountant>,
+        ) -> AccountantSubs,
+    {
+        // precondition: .new_delinquencies() still encompasses the considered functions, otherwise
+        // the test is false-positive
+        if let Skip =
+            verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao()
+        {
+            eprintln!(
+                "skipping test {test_name} due to having been unable to find receivable_dao.rs"
+            );
+            return;
+        };
+        let data_dir = ensure_node_home_directory_exists(test_module, test_name);
+        let _ = DbInitializerReal::default()
+            .initialize(data_dir.as_ref(), DbInitializationConfig::test_default())
+            .unwrap();
+        let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("mine"));
+        bootstrapper_config.data_directory = data_dir;
+        let db_initializer = DbInitializerReal::default();
+        let banned_cache_loader = BannedCacheLoaderMock::default();
+        let (tx, accountant_addr_rv) = bounded(1);
+        let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
+        let system = System::new(test_name);
+
+        act(
+            bootstrapper_config,
+            db_initializer,
+            banned_cache_loader,
+            address_leaker,
+        );
+
+        let accountant_addr = accountant_addr_rv.try_recv().unwrap();
+        //the message also stops the system
+        let assertion_msg = AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
                 // Will crash a test if our user-defined SQLite fns have been unreachable;
                 // We cannot rely on failures in the DAO tests, because Account's database connection
@@ -4492,19 +4651,10 @@ pub mod assertion_messages {
 
                 System::current().stop();
             }),
-        }
-    }
-
-    lazy_static! {
-        pub static ref ACCOUNTANT_SHARED_ASSERTIONS_MSGS: Mutex<HashMap<&'static str, AssertionsMsgConstructor<Accountant>>> = {
-            //TODO this code should involve Utkarshe's macro to initialize hashmaps
-            let mut hash_map = HashMap::new();
-
-            let first_test_name = "accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions";
-            let first_msg_constructor = Box::new(first_msg_constructor) as AssertionsMsgConstructor<Accountant>;
-            hash_map.insert(first_test_name, first_msg_constructor);
-
-            Mutex::new(hash_map)
         };
+        accountant_addr.try_send(assertion_msg).unwrap();
+        assert_eq!(system.run(), 0);
+        //we didn't blow up, it recognized the functions
+        //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
 }

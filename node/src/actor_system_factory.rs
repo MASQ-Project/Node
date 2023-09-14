@@ -628,14 +628,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::assertion_messages::ACCOUNTANT_SHARED_ASSERTIONS_MSGS;
-    use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::accountant::assertion_messages::test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::blockchain::blockchain_bridge::assertion_messages::test_blockchain_bridge_sets_up_functioning_connections_during_its_construction;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -651,9 +647,8 @@ mod tests {
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
-    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::actor_system_factory::BannedCacheLoaderMock;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
-    use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -678,28 +673,20 @@ mod tests {
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+    use crossbeam_channel::unbounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::{
-        check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
-        TEST_DEFAULT_CHAIN,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
-    use masq_lib::utils::{find_free_port, running_test};
-    use regex::Regex;
-    use serde_json::Value;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
-    use std::env::current_dir;
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
     use std::net::Ipv4Addr;
     use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
@@ -810,17 +797,6 @@ mod tests {
                 .borrow_mut()
                 .push(result);
             self
-        }
-    }
-
-    #[derive(Default)]
-    struct BannedCacheLoaderMock {
-        pub load_params: Arc<Mutex<Vec<Box<dyn ConnectionWrapper>>>>,
-    }
-
-    impl BannedCacheLoader for BannedCacheLoaderMock {
-        fn load(&self, conn: Box<dyn ConnectionWrapper>) {
-            self.load_params.lock().unwrap().push(conn);
         }
     }
 
@@ -1981,159 +1957,25 @@ mod tests {
         );
     }
 
-    impl SubsFactory<Accountant, AccountantSubs> for SubsFactoryTestAddrLeaker<Accountant> {
-        fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
-            self.send_leaker_msg_and_return_meaningless_subs(
-                addr,
-                make_accountant_subs_from_recorder,
-            )
-        }
-    }
-
-    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao(
-    ) -> ShouldWeRunTheTest {
-        fn skip_down_to_first_line_saying_new_delinquencies(
-            previous: impl Iterator<Item = String>,
-        ) -> impl Iterator<Item = String> {
-            previous
-                .skip_while(|line| {
-                    let adjusted_line: String = line
-                        .chars()
-                        .skip_while(|char| char.is_whitespace())
-                        .collect();
-                    !adjusted_line.starts_with("fn new_delinquencies(")
-                })
-                .skip(1)
-        }
-        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item = String>) -> String {
-            fn yield_if_contains_semicolon(line: &str) -> Option<String> {
-                line.contains(';').then(|| line.to_string())
-            }
-            let mut semicolon_line_opt = None;
-            let line_undivided_fn_body = body_lines
-                .map(|line| {
-                    if semicolon_line_opt.is_none() {
-                        if let Some(result) = yield_if_contains_semicolon(&line) {
-                            semicolon_line_opt = Some(result)
-                        }
-                    }
-                    line
-                })
-                .collect::<String>();
-            if let Some(line) = semicolon_line_opt {
-                let regex = Regex::new(r"Vec<\w+>;").unwrap();
-                if regex.is_match(&line) {
-                    // The important part of the regex is the ending semicolon. Trait implementations don't use it;
-                    // they just go on with an opening bracket of the function body. Its presence therefore signifies
-                    // we have to do with a trait definition
-                    panic!("the second parsed chunk of code is a trait definition and the implementation lies first")
-                }
-            } else {
-                () //means is a clean function body without semicolon
-            }
-            line_undivided_fn_body
-        }
-        fn scope_fn_new_delinquency_alone(reader: BufReader<File>) -> String {
-            let all_lines_in_the_file = reader.lines().flatten();
-            let lines_with_cut_fn_trait_definition =
-                skip_down_to_first_line_saying_new_delinquencies(all_lines_in_the_file);
-            let assumed_implemented_function_body =
-                skip_down_to_first_line_saying_new_delinquencies(
-                    lines_with_cut_fn_trait_definition,
-                )
-                .take_while(|line| {
-                    let adjusted_line: String = line
-                        .chars()
-                        .skip_while(|char| char.is_whitespace())
-                        .collect();
-                    !adjusted_line.starts_with("fn")
-                });
-            assert_is_not_trait_definition(assumed_implemented_function_body)
-        }
-        fn user_defined_functions_detected(line_undivided_fn_body: &str) -> bool {
-            line_undivided_fn_body.contains(" slope_drop_high_bytes(")
-                && line_undivided_fn_body.contains(" slope_drop_low_bytes(")
-        }
-
-        let current_dir = current_dir().unwrap();
-        let file_path = current_dir.join(PathBuf::from_iter([
-            "src",
-            "accountant",
-            "database_access_objects",
-            "receivable_dao.rs",
-        ]));
-        let file = match File::open(file_path) {
-            Ok(file) => file,
-            Err(_) => match check_if_source_code_is_attached(&current_dir) {
-                Skip => return Skip,
-                _ => panic!(
-                    "if panics, the file receivable_dao.rs probably doesn't exist or \
-                has moved to an unexpected location"
-                ),
-            },
-        };
-        let reader = BufReader::new(file);
-        let function_body_ready_for_final_check = scope_fn_new_delinquency_alone(reader);
-        if user_defined_functions_detected(&function_body_ready_for_final_check) {
-            GoAhead
-        } else {
-            panic!(
-                "was about to test user-defined SQLite functions (slope_drop_high_bytes and
-            slope_drop_low_bytes) in new_delinquencies() but found out those are absent at the
-            expected place and would leave falsely positive results"
-            )
-        }
-    }
-
     #[test]
     fn accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions() {
-        // precondition: .new_delinquencies() still encompasses the considered functions, otherwise
-        // the test is false-positive
-        let test_name =
-            "accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions";
-        if let Skip =
-            verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao()
-        {
-            eprintln!(
-                "skipping test {test_name} due to having been unable to find receivable_dao.rs"
-            );
-            return;
+        let act = |bootstrapper_config: BootstrapperConfig,
+                   db_initializer: DbInitializerReal,
+                   banned_cache_loader: BannedCacheLoaderMock,
+                   address_leaker: SubsFactoryTestAddrLeaker<Accountant>| {
+            ActorFactoryReal {}.make_and_start_accountant(
+                bootstrapper_config,
+                &db_initializer,
+                &banned_cache_loader,
+                &address_leaker,
+            )
         };
-        let data_dir = ensure_node_home_directory_exists(
+
+        test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions(
             "actor_system_factory",
-            "accountant_can_make_use_of_our_own_sqlite_functions",
-        );
-        let _ = DbInitializerReal::default()
-            .initialize(data_dir.as_ref(), DbInitializationConfig::test_default())
-            .unwrap();
-        let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("mine"));
-        bootstrapper_config.data_directory = data_dir;
-        let (addr_tx, addr_rv) = bounded(1);
-        let system = System::new(test_name);
-        let subject = ActorFactoryReal {};
-
-        subject.make_and_start_accountant(
-            bootstrapper_config,
-            &DbInitializerReal::default(),
-            &BannedCacheLoaderMock::default(),
-            &SubsFactoryTestAddrLeaker {
-                address_leaker: addr_tx,
-            },
-        );
-
-        let accountant_addr = addr_rv.try_recv().unwrap();
-        //the message also stops the system
-        let assertion_msg_constructor = ACCOUNTANT_SHARED_ASSERTIONS_MSGS
-            .lock()
-            .unwrap()
-            .remove(test_name)
-            .unwrap();
-        accountant_addr
-            .try_send(assertion_msg_constructor(None))
-            .unwrap();
-        assert_eq!(system.run(), 0);
-        //we didn't blow up, it recognized the functions
-        //this is an example of the error: "no such function: slope_drop_high_bytes"
+            "accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions",
+            act,
+        )
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod actor_system_factory;
 pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
@@ -37,7 +38,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::unshared_test_utils::AssertionsMessage;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
@@ -48,7 +48,6 @@ use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
-use std::any::Any;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;

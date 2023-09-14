@@ -1651,22 +1651,17 @@ mod tests {
 #[cfg(test)]
 pub mod assertion_messages {
     use super::*;
-    use crate::actor_system_factory::ActorFactoryReal;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::test_utils::http_test_server::TestServer;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_blockchain_bridge_subs_from_recorder;
     use crate::test_utils::unshared_test_utils::{AssertionsMessage, SubsFactoryTestAddrLeaker};
-    use crate::test_utils::{make_wallet, AssertionsMsgConstructor};
     use actix::System;
     use crossbeam_channel::{bounded, Receiver};
-    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
     use serde_json::Value;
-    use std::any::Any;
-    use std::collections::HashMap;
     use std::net::Ipv4Addr;
-    use std::sync::Mutex;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
         for SubsFactoryTestAddrLeaker<BlockchainBridge>
@@ -1680,8 +1675,8 @@ pub mod assertion_messages {
     }
 
     pub fn test_blockchain_bridge_sets_up_functioning_connections_during_its_construction<A>(
-        test_name: &str,
         test_module: &str,
+        test_name: &str,
         act: A,
     ) where
         A: FnOnce(
@@ -1711,7 +1706,6 @@ pub mod assertion_messages {
         }
         fn assert_on_persistent_config_connection(
             blockchain_bridge_addr_rv: Receiver<Addr<BlockchainBridge>>,
-            test_name: &str,
             wallet: Wallet,
             expected_gas_price: u64,
         ) {
@@ -1768,7 +1762,6 @@ pub mod assertion_messages {
 
         assert_on_persistent_config_connection(
             blockchain_bridge_addr_rv,
-            test_name,
             wallet.clone(),
             gas_price,
         );
