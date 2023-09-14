@@ -6,7 +6,8 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use rusqlite::{Error, Row, ToSql};
+use itertools::Either;
+use rusqlite::{Error, Row, Statement, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
@@ -1003,7 +1004,7 @@ mod tests {
 
         let act = |conn: &mut dyn ConnectionWrapper| {
             subject.execute(
-                Left(conn),
+                Either::Left(conn),
                 BigIntSqlConfig::new(
                     main_sql,
                     "",
@@ -1422,7 +1423,7 @@ mod tests {
                 .build(),
         );
 
-        let result = subject.execute(Left(conn.as_ref()), config);
+        let result = subject.execute(Either::Left(conn.as_ref()), config);
 
         assert_eq!(
             result,
@@ -1451,7 +1452,7 @@ mod tests {
                 .build(),
         );
 
-        let result = subject.execute(Left(conn.as_ref()), config);
+        let result = subject.execute(Either::Left(conn.as_ref()), config);
 
         assert_eq!(
             result,
@@ -1481,7 +1482,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(&*conn), update_config);
+            .update_with_overflow(Either::Left(&*conn), update_config);
 
         assert_eq!(result, Ok(()));
         let (final_high_bytes, final_low_bytes) = conn
@@ -1583,7 +1584,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
         assert_eq!(
@@ -1620,7 +1621,7 @@ mod tests {
 
         let _ = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
     }
 
     #[test]
@@ -1650,7 +1651,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Left(conn.as_ref()), update_config);
+            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 
         assert_eq!(
             result,

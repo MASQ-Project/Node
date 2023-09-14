@@ -29,6 +29,7 @@ use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
+use itertools::Either;
 use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -117,18 +118,18 @@ impl PayableDao for PayableDaoReal {
         let overflow_update_clause = "update payable set \
                 balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet";
 
-        let last_paid = to_time_t(timestamp);
+        let last_paid_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
             .wei_change(Addition("balance", amount))
             .other_params(vec![Param::MainClauseLimited((
                 ":last_paid_timestamp",
-                &last_paid,
+                &last_paid_timestamp,
             ))])
             .build();
 
         Ok(self.big_int_db_processor.execute(
-            Left(self.conn.as_ref()),
+            Either::Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
         )?)
     }
@@ -160,7 +161,7 @@ impl PayableDao for PayableDaoReal {
         &self,
         confirmed_payables: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
-        confirmed_payables.iter().try_for_each(|fgp| {
+        confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
 
             let main_sql = "update payable set \
                     balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
@@ -169,15 +170,15 @@ impl PayableDao for PayableDaoReal {
                     balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
                     pending_payable_rowid = null where pending_payable_rowid = :rowid";
 
-            let i64_rowid = checked_conversion::<u64, i64>(fgp.rowid);
-            let last_paid = to_time_t(fgp.timestamp);
+            let i64_rowid = checked_conversion::<u64, i64>(pending_payable_fingerprint.rowid);
+            let last_paid = to_time_t(pending_payable_fingerprint.timestamp);
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
-                .wei_change(Subtraction("balance",fgp.amount))
+                .wei_change(Subtraction("balance", pending_payable_fingerprint.amount))
                 .other_params(vec![Param::BothClauses((":last_paid", &last_paid))])
                 .build();
 
-            Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
+            Ok(self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
                 overflow_update_clause,
                 params))?)
