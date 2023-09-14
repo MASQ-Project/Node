@@ -12,7 +12,7 @@ pub(in crate::blockchain) struct BlockchainInterfaceInitializer {}
 impl BlockchainInterfaceInitializer {
     // TODO when we have multiple chains of fundamentally different architectures and also the ability to switch them,
     // this should probably be replaced by a HashMap of distinct blockchain interfaces for each chain
-    pub fn initialize_chain_compatible_interface(
+    pub fn initialize_interface(
         &self,
         blockchain_service_url: &str,
         chain: Chain,

@@ -228,8 +228,9 @@ impl BlockchainBridge {
     ) -> Box<dyn BlockchainInterface> {
         match blockchain_service_url_opt {
             Some(url) => {
-                let initializer = BlockchainInterfaceInitializer {};
-                initializer.initialize_chain_compatible_interface(&url, chain)
+                // TODO if we decided to have interchangeably runtime switchable or simultaneously usable interfaces we will
+                // probably want to make BlockchainInterfaceInitializer a collaborator that's a part of the actor
+                BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
             None => Box::new(BlockchainInterfaceClandestine::new(chain)), //TODO make sure this is tested for BlockchainInterfaceNull (after the merge??)
         }
