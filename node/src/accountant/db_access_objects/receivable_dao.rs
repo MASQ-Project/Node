@@ -505,7 +505,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::test_utils::{
-        ConnectionWrapperMock, StatementWithLivingConn, TransactionWrapperMock,
+        ConnectionWrapperMock, StatementProducer, StatementProducerActive, TransactionWrapperMock,
     };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -981,15 +981,15 @@ mod tests {
     fn test_non_fatal_error_with_roll_back_for_more_money_received(
         test_name: &str,
         mut subject: ReceivableDaoReal,
+        wallet: Wallet,
         error_specific_expected_msg: &str,
     ) {
         init_test_logging();
-        let wallet = make_wallet("abc");
         subject.logger = Logger::new(test_name);
         let transaction = BlockchainTransaction {
             block_number: 123_456,
             from: wallet,
-            wei_amount: 45_678,
+            wei_amount: 1,
         };
         let transactions = vec![transaction];
 
@@ -1025,6 +1025,7 @@ mod tests {
         test_non_fatal_error_with_roll_back_for_more_money_received(
             test_name,
             subject,
+            make_wallet("abc"),
             expected_error_msg,
         )
     }
@@ -1032,14 +1033,23 @@ mod tests {
     #[test]
     fn more_money_received_logs_error_from_committing_the_common_transaction() {
         let test_name = "more_money_received_logs_error_from_committing_the_common_transaction";
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
+        let wallet = make_wallet("def");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let preparation_subject = ReceivableDaoReal::new(conn);
+        preparation_subject
+            .more_money_receivable(SystemTime::now(), &wallet, 123)
+            .unwrap();
         let mut subject = {
-            let made_up_db_conn = Connection::open_in_memory().unwrap();
-            // the statement can be whatever
-            let stm = made_up_db_conn
-                .prepare("create table whatever (id integer)")
-                .unwrap();
-            // let statement = StatementWithLivingConn::new((made_up_db_conn, stm));
-            let transaction = Box::new(TransactionWrapperMock::default().prepare_result(Ok(stm)));
+            let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+            // we will execute the same SQL that can be found in the real impl
+            let sql_stm = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet";
+            let stm_producer = StatementProducerActive::new(conn, sql_stm.to_string());
+            let transaction =
+                Box::new(TransactionWrapperMock::default().prepare_result(Ok(stm_producer)));
             let conn = ConnectionWrapperMock::default().transaction_result(Ok(transaction));
             ReceivableDaoReal::new(Box::new(conn))
         };
@@ -1048,6 +1058,7 @@ mod tests {
         test_non_fatal_error_with_roll_back_for_more_money_received(
             test_name,
             subject,
+            wallet,
             expected_error_msg,
         )
     }

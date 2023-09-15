@@ -5,11 +5,14 @@
 use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
-use rusqlite::{Connection, Error, Statement, ToSql};
+use rusqlite::{Connection, Error, Params, Statement, ToSql};
 use std::cell::RefCell;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use web3::types::Res;
 
 #[derive(Debug, Default)]
 pub struct ConnectionWrapperMock<'a> {
@@ -58,48 +61,109 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct StatementWithLivingConn {
-    conn: Connection,
-    statement: Statement<'static>,
+pub trait StatementProducer: Debug {
+    fn statement(&self) -> Statement;
 }
 
-impl StatementWithLivingConn {
-    pub fn new((conn, statement): (Connection, Statement<'static>)) -> Self {
-        Self { conn, statement }
+impl StatementProducer for StatementProducerActive {
+    fn statement(&self) -> Statement {
+        self.conn.prepare(&self.sql_stm).unwrap()
     }
 }
 
-#[derive(Debug, Default)]
-pub struct TransactionWrapperMock<'a> {
-    prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
+pub struct StatementProducerActive {
+    conn: Connection,
+    sql_stm: String,
+}
+
+impl Debug for StatementProducerActive {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl StatementProducerActive {
+    pub fn new(conn: Connection, sql_stm: String) -> Self {
+        Self { conn, sql_stm }
+    }
+}
+
+#[derive(Default)]
+struct PrepareResults {
+    producers: Vec<(StatementProducerActive, usize)>,
+    errors: RefCell<Vec<(Error, usize)>>,
+    idx_during_filling: usize,
+    next_result_idx: RefCell<usize>,
+}
+
+#[derive(Default)]
+pub struct TransactionWrapperMock {
+    prepare_results: PrepareResults,
     commit_results: RefCell<Vec<Result<(), Error>>>,
 }
 
-impl<'a> TransactionWrapperMock<'a> {
+impl Debug for TransactionWrapperMock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
+impl TransactionWrapperMock {
     pub fn new() -> Self {
         Self::default()
     }
 
-    // pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
-    //     self.prepare_params = params.clone();
-    //     self
-    // }
-    //
-    pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
-        self.prepare_results.borrow_mut().push(result);
+    pub fn prepare_result(mut self, result: Result<StatementProducerActive, Error>) -> Self {
+        let current_idx = self.prepare_results.idx_during_filling;
+        match result {
+            Ok(producer) => {
+                self.prepare_results.producers.push((producer, current_idx));
+                self.prepare_results.idx_during_filling += 1
+            }
+            Err(e) => {
+                self.prepare_results
+                    .errors
+                    .borrow_mut()
+                    .push((e, current_idx));
+                self.prepare_results.idx_during_filling += 1;
+            }
+        };
         self
     }
-    //
+
     pub fn commit_result(self, result: Result<(), Error>) -> Self {
         self.commit_results.borrow_mut().push(result);
         self
     }
 }
 
-impl<'a> TransactionWrapper for TransactionWrapperMock<'a> {
+impl TransactionWrapper for TransactionWrapperMock {
     fn prepare(&self, _query: &str) -> Result<Statement, Error> {
-        todo!() // Ok(self.prepare_results.borrow_mut().get(0).unwrap().unwrap().statement)
+        let next_result_idx = *self.prepare_results.next_result_idx.borrow();
+        *self.prepare_results.next_result_idx.borrow_mut() += 1;
+        match self
+            .prepare_results
+            .producers
+            .iter()
+            .find(|(producer, idx)| *idx == next_result_idx)
+        {
+            Some((producer, _)) => Ok(producer.statement()),
+            None => {
+                let current_idx = self
+                    .prepare_results
+                    .errors
+                    .borrow()
+                    .iter()
+                    .position(|(e, idx)| *idx == next_result_idx)
+                    .expect("call of TransactionWrapperMock without a prepared result");
+                Err(self
+                    .prepare_results
+                    .errors
+                    .borrow_mut()
+                    .remove(current_idx)
+                    .0)
+            }
+        }
     }
 
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
