@@ -50,6 +50,7 @@ macro_rules! values_m {
 #[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
+    computed_value_names: HashSet<String>
 }
 
 impl<'a> MultiConfig<'a> {
@@ -61,24 +62,41 @@ impl<'a> MultiConfig<'a> {
         schema: &App<'a, 'a>,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+        let mut computed_value_names = HashSet::new();
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged: Box<dyn VirtualCommandLine> = vcls
-            .into_iter()
-            .fold(initial, |so_far, vcl| merge(so_far, vcl));
+        let vlc_copy = &vcls;
+        {
+            vlc_copy.into_iter().for_each(|vcl| {
+                vcl.vcl_args().iter().for_each(|vcl_arg| {
+                    match vcl.is_computed() {
+                        true => computed_value_names.insert(vcl_arg.name().to_string()),
+                        false => computed_value_names.remove(&vcl_arg.name().to_string())
+                    };
+                })
+            });
+        }
+        let merged: Box<dyn VirtualCommandLine> = vcls.into_iter().fold(initial, |so_far, vcl | -> Box<dyn VirtualCommandLine> {
+            merge(so_far, vcl)
+        });
+
         let arg_matches = match schema
             .clone()
             .get_matches_from_safe(merged.args().into_iter())
         {
-            Ok(matches) => matches,
-            Err(e) => match e.kind {
-                clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
-                    unreachable!("The program's entry check failed to catch this.")
+            Ok(matches) => {
+                matches
+            },
+            Err(e) => {
+                match e.kind {
+                    clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
+                        unreachable!("The program's entry check failed to catch this.")
+                    }
+                    _ => return Err(Self::make_configurator_error(e)),
                 }
-                _ => return Err(Self::make_configurator_error(e)),
             },
         };
-        Ok(MultiConfig { arg_matches })
+        Ok(MultiConfig { arg_matches, computed_value_names })
     }
 
     fn check_for_invalid_value_err(
@@ -137,6 +155,13 @@ impl<'a> MultiConfig<'a> {
             return ConfiguratorError::new(requireds);
         }
         ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
+    }
+
+    pub fn is_user_specified(&self, value_name: &str) -> bool {
+        match self.computed_value_names.contains(value_name)  {
+            true => false,
+            false => true
+        }
     }
 
     pub fn occurrences_of(&self, parameter: &str) -> u64 {
@@ -224,6 +249,7 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+    fn is_computed(&self) -> bool { false }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -263,6 +289,24 @@ pub fn merge(
     })
 }
 
+pub struct  ComputedVcl {
+    vcl_args: Vec<Box<dyn VclArg>>,
+}
+
+impl VirtualCommandLine for ComputedVcl {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
+        vcl_args_to_vcl_args(&self.vcl_args)
+    }
+
+    fn args(&self) -> Vec<String> {
+        vcl_args_to_args(&self.vcl_args)
+    }
+
+    fn is_computed(&self) -> bool {
+        true
+    }
+}
+
 pub struct CommandLineVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
@@ -280,6 +324,33 @@ impl VirtualCommandLine for CommandLineVcl {
 impl From<Vec<Box<dyn VclArg>>> for CommandLineVcl {
     fn from(vcl_args: Vec<Box<dyn VclArg>>) -> Self {
         CommandLineVcl { vcl_args }
+    }
+}
+
+impl ComputedVcl {
+    pub fn new(mut args: Vec<String>) -> ComputedVcl {
+        args.remove(0); // remove command
+        let mut vcl_args = vec![];
+        while let Some(vcl_arg) = Self::next_vcl_arg(&mut args) {
+            vcl_args.push(vcl_arg);
+        }
+        ComputedVcl { vcl_args }
+    }
+
+    fn next_vcl_arg(args: &mut Vec<String>) -> Option<Box<dyn VclArg>> {
+        if args.is_empty() {
+            return None;
+        }
+        let name = args.remove(0);
+        if !name.starts_with("--") {
+            panic!("Expected option beginning with '--', not {}", name)
+        }
+        if args.is_empty() || args[0].starts_with("--") {
+            Some(Box::new(NameOnlyVclArg::new(&name)))
+        } else {
+            let value = args.remove(0);
+            Some(Box::new(NameValueVclArg::new(&name, &value)))
+        }
     }
 }
 
@@ -347,6 +418,7 @@ impl EnvironmentVcl {
     }
 }
 
+#[derive(Debug)]
 pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
@@ -360,6 +432,16 @@ impl VirtualCommandLine for ConfigFileVcl {
         vcl_args_to_args(&self.vcl_args)
     }
 }
+/*
+impl VirtualCommandLine for dyn VclArg {
+    fn vcl_args(&self) -> Vec<&dyn VclArg> {
+        vcl_args_to_vcl_args(&[Box::new(self.vcl_args().as_slice())])
+    }
+
+    fn args(&self) -> Vec<String> {
+        vcl_args_to_args(&[Box::new(self.vcl_args().as_slice())])
+    }
+}*/
 
 #[derive(Debug)]
 pub enum ConfigFileVclError {
@@ -491,8 +573,14 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
 
 #[cfg(not(feature = "no_test_share"))]
 impl<'a> MultiConfig<'a> {
-    pub fn new_test_only(arg_matches: ArgMatches<'a>) -> Self {
-        Self { arg_matches }
+    pub fn new_test_only(
+        arg_matches: ArgMatches<'a>,
+        computed_value_names: HashSet<String>
+    ) -> Self {
+        Self {
+            arg_matches,
+            computed_value_names
+        }
     }
 }
 

@@ -145,42 +145,21 @@ pub fn server_initializer_collected_params<'a>(
         data_directory_specified,
         real_user,
         real_user_specified,
-        preorientation_args) = determine_user_specific_data(dirs_wrapper, &app, args)?;
+        pre_orientation_args) = determine_user_specific_data(dirs_wrapper, &app, args)?;
     let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(EnvironmentVcl::new(&app)),
-            preorientation_args
+            pre_orientation_args
         ];
 
-    let config_spcified_box: Box<dyn VirtualCommandLine> = Box::new(CommandLineVcl::new(vec![
-        "".to_string(), "--config-file".to_string(), config_file_path.to_string_lossy().to_string(),
-    ]));
-    let config_unspcified_box: Box<dyn VirtualCommandLine> = Box::new(ComputedVcl::new(vec![
-        "".to_string(), "--config-file".to_string(), config_file_path.to_string_lossy().to_string(),
-    ]));
-    match config_user_specified {
-        true => full_multi_config_vec.push(config_spcified_box),
-        false => full_multi_config_vec.push(config_unspcified_box)
+    let mut fill_specified_or_unspecified_box = |key: String, value: String, specified: bool | {
+        match specified {
+            true => full_multi_config_vec.push(Box::new(CommandLineVcl::new(vec!["".to_string(), key, value,]))),
+            false => full_multi_config_vec.push(Box::new(ComputedVcl::new(vec!["".to_string(), key, value,])))
+        };
     };
-    let data_directory_spcified_box: Box<dyn VirtualCommandLine> = Box::new(CommandLineVcl::new(vec![
-        "".to_string(), "--data-directory".to_string(), data_directory.to_string_lossy().to_string(),
-    ]));
-    let data_directory_unspcified_box: Box<dyn VirtualCommandLine> = Box::new(ComputedVcl::new(vec![
-        "".to_string(), "--data-directory".to_string(), data_directory.to_string_lossy().to_string(),
-    ]));
-    match data_directory_specified {
-        true => full_multi_config_vec.push(data_directory_spcified_box),
-        false => full_multi_config_vec.push(data_directory_unspcified_box)
-    };
-    let real_user_spcified_box: Box<dyn VirtualCommandLine> = Box::new(CommandLineVcl::new(vec![
-        "".to_string(), "--real-user".to_string(), real_user.to_string(),
-    ]));
-    let real_user_unspcified_box: Box<dyn VirtualCommandLine> = Box::new(ComputedVcl::new(vec![
-        "".to_string(), "--real-user".to_string(), real_user.to_string(),
-    ]));
-    match real_user_specified {
-        true => full_multi_config_vec.push(real_user_spcified_box),
-        false => full_multi_config_vec.push(real_user_unspcified_box)
-    };
+    fill_specified_or_unspecified_box("--config-file".to_string(), config_file_path.to_string_lossy().to_string(), config_user_specified);
+    fill_specified_or_unspecified_box("--data-directory".to_string(), data_directory.to_string_lossy().to_string(), data_directory_specified);
+    fill_specified_or_unspecified_box("--real-user".to_string(), real_user.to_string(), real_user_specified);
 
     let full_multi_config = make_new_multi_config(&app,full_multi_config_vec)?;
 
@@ -760,7 +739,7 @@ mod tests {
     fn fill_up_config_file(mut config_file: File) {
         {
             config_file
-                .write_all(b"real-user = \"1002:1002:wooga\"\n")
+                .write_all(b"real-user = \"1002:1002:/home/wooga\"\n")
                 .unwrap();
             config_file
                 .write_all(b"blockchain-service-url = \"https://www.mainnet2.com\"\n")
@@ -824,7 +803,7 @@ mod tests {
             false => {
                 assert_eq!(
                     value_m!(env_multiconfig, "data-directory", String).unwrap(),
-                    "wooga/data_dir/MASQ/polygon-mainnet".to_string()
+                    "/home/wooga/data_dir/MASQ/polygon-mainnet".to_string()
                 )
             }
         }
@@ -886,7 +865,7 @@ mod tests {
             true => {
                 assert_eq!(
                     &value_m!(env_multiconfig, "real-user", String).unwrap(),
-                    "1002:1002:wooga"
+                    "1002:1002:/home/wooga"
                 )
             },
             false => ()
@@ -926,9 +905,8 @@ mod tests {
         let env_vec_array = vec![
             ("MASQ_CONFIG_FILE", "./generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home/config.toml"),
             //("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            //#[cfg(not(target_os = "windows"))]
+            #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
-            ("MASQ_MIN_HOPS", "3"),
         ];
         env_vec_array.clone().into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
@@ -946,7 +924,6 @@ mod tests {
         let env_multiconfig = result.unwrap();
 
         let args = ArgsBuilder::new()
-            //.param("--config-file", "config.toml")
             .param("--data-directory", current_directory.join(Path::new("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home")).to_string_lossy().to_string().as_str())
             .param("--real-user", "1001:1001:cooga");
         let args_vec: Vec<String> = args.into();
@@ -974,13 +951,13 @@ mod tests {
                 ()
             }
         }
-        //println!("env_multiconfig: {:#?}", env_multiconfig);
+
         #[cfg(not(target_os = "windows"))]
         match env_multiconfig.is_user_specified("--real-user") {
             true => {
                 assert_eq!(
                     value_m!(env_multiconfig, "real-user", String).unwrap(),
-                    "1002:1002:wooga".to_string()
+                    "1002:1002:/home/wooga".to_string()
                 )
             }
             false => {
@@ -1003,7 +980,7 @@ mod tests {
                     false => {
                         assert_eq!(
                             value_m!(vcl_multiconfig, "real-user", String).unwrap(),
-                            "1002:1002:wooga".to_string()
+                            "1002:1002:/home/wooga".to_string()
                         )
                     }
                 }

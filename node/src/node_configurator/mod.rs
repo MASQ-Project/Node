@@ -18,10 +18,7 @@ use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg, VirtualCommandLine, ConfigFileVcl, ConfigFileVclError};
-use masq_lib::shared_schema::{
-    chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
-    DATA_DIRECTORY_HELP,
-};
+use masq_lib::shared_schema::{config_file_arg, data_directory_arg, ConfiguratorError,DATA_DIRECTORY_HELP};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -30,7 +27,7 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-fn config_file_and_data_dir_from_enumerate(configs: Vec<String>) -> (String, String, String) {
+fn config_file_real_user_data_dir_from_enumerate(configs: Vec<String>) -> (String, String, String) {
     let config_match = argument_from_enumerate(configs.clone(), "--config-file".to_string()).unwrap_or("".to_string());
     let data_dir_match = argument_from_enumerate(configs.clone(), "--data-directory".to_string()).unwrap_or("".to_string());
     let real_user_match = argument_from_enumerate(configs, "--real-user".to_string()).unwrap_or("".to_string());
@@ -51,12 +48,7 @@ pub fn determine_user_specific_data (
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool, Box<dyn VirtualCommandLine>), ConfiguratorError> { //, Box<ConfigFileVcl>
-    let orientation_schema = App::new("MASQNode")
-        .arg(chain_arg())
-        .arg(real_user_arg())
-        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
-        .arg(config_file_arg());
+) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool, Box<dyn VirtualCommandLine>), ConfiguratorError> {
     let env_args = Box::new(EnvironmentVcl::new(&app)).args();
     let args_to_vec = args.to_vec();
     let pre_orientation_args = match create_preorientation_args(env_args, args_to_vec.clone(), &app) {
@@ -78,19 +70,12 @@ pub fn determine_user_specific_data (
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-    let (config_file, data_dir, mut real_user) = config_file_and_data_dir_from_enumerate(orientation_vcl.args());
+    let (config_file, data_dir, mut real_user) = config_file_real_user_data_dir_from_enumerate(orientation_vcl.args());
     let config_user_specified = !config_file.is_empty();
     let data_directory_specified = !data_dir.is_empty();
     let real_user_specified = !real_user.is_empty();
     if real_user.is_empty() {
-        let multi_config = MultiConfig::try_new(&orientation_schema, vec![]);
-        match multi_config {
-            Ok(multi_config) => {
-                real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper).to_string();
-            }
-            Err(e) => return Err(e)
-        }
-
+        real_user = RealUser::new(None, None, None).populate(dirs_wrapper).to_string();
     }
     let chain = match argument_from_enumerate(orientation_vcl.args(), "--chain".to_string()) {
         Some(chain) => {
@@ -128,8 +113,8 @@ impl CombinedVcl {
 }
 
 fn create_preorientation_args(envargs: Vec<String>, argstovec: Vec<String>, app: &App) -> Result<Box<dyn VirtualCommandLine>, ConfigFileVclError> {
-    let (env_config_file, env_data_dir, env_real_user) = config_file_and_data_dir_from_enumerate(envargs);
-    let (cmd_config_file, cmd_data_dir, cmd_real_user) = config_file_and_data_dir_from_enumerate(argstovec);
+    let (env_config_file, env_data_dir, env_real_user) = config_file_real_user_data_dir_from_enumerate(envargs);
+    let (cmd_config_file, cmd_data_dir, cmd_real_user) = config_file_real_user_data_dir_from_enumerate(argstovec);
     let mut combined_vcl: CombinedVcl = CombinedVcl { content: vec![] };
     let combine_vcl = | name: String, vcl: &mut CombinedVcl, cmd_str: &String, env_str: &String | {
         if !cmd_str.is_empty() {
@@ -148,8 +133,13 @@ fn create_preorientation_args(envargs: Vec<String>, argstovec: Vec<String>, app:
     combine_vcl("--data-directory".to_string(), &mut combined_vcl, &cmd_data_dir, &env_data_dir);
     combine_vcl("--config-file".to_string(), &mut combined_vcl, &cmd_config_file, &env_config_file);
     combine_vcl("--real-user".to_string(), &mut combined_vcl, &cmd_real_user, &env_real_user);
+
+    // In case we define config file in ENV and we can find real-user in that file, therefore we need
+    // to specify also data-directory in Environment or Command line, to be Node able figure out the
+    // config file location, when config file is specified without absolute path or current directory eg.: "./" or "../"
+
     if combined_vcl.len() > 0 {
-        let (mut config_file, data_directory, _real_user) = config_file_and_data_dir_from_enumerate(combined_vcl.content);
+        let (mut config_file, data_directory, _real_user) = config_file_real_user_data_dir_from_enumerate(combined_vcl.content);
         if  !config_file.is_empty() &&
             (!config_file.starts_with("/") && !config_file.starts_with("./") && !config_file.starts_with("../"))
             && data_directory.is_empty() {
