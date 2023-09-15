@@ -4,7 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql, Transaction};
@@ -21,7 +21,7 @@ pub struct BigIntDbProcessor<T: TableNameDAO> {
 impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
     pub fn execute(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.main_sql;
@@ -60,7 +60,7 @@ impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
 
 impl<T: TableNameDAO> BigIntDbProcessor<T> {
     fn prepare_statement<'a>(
-        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
+        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a (dyn TransactionWrapper + 'a)>,
         sql: &'a str,
     ) -> Statement<'a> {
         match form_of_conn {
@@ -74,7 +74,7 @@ impl<T: TableNameDAO> BigIntDbProcessor<T> {
 pub trait UpdateOverflowHandler<T>: Debug + Send {
     fn update_with_overflow<'a>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
 }
@@ -95,7 +95,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'a>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -147,7 +147,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'a>(
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: &BigIntSqlConfig<'a, T>,
         execute_params: &[(&str, &dyn ToSql)],
     ) {
@@ -956,7 +956,7 @@ mod tests {
     impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock {
         fn update_with_overflow<'a>(
             &self,
-            _conn: Either<&dyn ConnectionWrapper, &Transaction>,
+            _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
             _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDbError> {
             self.update_with_overflow_params.lock().unwrap().push(());
@@ -1370,9 +1370,9 @@ mod tests {
         let wei_change = BigIntDivider::reconstitute(0, 30);
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let act = |conn: &mut dyn ConnectionWrapper| {
-            let tx = conn.transaction().unwrap();
+            let mut tx = conn.transaction().unwrap();
             let result = subject.execute(
-                Either::Right(&tx),
+                Either::Right(tx.as_ref()),
                 BigIntSqlConfig::new(
                     STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
                     "",

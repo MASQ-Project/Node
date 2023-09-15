@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
@@ -14,7 +14,6 @@ use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
 use masq_lib::logger::Logger;
-use rusqlite::Transaction;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -123,16 +122,16 @@ impl DbMigratorReal {
 
     pub fn update_schema_version(
         name_of_given_table: &str,
-        transaction: &Transaction,
+        transaction: &dyn TransactionWrapper,
         update_to: usize,
     ) -> rusqlite::Result<()> {
-        transaction.execute(
-            &format!(
+        transaction
+            .prepare(&format!(
                 "UPDATE {} SET value = {} WHERE name = 'schema_version'",
                 name_of_given_table, update_to
-            ),
-            [],
-        )?;
+            ))
+            .expect("internal rusqlite error")
+            .execute([])?;
         Ok(())
     }
 
@@ -183,7 +182,6 @@ impl DbMigratorReal {
 #[cfg(test)]
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::ExternalData;
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
@@ -194,6 +192,7 @@ mod tests {
         DBMigratorInnerConfiguration,
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::logger::Logger;
@@ -575,11 +574,9 @@ mod tests {
         let assertion: (String, String) = connection_wrapper
             .transaction()
             .unwrap()
-            .query_row(
-                "SELECT name, value FROM test WHERE name='schema_version'",
-                [],
-                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
-            )
+            .prepare("SELECT name, value FROM test WHERE name='schema_version'")
+            .unwrap()
+            .query_row([], |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())))
             .unwrap();
         assert_eq!(assertion.1, "5")
     }

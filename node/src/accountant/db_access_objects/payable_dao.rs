@@ -558,7 +558,6 @@ mod tests {
     use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -569,6 +568,7 @@ mod tests {
     use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
     fn more_money_payable_works_for_new_address() {

@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
+use crate::database::connection_wrapper::TransactionWrapper;
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
 use masq_lib::logger::Logger;
-use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +42,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.db_password_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &dyn TransactionWrapper {
         unimplemented!("Not needed so far")
     }
 

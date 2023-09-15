@@ -15,7 +15,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -25,9 +25,9 @@ use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-use rusqlite::{OptionalExtension, Transaction};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -304,7 +304,7 @@ impl ReceivableDaoReal {
 
         let log_trigger = RollBackLogWithDropTrigger::new(logger, received_payments);
 
-        let txn = conn.transaction()?;
+        let mut txn = conn.transaction()?;
 
         received_payments.iter().for_each(|received_payment| {
             let last_received = to_time_t(timestamp);
@@ -315,7 +315,7 @@ impl ReceivableDaoReal {
                 .build();
 
             let write_result = big_int_db_processor.execute(
-                Either::Right(&txn),
+                Either::Right(txn.as_ref()),
                 BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
             );
 
@@ -323,7 +323,7 @@ impl ReceivableDaoReal {
                 match e {
                     BigIntDbError::General(err_msg) => panic!("{}", err_msg),
                     BigIntDbError::RowChangeMismatch { .. } => {
-                        Self::log_unknown_wallet_or_panic(&txn, received_payment, logger)
+                        Self::log_unknown_wallet_or_panic(txn.as_ref(), received_payment, logger)
                     }
                 }
             }
@@ -339,11 +339,11 @@ impl ReceivableDaoReal {
     }
 
     fn log_unknown_wallet_or_panic(
-        txn: &Transaction,
+        txn: &dyn TransactionWrapper,
         received_payment: &BlockchainTransaction,
         logger: &Logger,
     ) {
-        if Self::check_row_presence(&txn, &received_payment.from) {
+        if Self::check_row_presence(txn, &received_payment.from) {
             panic!(
                 "Update for received payment with {} wei was run without producing a data \
             change, despite the account for wallet address {} is present",
@@ -360,7 +360,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn check_row_presence(conn: &Transaction, wallet: &Wallet) -> bool {
+    fn check_row_presence(conn: &dyn TransactionWrapper, wallet: &Wallet) -> bool {
         conn.prepare("select wallet_address from receivable where wallet_address = ?")
             .expect("internal sqlite error")
             .exists(&[wallet])
@@ -502,9 +502,11 @@ mod tests {
         make_receivable_account, trick_rusqlite_with_read_only_conn,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
+    use crate::database::test_utils::{
+        ConnectionWrapperMock, StatementWithLivingConn, TransactionWrapperMock,
+    };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -976,23 +978,13 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing(&format!("INFO: {test_name}: "));
     }
 
-    #[test]
-    fn more_money_received_logs_error_from_transaction_initialization() {
+    fn test_non_fatal_error_with_roll_back_for_more_money_received(
+        test_name: &str,
+        mut subject: ReceivableDaoReal,
+        error_specific_expected_msg: &str,
+    ) {
         init_test_logging();
-        let test_name = "more_money_received_logs_error_from_transaction_initialization";
         let wallet = make_wallet("abc");
-        let mut subject = {
-            let conn = ConnectionWrapperMock::default().transaction_result(Err(
-                rusqlite::Error::SqliteFailure(
-                    ffi::Error {
-                        code: ErrorCode::InternalMalfunction,
-                        extended_code: 0,
-                    },
-                    Some("blah".to_string()),
-                ),
-            ));
-            ReceivableDaoReal::new(Box::new(conn))
-        };
         subject.logger = Logger::new(test_name);
         let transaction = BlockchainTransaction {
             block_number: 123_456,
@@ -1006,13 +998,58 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.assert_logs_contain_in_order(vec![
             &format!("ERROR: {test_name}: Payment reception failed, rolling back:"),
-            &format!(
-                "ERROR: {test_name}: Db modification failed for received payments due to: \
-            RusqliteError(\"SqliteFailure(Error {{ code: InternalMalfunction, extended_code: 0 }}, \
-            Some(\\\"blah\\\"))\""
-            ),
+            &format!("ERROR: {test_name}: {error_specific_expected_msg}"),
         ]);
         log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
+    }
+
+    #[test]
+    fn more_money_received_logs_error_from_transaction_initialization() {
+        let test_name = "more_money_received_logs_error_from_transaction_initialization";
+        let subject = {
+            let conn = ConnectionWrapperMock::default().transaction_result(Err(
+                rusqlite::Error::SqliteFailure(
+                    ffi::Error {
+                        code: ErrorCode::InternalMalfunction,
+                        extended_code: 0,
+                    },
+                    Some("blah".to_string()),
+                ),
+            ));
+            ReceivableDaoReal::new(Box::new(conn))
+        };
+        let expected_error_msg = "Db modification failed for received payments due to: \
+        RusqliteError(\"SqliteFailure(Error { code: InternalMalfunction, extended_code: 0 }, \
+        Some(\\\"blah\\\"))\"";
+
+        test_non_fatal_error_with_roll_back_for_more_money_received(
+            test_name,
+            subject,
+            expected_error_msg,
+        )
+    }
+
+    #[test]
+    fn more_money_received_logs_error_from_committing_the_common_transaction() {
+        let test_name = "more_money_received_logs_error_from_committing_the_common_transaction";
+        let mut subject = {
+            let made_up_db_conn = Connection::open_in_memory().unwrap();
+            // the statement can be whatever
+            let stm = made_up_db_conn
+                .prepare("create table whatever (id integer)")
+                .unwrap();
+            // let statement = StatementWithLivingConn::new((made_up_db_conn, stm));
+            let transaction = Box::new(TransactionWrapperMock::default().prepare_result(Ok(stm)));
+            let conn = ConnectionWrapperMock::default().transaction_result(Ok(transaction));
+            ReceivableDaoReal::new(Box::new(conn))
+        };
+        let expected_error_msg = "Hlah";
+
+        test_non_fatal_error_with_roll_back_for_more_money_received(
+            test_name,
+            subject,
+            expected_error_msg,
+        )
     }
 
     #[test]
@@ -1132,7 +1169,7 @@ mod tests {
         let txn = conn.transaction().unwrap();
         let logger = Logger::new("test");
 
-        ReceivableDaoReal::log_unknown_wallet_or_panic(&txn, &received_payment, &logger)
+        ReceivableDaoReal::log_unknown_wallet_or_panic(txn.as_ref(), &received_payment, &logger)
     }
 
     #[test]

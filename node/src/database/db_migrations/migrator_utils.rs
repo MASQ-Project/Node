@@ -1,17 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
-use rusqlite::{params_from_iter, Error, ToSql, Transaction};
+use rusqlite::{Error, ToSql};
 use std::fmt::{Display, Formatter};
 
 pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
-    fn transaction(&self) -> &Transaction;
+    fn transaction(&self) -> &dyn TransactionWrapper;
     fn execute_upon_transaction<'a>(
         &self,
         sql_statements: &[&'a dyn StatementObject],
@@ -35,7 +35,7 @@ pub trait DBMigrationUtilities {
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
-    root_transaction: Option<Transaction<'a>>,
+    root_transaction: Option<Box<dyn TransactionWrapper + 'a>>,
     db_migrator_configuration: DBMigratorInnerConfiguration,
 }
 
@@ -50,8 +50,11 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         })
     }
 
-    fn root_transaction_ref(&self) -> &Transaction<'a> {
-        self.root_transaction.as_ref().expectv("root transaction")
+    fn root_transaction_ref(&self) -> &(dyn TransactionWrapper + 'a) {
+        self.root_transaction
+            .as_ref()
+            .expectv("root transaction")
+            .as_ref()
     }
 }
 
@@ -98,14 +101,14 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 }
 
 struct DBMigDeclaratorReal<'a> {
-    root_transaction_ref: &'a Transaction<'a>,
+    root_transaction_ref: &'a (dyn TransactionWrapper + 'a),
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
 impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
-        root_transaction_ref: &'a Transaction<'a>,
+        root_transaction_ref: &'a (dyn TransactionWrapper + 'a),
         external: &'a ExternalData,
         logger: &'a Logger,
     ) -> Self {
@@ -122,7 +125,7 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         self.external.db_password_opt.clone()
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &dyn TransactionWrapper {
         self.root_transaction_ref
     }
 
@@ -155,17 +158,17 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
 }
 
 pub trait StatementObject: Display {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()>;
+    fn execute(&self, transaction: &dyn TransactionWrapper) -> rusqlite::Result<()>;
 }
 
 impl StatementObject for &str {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
-        transaction.execute(self, []).map(|_| ())
+    fn execute(&self, transaction: &dyn TransactionWrapper) -> rusqlite::Result<()> {
+        transaction.execute(self, &[]).map(|_| ())
     }
 }
 
 impl StatementObject for String {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &dyn TransactionWrapper) -> rusqlite::Result<()> {
         self.as_str().execute(transaction)
     }
 }
@@ -176,9 +179,16 @@ pub struct StatementWithRusqliteParams {
 }
 
 impl StatementObject for StatementWithRusqliteParams {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &dyn TransactionWrapper) -> rusqlite::Result<()> {
         transaction
-            .execute(&self.sql_stm, params_from_iter(self.params.iter()))
+            .execute(
+                &self.sql_stm,
+                &self
+                    .params
+                    .iter()
+                    .map(|param| param.as_ref())
+                    .collect::<Vec<&dyn ToSql>>(),
+            )
             .map(|_| ())
     }
 }
@@ -294,7 +304,7 @@ mod tests {
         let result = subject.transaction();
 
         result
-            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", [])
+            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", &[])
             .unwrap();
         // no panic? Test passes!
     }
