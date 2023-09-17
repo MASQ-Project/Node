@@ -1,0 +1,106 @@
+# Basic `dependabot.yml` file with
+# minimum configuration for two package managers
+
+version: 2
+updates:
+  # Enable version updates for node
+  - package-ecosystem: "cargo"
+    directory: "/node"
+    # Check the cargo registry for updates every day (weekdays)
+    schedule:
+      interval: "daily"
+      time: '14:00'
+      timezone: 'Etc/UTC'
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+    ignore:
+      - dependency-name: "automap"
+      - dependency-name: "masq_lib"
+      - dependency-name: "actix"
+      - dependency-name: "tokio"
+      - dependency-name: "clap"
+      - dependency-name: "sodiumoxide"
+      - dependency-name: "web3"
+      - dependency-name: "websocket"
+    groups:
+      patch:
+        update-types:
+        - "patch"
+      minor:
+        update-types:
+        - "minor"
+    target-branch: 'master'
+    open-pull-requests-limit: 2
+
+  # Enable version updates for masq
+  - package-ecosystem: "cargo"
+    directory: "/masq"
+    # Check the cargo registry for updates every day (weekdays)
+    schedule:
+      interval: "daily"
+      time: '14:00'
+      timezone: 'Etc/UTC'
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+    ignore:
+      - dependency-name: "masq_lib"
+      - dependency-name: "clap"
+      - dependency-name: "websocket"
+    groups:
+      patch:
+        update-types:
+        - "patch"
+      minor:
+        update-types:
+        - "minor"
+    target-branch: 'master'
+    open-pull-requests-limit: 2
+
+  # Enable version updates for masq_lib
+  - package-ecosystem: "cargo"
+    directory: "/masq_lib"
+    # Check the cargo registry for updates every day (weekdays)
+    schedule:
+      interval: "daily"
+      time: '14:00'
+      timezone: 'Etc/UTC'
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+    ignore:
+      - dependency-name: "clap"
+      - dependency-name: "websocket"
+    groups:
+      patch:
+        update-types:
+        - "patch"
+      minor:
+        update-types:
+        - "minor"
+    target-branch: 'master'
+    open-pull-requests-limit: 2
+
+  # Enable version updates for automap
+  - package-ecosystem: "cargo"
+    directory: "/automap"
+    # Check the cargo registry for updates every day (weekdays)
+    schedule:
+      interval: "daily"
+      time: '14:00'
+      timezone: 'Etc/UTC'
+    allow:
+      - dependency-name: "*"
+        dependency-type: "direct"
+    ignore:
+      - dependency-name: "masq_lib"
+    groups:
+      patch:
+        update-types:
+        - "patch"
+      minor:
+        update-types:
+        - "minor"
+    target-branch: 'master'
+    open-pull-requests-limit: 2
