@@ -2717,6 +2717,35 @@ mod tests {
     }
 
     #[test]
+    fn receivable_scanner_ends_scan_after_timeout_elapses() {
+        init_test_logging();
+        let test_name = "receivable_scanner_ends_scan_after_timeout_elapses";
+        let scan_start_time = SystemTime::now().sub(Duration::from_secs(60u64));
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_result(vec![])
+            .paid_delinquencies_result(vec![]);
+        let earning_wallet = make_wallet("earning");
+        let mut receivable_scanner = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .earning_wallet(earning_wallet.clone())
+            .build();
+        let _ = receivable_scanner.begin_scan(scan_start_time, None, &Logger::new(test_name));
+        receivable_scanner.mark_as_started(scan_start_time); // pretend we started the scan a minute ago
+
+        let result =
+            receivable_scanner.begin_scan(SystemTime::now(), None, &Logger::new(test_name));
+
+        let is_scan_running = receivable_scanner.scan_started_at().is_some();
+        assert_eq!(is_scan_running, false);
+        assert_eq!(result, Err(BeginScanError::NothingToProcess));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {test_name}: Scanning for receivables to {earning_wallet}"
+        ));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("INFO: {test_name}: Receivables scan timed out"));
+    }
+
+    #[test]
     fn receivable_scanner_scans_for_delinquencies() {
         init_test_logging();
         let newly_banned_1 = make_receivable_account(1234, true);
