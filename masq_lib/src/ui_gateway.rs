@@ -24,12 +24,14 @@ pub struct MessageBody {
 }
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct NodeFromUiMessage {
     pub client_id: u64,
     pub body: MessageBody,
 }
 
 #[derive(Message, PartialEq, Eq, Clone, Debug)]
+#[rtype(result = "()")]
 pub struct NodeToUiMessage {
     pub target: MessageTarget,
     pub body: MessageBody,
