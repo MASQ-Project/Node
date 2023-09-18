@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
-    hash: HashType,
+    pub hash: HashType,
 }
 
 impl fmt::Debug for StreamKey {

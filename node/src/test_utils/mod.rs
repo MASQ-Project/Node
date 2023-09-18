@@ -173,7 +173,9 @@ impl Waiter {
 }
 
 pub fn make_meaningless_stream_key() -> StreamKey {
-    StreamKey::new()
+    StreamKey {
+        hash: [0; sha1::DIGEST_LENGTH],
+    }
 }
 
 pub fn make_meaningless_message_type() -> MessageType {
