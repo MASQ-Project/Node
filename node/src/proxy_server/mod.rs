@@ -1013,7 +1013,6 @@ struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
     fn make(&self) -> StreamKey {
-        // TODO: Replace this implementation
         StreamKey::new()
     }
 }
