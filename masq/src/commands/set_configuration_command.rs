@@ -200,13 +200,17 @@ mod tests {
     }
 
     fn set_configuration_command_throws_err_for_missing_value(name: &str) {
-        let result = SetConfigurationCommand::new(&[
-            "set-configuration".to_string(),
-            name.to_string(),
-        ]);
+        let result =
+            SetConfigurationCommand::new(&["set-configuration".to_string(), name.to_string()]);
 
         let err_msg_fragment = "requires a value but none was supplied";
         let actual_err_msg = result.err().unwrap();
-        assert_eq!(actual_err_msg.contains(err_msg_fragment), true, "'{}' did not contain '{}'", actual_err_msg, err_msg_fragment);
+        assert_eq!(
+            actual_err_msg.contains(err_msg_fragment),
+            true,
+            "'{}' did not contain '{}'",
+            actual_err_msg,
+            err_msg_fragment
+        );
     }
 }
