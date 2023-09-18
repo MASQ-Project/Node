@@ -90,12 +90,13 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use crate::test_utils::make_meaningful_stream_key;
 
     #[test]
     fn stream_keys_are_unique() {
         let mut stream_keys_set = HashSet::new();
 
-        for i in 1..=1000 {
+        for i in 1..=1_000_000 {
             let stream_key = StreamKey::new();
             let is_unique = stream_keys_set.insert(stream_key);
 
@@ -105,20 +106,20 @@ mod tests {
 
     #[test]
     fn debug_implementation() {
-        let subject = StreamKey::new();
+        let subject = make_meaningful_stream_key("These are the times");
 
         let result = format!("{:?}", subject);
 
-        assert_eq!(result, subject.to_string());
+        assert_eq!(result, "HNksM7Mqjxr34GiUscSNeixMFzg".to_string());
     }
 
     #[test]
     fn display_implementation() {
-        let subject = StreamKey::new();
+        let subject = make_meaningful_stream_key("These are the times");
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, subject.to_string());
+        assert_eq!(result, "HNksM7Mqjxr34GiUscSNeixMFzg".to_string());
     }
 
     #[test]
