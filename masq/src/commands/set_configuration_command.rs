@@ -64,7 +64,7 @@ const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
 pub fn set_configurationify<'a>(shared_schema_arg: Arg<'a, 'a>) -> Arg<'a, 'a> {
-    shared_schema_arg.takes_value(true)
+    shared_schema_arg.takes_value(true).min_values(1)
 }
 
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
@@ -138,6 +138,13 @@ mod tests {
     }
 
     #[test]
+    fn set_configuration_command_throws_err_for_missing_values() {
+        set_configuration_command_throws_err_for_missing_value("--start-block");
+        set_configuration_command_throws_err_for_missing_value("--gas-price");
+        set_configuration_command_throws_err_for_missing_value("--min-hops");
+    }
+
+    #[test]
     fn set_configuration_command_throws_err_for_invalid_arg() {
         let (invalid_arg, some_value) = ("--invalid-arg", "123");
 
@@ -190,5 +197,16 @@ mod tests {
         assert_eq!(&stderr.get_string(), "");
         let stdout = stdout_arc.lock().unwrap();
         assert_eq!(&stdout.get_string(), "Parameter was successfully set\n");
+    }
+
+    fn set_configuration_command_throws_err_for_missing_value(name: &str) {
+        let result = SetConfigurationCommand::new(&[
+            "set-configuration".to_string(),
+            name.to_string(),
+        ]);
+
+        let err_msg_fragment = "requires a value but none was supplied";
+        let actual_err_msg = result.err().unwrap();
+        assert_eq!(actual_err_msg.contains(err_msg_fragment), true, "'{}' did not contain '{}'", actual_err_msg, err_msg_fragment);
     }
 }
