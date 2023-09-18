@@ -178,6 +178,14 @@ pub fn make_meaningless_stream_key() -> StreamKey {
     }
 }
 
+pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {
+    let mut hash = sha1::Sha1::new();
+    hash.update(phrase.as_bytes());
+    StreamKey {
+        hash: hash.digest().bytes(),
+    }
+}
+
 pub fn make_meaningless_message_type() -> MessageType {
     DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
@@ -280,7 +288,7 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
     ClientRequestPayload_0v1 {
-        stream_key: StreamKey::new(),
+        stream_key: make_meaningful_stream_key("request"),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
@@ -291,7 +299,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
 
 pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
     ClientResponsePayload_0v1 {
-        stream_key: StreamKey::new(),
+        stream_key: make_meaningful_stream_key("response"),
         sequenced_packet: SequencedPacket {
             data: make_garbage_data(bytes),
             sequence_number: 0,
