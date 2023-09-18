@@ -929,6 +929,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
+        eprintln!("Stream Key: {}", stream_key);
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
         let route = make_meaningless_route();
@@ -1068,8 +1069,8 @@ mod tests {
         );
         assert_eq!(accountant_recording.len(), 2);
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream AAAAAAAAAAAAAAAAAAAAAAAAAAA, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream AAAAAAAAAAAAAAAAAAAAAAAAAAA, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
     #[test]

@@ -3113,7 +3113,7 @@ mod tests {
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
-            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+            let system = System::new("proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper");
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
