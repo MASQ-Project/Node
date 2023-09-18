@@ -1078,7 +1078,8 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system =
+            System::new("inbound_server_data_without_paying_wallet_does_not_report_exit_service");
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1130,7 +1131,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new("error_creating_incipient_cores_package_is_logged_and_dropped");
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
