@@ -220,7 +220,6 @@ impl AutomapControlReal {
         protocol: AutomapProtocol,
     ) -> usize {
         (0..transactors.len())
-            .into_iter()
             .find(|idx| transactors[*idx].protocol() == protocol)
             .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
     }

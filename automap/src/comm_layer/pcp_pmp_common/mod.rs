@@ -350,7 +350,17 @@ pub mod tests {
 
         let result = subject.make_multicast(multicast_group, multicast_port);
 
-        assert_eq!(result.err().unwrap().kind(), ErrorKind::AddrInUse);
+        let haystack = vec![
+            ErrorKind::PermissionDenied, // Windows, sometimes
+            ErrorKind::AddrInUse,        // Everything else
+        ];
+        let needle = result.err().unwrap().kind();
+        assert!(
+            haystack.contains(&needle),
+            "\n{:?}\ndoes not contain\n{:?}",
+            haystack,
+            needle
+        );
     }
 
     struct TameFindRoutersCommand {}

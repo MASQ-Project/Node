@@ -454,7 +454,7 @@ impl IgdpTransactor {
                     "Public IP changed from {} to {}", old_public_ip, current_public_ip
                 );
                 inner.public_ip_opt.replace(current_public_ip);
-                Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
+                Self::remap_if_possible(change_handler, &inner, mapping_config_opt);
                 *last_remapped = Instant::now();
                 change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
             } else {
@@ -464,7 +464,7 @@ impl IgdpTransactor {
                 );
             }
         };
-        Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
+        Self::remap_if_necessary(change_handler, &inner, last_remapped, mapping_config_opt);
         Finished::No
     }
 
