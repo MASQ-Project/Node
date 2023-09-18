@@ -188,8 +188,6 @@ impl Handler<AddRouteResultMessage> for ProxyServer {
                 );
                 self.stream_key_routes
                     .insert(msg.stream_key, route_query_response);
-                // TODO Preserve all the previously know routes and halt the retry process if the new route is already present.
-                // In case we are exhausting retry counts over here Send a message to the browser.
             }
             Err(e) => {
                 warning!(self.logger, "No route found for hostname: {:?} - stream key {} - retries left: {} - AddRouteResultMessage Error: {}",dns_failure.unsuccessful_request.target_hostname, msg.stream_key, dns_failure.retries_left, e);
@@ -303,7 +301,7 @@ impl ProxyServer {
             retry.unsuccessful_request.clone(),
             source_addr,
             SystemTime::now(),
-            None,
+            false,
         );
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
@@ -389,7 +387,7 @@ impl ProxyServer {
                 } else {
                     error!(
                         self.logger,
-                        "A bad exit node lied to us about the DNS failure"
+                        "Stream_key: {} does not match any entry in the dns_failure_retries hashmap. A bad exit node lied to us about the DNS failure", &response.stream_key
                     );
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
@@ -1094,17 +1092,12 @@ impl IBCDHelper for IBCDHelperReal {
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
         }
-        let retire_stream_key_sub_opt = if retire_stream_key {
-            Some(proxy.out_subs("ProxyServer").stream_shutdown_sub.clone())
-        } else {
-            None
-        };
         let tth_args = TryTransmitToHopperArgs::new(
             proxy,
             payload,
             source_addr,
             timestamp,
-            retire_stream_key_sub_opt,
+            retire_stream_key,
         );
         let pld = &tth_args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
@@ -1178,8 +1171,13 @@ impl TryTransmitToHopperArgs {
         payload: ClientRequestPayload_0v1,
         source_addr: SocketAddr,
         timestamp: SystemTime,
-        retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>,
+        retire_stream_key: bool,
     ) -> Self {
+        let retire_stream_key_sub_opt = if retire_stream_key {
+            Some(proxy_server.out_subs("ProxyServer").stream_shutdown_sub.clone())
+        } else {
+            None
+        };
         Self {
             main_cryptde: proxy_server.main_cryptde,
             payload,
@@ -4493,7 +4491,7 @@ mod tests {
         let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: A bad exit node lied to us about the DNS failure"
+            "ERROR: {test_name}: Stream_key: {stream_key} does not match any entry in the dns_failure_retries hashmap. A bad exit node lied to us about the DNS failure"
         ));
     }
 
