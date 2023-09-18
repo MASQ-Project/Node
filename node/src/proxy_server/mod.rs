@@ -294,12 +294,12 @@ impl ProxyServer {
     fn retry_dns_resolution(
         &mut self,
         retry: DNSFailureRetry,
-        source_addr: SocketAddr,
+        client_addr: SocketAddr,
     ) -> DNSFailureRetry {
         let args = TryTransmitToHopperArgs::new(
             self,
             retry.unsuccessful_request.clone(),
-            source_addr,
+            client_addr,
             SystemTime::now(),
             false,
         );
@@ -325,7 +325,7 @@ impl ProxyServer {
 
     fn send_dns_failure_response_to_the_browser(
         &self,
-        source_addr: SocketAddr,
+        client_addr: SocketAddr,
         proxy_protocol: ProxyProtocol,
         hostname_opt: Option<String>,
     ) {
@@ -334,7 +334,7 @@ impl ProxyServer {
             .expect("Dispatcher unbound in ProxyServer")
             .dispatcher
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::Socket(source_addr),
+                endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
                 sequence_number: Some(0), // DNS resolution errors always happen on the first request
                 data: from_protocol(proxy_protocol)
@@ -371,7 +371,7 @@ impl ProxyServer {
         let response = &msg.payload;
 
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
-            Some(socket_addr) => {
+            Some(client_addr) => {
                 if let Some(server_name) = hostname_opt.clone() {
                     self.subs
                         .as_ref()
@@ -387,7 +387,7 @@ impl ProxyServer {
                 } else {
                     error!(
                         self.logger,
-                        "Stream_key: {} does not match any entry in the dns_failure_retries hashmap. A bad exit node lied to us about the DNS failure", &response.stream_key
+                        "Exit node {exit_public_key} complained of DNS failure, but was given no hostname to resolve."
                     );
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
@@ -403,14 +403,14 @@ impl ProxyServer {
                     }
                 };
                 if retry.retries_left > 0 {
-                    let mut returned_retry = self.retry_dns_resolution(retry, socket_addr);
+                    let mut returned_retry = self.retry_dns_resolution(retry, client_addr);
                     returned_retry.retries_left -= 1;
                     self.dns_failure_retries
                         .insert(response.stream_key, returned_retry);
                 } else {
                     self.retire_stream_key(&response.stream_key);
                     self.send_dns_failure_response_to_the_browser(
-                        socket_addr,
+                        client_addr,
                         return_route_info.protocol,
                         hostname_opt,
                     );
@@ -682,7 +682,7 @@ impl ProxyServer {
                     route_query_response.route,
                     over,
                     &args.logger,
-                    args.source_addr,
+                    args.client_addr,
                     &args.dispatcher_sub,
                     &args.accountant_sub,
                     args.retire_stream_key_sub_opt.as_ref(),
@@ -1012,7 +1012,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
             }
             Ok(None) => Err(ProxyServer::handle_route_failure(
                 args.payload,
-                args.source_addr,
+                args.client_addr,
                 &args.dispatcher_sub,
             )),
             Err(e) => Err(format!(
@@ -1149,7 +1149,7 @@ impl IBCDHelper for IBCDHelperReal {
 pub struct TryTransmitToHopperArgs {
     pub main_cryptde: &'static dyn CryptDE,
     pub payload: ClientRequestPayload_0v1,
-    pub source_addr: SocketAddr,
+    pub client_addr: SocketAddr,
     pub timestamp: SystemTime,
     pub is_decentralized: bool,
     pub logger: Logger,
@@ -1164,7 +1164,7 @@ impl TryTransmitToHopperArgs {
     pub fn new(
         proxy_server: &ProxyServer,
         payload: ClientRequestPayload_0v1,
-        source_addr: SocketAddr,
+        client_addr: SocketAddr,
         timestamp: SystemTime,
         retire_stream_key: bool,
     ) -> Self {
@@ -1181,7 +1181,7 @@ impl TryTransmitToHopperArgs {
         Self {
             main_cryptde: proxy_server.main_cryptde,
             payload,
-            source_addr,
+            client_addr,
             timestamp,
             logger: proxy_server.logger.clone(),
             retire_stream_key_sub_opt,
@@ -2795,7 +2795,7 @@ mod tests {
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
-            source_addr,
+            client_addr: source_addr,
             timestamp: now,
             is_decentralized: true,
             logger,
@@ -2880,7 +2880,7 @@ mod tests {
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
-            source_addr,
+            client_addr: source_addr,
             timestamp: SystemTime::now(),
             is_decentralized: false,
             logger,
@@ -3163,7 +3163,7 @@ mod tests {
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
-            source_addr,
+            client_addr: source_addr,
             timestamp: SystemTime::now(),
             is_decentralized: true,
             logger,
@@ -4491,7 +4491,7 @@ mod tests {
         let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Stream_key: {stream_key} does not match any entry in the dns_failure_retries hashmap. A bad exit node lied to us about the DNS failure"
+            "ERROR: {test_name}: Exit node {exit_public_key} complained of DNS failure, but was given no hostname to resolve."
         ));
     }
 
@@ -4899,7 +4899,7 @@ mod tests {
         let args = transmit_to_hopper_args;
         assert!(resolve_message_params.is_empty());
         assert_eq!(args.payload, client_payload);
-        assert_eq!(args.source_addr, socket_addr);
+        assert_eq!(args.client_addr, socket_addr);
         assert!(before <= args.timestamp && args.timestamp <= after);
         assert!(args.retire_stream_key_sub_opt.is_none());
         assert_eq!(args.is_decentralized, true);
@@ -5777,7 +5777,7 @@ mod tests {
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
-            source_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             timestamp: SystemTime::now(),
             is_decentralized: false,
             logger: Logger::new("test"),
