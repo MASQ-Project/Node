@@ -7,23 +7,27 @@ use crate::accountant::PayableDaoError;
 use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
-use rusqlite::{Error, Row, Statement, ToSql, Transaction};
+use rusqlite::{Error, Row, Statement, ToSql};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
 
-#[derive(Debug)]
-pub struct BigIntDbProcessor<T: TableNameDAO> {
-    overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
-}
-
-impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
-    pub fn execute(
+pub trait BigIntDatabaseProcessor<T>: Debug + Send where T: TableNameDAO{
+    fn execute<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
+    ) -> Result<(), BigIntDatabaseError>;
+}
+
+#[derive(Debug)]
+pub struct BigIntDatabaseProcessorReal<T: TableNameDAO> {
+    overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
+}
+
+impl <T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorReal<T> where T: TableNameDAO{
+    fn execute<'a>(&self, conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>, config: BigIntSqlConfig<'a, T>) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
@@ -31,13 +35,13 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(1) => Ok(()),
-            Ok(x) => Err(BigIntDbError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed: x}),
+            Ok(x) => Err(BigIntDatabaseError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed: x}),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
                 self.overflow_handler.update_with_overflow(conn, config)
             }
-            Err(e) => Err(BigIntDbError::General(format!(
+            Err(e) => Err(BigIntDatabaseError::General(format!(
                 "Error from invalid {} command for {} table and change of {} wei to '{} = {}' with error '{}'",
                 config.determine_command(),
                 T::table_name(),
@@ -50,15 +54,15 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
     }
 }
 
-impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
-    fn default() -> BigIntDbProcessor<T> {
+impl<T: TableNameDAO + 'static> Default for BigIntDatabaseProcessorReal<T> {
+    fn default() -> BigIntDatabaseProcessorReal<T> {
         Self {
             overflow_handler: Box::new(UpdateOverflowHandlerReal::default()),
         }
     }
 }
 
-impl<T: TableNameDAO> BigIntDbProcessor<T> {
+impl<T: TableNameDAO> BigIntDatabaseProcessorReal<T> {
     fn prepare_statement<'a>(
         form_of_conn: Either<&'a dyn ConnectionWrapper, &'a (dyn TransactionWrapper + 'a)>,
         sql: &'a str,
@@ -76,7 +80,7 @@ pub trait UpdateOverflowHandler<T>: Debug + Send {
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError>;
+    ) -> Result<(), BigIntDatabaseError>;
 }
 
 #[derive(Debug)]
@@ -97,7 +101,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
+    ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
             let high_bytes_result = row.get::<usize, i64>(0);
             let low_bytes_result = row.get::<usize, i64>(1);
@@ -130,10 +134,10 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         };
 
         let select_sql = config.select_sql();
-        let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
+        let mut select_stm = BigIntDatabaseProcessorReal::<T>::prepare_statement(conn, &select_sql);
         match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
-            Err(e) => Err(BigIntDbError::General(format!(
+            Err(e) => Err(BigIntDatabaseError::General(format!(
                 "Updating balance for {} table and change of {} wei to '{} = {}' with error '{}'",
                 T::table_name(),
                 config.balance_change(),
@@ -151,7 +155,7 @@ impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
         config: &BigIntSqlConfig<'a, T>,
         execute_params: &[(&str, &dyn ToSql)],
     ) {
-        match BigIntDbProcessor::<T>::prepare_statement(conn, config.overflow_update_clause)
+        match BigIntDatabaseProcessorReal::<T>::prepare_statement(conn, config.overflow_update_clause)
             .execute(execute_params)
             .expect("logic broken given the previous non-overflow call accepted right")
         {
@@ -482,7 +486,7 @@ pub enum WeiChange {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum BigIntDbError {
+pub enum BigIntDatabaseError {
     General(String),
     RowChangeMismatch {
         row_key: String,
@@ -490,23 +494,23 @@ pub enum BigIntDbError {
     },
 }
 
-impl From<BigIntDbError> for PayableDaoError {
-    fn from(err: BigIntDbError) -> Self {
+impl From<BigIntDatabaseError> for PayableDaoError {
+    fn from(err: BigIntDatabaseError) -> Self {
         PayableDaoError::RusqliteError(err.to_string())
     }
 }
 
-impl From<BigIntDbError> for ReceivableDaoError {
-    fn from(err: BigIntDbError) -> Self {
+impl From<BigIntDatabaseError> for ReceivableDaoError {
+    fn from(err: BigIntDatabaseError) -> Self {
         ReceivableDaoError::RusqliteError(err.to_string())
     }
 }
 
-impl Display for BigIntDbError {
+impl Display for BigIntDatabaseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self {
-            BigIntDbError::General(msg) => write!(f, "{}", msg),
-            BigIntDbError::RowChangeMismatch {
+            BigIntDatabaseError::General(msg) => write!(f, "{}", msg),
+            BigIntDatabaseError::RowChangeMismatch {
                 row_key,
                 detected_count_changed,
             } => write!(
@@ -548,11 +552,11 @@ mod tests {
     #[test]
     fn display_for_big_int_error_works() {
         assert_eq!(
-            BigIntDbError::General("This is a general message".to_string()).to_string(),
+            BigIntDatabaseError::General("This is a general message".to_string()).to_string(),
             "This is a general message".to_string()
         );
         assert_eq!(
-            BigIntDbError::RowChangeMismatch {
+            BigIntDatabaseError::RowChangeMismatch {
                 row_key: "Wallet123".to_string(),
                 detected_count_changed: 0
             }
@@ -564,11 +568,11 @@ mod tests {
     #[test]
     fn conversion_from_local_error_to_particular_payable_dao_error_works() {
         assert_eq!(
-            PayableDaoError::from(BigIntDbError::General(String::from("booga"))),
+            PayableDaoError::from(BigIntDatabaseError::General(String::from("booga"))),
             PayableDaoError::RusqliteError("booga".to_string())
         );
         assert_eq!(
-            PayableDaoError::from(BigIntDbError::RowChangeMismatch {
+            PayableDaoError::from(BigIntDatabaseError::RowChangeMismatch {
                 row_key: "booga_key".to_string(),
                 detected_count_changed: 2
             }),
@@ -583,11 +587,11 @@ mod tests {
     #[test]
     fn conversion_from_local_error_to_particular_receivable_dao_error_works() {
         assert_eq!(
-            ReceivableDaoError::from(BigIntDbError::General(String::from("blah"))),
+            ReceivableDaoError::from(BigIntDatabaseError::General(String::from("blah"))),
             ReceivableDaoError::RusqliteError("blah".to_string())
         );
         assert_eq!(
-            ReceivableDaoError::from(BigIntDbError::RowChangeMismatch {
+            ReceivableDaoError::from(BigIntDatabaseError::RowChangeMismatch {
                 row_key: "blah_key".to_string(),
                 detected_count_changed: 2
             }),
@@ -950,7 +954,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct UpdateOverflowHandlerMock {
         update_with_overflow_params: Arc<Mutex<Vec<()>>>,
-        update_with_overflow_results: RefCell<Vec<Result<(), BigIntDbError>>>,
+        update_with_overflow_results: RefCell<Vec<Result<(), BigIntDatabaseError>>>,
     }
 
     impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock {
@@ -958,7 +962,7 @@ mod tests {
             &self,
             _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
             _config: BigIntSqlConfig<'a, T>,
-        ) -> Result<(), BigIntDbError> {
+        ) -> Result<(), BigIntDatabaseError> {
             self.update_with_overflow_params.lock().unwrap().push(());
             self.update_with_overflow_results.borrow_mut().remove(0)
         }
@@ -970,7 +974,7 @@ mod tests {
             self
         }
 
-        fn update_with_overflow_result(self, result: Result<(), BigIntDbError>) -> Self {
+        fn update_with_overflow_result(self, result: Result<(), BigIntDatabaseError>) -> Self {
             self.update_with_overflow_results.borrow_mut().push(result);
             self
         }
@@ -999,7 +1003,7 @@ mod tests {
         let overflow_handler = UpdateOverflowHandlerMock::default()
             .update_with_overflow_params(&update_with_overflow_params_arc)
             .update_with_overflow_result(Ok(()));
-        let mut subject = BigIntDbProcessor::<DummyDao>::default();
+        let mut subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
         subject.overflow_handler = Box::new(overflow_handler);
 
         let act = |conn: &mut dyn ConnectionWrapper| {
@@ -1031,7 +1035,7 @@ mod tests {
         update_with_overflow_params_arc: Arc<Mutex<Vec<()>>>,
     ) -> ConventionalUpsertUpdateAnalysisData
     where
-        F: Fn(&mut dyn ConnectionWrapper) -> Result<(), BigIntDbError>,
+        F: Fn(&mut dyn ConnectionWrapper) -> Result<(), BigIntDatabaseError>,
     {
         let mut conn = initiate_simple_connection_and_test_table("big_int_db_processor", test_name);
         if init_record != 0 {
@@ -1368,7 +1372,7 @@ mod tests {
     fn update_alone_works_also_for_transaction_instead_of_connection() {
         let initial = BigIntDivider::reconstitute(10, 20);
         let wei_change = BigIntDivider::reconstitute(0, 30);
-        let subject = BigIntDbProcessor::<DummyDao>::default();
+        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
         let act = |conn: &mut dyn ConnectionWrapper| {
             let mut tx = conn.transaction().unwrap();
             let result = subject.execute(
@@ -1411,7 +1415,7 @@ mod tests {
             "big_int_db_processor",
             "main_sql_clause_error_handled",
         );
-        let subject = BigIntDbProcessor::<DummyDao>::default();
+        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_wrong_a, :balance_wrong_b) on conflict (name) do \
@@ -1427,7 +1431,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BigIntDbError::General(
+            Err(BigIntDatabaseError::General(
                 "Error from invalid upsert command for test_table table and change of 4879898145125 \
                 wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
@@ -1441,7 +1445,7 @@ mod tests {
             "big_int_db_processor",
             "different_count_of_changed_rows_than_expected_with_update_only_configuration",
         );
-        let subject = BigIntDbProcessor::<DummyDao>::default();
+        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
         let balance_change = Addition("balance", 12345);
         let config = BigIntSqlConfig::new(
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
@@ -1456,7 +1460,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BigIntDbError::RowChangeMismatch {
+            Err(BigIntDatabaseError::RowChangeMismatch {
                 row_key: "Joe".to_string(),
                 detected_count_changed: 0
             })
@@ -1480,7 +1484,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::default()
+        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(&*conn), update_config);
 
@@ -1582,14 +1586,14 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::default()
+        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
         assert_eq!(
             result,
-            Err(BigIntDbError::General(
+            Err(BigIntDatabaseError::General(
                 "Updating balance for test_table table and change of 100 wei to 'name = Joe' with \
          error 'Query returned no rows'"
                     .to_string()
@@ -1619,7 +1623,7 @@ mod tests {
                 .build(),
         );
 
-        let _ = BigIntDbProcessor::<DummyDao>::default()
+        let _ = BigIntDatabaseProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
     }
@@ -1649,13 +1653,13 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::default()
+        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 
         assert_eq!(
             result,
-            Err(BigIntDbError::General(
+            Err(BigIntDatabaseError::General(
                 "Updating balance for test_table table and change of 100 wei to 'name = Joe' with error \
         'Invalid column type Text at index: 1, name: balance_low_b'"
                     .to_string()

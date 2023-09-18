@@ -5,14 +5,11 @@
 use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
-use rusqlite::{Connection, Error, Params, Statement, ToSql};
+use rusqlite::{Connection, Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
-use std::marker::PhantomData;
-use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use web3::types::Res;
 
 #[derive(Debug, Default)]
 pub struct ConnectionWrapperMock<'a> {
@@ -171,7 +168,7 @@ impl TransactionWrapper for TransactionWrapperMock {
     }
 
     fn commit(&mut self) -> Result<(), Error> {
-        todo!()
+        self.commit_results.borrow_mut().remove(0)
     }
 }
 
