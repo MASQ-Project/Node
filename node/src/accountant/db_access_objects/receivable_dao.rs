@@ -7,9 +7,12 @@ use crate::accountant::db_access_objects::dao_utils::{
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::WalletAddress;
+use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDatabaseError, BigIntDatabaseProcessorReal, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO, BigIntDatabaseProcessor};
+use crate::accountant::db_big_integer::big_int_db_processor::{
+    BigIntDatabaseError, BigIntDatabaseProcessor, BigIntDatabaseProcessorReal, BigIntSqlConfig,
+    Param, SQLParamsBuilder, TableNameDAO,
+};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -23,9 +26,9 @@ use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
-use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
+use rusqlite::{OptionalExtension};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -140,7 +143,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
         Self::multi_row_update_from_received_payments(
-            &mut*self.conn,
+            &mut *self.conn,
             &*self.big_int_db_processor,
             &self.logger,
             timestamp,
@@ -293,23 +296,60 @@ impl ReceivableDaoReal {
         timestamp: SystemTime,
         received_payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
-        // The plus signs are meant, 'Subtraction' provided by the wei_change causes x of u128 to become -x of i128 which creates
-        // an integer representing the high bytes with a negative sign
+        match conn
+            .transaction()
+            .map_err(|e| ErrorByFatality::NonFatal(ReceivableDaoError::from(e)))
+            .and_then(|txn| {
+                Self::run_processing_received_payments(
+                    big_int_db_processor,
+                    txn,
+                    received_payments,
+                    timestamp,
+                    logger,
+                )
+            })
+            .and_then(|mut txn| {
+                txn.commit().map_err(|e| {
+                    ErrorByFatality::NonFatal(ReceivableDaoError::RusqliteError(format!("{:?}", e)))
+                })
+            }) {
+            Ok(_) => Ok(()),
+            Err(ErrorByFatality::Panic(panic_msg)) => {
+                Self::more_money_received_roll_back_error_log(logger, received_payments);
+                panic!("{}", panic_msg)
+            }
+            Err(ErrorByFatality::NonFatal(e)) => {
+                Self::more_money_received_roll_back_error_log(logger, received_payments);
+                Err(e)
+            }
+        }
+    }
+
+    fn run_processing_received_payments<'txn>(
+        big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
+        txn: Box<dyn TransactionWrapper + 'txn>,
+        received_payments: &[BlockchainTransaction],
+        timestamp: SystemTime,
+        logger: &Logger,
+    ) -> Result<Box<dyn TransactionWrapper + 'txn>, ErrorByFatality> {
+        // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
+        // to become -x of i128 which produces a negative i64 integer representing the high bytes in the db
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
-                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet";
-        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
-                last_received_timestamp = :last_received where wallet_address = :wallet";
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received \
+                 where wallet_address = :wallet";
+        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, \
+                 balance_low_b = :balance_low_b, last_received_timestamp = :last_received \
+                 where wallet_address = :wallet";
 
-        let log_trigger = PanicResilientErrorLog::new(logger, received_payments);
-
-        let mut txn = conn.transaction()?;
-
-        received_payments.iter().for_each(|received_payment| {
+        match received_payments.iter().try_for_each(|received_payment| {
             let last_received_timestamp = to_time_t(timestamp);
             let params = SQLParamsBuilder::default()
                 .key(WalletAddress(&received_payment.from))
                 .wei_change(Subtraction("balance", received_payment.wei_amount))
-                .other_params(vec![Param::BothClauses((":last_received", &last_received_timestamp))])
+                .other_params(vec![Param::BothClauses((
+                    ":last_received",
+                    &last_received_timestamp,
+                ))])
                 .build();
 
             let result = big_int_db_processor.execute(
@@ -317,46 +357,48 @@ impl ReceivableDaoReal {
                 BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
             );
 
-            if let Err(e) = result {
-                match e {
-                    BigIntDatabaseError::General(err_msg) => panic!("{}", err_msg),
-                    BigIntDatabaseError::RowChangeMismatch { .. } => {
-                        Self::log_unknown_wallet_or_panic(txn.as_ref(), received_payment, logger)
-                    }
+            match result {
+                Ok(_) => Ok(()),
+                Err(BigIntDatabaseError::General(err_msg)) => {
+                    Err(ErrorByFatality::Panic(err_msg.to_string()))
+                }
+                Err(BigIntDatabaseError::RowChangeMismatch { .. }) => {
+                    Self::verify_possibly_unknown_wallet(
+                        txn.as_ref(),
+                        logger,
+                        received_payment,
+                        received_payments,
+                    )
                 }
             }
-        });
-
-        match txn.commit() {
-            // Error response is untested here, because without a mockable Transaction, it's untestable.
-            Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
-            Ok(_) => {
-                log_trigger.deactivate_when_threats_gone();
-
-                Ok(())
-            },
+        }) {
+            Ok(_) => Ok(txn),
+            Err(e) => Err(e),
         }
     }
 
-    fn log_unknown_wallet_or_panic(
+    fn verify_possibly_unknown_wallet(
         txn: &dyn TransactionWrapper,
-        received_payment: &BlockchainTransaction,
         logger: &Logger,
-    ) {
-        if Self::check_row_presence(txn, &received_payment.from) {
-            panic!(
-                "Update for received payment with {} wei was run without producing a data \
-            change, despite the account for wallet address {} is present",
-                received_payment.wei_amount, received_payment.from
-            )
+        suspect: &BlockchainTransaction,
+        all_received_payments: &[BlockchainTransaction],
+    ) -> Result<(), ErrorByFatality> {
+        if Self::check_row_presence(txn, &suspect.from) {
+            Self::more_money_received_roll_back_error_log(logger, all_received_payments);
+            Err(ErrorByFatality::Panic(format!(
+                "Update for received payment with {} wei ran without producing a data change, \
+                despite a record for the wallet {} exists",
+                suspect.wei_amount, suspect.from
+            )))
         } else {
             info!(
                 logger,
                 "Received a transaction with {} wei from address {} that does not belong to any of \
                 the known debtors. Ignoring",
-                received_payment.wei_amount,
-                received_payment.from
-            )
+                suspect.wei_amount,
+                suspect.from
+            );
+            Ok(())
         }
     }
 
@@ -452,38 +494,10 @@ impl ReceivableDaoReal {
     }
 }
 
-struct PanicResilientErrorLog<'a> {
-    active: bool,
-    logger: &'a Logger,
-    transactions: &'a [BlockchainTransaction],
-}
-
-impl<'a> PanicResilientErrorLog<'a> {
-    fn new(
-        logger: &'a Logger,
-        transactions: &'a [BlockchainTransaction],
-    ) -> PanicResilientErrorLog<'a> {
-        Self {
-            active: true,
-            logger,
-            transactions,
-        }
-    }
-
-    fn deactivate_when_threats_gone(mut self) {
-        self.active = false
-    }
-}
-
-impl Drop for PanicResilientErrorLog<'_> {
-    fn drop(&mut self) {
-        if self.active {
-            ReceivableDaoReal::more_money_received_roll_back_error_log(
-                self.logger,
-                self.transactions,
-            )
-        }
-    }
+#[derive(Debug)]
+enum ErrorByFatality {
+    Panic(String),
+    NonFatal(ReceivableDaoError),
 }
 
 impl TableNameDAO for ReceivableDaoReal {
@@ -496,6 +510,7 @@ impl TableNameDAO for ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::db_big_integer::test_utils::BigIntDatabaseProcessorMock;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
@@ -504,9 +519,7 @@ mod tests {
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
-    use crate::database::test_utils::{
-        ConnectionWrapperMock, TransactionWrapperMock,
-    };
+    use crate::database::test_utils::{ConnectionWrapperMock, TransactionWrapperMock};
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -517,7 +530,6 @@ mod tests {
     use std::path::Path;
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
-    use crate::accountant::db_big_integer::test_utils::BigIntDatabaseProcessorMock;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -887,7 +899,7 @@ mod tests {
         let logger = Logger::new(test_name);
 
         ReceivableDaoReal::multi_row_update_from_received_payments(
-            &mut*subject.conn,
+            &mut *subject.conn,
             &*subject.big_int_db_processor,
             &logger,
             time_of_change,
@@ -923,7 +935,6 @@ mod tests {
             2222 wei from address {unknown_wallet} that does not belong to any of the known \
             debtors. Ignoring"
         ));
-        // Don't remove, this tests the PanicResilientErrorLog
         log_handler.exists_no_log_containing(&format!("ERROR: {test_name}: "));
     }
 
@@ -1043,9 +1054,10 @@ mod tests {
         preparation_subject
             .more_money_receivable(SystemTime::now(), &wallet, 123)
             .unwrap();
-        let mut subject = {
-            let transaction =
-                Box::new(TransactionWrapperMock::default().commit_result(Err(Error::UnwindingPanic)));
+        let subject = {
+            let transaction = Box::new(
+                TransactionWrapperMock::default().commit_result(Err(Error::UnwindingPanic)),
+            );
             let conn = ConnectionWrapperMock::default().transaction_result(Ok(transaction));
             let mut dao = ReceivableDaoReal::new(Box::new(conn));
             let big_int_processor = BigIntDatabaseProcessorMock::default().execute_result(Ok(()));
@@ -1150,16 +1162,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Update for received payment with 1000000000 wei was run without \
-    producing a data change, despite the account for wallet address 0x0000000000000000000000000\
-    0000000626c6168 is present"
-    )]
-    fn log_unknown_address_or_panic_is_fatal_when_the_row_is_missing() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable",
-            "log_unknown_address_or_panic_is_fatal_when_the_row_is_missing",
-        );
+    fn verify_possibly_unknown_wallet_is_fatal_when_the_row_for_this_wallet_exists() {
+        init_test_logging();
+        let test_name =
+            "verify_possibly_unknown_wallet_is_fatal_when_the_row_for_this_wallet_exists";
+        let home_dir = ensure_node_home_directory_exists("receivable", test_name);
         let mut conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
@@ -1172,15 +1179,34 @@ mod tests {
         .unwrap()
         .execute(&[&wallet])
         .unwrap();
-        let received_payment = BlockchainTransaction {
+        let suspect = BlockchainTransaction {
             block_number: 1234,
             from: wallet,
             wei_amount: 1_000_000_000,
         };
+        let all_received_payments = vec![suspect.clone()];
         let txn = conn.transaction().unwrap();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
 
-        ReceivableDaoReal::log_unknown_wallet_or_panic(txn.as_ref(), &received_payment, &logger)
+        let result = ReceivableDaoReal::verify_possibly_unknown_wallet(
+            txn.as_ref(),
+            &logger,
+            &suspect,
+            &all_received_payments,
+        );
+
+        let panic_msg = match result {
+            Err(ErrorByFatality::Panic(panic_msg)) => panic_msg,
+            Err(ErrorByFatality::NonFatal(e)) => panic!(
+                "we expected err bearing a panic msg but we got a non fatal error: {:?}",
+                e
+            ),
+            Ok(_) => panic!("we expected err bearing a panic msg but we got an Ok value"),
+        };
+        let expected_panic_msg = "Update for received payment with 1000000000 wei ran \
+        without producing a data change, despite a record for the wallet \
+        0x00000000000000000000000000000000626c6168 exists";
+        assert_eq!(panic_msg, expected_panic_msg)
     }
 
     #[test]

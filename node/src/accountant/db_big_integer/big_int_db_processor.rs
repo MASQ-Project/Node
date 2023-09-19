@@ -13,7 +13,10 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
 
-pub trait BigIntDatabaseProcessor<T>: Debug + Send where T: TableNameDAO{
+pub trait BigIntDatabaseProcessor<T>: Debug + Send
+where
+    T: TableNameDAO,
+{
     fn execute<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
@@ -26,8 +29,15 @@ pub struct BigIntDatabaseProcessorReal<T: TableNameDAO> {
     overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
 }
 
-impl <T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorReal<T> where T: TableNameDAO{
-    fn execute<'a>(&self, conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>, config: BigIntSqlConfig<'a, T>) -> Result<(), BigIntDatabaseError> {
+impl<T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorReal<T>
+where
+    T: TableNameDAO,
+{
+    fn execute<'params>(
+        &self,
+        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        config: BigIntSqlConfig<'params, T>,
+    ) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
@@ -63,10 +73,13 @@ impl<T: TableNameDAO + 'static> Default for BigIntDatabaseProcessorReal<T> {
 }
 
 impl<T: TableNameDAO> BigIntDatabaseProcessorReal<T> {
-    fn prepare_statement<'a>(
-        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a (dyn TransactionWrapper + 'a)>,
-        sql: &'a str,
-    ) -> Statement<'a> {
+    fn prepare_statement<'params>(
+        form_of_conn: Either<
+            &'params dyn ConnectionWrapper,
+            &'params (dyn TransactionWrapper + 'params),
+        >,
+        sql: &'params str,
+    ) -> Statement<'params> {
         match form_of_conn {
             Either::Left(conn) => conn.prepare(sql),
             Either::Right(tx) => tx.prepare(sql),
@@ -75,11 +88,14 @@ impl<T: TableNameDAO> BigIntDatabaseProcessorReal<T> {
     }
 }
 
-pub trait UpdateOverflowHandler<T>: Debug + Send {
-    fn update_with_overflow<'a>(
+pub trait UpdateOverflowHandler<T>: Debug + Send
+where
+    T: TableNameDAO,
+{
+    fn update_with_overflow<'params>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
-        config: BigIntSqlConfig<'a, T>,
+        config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
 
@@ -97,10 +113,10 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 }
 
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
-    fn update_with_overflow<'a>(
+    fn update_with_overflow<'params>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
-        config: BigIntSqlConfig<'a, T>,
+        config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
             let high_bytes_result = row.get::<usize, i64>(0);
@@ -150,14 +166,17 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 }
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
-    fn execute_update<'a>(
+    fn execute_update<'params>(
         conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
-        config: &BigIntSqlConfig<'a, T>,
+        config: &BigIntSqlConfig<'params, T>,
         execute_params: &[(&str, &dyn ToSql)],
     ) {
-        match BigIntDatabaseProcessorReal::<T>::prepare_statement(conn, config.overflow_update_clause)
-            .execute(execute_params)
-            .expect("logic broken given the previous non-overflow call accepted right")
+        match BigIntDatabaseProcessorReal::<T>::prepare_statement(
+            conn,
+            config.overflow_update_clause,
+        )
+        .execute(execute_params)
+        .expect("logic broken given the previous non-overflow call accepted right")
         {
             1 => (),
             x => panic!(
@@ -191,19 +210,19 @@ impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     }
 }
 
-pub struct BigIntSqlConfig<'a, T> {
-    main_sql: &'a str,
-    overflow_update_clause: &'a str,
-    pub params: SQLParams<'a>,
+pub struct BigIntSqlConfig<'params, T: TableNameDAO> {
+    main_sql: &'params str,
+    overflow_update_clause: &'params str,
+    params: SQLParams<'params>,
     phantom: PhantomData<T>,
 }
 
-impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
+impl<'params, T: TableNameDAO> BigIntSqlConfig<'params, T> {
     pub fn new(
-        main_sql: &'a str,
-        overflow_update_clause: &'a str,
-        params: SQLParams<'a>,
-    ) -> BigIntSqlConfig<'a, T> {
+        main_sql: &'params str,
+        overflow_update_clause: &'params str,
+        params: SQLParams<'params>,
+    ) -> BigIntSqlConfig<'params, T> {
         Self {
             main_sql,
             overflow_update_clause,
@@ -223,7 +242,7 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
         )
     }
 
-    fn key_param_value(&self) -> &'a dyn ExtendedParamsMarker {
+    fn key_param_value(&self) -> &'params dyn DisplayableParamValue {
         self.params.params_except_wei_change[0].param_pair().1
     }
 
@@ -257,31 +276,33 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     }
 }
 
-//to be able to display things that implement ToSql
-pub trait ExtendedParamsMarker: ToSql + Display {}
+// This is a native Rusqlite format for data supply to their interface
+type RusqliteParamPair<'params> = (&'params str, &'params dyn ToSql);
+// This is a representation of the above, plus providing a way to display the values (not possible natively)
+type DisplayableRusqliteParamPair<'params> = (&'params str, &'params dyn DisplayableParamValue);
 
-macro_rules! impl_of_extended_params_marker{
+// To be able to display things that implement ToSql
+pub trait DisplayableParamValue: ToSql + Display {}
+
+macro_rules! implement_displayable_param_value {
     ($($implementer: ty),+) => {
-        $(impl ExtendedParamsMarker for $implementer {})+
+        $(impl DisplayableParamValue for $implementer {})+
     }
 }
 
-impl_of_extended_params_marker!(i64, &str, Wallet);
-
-type DisplayableParamPair<'a> = (&'a str, &'a dyn ExtendedParamsMarker);
-type RusqliteParamPair<'a> = (&'a str, &'a dyn ToSql);
+implement_displayable_param_value!(i64, &str, Wallet);
 
 #[derive(Default)]
-pub struct SQLParamsBuilder<'a> {
-    key_spec_opt: Option<UniqueKeySpec<'a>>,
+pub struct SQLParamsBuilder<'params> {
+    key_spec_opt: Option<TableUniqueKey<'params>>,
     wei_change_spec_opt: Option<WeiChange>,
-    other_params: Vec<Param<'a>>,
+    other_params: Vec<Param<'params>>,
 }
 
-impl<'a> SQLParamsBuilder<'a> {
-    pub fn key(mut self, key_variant: KnownKeyVariants<'a>) -> Self {
+impl<'params> SQLParamsBuilder<'params> {
+    pub fn key(mut self, key_variant: KeyVariants<'params>) -> Self {
         let (definition_name, substitution_name_in_sql, value_itself) = key_variant.into();
-        self.key_spec_opt = Some(UniqueKeySpec {
+        self.key_spec_opt = Some(TableUniqueKey {
             definition_name,
             substitution_name_in_sql,
             value_itself,
@@ -294,12 +315,12 @@ impl<'a> SQLParamsBuilder<'a> {
         self
     }
 
-    pub fn other_params(mut self, params: Vec<Param<'a>>) -> Self {
+    pub fn other_params(mut self, params: Vec<Param<'params>>) -> Self {
         self.other_params = params;
         self
     }
 
-    pub fn build(self) -> SQLParams<'a> {
+    pub fn build(self) -> SQLParams<'params> {
         let key_spec = self
             .key_spec_opt
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of a key"));
@@ -345,30 +366,36 @@ impl<'a> SQLParamsBuilder<'a> {
     }
 }
 
-struct UniqueKeySpec<'a> {
-    definition_name: &'a str,
-    substitution_name_in_sql: &'a str,
-    value_itself: &'a dyn ExtendedParamsMarker,
+struct TableUniqueKey<'params> {
+    definition_name: &'params str,
+    substitution_name_in_sql: &'params str,
+    value_itself: &'params dyn DisplayableParamValue,
 }
 
-pub enum KnownKeyVariants<'a> {
-    WalletAddress(&'a dyn ExtendedParamsMarker),
-    PendingPayableRowid(&'a dyn ExtendedParamsMarker),
+pub enum KeyVariants<'params> {
+    WalletAddress(&'params dyn DisplayableParamValue),
+    PendingPayableRowid(&'params dyn DisplayableParamValue),
     #[cfg(test)]
     TestKey {
         var_name: &'static str,
         sub_name: &'static str,
-        val: &'a dyn ExtendedParamsMarker,
+        val: &'params dyn DisplayableParamValue,
     },
 }
 
-impl<'a> From<KnownKeyVariants<'a>> for (&'static str, &'static str, &'a dyn ExtendedParamsMarker) {
-    fn from(variant: KnownKeyVariants<'a>) -> Self {
+impl<'params> From<KeyVariants<'params>>
+    for (
+        &'static str,
+        &'static str,
+        &'params dyn DisplayableParamValue,
+    )
+{
+    fn from(variant: KeyVariants<'params>) -> Self {
         match variant {
-            KnownKeyVariants::WalletAddress(val) => ("wallet_address", ":wallet", val),
-            KnownKeyVariants::PendingPayableRowid(val) => ("pending_payable_rowid", ":rowid", val),
+            KeyVariants::WalletAddress(val) => ("wallet_address", ":wallet", val),
+            KeyVariants::PendingPayableRowid(val) => ("pending_payable_rowid", ":rowid", val),
             #[cfg(test)]
-            KnownKeyVariants::TestKey {
+            KeyVariants::TestKey {
                 var_name,
                 sub_name,
                 val,
@@ -391,10 +418,10 @@ impl Display for ByteMagnitude {
     }
 }
 
-pub struct SQLParams<'a> {
-    table_unique_key_name: &'a str,
+pub struct SQLParams<'params> {
+    table_unique_key_name: &'params str,
     wei_change_params: WeiChangeAsHighAndLowBytes,
-    params_except_wei_change: Vec<Param<'a>>,
+    params_except_wei_change: Vec<Param<'params>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -415,27 +442,27 @@ impl StdNumParamFormNamed {
     }
 }
 
-pub enum Param<'a> {
-    BothClauses(DisplayableParamPair<'a>),
-    MainClauseLimited(DisplayableParamPair<'a>),
+pub enum Param<'params> {
+    BothClauses(DisplayableRusqliteParamPair<'params>),
+    MainClauseLimited(DisplayableRusqliteParamPair<'params>),
 }
 
-impl<'a> Param<'a> {
-    fn param_pair(&self) -> &DisplayableParamPair<'a> {
+impl<'params> Param<'params> {
+    fn param_pair(&self) -> &DisplayableRusqliteParamPair<'params> {
         match self {
             Param::BothClauses(pair) => pair,
             Param::MainClauseLimited(pair) => pair,
         }
     }
 
-    fn as_rusqlite_param_pair(&'a self) -> RusqliteParamPair<'a> {
+    fn as_rusqlite_param_pair(&'params self) -> RusqliteParamPair<'params> {
         let pair = self.param_pair();
         (pair.0, &pair.1 as &dyn ToSql)
     }
 }
 
-impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [RusqliteParamPair<'a>; 2] {
-    fn from(wei_change: &'a WeiChangeAsHighAndLowBytes) -> Self {
+impl<'params> From<&'params WeiChangeAsHighAndLowBytes> for [RusqliteParamPair<'params>; 2] {
+    fn from(wei_change: &'params WeiChangeAsHighAndLowBytes) -> Self {
         [
             (wei_change.high.name.as_str(), &wei_change.high.value),
             (wei_change.low.name.as_str(), &wei_change.low.value),
@@ -443,29 +470,29 @@ impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [RusqliteParamPair<'a>; 2] {
     }
 }
 
-impl<'a> SQLParams<'a> {
+impl<'params> SQLParams<'params> {
     fn merge_other_and_wei_params(
-        &'a self,
-        wei_change_params: [RusqliteParamPair<'a>; 2],
-    ) -> Vec<RusqliteParamPair<'a>> {
+        &'params self,
+        wei_change_params: [RusqliteParamPair<'params>; 2],
+    ) -> Vec<RusqliteParamPair<'params>> {
         Self::merge_params(self.params_except_wei_change.iter(), wei_change_params)
     }
 
     fn merge_other_and_wei_params_with_conditional_participants(
-        &'a self,
-        wei_change_params: [RusqliteParamPair<'a>; 2],
-    ) -> Vec<RusqliteParamPair<'a>> {
-        let preselection = self
+        &'params self,
+        wei_change_params: [RusqliteParamPair<'params>; 2],
+    ) -> Vec<RusqliteParamPair<'params>> {
+        let other_params_selection = self
             .params_except_wei_change
             .iter()
             .filter(|param| matches!(param, Param::BothClauses(_)));
-        Self::merge_params(preselection, wei_change_params)
+        Self::merge_params(other_params_selection, wei_change_params)
     }
 
     fn merge_params(
-        params: impl Iterator<Item = &'a Param<'a>>,
-        wei_change_params: [RusqliteParamPair<'a>; 2],
-    ) -> Vec<RusqliteParamPair<'a>> {
+        params: impl Iterator<Item = &'params Param<'params>>,
+        wei_change_params: [RusqliteParamPair<'params>; 2],
+    ) -> Vec<RusqliteParamPair<'params>> {
         params
             .map(|param| param.as_rusqlite_param_pair())
             .chain(wei_change_params.into_iter())
@@ -527,7 +554,7 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
     use crate::accountant::db_big_integer::big_int_db_processor::ByteMagnitude::{High, Low};
-    use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::TestKey;
+    use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::TestKey;
     use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
         Addition, Subtraction,
     };
@@ -611,10 +638,10 @@ mod tests {
 
     #[test]
     fn known_key_variants_to_tuple_of_names_and_val_works() {
-        let (wallet_name, wallet_sub_name, wallet_val): (&str, &str, &dyn ExtendedParamsMarker) =
-            KnownKeyVariants::WalletAddress(&"blah").into();
-        let (rowid_name, rowid_sub_name, rowid_val): (&str, &str, &dyn ExtendedParamsMarker) =
-            KnownKeyVariants::PendingPayableRowid(&123).into();
+        let (wallet_name, wallet_sub_name, wallet_val): (&str, &str, &dyn DisplayableParamValue) =
+            KeyVariants::WalletAddress(&"blah").into();
+        let (rowid_name, rowid_sub_name, rowid_val): (&str, &str, &dyn DisplayableParamValue) =
+            KeyVariants::PendingPayableRowid(&123).into();
 
         assert_eq!(wallet_name, "wallet_address");
         assert_eq!(wallet_sub_name, ":wallet");
@@ -788,7 +815,7 @@ mod tests {
     fn merge_other_and_wei_params_with_conditional_participants_can_filter_out_just_update_params()
     {
         let tuple_matrix = [
-            ("blah", &456_i64 as &dyn ExtendedParamsMarker),
+            ("blah", &456_i64 as &dyn DisplayableParamValue),
             ("super key", &"abcxy"),
             ("time", &779988),
             ("error", &"no threat"),
@@ -957,7 +984,10 @@ mod tests {
         update_with_overflow_results: RefCell<Vec<Result<(), BigIntDatabaseError>>>,
     }
 
-    impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock {
+    impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock
+    where
+        T: TableNameDAO,
+    {
         fn update_with_overflow<'a>(
             &self,
             _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,

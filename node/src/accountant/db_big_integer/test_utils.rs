@@ -2,15 +2,17 @@
 
 #![cfg(test)]
 
-use std::cell::RefCell;
-use itertools::Either;
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDatabaseProcessor, BigIntDatabaseError, BigIntSqlConfig, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{
+    BigIntDatabaseError, BigIntDatabaseProcessor, BigIntSqlConfig, TableNameDAO,
+};
 use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use itertools::Either;
+use std::cell::RefCell;
 
 pub(in crate::accountant::db_big_integer) mod restricted {
-    use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::TestKey;
+    use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::TestKey;
     use crate::accountant::db_big_integer::big_int_db_processor::{
-        ExtendedParamsMarker, KnownKeyVariants,
+        DisplayableParamValue, KeyVariants,
     };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
@@ -21,7 +23,7 @@ pub(in crate::accountant::db_big_integer) mod restricted {
         Connection::open(db_path.as_path()).unwrap()
     }
 
-    pub fn test_database_key<'a>(val: &'a dyn ExtendedParamsMarker) -> KnownKeyVariants<'a> {
+    pub fn test_database_key<'a>(val: &'a dyn DisplayableParamValue) -> KeyVariants<'a> {
         TestKey {
             var_name: "name",
             sub_name: ":name",
@@ -31,18 +33,27 @@ pub(in crate::accountant::db_big_integer) mod restricted {
 }
 
 #[derive(Default, Debug)]
-pub struct BigIntDatabaseProcessorMock{
-    execute_results: RefCell<Vec< Result<(), BigIntDatabaseError>>>
+pub struct BigIntDatabaseProcessorMock {
+    execute_results: RefCell<Vec<Result<(), BigIntDatabaseError>>>,
 }
 
-impl <T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorMock where T: TableNameDAO{
-    fn execute<'a>(&self, conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>, config: BigIntSqlConfig<'a, T>) -> Result<(), BigIntDatabaseError> {
+impl<T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorMock
+where
+    T: TableNameDAO,
+{
+    fn execute<'a>(
+        &self,
+        _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        _config: BigIntSqlConfig<'a, T>,
+    ) -> Result<(), BigIntDatabaseError> {
+        // You can implement params capture here but so far it was not needed,
+        // we've been always fine with testing on the prod code
         self.execute_results.borrow_mut().remove(0)
     }
 }
 
-impl BigIntDatabaseProcessorMock{
-    pub fn execute_result(self, result: Result<(), BigIntDatabaseError>)->Self{
+impl BigIntDatabaseProcessorMock {
+    pub fn execute_result(self, result: Result<(), BigIntDatabaseError>) -> Self {
         self.execute_results.borrow_mut().push(result);
         self
     }

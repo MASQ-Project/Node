@@ -74,7 +74,7 @@ pub struct StatementProducerActive {
 }
 
 impl Debug for StatementProducerActive {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
 }
@@ -142,7 +142,7 @@ impl TransactionWrapper for TransactionWrapperMock {
             .prepare_results
             .producers
             .iter()
-            .find(|(producer, idx)| *idx == next_result_idx)
+            .find(|(_, idx)| *idx == next_result_idx)
         {
             Some((producer, _)) => Ok(producer.statement()),
             None => {
@@ -151,7 +151,7 @@ impl TransactionWrapper for TransactionWrapperMock {
                     .errors
                     .borrow()
                     .iter()
-                    .position(|(e, idx)| *idx == next_result_idx)
+                    .position(|(_, idx)| *idx == next_result_idx)
                     .expect("call of TransactionWrapperMock without a prepared result");
                 Err(self
                     .prepare_results
@@ -163,8 +163,8 @@ impl TransactionWrapper for TransactionWrapperMock {
         }
     }
 
-    fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
-        todo!()
+    fn execute(&self, _query: &str, _params: &[&dyn ToSql]) -> Result<usize, Error> {
+        unimplemented!("not needed yet")
     }
 
     fn commit(&mut self) -> Result<(), Error> {
