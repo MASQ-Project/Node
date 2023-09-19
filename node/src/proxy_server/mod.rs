@@ -399,7 +399,7 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.make_stream_key(msg);
+                let stream_key = self.find_or_generate_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -481,7 +481,7 @@ impl ProxyServer {
         }
     }
 
-    fn make_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
+    fn find_or_generate_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => {
                 debug!(
@@ -882,7 +882,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.make_stream_key(&msg);
+        let stream_key = proxy.find_or_generate_stream_key(&msg);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => payload,
@@ -3071,12 +3071,12 @@ mod tests {
                 1234,
             ),
         }));
-        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = StreamKey::default();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: source_addr.clone(),
+            peer_addr: client_addr,
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3105,13 +3105,14 @@ mod tests {
         )
         .unwrap();
         thread::spawn(move || {
-            let subject = ProxyServer::new(
+            let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
+            subject.keys_and_addrs.insert(stream_key, client_addr);
             let system = System::new("proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper");
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
