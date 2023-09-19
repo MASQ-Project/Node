@@ -3072,7 +3072,7 @@ mod tests {
             ),
         }));
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = StreamKey::new();
+        let stream_key = StreamKey::default();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -4396,7 +4396,7 @@ mod tests {
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::new();
+        let unaffected_stream_key = StreamKey::default();
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4442,9 +4442,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::new();
+        let unaffected_stream_key = StreamKey::default();
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::new();
+        let affected_stream_key = StreamKey::default();
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4563,9 +4563,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::new();
+        let unaffected_stream_key = StreamKey::default();
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::new();
+        let affected_stream_key = StreamKey::default();
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4671,9 +4671,9 @@ mod tests {
     fn handle_stream_shutdown_msg_does_not_report_to_counterpart_when_unnecessary() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::new();
+        let unaffected_stream_key = StreamKey::default();
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::new();
+        let affected_stream_key = StreamKey::default();
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4735,7 +4735,7 @@ mod tests {
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
         subject.inbound_client_data_helper_opt = Some(Box::new(helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
-        let stream_key = StreamKey::new();
+        let stream_key = StreamKey::default();
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let msg = StreamShutdownMsg {
             peer_addr: socket_addr,
@@ -4760,7 +4760,7 @@ mod tests {
             .handle_normal_client_data_result(Ok(()));
         subject.inbound_client_data_helper_opt = Some(Box::new(icd_helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let stream_key = StreamKey::new();
+        let stream_key = StreamKey::default();
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         subject.stream_key_routes.insert(
             stream_key,

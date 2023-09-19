@@ -103,7 +103,7 @@ mod tests {
         let mut stream_keys_set = HashSet::new();
 
         for i in 1..=1_000_000 {
-            let stream_key = StreamKey::new();
+            let stream_key = StreamKey::default();
             let is_unique = stream_keys_set.insert(stream_key);
 
             assert!(is_unique, "{}", &format!("Stream key {i} is not unique"));
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn serialization_and_deserialization_can_talk() {
-        let subject = StreamKey::new();
+        let subject = StreamKey::default();
 
         let serial = serde_cbor::ser::to_vec(&subject).unwrap();
 

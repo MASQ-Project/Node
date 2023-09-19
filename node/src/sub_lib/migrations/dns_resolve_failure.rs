@@ -95,7 +95,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = DnsResolveFailure_0v1 {
-            stream_key: StreamKey::new(),
+            stream_key: StreamKey::default(),
         };
         let future_crp = ExampleFutureDRF {
             stream_key: expected_crp.stream_key.clone(),

@@ -1903,7 +1903,7 @@ mod tests {
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
-                        stream_key: StreamKey::new(),
+                        stream_key: StreamKey::default(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                         target_hostname: Some("hostname".to_string()),
                         target_port: 1234,
@@ -1929,7 +1929,7 @@ mod tests {
                 &MessageType::DnsResolveFailed(VersionedData::new(
                     &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
                     &DnsResolveFailure_0v1 {
-                        stream_key: StreamKey::new(),
+                        stream_key: StreamKey::default(),
                     },
                 )),
             )
@@ -1969,7 +1969,7 @@ mod tests {
                 &MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {
-                        stream_key: StreamKey::new(),
+                        stream_key: StreamKey::default(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                     },
                 )),
