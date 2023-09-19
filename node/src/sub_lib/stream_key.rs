@@ -72,6 +72,12 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
     }
 }
 
+impl Default for StreamKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamKey {
     pub fn new() -> StreamKey {
         let mut hash = sha1::Sha1::new();
@@ -89,8 +95,8 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
     use crate::test_utils::make_meaningful_stream_key;
+    use std::collections::HashSet;
 
     #[test]
     fn stream_keys_are_unique() {
