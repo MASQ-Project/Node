@@ -19,7 +19,6 @@ use crate::sub_lib::blockchain_bridge::{
     BlockchainBridgeSubs, ReportAccountsPayable, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -45,7 +44,6 @@ pub struct BlockchainBridge<T: Transport = Http> {
     blockchain_interface: Box<dyn BlockchainInterface<T>>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
-    set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     balances_and_payables_sub_opt: Option<Recipient<ConsumingWalletBalancesAndQualifiedPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
@@ -67,10 +65,6 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_consuming_wallet_subs_opt = Some(vec![
-            msg.peer_actors.neighborhood.set_consuming_wallet_sub,
-            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
-        ]);
         self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
@@ -199,7 +193,6 @@ impl BlockchainBridge {
             consuming_wallet_opt,
             blockchain_interface,
             persistent_config,
-            set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
             balances_and_payables_sub_opt: None,
             received_payments_subs_opt: None,
