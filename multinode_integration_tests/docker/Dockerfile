@@ -17,8 +17,8 @@ RUN apt-get update && \
     apt-get install -y procps
 COPY generated/port_exposer /usr/local/bin/port_exposer
 
-ENV SUDO_UID 1001
-ENV SUDO_GID 1001
+ENV SUDO_UID 1000
+ENV SUDO_GID 1000
 ENV RUST_BACKTRACE full
 
 CMD tail -f /dev/null

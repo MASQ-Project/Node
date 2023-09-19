@@ -4352,7 +4352,9 @@ mod tests {
 
     #[test]
     fn handle_dns_resolve_failure_sends_message_to_neighborhood() {
-        let system = System::new("test");
+        init_test_logging();
+        let test_name = "handle_dns_resolve_failure_sends_message_to_neighborhood";
+        let system = System::new(test_name);
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
@@ -4373,6 +4375,7 @@ mod tests {
                 retries_left: 0,
             },
         );
+        subject.logger = Logger::new(test_name);
         subject.dns_failure_retries = dns_failure_retries_hash_map;
         subject
             .keys_and_addrs
@@ -4416,12 +4419,15 @@ mod tests {
         assert_eq!(
             record,
             &NodeRecordMetadataMessage {
-                public_key: exit_public_key,
+                public_key: exit_public_key.clone(),
                 metadata_change: NRMetadataChange::AddUnreachableHost {
                     hostname: "server.com".to_string()
                 }
             }
         );
+        TestLogHandler::new().exists_no_log_containing(&format!(
+            "ERROR: {test_name}: Exit node {exit_public_key} complained of DNS failure, but was given no hostname to resolve."
+        ));
     }
 
     #[test]
