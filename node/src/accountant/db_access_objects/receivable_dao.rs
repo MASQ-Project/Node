@@ -16,7 +16,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -516,10 +516,10 @@ mod tests {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account, trick_rusqlite_with_read_only_conn,
     };
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
-    use crate::database::test_utils::{ConnectionWrapperMock, TransactionWrapperMock};
+    use crate::database::test_utils::{ActiveStatementProducer, ConnectionWrapperMock, TransactionWrapperMock};
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};

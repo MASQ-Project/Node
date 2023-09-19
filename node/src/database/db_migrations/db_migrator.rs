@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
@@ -181,7 +181,7 @@ impl DbMigratorReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::ExternalData;
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,

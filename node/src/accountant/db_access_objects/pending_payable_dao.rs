@@ -6,7 +6,7 @@ use crate::accountant::db_access_objects::dao_utils::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::Row;
@@ -249,7 +249,7 @@ mod tests {
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };

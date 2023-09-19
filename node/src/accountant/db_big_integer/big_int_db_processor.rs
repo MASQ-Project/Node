@@ -4,7 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};
@@ -561,7 +561,7 @@ mod tests {
     use crate::accountant::db_big_integer::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
     use rusqlite::{Connection, ToSql};
     use std::cell::RefCell;

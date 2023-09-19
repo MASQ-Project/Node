@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::database::connection_wrapper::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
 use rusqlite::{Connection, Error, Statement, ToSql};
@@ -62,24 +62,24 @@ pub trait StatementProducer: Debug {
     fn statement(&self) -> Statement;
 }
 
-impl StatementProducer for StatementProducerActive {
+impl StatementProducer for ActiveStatementProducer {
     fn statement(&self) -> Statement {
         self.conn.prepare(&self.sql_stm).unwrap()
     }
 }
 
-pub struct StatementProducerActive {
+pub struct ActiveStatementProducer {
     conn: Connection,
     sql_stm: String,
 }
 
-impl Debug for StatementProducerActive {
+impl Debug for ActiveStatementProducer {
     fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        unimplemented!("not needed yet")
     }
 }
 
-impl StatementProducerActive {
+impl ActiveStatementProducer {
     pub fn new(conn: Connection, sql_stm: String) -> Self {
         Self { conn, sql_stm }
     }
@@ -87,7 +87,7 @@ impl StatementProducerActive {
 
 #[derive(Default)]
 struct PrepareResults {
-    producers: Vec<(StatementProducerActive, usize)>,
+    producers: Vec<(ActiveStatementProducer, usize)>,
     errors: RefCell<Vec<(Error, usize)>>,
     idx_during_filling: usize,
     next_result_idx: RefCell<usize>,
@@ -101,7 +101,7 @@ pub struct TransactionWrapperMock {
 
 impl Debug for TransactionWrapperMock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        unimplemented!("not needed yet")
     }
 }
 
@@ -110,7 +110,7 @@ impl TransactionWrapperMock {
         Self::default()
     }
 
-    pub fn prepare_result(mut self, result: Result<StatementProducerActive, Error>) -> Self {
+    pub fn prepare_result(mut self, result: Result<ActiveStatementProducer, Error>) -> Self {
         let current_idx = self.prepare_results.idx_during_filling;
         match result {
             Ok(producer) => {

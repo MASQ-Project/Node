@@ -161,7 +161,7 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::ExternalData;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{

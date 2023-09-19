@@ -1192,7 +1192,7 @@ mod tests {
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{

@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;

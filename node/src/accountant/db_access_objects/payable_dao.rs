@@ -18,7 +18,7 @@ use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_asso
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
@@ -406,7 +406,7 @@ mod mark_pending_payable_associated_functions {
         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
     use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
-    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use rusqlite::Row;
@@ -557,7 +557,7 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
     use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };

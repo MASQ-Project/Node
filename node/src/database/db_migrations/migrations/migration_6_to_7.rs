@@ -228,7 +228,7 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };

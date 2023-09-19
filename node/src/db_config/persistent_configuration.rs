@@ -4,7 +4,7 @@
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
