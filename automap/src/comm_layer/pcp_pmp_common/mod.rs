@@ -412,7 +412,7 @@ pub mod tests {
         match result {
             Err(Either::Right(e)) => panic!("Unexpected error: '{:?}'", e),
             Err(Either::Left(stderr)) => assert_eq!(
-                stderr.contains("File Not Found"),
+                stderr.contains("No such file or directory"),
                 true,
                 "Unexpected content in stderr: '{}'",
                 stderr
