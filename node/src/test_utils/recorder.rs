@@ -17,15 +17,16 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
-use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, ConnectionProgressMessage};
 
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
@@ -40,7 +41,6 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -98,6 +98,7 @@ recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(BindMessage);
+recorder_message_handler!(ConfigurationChangeMessage);
 recorder_message_handler!(CrashNotification);
 recorder_message_handler!(DaemonBindMessage);
 recorder_message_handler!(DispatcherNodeQueryMessage);
@@ -112,7 +113,7 @@ recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
-recorder_message_handler!(NewPasswordMessage);
+recorder_message_handler!(NewPasswordMessage); // GH-728
 recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
@@ -128,7 +129,6 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
-recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(RequestBalancesToPayPayables);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
@@ -344,7 +344,6 @@ pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
@@ -391,10 +390,10 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_password_sub: recipient!(addr, NewPasswordMessage),
+        new_password_sub: recipient!(addr, NewPasswordMessage), // GH-728
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
