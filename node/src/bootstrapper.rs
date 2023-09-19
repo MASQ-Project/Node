@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
-use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
+use crate::actor_system_factory::ActorSystemFactoryToolsReal;
+use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactory};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -36,18 +36,17 @@ use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
+use automap_lib::control_layer::automap_control::AutomapConfig;
 use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::constants::{DEFAULT_UI_PORT, TEST_DEFAULT_CHAIN};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
@@ -64,7 +63,7 @@ use tokio::prelude::Stream;
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -73,7 +72,7 @@ fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
@@ -346,7 +345,7 @@ pub struct BootstrapperConfig {
     pub node_descriptor: NodeDescriptor,
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
-    pub mapping_protocol_opt: Option<AutomapProtocol>,
+    pub automap_config: AutomapConfig,
     pub real_user: RealUser,
     pub payment_thresholds_opt: Option<PaymentThresholds>,
 
@@ -387,7 +386,7 @@ impl BootstrapperConfig {
             node_descriptor: NodeDescriptor::default(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
-            mapping_protocol_opt: None,
+            automap_config: AutomapConfig::default(),
             real_user: RealUser::new(None, None, None),
             payment_thresholds_opt: Default::default(),
 
@@ -499,12 +498,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
-        let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let cryptdes = Bootstrapper::initialize_cryptdes(
-            &main_cryptde_null_opt,
-            &alias_cryptde_null_opt,
-            self.config.blockchain_bridge_config.chain,
-        );
+        let cryptdes = Bootstrapper::initialize_cryptdes(&self.config);
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -543,42 +537,46 @@ impl Bootstrapper {
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
     pub fn pub_initialize_cryptdes_for_testing(
-        main_cryptde_null_opt: &Option<&dyn CryptDE>,
-        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
+        main_cryptde_null_opt: Option<&CryptDENull>,
+        alias_cryptde_null_opt: Option<&CryptDENull>,
     ) -> CryptDEPair {
-        Self::initialize_cryptdes(
-            main_cryptde_null_opt,
-            alias_cryptde_null_opt,
-            masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN,
-        )
+        let mut config = BootstrapperConfig::new();
+        config.main_cryptde_null_opt = main_cryptde_null_opt.map(|c| c.clone());
+        config.alias_cryptde_null_opt = alias_cryptde_null_opt.map(|c| c.clone());
+        config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
+        Self::initialize_cryptdes(&config)
     }
 
-    fn initialize_cryptdes(
-        main_cryptde_null_opt: &Option<&dyn CryptDE>,
-        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
-        chain: Chain,
-    ) -> CryptDEPair {
+    fn initialize_cryptdes(config: &BootstrapperConfig) -> CryptDEPair {
+        // The config.xxx_cryptde_null_opts should all be None unless --fake-public-key was
+        // specified on the command line
         unsafe {
-            Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
+            Self::initialize_single_cryptde(
+                &config.main_cryptde_null_opt,
+                &mut MAIN_CRYPTDE_BOX_OPT,
+                config.blockchain_bridge_config.chain,
+            )
         };
         unsafe {
             Self::initialize_single_cryptde(
-                alias_cryptde_null_opt,
+                &config.alias_cryptde_null_opt,
                 &mut ALIAS_CRYPTDE_BOX_OPT,
-                chain,
+                config.blockchain_bridge_config.chain,
             )
         }
         CryptDEPair::default()
     }
 
     fn initialize_single_cryptde(
-        cryptde_null_opt: &Option<&dyn CryptDE>,
+        cryptde_null_opt: &Option<CryptDENull>,
         boxed_cryptde: &mut Option<Box<dyn CryptDE>>,
         chain: Chain,
     ) {
+        // cryptde_null_opt should be None unless --fake-public-key was specified on the command
+        // line
         match cryptde_null_opt {
-            Some(cryptde) => {
-                let _ = boxed_cryptde.replace(Box::new(<&CryptDENull>::from(*cryptde).clone()));
+            Some(cryptde_null) => {
+                let _ = boxed_cryptde.replace(Box::new(cryptde_null.clone()));
             }
             None => {
                 let _ = boxed_cryptde.replace(Box::new(CryptDEReal::new(chain)));
@@ -692,19 +690,6 @@ impl Bootstrapper {
             ),
         }
     }
-
-    fn null_cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
-        (
-            self.config
-                .alias_cryptde_null_opt
-                .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
-            self.config
-                .main_cryptde_null_opt
-                .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -741,6 +726,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -752,7 +738,7 @@ mod tests {
         assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet};
+    use crate::test_utils::{main_cryptde, main_cryptde_null};
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -761,13 +747,14 @@ mod tests {
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::logger::Logger;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::{find_free_port, running_test};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -1207,11 +1194,11 @@ mod tests {
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::EthRopsten,
+                Chain::PolyMumbai,
                 main_cryptde_ref()
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://polygon-mumbai:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1322,11 +1309,11 @@ mod tests {
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::EthRopsten,
+                Chain::PolyMumbai,
                 main_cryptde_ref()
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://polygon-mumbai:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1456,6 +1443,7 @@ mod tests {
     #[test]
     fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
+        running_test();
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap(); // protection to interfering with 'prepare_initial_messages_initiates_global_log_recipient'
         let _lock = INITIALIZATION.lock();
         let _clap_guard = ClapGuard::new();
@@ -1530,7 +1518,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
 
         assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
         // Brittle assertion: this may not be true forever
@@ -1541,11 +1529,10 @@ mod tests {
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = main_cryptde().clone();
+        let cryptde_null = main_cryptde_null();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let cryptdes =
-            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = Bootstrapper::pub_initialize_cryptdes_for_testing(Some(cryptde_null), None);
 
         assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
         assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
@@ -1560,7 +1547,7 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
             let descriptor = Bootstrapper::make_local_descriptor(
                 cryptdes.main,
                 Some(node_addr),
@@ -1571,7 +1558,7 @@ mod tests {
             cryptdes.main
         };
         let expected_descriptor = format!(
-            "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
+            "masq://polygon-mumbai:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         TestLogHandler::new().exists_log_containing(
@@ -1603,7 +1590,7 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
             let descriptor =
                 Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
@@ -1611,7 +1598,7 @@ mod tests {
             cryptdes
         };
         let expected_descriptor = format!(
-            "masq://eth-ropsten:{}@:",
+            "masq://polygon-mumbai:{}@:",
             cryptdes
                 .main
                 .public_key_to_descriptor_fragment(cryptdes.main.public_key())
@@ -1920,7 +1907,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Chain::EthRopsten,
+                    Chain::PolyMumbai,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -1969,7 +1956,7 @@ mod tests {
                 vec![NodeDescriptor::from((
                     cryptde.public_key(),
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                    Chain::EthRopsten,
+                    Chain::PolyMumbai,
                     cryptde,
                 ))],
                 rate_pack(100),
@@ -2008,7 +1995,7 @@ mod tests {
             mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::from((
                 cryptde.public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
-                Chain::EthRopsten,
+                Chain::PolyMumbai,
                 cryptde,
             ))]),
             min_hops: MIN_HOPS_FOR_TEST,

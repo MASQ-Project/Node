@@ -7,7 +7,7 @@ use serde_cbor::Value;
 use std::convert::TryFrom;
 
 lazy_static! {
-    static ref MIGRATIONS: Migrations = {
+    pub static ref MIGRATIONS: Migrations = {
         let current_version = masq_lib::constants::GOSSIP_CURRENT_VERSION;
         let mut migrations = Migrations::new(current_version);
 

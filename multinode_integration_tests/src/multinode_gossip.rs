@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masq_node::MASQNode;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;

@@ -12,7 +12,6 @@ use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
 use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -90,9 +89,17 @@ impl NeighborhoodDatabase {
         self.by_public_key.get_mut(public_key)
     }
 
-    pub fn node_by_ip(&self, ip_addr: &IpAddr) -> Option<&NodeRecord> {
-        match self.by_ip_addr.get(ip_addr) {
+    pub fn node_by_ip(&self, ip_addr: IpAddr) -> Option<&NodeRecord> {
+        match self.by_ip_addr.get(&ip_addr) {
             Some(key) => self.node_by_key(key),
+            None => None,
+        }
+    }
+
+    pub fn node_by_ip_mut(&mut self, ip_addr: IpAddr) -> Option<&mut NodeRecord> {
+        let key_opt = self.by_ip_addr.get(&ip_addr).cloned();
+        match key_opt {
+            Some(key) => self.node_by_key_mut(&key),
             None => None,
         }
     }
@@ -168,11 +175,11 @@ impl NeighborhoodDatabase {
     }
 
     pub fn remove_neighbor(&mut self, node_key: &PublicKey) -> Result<bool, String> {
-        let ip_addr: Option<IpAddr>;
+        let ip_addr_opt: Option<IpAddr>;
         {
             let to_remove = match self.node_by_key_mut(node_key) {
                 Some(node_record) => {
-                    ip_addr = node_record.node_addr_opt().map(|addr| addr.ip_addr());
+                    ip_addr_opt = node_record.node_addr_opt().map(|addr| addr.ip_addr());
                     node_record
                 }
                 None => {
@@ -184,7 +191,7 @@ impl NeighborhoodDatabase {
             };
             to_remove.unset_node_addr();
         }
-        match ip_addr {
+        match ip_addr_opt {
             Some(ip) => self.by_ip_addr.remove(&ip),
             None => None,
         };
@@ -256,7 +263,8 @@ impl NeighborhoodDatabase {
         let record = self.root_mut();
         let public_key = record.public_key().clone();
         let node_addr_opt = record.metadata.node_addr_opt.clone();
-        let old_node_addr = node_addr_opt.expectv("Root node");
+        let old_node_addr =
+            node_addr_opt.expect("Setting new public IP: root Node has no IP address");
         let new_node_addr = NodeAddr::new(&public_ip, &old_node_addr.ports());
         record.metadata.node_addr_opt = Some(new_node_addr);
         self.by_ip_addr.remove(&old_node_addr.ip_addr());
@@ -363,8 +371,7 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use masq_lib::constants::DEFAULT_CHAIN;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
 
@@ -504,22 +511,64 @@ mod tests {
 
         assert_eq!(
             subject
-                .node_by_ip(&this_node.node_addr_opt().unwrap().ip_addr())
+                .node_by_ip(this_node.node_addr_opt().unwrap().ip_addr())
                 .unwrap()
                 .clone(),
             this_node
         );
         assert_eq!(
             subject
-                .node_by_ip(&one_node.node_addr_opt().unwrap().ip_addr())
+                .node_by_ip(one_node.node_addr_opt().unwrap().ip_addr())
                 .unwrap()
                 .clone(),
             one_node
         );
         assert_eq!(
-            subject.node_by_ip(&another_node.node_addr_opt().unwrap().ip_addr()),
+            subject.node_by_ip(another_node.node_addr_opt().unwrap().ip_addr()),
             None
         );
+    }
+
+    #[test]
+    fn node_by_ip_mut_works() {
+        let this_node = make_node_record(1234, true);
+        let this_node_ip_addr = this_node.node_addr_opt().unwrap().ip_addr();
+        let this_node_original_version = this_node.inner.version;
+        let one_node = make_node_record(4567, true);
+        let one_node_ip_addr = one_node.node_addr_opt().unwrap().ip_addr();
+        let one_node_original_version = one_node.inner.version;
+        let another_node = make_node_record(5678, true);
+        let another_node_ip_addr = another_node.node_addr_opt().unwrap().ip_addr();
+        let mut subject = db_from_node(&this_node);
+        subject.add_node(one_node.clone()).unwrap();
+        fn mutable_node(db: &mut NeighborhoodDatabase, ip_addr: IpAddr) -> &mut NodeRecord {
+            db.node_by_ip_mut(ip_addr).unwrap()
+        }
+        fn node_version(db: &NeighborhoodDatabase, ip_addr: IpAddr) -> u32 {
+            db.node_by_ip(ip_addr).as_ref().unwrap().inner.version
+        }
+
+        {
+            let mut this_node_actual = mutable_node(&mut subject, this_node_ip_addr);
+            this_node_actual.inner.version += 1;
+            assert_eq!(
+                node_version(&subject, this_node_ip_addr),
+                this_node_original_version + 1
+            );
+        }
+
+        {
+            let mut one_node_actual = mutable_node(&mut subject, one_node_ip_addr);
+            one_node_actual.inner.version += 1;
+            assert_eq!(
+                node_version(&subject, one_node_ip_addr),
+                one_node_original_version + 1
+            );
+        }
+
+        {
+            assert_eq!(subject.node_by_ip_mut(another_node_ip_addr), None);
+        }
     }
 
     #[test]
@@ -630,9 +679,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(NeighborhoodDatabaseError::NodeKeyNotFound(
-                nonexistent_node.public_key().clone()
-            ))
+            Err(NodeKeyNotFound(nonexistent_node.public_key().clone()))
         )
     }
 
@@ -780,16 +827,16 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.new_public_ip(new_public_ip);
 
         let mut new_node = subject.root().clone();
-        assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));
+        assert_eq!(subject.node_by_ip(new_public_ip), Some(&new_node));
         assert_eq!(
-            subject.node_by_ip(&old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
+            subject.node_by_ip(old_node.metadata.node_addr_opt.clone().unwrap().ip_addr()),
             None
         );
         assert_eq!(new_node.node_addr_opt().unwrap().ip_addr(), new_public_ip);
@@ -837,7 +884,7 @@ mod tests {
         );
         assert_eq!(
             None,
-            subject.node_by_ip(&other_node.node_addr_opt().unwrap().ip_addr())
+            subject.node_by_ip(other_node.node_addr_opt().unwrap().ip_addr())
         );
         assert_eq!(1, subject.root().version());
         assert!(result.ok().expect("should be ok"));
@@ -866,7 +913,7 @@ mod tests {
         );
         assert_eq!(
             None,
-            subject.node_by_ip(&neighborless_node.node_addr_opt().unwrap().ip_addr())
+            subject.node_by_ip(neighborless_node.node_addr_opt().unwrap().ip_addr())
         );
         assert_eq!(0, subject.root().version());
         assert!(!result.ok().expect("should be ok"));

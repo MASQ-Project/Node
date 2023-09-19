@@ -395,12 +395,13 @@ impl IgdpTransactor {
                 .lt(&Instant::now())
             {
                 last_announcement_check = Instant::now();
-                if !Self::thread_guts_iteration(
+                if Self::thread_guts_iteration(
                     &change_handler,
                     &inner_arc,
                     &mut last_remapped,
                     &mapping_config_opt,
-                ) {
+                ) == Finished::Yes
+                {
                     break;
                 }
             }
@@ -430,10 +431,41 @@ impl IgdpTransactor {
         inner_arc: &Arc<Mutex<IgdpTransactorInner>>,
         last_remapped: &mut Instant,
         mapping_config_opt: &Option<MappingConfig>,
-    ) -> bool {
-        let inner = inner_arc.lock().expect("IgdpTransactor died");
-        Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
-        true
+    ) -> Finished {
+        let mut inner = inner_arc.lock().expect("IgdpTransactor died");
+        debug!(
+            inner.logger,
+            "Polling router to see if public IP has changed"
+        );
+        if inner.gateway_opt.is_none() {
+            let _ = inner.housekeeping_commander_opt.take();
+            error!(inner.logger, "Can't find router");
+            change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
+            return Finished::Yes;
+        };
+        if let Ok((old_public_ip, current_public_ip)) = Self::retrieve_old_and_new_public_ips(
+            inner.gateway_opt.as_ref().expectv("gateway").as_ref(),
+            &inner,
+            change_handler,
+        ) {
+            if current_public_ip != old_public_ip {
+                info!(
+                    inner.logger,
+                    "Public IP changed from {} to {}", old_public_ip, current_public_ip
+                );
+                inner.public_ip_opt.replace(current_public_ip);
+                Self::remap_if_possible(change_handler, &inner, mapping_config_opt);
+                *last_remapped = Instant::now();
+                change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
+            } else {
+                debug!(
+                    inner.logger,
+                    "No public IP change detected; still {}", old_public_ip
+                );
+            }
+        };
+        Self::remap_if_necessary(change_handler, &inner, last_remapped, mapping_config_opt);
+        Finished::No
     }
 
     fn remap_if_necessary(
@@ -473,6 +505,36 @@ impl IgdpTransactor {
         }
     }
 
+    fn retrieve_old_and_new_public_ips(
+        gateway_wrapper: &dyn GatewayWrapper,
+        inner: &IgdpTransactorInner,
+        change_handler: &ChangeHandler,
+    ) -> Result<(Ipv4Addr, Ipv4Addr), ()> {
+        let current_public_ip_result = gateway_wrapper.get_external_ip();
+        let (old_public_ip, current_public_ip) =
+            match (inner.public_ip_opt, current_public_ip_result) {
+                (_, Err(e)) => {
+                    error!(
+                        inner.logger,
+                        "Housekeeper could not get public IP from router: {:?}", e
+                    );
+                    change_handler(AutomapChange::Error(AutomapError::GetPublicIpError(
+                        format!("{:?}", e),
+                    )));
+                    return Err(());
+                }
+                (None, Ok(current)) => {
+                    warning!(
+                        inner.logger,
+                        "Housekeeper was started before retrieving public IP"
+                    );
+                    (Ipv4Addr::new(0, 0, 0, 0), current)
+                }
+                (Some(old), Ok(current)) => (old, current),
+            };
+        Ok((old_public_ip, current_public_ip))
+    }
+
     fn remap_port(
         mapping_adder: &dyn MappingAdder,
         gateway: &dyn GatewayWrapper,
@@ -502,7 +564,7 @@ trait MappingAdder: Send {
         &self,
         gateway: &dyn GatewayWrapper,
         hole_port: u16,
-        lifetime: u32,
+        lifetime_in_seconds: u32,
     ) -> Result<u32, AutomapError>;
 }
 
@@ -577,18 +639,30 @@ impl MappingAdderReal {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Finished {
+    Yes,
+    No,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mocks::LocalIpFinderMock;
+    use crate::control_layer::automap_control::AutomapChange;
+    use crate::test_utils::LocalIpFinderMock;
     use core::ptr::addr_of;
+    use crossbeam_channel::unbounded;
     use igd::RequestError;
+    use itertools::Itertools;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::ops::Sub;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -755,12 +829,12 @@ mod tests {
             &self,
             gateway: &dyn GatewayWrapper,
             hole_port: u16,
-            lifetime: u32,
+            lifetime_in_seconds: u32,
         ) -> Result<u32, AutomapError> {
             self.add_mapping_params.lock().unwrap().push((
                 addr_of!(*gateway) as *const (),
                 hole_port,
-                lifetime,
+                lifetime_in_seconds,
             ));
             self.add_mapping_results.borrow_mut().remove(0)
         }
@@ -1135,6 +1209,109 @@ mod tests {
     }
 
     #[test]
+    fn housekeeping_thread_notices_address_changes() {
+        let one_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let another_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
+        let router_ip = IpAddr::from_str("5.5.5.5").unwrap();
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = IgdpTransactor::new();
+        {
+            let mut inner = subject.inner_arc.lock().unwrap();
+            inner.gateway_opt = Some(Box::new(
+                GatewayWrapperMock::new()
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(another_ip))
+                    .get_external_ip_result(Ok(another_ip))
+                    .get_external_ip_result(Ok(one_ip))
+                    .get_external_ip_result(Ok(another_ip)),
+            ));
+            inner.public_ip_opt = Some(one_ip);
+            inner.mapping_adder = Box::new(
+                MappingAdderMock::new()
+                    .add_mapping_params(&add_mapping_params_arc)
+                    .add_mapping_result(Ok(600))
+                    .add_mapping_result(Ok(600))
+                    .add_mapping_result(Ok(600)),
+            );
+        }
+        subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
+        subject.public_ip_poll_delay = Duration::from_millis(10);
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_log_inner_arc = change_log_arc.clone();
+        let change_handler = Box::new(move |change: AutomapChange| {
+            change_log_inner_arc.lock().unwrap().push(change)
+        });
+
+        let commander = subject
+            .start_housekeeping_thread(change_handler, router_ip)
+            .unwrap();
+
+        commander
+            .send(HousekeepingThreadCommand::InitializeMappingConfig(
+                MappingConfig {
+                    hole_port: 6666,
+                    next_lifetime: Duration::from_secs(600),
+                    remap_interval: Duration::from_secs(600),
+                },
+            ))
+            .unwrap();
+        thread::sleep(Duration::from_millis(200));
+        let _ = subject.stop_housekeeping_thread();
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq!(
+            *change_log,
+            vec![
+                AutomapChange::NewIp(IpAddr::V4(another_ip)),
+                AutomapChange::NewIp(IpAddr::V4(one_ip)),
+                AutomapChange::NewIp(IpAddr::V4(another_ip)),
+            ]
+        );
+        let inner = subject.inner_arc.lock().unwrap();
+        assert_eq!(inner.public_ip_opt, Some(another_ip));
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        assert_eq!(
+            *add_mapping_params.iter().map(|x| (x.1, x.2)).collect_vec(),
+            vec![(6666, 600), (6666, 600), (6666, 600),]
+        );
+    }
+
+    #[test]
+    fn start_housekeeping_thread_handles_absence_of_gateway() {
+        init_test_logging();
+        let public_ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let router_ip = IpAddr::from_str("192.168.0.255").unwrap();
+        let mut subject = IgdpTransactor::new();
+        subject.housekeeping_thread_loop_delay = Duration::from_millis(1);
+        subject.public_ip_poll_delay = Duration::from_millis(10);
+        {
+            let mut inner = subject.inner_arc.lock().unwrap();
+            inner.gateway_opt = None;
+            inner.public_ip_opt = Some(public_ip);
+        }
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
+        let inner_arc = change_log_arc.clone();
+        let change_handler =
+            Box::new(move |change: AutomapChange| inner_arc.lock().unwrap().push(change));
+
+        subject
+            .start_housekeeping_thread(change_handler, router_ip)
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(50));
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq!(
+            *change_log,
+            vec![AutomapChange::Error(AutomapError::CantFindDefaultGateway)]
+        );
+        let inner = subject.inner_arc.lock().unwrap();
+        assert_eq!(inner.public_ip_opt, Some(public_ip));
+        assert!(inner.housekeeping_commander_opt.is_none());
+        TestLogHandler::new().exists_log_containing("ERROR: IgdpTransactor: Can't find router");
+    }
+
+    #[test]
     fn stop_housekeeping_thread_returns_same_change_handler_sent_into_start_housekeeping_thread() {
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_cla = change_log_arc.clone();
@@ -1170,7 +1347,7 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         let (tx, rx) = unbounded();
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(tx);
-        std::mem::drop(rx);
+        drop(rx);
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 
@@ -1282,6 +1459,43 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_handles_ip_detection_failure_and_still_remaps_if_necessary() {
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mapping_adder = Box::new(
+            MappingAdderMock::new()
+                .add_mapping_params(&add_mapping_params_arc)
+                .add_mapping_result(Ok(300)),
+        );
+        let change_handler: ChangeHandler = Box::new(move |_| {});
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Err(
+            GetExternalIpError::RequestError(RequestError::UnsupportedAction("Booga!".to_string())),
+        ));
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: Some(Box::new(gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            mapping_adder,
+            logger: Logger::new("ip_detection_failure_test"),
+        }));
+        let mapping_config = MappingConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(10),
+            remap_interval: Duration::from_millis(80),
+        };
+
+        IgdpTransactor::thread_guts_iteration(
+            &change_handler,
+            &inner_arc,
+            &mut Instant::now().sub(Duration::from_millis(1000)),
+            &Some(mapping_config),
+        );
+
+        let (_, hole_port, lifetime_in_seconds) = add_mapping_params_arc.lock().unwrap().remove(0);
+        assert_eq!(hole_port, 6689);
+        assert_eq!(lifetime_in_seconds, 1);
+    }
+
+    #[test]
     #[should_panic(expected = "Must InitializeMappingConfig before you can SetRemapIntervalMs")]
     fn thread_guts_panics_if_remap_interval_is_set_in_absence_of_mapping_config() {
         let (tx, rx) = unbounded();
@@ -1320,6 +1534,45 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_iteration_handles_missing_public_ip() {
+        init_test_logging();
+        let new_public_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(new_public_ip));
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: Some(Box::new(gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            mapping_adder: Box::new(MappingAdderMock::new()),
+            logger: Logger::new("thread_guts_iteration_handles_missing_public_ip"),
+        }));
+        let change_log_arc = Arc::new(Mutex::new(vec![]));
+        let change_log_inner = change_log_arc.clone();
+        let change_handler: ChangeHandler =
+            Box::new(move |change| change_log_inner.lock().unwrap().push(change));
+
+        let result = IgdpTransactor::thread_guts_iteration(
+            &change_handler,
+            &inner_arc,
+            &mut Instant::now(),
+            &Some(MappingConfig {
+                hole_port: 6666,
+                next_lifetime: Duration::from_secs(0),
+                remap_interval: Duration::from_millis(1000),
+            }),
+        );
+
+        assert_eq!(result, Finished::No);
+        let change_log = change_log_arc.lock().unwrap();
+        assert_eq!(
+            *change_log,
+            vec![AutomapChange::NewIp(IpAddr::V4(new_public_ip))]
+        );
+        TestLogHandler::new().exists_log_containing(
+            "WARN: thread_guts_iteration_handles_missing_public_ip: Housekeeper was started before retrieving public IP",
+        );
+    }
+
+    #[test]
     fn thread_guts_iteration_handles_missing_mapping_config() {
         let new_public_ip = Ipv4Addr::from_str("4.3.2.1").unwrap();
         let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(new_public_ip));
@@ -1339,7 +1592,7 @@ mod tests {
             &None,
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         // no exception; test passes
     }
 
@@ -1373,7 +1626,7 @@ mod tests {
             }),
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1387,10 +1640,10 @@ mod tests {
     }
 
     #[test]
-    fn thread_guts_iteration_reports_router_error_to_change_handler() {
+    fn thread_guts_iteration_reports_mapping_error_to_change_handler() {
         init_test_logging();
-        let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+        let public_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(public_ip_addr));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder = MappingAdderMock::new()
             .add_mapping_params(&add_mapping_params_arc)
@@ -1400,9 +1653,9 @@ mod tests {
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
-            public_ip_opt: Some(Ipv4Addr::from_str("1.2.3.4").unwrap()),
+            public_ip_opt: Some(public_ip_addr),
             mapping_adder: Box::new(mapping_adder),
-            logger: Logger::new("thread_guts_iteration_reports_router_error_to_change_handler"),
+            logger: Logger::new("thread_guts_iteration_reports_mapping_error_to_change_handler"),
         }));
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner = change_log_arc.clone();
@@ -1420,7 +1673,7 @@ mod tests {
             }),
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1434,10 +1687,10 @@ mod tests {
         assert_eq!(add_mapping_params_call.2, 1000);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
-            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
+            "ERROR: thread_guts_iteration_reports_mapping_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
         ));
         tlh.exists_log_containing(&format!(
-            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
+            "ERROR: thread_guts_iteration_reports_mapping_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
         ));
     }
 

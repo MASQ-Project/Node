@@ -342,7 +342,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, main_cryptde, rate_pack};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
 
@@ -409,7 +409,7 @@ mod tests {
             result,
             NodeDescriptor::try_from((
                 main_cryptde(),
-                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
+                "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234/2345"
             ))
             .unwrap()
         );
@@ -424,7 +424,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AQIDBA@:")).unwrap()
         );
     }
 

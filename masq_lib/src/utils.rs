@@ -152,7 +152,10 @@ fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
                 false
             }
             Err(e) => panic!("Couldn't find free port: {:?}", e),
-            Ok(_) => true,
+            Ok(socket) => {
+                drop(socket);
+                true
+            }
         }
     }
     let result = TcpListener::bind(test_address);
@@ -245,7 +248,7 @@ pub enum NeighborhoodModeLight {
 }
 
 impl Display for NeighborhoodModeLight {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Standard => write!(f, "standard"),
             Self::ConsumeOnly => write!(f, "consume-only"),
@@ -286,7 +289,7 @@ fn set_test_data_message(message: &str) {
     running_test_data.panic_message = Some(message.to_string());
 }
 
-fn test_is_running() -> bool {
+pub fn test_is_running() -> bool {
     RUNNING_TEST_DATA
         .lock()
         .expect("Thread died unexpectedly")
@@ -299,7 +302,7 @@ pub fn exit_process(code: i32, message: &str) -> ! {
         panic!("{}: {}", code, message);
     } else {
         eprintln!("{}", message);
-        ::std::process::exit(code)
+        std::process::exit(code)
     }
 }
 
@@ -353,7 +356,7 @@ impl<T, E: Debug> ExpectValue<T> for Result<T, E> {
 }
 
 #[track_caller]
-fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
+fn expect_value_panic(subject: &str, found: Option<&dyn Debug>) -> ! {
     panic!(
         "value for '{}' badly prepared{}",
         subject,

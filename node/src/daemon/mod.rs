@@ -437,7 +437,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
     use actix::System;
     use masq_lib::constants::{
-        NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
+        NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR, TEST_DEFAULT_CHAIN,
     };
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Required, Set};
     use masq_lib::messages::{
@@ -447,9 +447,10 @@ mod tests {
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
@@ -795,6 +796,7 @@ mod tests {
 
     #[test]
     fn setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different() {
+        running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "daemon",

@@ -91,8 +91,9 @@ mod tests {
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use itertools::Itertools;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::types::Value::Null;
     use rusqlite::ToSql;
@@ -227,7 +228,7 @@ mod tests {
         let config_table_after = fetch_all_from_config_table(&conn);
         assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
-        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'polygon-mumbai'; \
          we discovered possibly abandoned transactions that are said yet to be pending, these are: \
           '0x0000000000000000000000000000000000000000000000000000000002b594d1', \
           '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");

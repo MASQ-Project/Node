@@ -1,7 +1,7 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -29,6 +29,14 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
+pub const CRASH_POINT_HELP: &str = "The Node is designed not to crash; however, unforeseen circumstances can strike. \
+     Therefore, it's important for things around the Node that depend upon it to be able to handle crashes, should \
+     they occur. But because it's been hardened against crashing, it's hard to make it crash on cue in order to \
+     test the crash-handling capabilities of those peripheral utilities. That's the purpose of --crash-point: to \
+     make the Node easier to crash. --crash-point None is the same as not specifying --crash-point at all. \
+     --crash-point Panic makes the Node panic on startup. --crash-point Error makes the Node log an ERROR \
+     message on startup and then panic. --crash-point Message does not make the Node panic on startup, but it \
+     makes the Node vulnerable to the \"crash\" message from a user interface via the MASQNode-UIv2 protocol.";
 pub const DATA_DIRECTORY_HELP: &str =
     "Directory in which the Node will store its persistent state, including at least its database \
     and by default its configuration file as well.\nNote: any existing database in the data directory \
@@ -46,6 +54,20 @@ pub const EARNING_WALLET_HELP: &str =
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
+pub const FAKE_PUBLIC_KEY_HELP: &str =
+    "Normally when you start a Node, it selects its own public/private key pairs. But when you start a Node \
+     for testing, it can be handy to be able to specify its keys yourself, and to have it use CryptDENull \
+     encryption rather than CryptDEReal encryption, so that you can intercept and read its communications. \
+     To do this, specify --fake-public-key with the public key you want the Node to use. That public key \
+     should be a valid Base64 string of whatever length you like; the Node will synthesize main and alias \
+     keypairs from that string. PLEASE NOTE: specifying --fake-public-key will DISABLE EFFECTIVE ENCRYPTION \
+     for the Node; it will not be able to communicate with other people's Nodes that use real encryption.";
+pub const FAKE_ROUTER_IP_HELP: &str =
+    "When Automap normally communicates with the router, it naturally expects that the router will be at the \
+     address identified by the system network stack as the network gateway. However, for some kinds of tests, \
+     you want Automap to conduct its router communications with a mock router you set up. In that case, you \
+     can start the Node using --fake-router-ip with an IP address, and Automap will assume that the router \
+     is at that address rather than the gateway address.";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
@@ -62,8 +84,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504/3922\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -71,7 +92,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      should be enclosed by quotes. No default value is available; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-     --neighbors is meaningless in --neighborhood-mode zero-hop.";
+     --neighbors is not valid for --neighborhood-mode zero-hop.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -131,6 +152,9 @@ pub const REAL_USER_HELP: &str =
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
      you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
      like <uid>:<gid>:<home directory>.";
+pub const WINDOWS_REAL_USER_HELP: &str =
+    "--real-user doesn't really apply to Windows as long as Windows Nodes don't drop their privilege, so it does \
+     not appear in the help for Windows. However, if you wish, you can still specify it for testing purposes.";
 pub const SCANS_HELP: &str =
     "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
     for pending payables that have arrived (and are no longer pending), for incoming receivables that need to be \
@@ -256,7 +280,6 @@ pub fn official_chain_names() -> &'static [&'static str] {
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
         POLYGON_MUMBAI_FULL_IDENTIFIER,
-        ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
 }
@@ -306,6 +329,7 @@ pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
         .required(false)
         .takes_value(true)
         .validator(common_validators::validate_real_user)
+        .help(WINDOWS_REAL_USER_HELP)
         .hidden(true)
 }
 
@@ -365,6 +389,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .possible_values(&CrashPoint::variants())
             .case_insensitive(true)
+            .help(CRASH_POINT_HELP)
             .hidden(true),
     )
     .arg(data_directory_arg(DATA_DIRECTORY_HELP))
@@ -388,6 +413,17 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .value_name("FAKE-PUBLIC-KEY")
             .min_values(0)
             .max_values(1)
+            .help(FAKE_PUBLIC_KEY_HELP)
+            .hidden(true),
+    )
+    .arg(
+        Arg::with_name("fake-router-ip")
+            .long("fake-router-ip")
+            .value_name("FAKE-ROUTER-IP")
+            .required(false)
+            .min_values(0)
+            .max_values(1)
+            .help(FAKE_ROUTER_IP_HELP)
             .hidden(true),
     )
     .arg(
@@ -666,11 +702,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
+    use itertools::Itertools;
 
     #[test]
     fn constants_have_correct_values() {
@@ -678,7 +714,7 @@ mod tests {
             BLOCKCHAIN_SERVICE_HELP,
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
-             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -753,8 +789,7 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504/3922\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -762,7 +797,7 @@ mod tests {
              should be enclosed by quotes. No default value is available; \
              if you don't specify a neighbor, your Node will start without being connected to any MASQ \
              Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-             --neighbors is meaningless in --neighborhood-mode zero-hop."
+             --neighbors is not valid for --neighborhood-mode zero-hop."
         );
         assert_eq!(
             NEIGHBORHOOD_MODE_HELP,
@@ -1137,12 +1172,19 @@ mod tests {
 
     #[test]
     fn official_chain_names_are_reliable() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
+        let chains_from_names = official_chain_names()
+            .iter()
+            .map(|name| Chain::from(*name))
+            .collect_vec();
+
+        assert_eq!(
+            chains_from_names,
+            vec![
+                Chain::PolyMainnet,
+                Chain::EthMainnet,
+                Chain::PolyMumbai,
+                Chain::Dev,
+            ]
+        );
     }
 }

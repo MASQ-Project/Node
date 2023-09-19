@@ -23,6 +23,24 @@ pub enum AutomapChange {
 
 pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
 
+#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
+pub struct AutomapConfig {
+    pub usual_protocol_opt: Option<AutomapProtocol>,
+    pub fake_router_ip_opt: Option<IpAddr>,
+}
+
+impl AutomapConfig {
+    pub fn new(
+        usual_protocol_opt: Option<AutomapProtocol>,
+        fake_router_ip_opt: Option<IpAddr>,
+    ) -> Self {
+        Self {
+            usual_protocol_opt,
+            fake_router_ip_opt,
+        }
+    }
+}
+
 pub trait AutomapControl {
     fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError>;
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError>;
@@ -133,18 +151,18 @@ impl AutomapControl for AutomapControlReal {
 }
 
 impl AutomapControlReal {
-    pub fn new(usual_protocol_opt: Option<AutomapProtocol>, change_handler: ChangeHandler) -> Self {
+    pub fn new(config: AutomapConfig, change_handler: ChangeHandler) -> Self {
         Self {
             transactors: RefCell::new(vec![
-                Box::new(PcpTransactor::default()),
-                Box::new(PmpTransactor::default()),
-                Box::new(IgdpTransactor::default()),
+                Box::new(PcpTransactor::new(&config)),
+                Box::new(PmpTransactor::new(&config)),
+                Box::new(IgdpTransactor::new()),
             ]),
             housekeeping_tools: RefCell::new(HousekeepingTools {
                 change_handler_opt: Some(change_handler),
                 housekeeping_thread_commander_opt: None,
             }),
-            usual_protocol_opt,
+            usual_protocol_opt: config.usual_protocol_opt,
             hole_ports: HashSet::new(),
             inner_opt: None,
             logger: Logger::new("AutomapControl"),
@@ -202,7 +220,6 @@ impl AutomapControlReal {
         protocol: AutomapProtocol,
     ) -> usize {
         (0..transactors.len())
-            .into_iter()
             .find(|idx| transactors[*idx].protocol() == protocol)
             .unwrap_or_else(|| panic!("No Transactor for {}", protocol))
     }
@@ -216,7 +233,7 @@ impl AutomapControlReal {
             self.transactors.borrow_mut()[inner.transactor_idx].as_mut(),
             inner.router_ip,
         )?;
-        let result = experiment(
+        let result: Result<T, AutomapError> = experiment(
             self.transactors.borrow_mut()[inner.transactor_idx].as_ref(),
             inner.router_ip,
         );
@@ -353,13 +370,21 @@ pub fn replace_transactor(
 mod tests {
     use super::*;
     use crate::comm_layer::Transactor;
-    use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
+    use crate::test_utils::{TransactorMock, PUBLIC_IP, ROUTER_IP};
     use crossbeam_channel::{unbounded, TryRecvError};
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn automap_config_default_implementation_works_properly() {
+        let subject = AutomapConfig::default();
+
+        assert_eq!(subject.usual_protocol_opt, None);
+        assert_eq!(subject.fake_router_ip_opt, None);
+    }
 
     fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
         let mut subject = make_multirouter_specific_success_subject(
@@ -487,16 +512,8 @@ mod tests {
     fn find_protocol_without_usual_protocol_traverses_available_protocols() {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = None;
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Pmp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -507,7 +524,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried PCP, failed. Tried PMP, worked. Didn't bother with IGDP.
         assert_eq!(
             *protocol_log,
@@ -526,16 +543,8 @@ mod tests {
         );
         let mut subject = replace_transactor(subject, transactor);
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Pmp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -546,7 +555,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried usual PMP first; succeeded.
         assert_eq!(*protocol_log, vec![AutomapProtocol::Pmp]);
     }
@@ -555,16 +564,8 @@ mod tests {
     fn find_protocol_with_failing_usual_protocol_tries_other_protocols() {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Igdp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(&protocol_log_arc, AutomapProtocol::Igdp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -575,7 +576,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried usual PMP; failed. Tried PCP, failed. Skipped PMP (already tried), tried IGDP; succeeded.
         assert_eq!(
             *protocol_log,
@@ -1194,7 +1195,7 @@ mod tests {
                 Err(AutomapError::NoLocalIpAddress)
             }
         });
-        let subject = AutomapControlReal::new(None, Box::new(|_| ()));
+        let subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_| ()));
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1218,7 +1219,7 @@ mod tests {
             .stop_housekeeping_thread_result(Ok(extracted_change_handler));
         let experiment: TransactorExperiment<String> =
             Box::new(|_, _| Err(AutomapError::NoLocalIpAddress));
-        let subject = AutomapControlReal::new(None, initial_change_handler);
+        let subject = AutomapControlReal::new(AutomapConfig::default(), initial_change_handler);
 
         let result = subject.try_protocol(&mut transactor, &experiment);
 
@@ -1290,7 +1291,7 @@ mod tests {
     }
 
     fn make_general_failure_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors
@@ -1335,7 +1336,7 @@ mod tests {
     }
 
     fn make_null_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| ()));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| ()));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1352,7 +1353,7 @@ mod tests {
     }
 
     fn make_fully_populated_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let adjustment = RefCell::new(
             subject
                 .transactors
@@ -1374,7 +1375,7 @@ mod tests {
     }
 
     fn make_no_routers_subject() -> AutomapControlReal {
-        let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
+        let mut subject = AutomapControlReal::new(AutomapConfig::default(), Box::new(|_x| {}));
         let modified_transactors = RefCell::new(
             subject
                 .transactors
@@ -1385,6 +1386,21 @@ mod tests {
         );
         subject.transactors = modified_transactors;
         subject
+    }
+
+    fn make_logging_experiment(
+        protocol_log_arc: &Arc<Mutex<Vec<AutomapProtocol>>>,
+        expected_protocol: AutomapProtocol,
+    ) -> TransactorExperiment<String> {
+        let protocol_log_arc = protocol_log_arc.clone();
+        Box::new(move |t, _router_ip| {
+            protocol_log_arc.lock().unwrap().push(t.protocol());
+            if t.protocol() == expected_protocol {
+                Ok("Success!".to_string())
+            } else {
+                Err(AutomapError::Unknown)
+            }
+        })
     }
 
     fn assert_all_protocols_failed<T: Debug + PartialEq>(

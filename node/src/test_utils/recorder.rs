@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
+
 use crate::accountant::{ConsumingWalletBalancesAndQualifiedPayables, ReportTransactionReceipts};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -10,6 +11,7 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
+use crate::node_test_utils::make_stream_handler_pool_subs_from;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -46,7 +48,6 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
-use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
@@ -312,7 +313,7 @@ impl RecordAwaiter {
             if cur_len != prev_len {
                 println!("Recorder has received {} messages", cur_len)
             }
-            let latency_so_far = to_millis(&Instant::now().duration_since(begin));
+            let latency_so_far = Instant::now().duration_since(begin).as_millis() as u64;
             if latency_so_far > limit {
                 panic!(
                     "After {}ms, recorder has received only {} messages, not {}",
@@ -383,6 +384,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
 pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
+        pool_bind: recipient!(addr, PoolBindMessage),
         start: recipient!(addr, StartMessage),
         new_public_ip: recipient!(addr, NewPublicIp),
         route_query: recipient!(addr, RouteQueryMessage),
@@ -544,6 +546,52 @@ impl PeerActorsBuilder {
             ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
             blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
             configurator: make_configurator_subs_from(&configurator_addr),
+        }
+    }
+}
+
+pub fn pool_bind_message_builder() -> PoolBindMessageBuilder {
+    PoolBindMessageBuilder::new()
+}
+
+#[derive(Default)]
+pub struct PoolBindMessageBuilder {
+    dispatcher: Recorder,
+    neighborhood: Recorder,
+    stream_handler_pool: Recorder,
+}
+
+impl PoolBindMessageBuilder {
+    pub fn new() -> Self {
+        Self {
+            dispatcher: Recorder::new(),
+            neighborhood: Recorder::new(),
+            stream_handler_pool: Recorder::new(),
+        }
+    }
+
+    pub fn dispatcher(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.dispatcher = recorder;
+        self
+    }
+
+    pub fn neighborhood(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.neighborhood = recorder;
+        self
+    }
+
+    pub fn stream_handler_pool(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.stream_handler_pool = recorder;
+        self
+    }
+
+    pub fn build(self) -> PoolBindMessage {
+        PoolBindMessage {
+            dispatcher_subs: make_dispatcher_subs_from(&self.dispatcher.start()),
+            neighborhood_subs: make_neighborhood_subs_from(&self.neighborhood.start()),
+            stream_handler_pool_subs: make_stream_handler_pool_subs_from(Some(
+                self.stream_handler_pool,
+            )),
         }
     }
 }

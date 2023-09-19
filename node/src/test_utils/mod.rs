@@ -39,8 +39,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
-use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::constants::{HTTP_PORT, TEST_DEFAULT_CHAIN};
 use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -54,7 +53,6 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::SocketAddr;
-use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -63,18 +61,24 @@ use std::time::Instant;
 use web3::types::{Address, U256};
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+}
+
+pub fn main_cryptde_null() -> &'static CryptDENull {
+    &MAIN_CRYPTDE_NULL
 }
 
 pub fn main_cryptde() -> &'static dyn CryptDE {
-    MAIN_CRYPTDE_NULL.as_ref()
+    main_cryptde_null()
+}
+
+pub fn alias_cryptde_null() -> &'static CryptDENull {
+    &ALIAS_CRYPTDE_NULL
 }
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {
-    ALIAS_CRYPTDE_NULL.as_ref()
+    alias_cryptde_null()
 }
 
 pub fn make_cryptde_pair() -> CryptDEPair {
@@ -142,10 +146,6 @@ pub fn assert_matches(string: &str, regex: &str) {
         string,
         regex
     );
-}
-
-pub fn to_millis(dur: &Duration) -> u64 {
-    dur.as_millis() as u64
 }
 
 pub fn signal() -> (Signaler, Waiter) {
@@ -356,7 +356,7 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
         if cur_len != prev_len {
             println!("message collector has received {} messages", cur_len)
         }
-        let latency_so_far = to_millis(&Instant::now().duration_since(begin));
+        let latency_so_far = Instant::now().duration_since(begin).as_millis() as u64;
         if latency_so_far > limit {
             panic!(
                 "After {}ms, message collector has received only {} messages, not {}",
@@ -486,11 +486,6 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
-pub fn handle_connection_error(stream: TcpStream) {
-    let _ = stream.shutdown(Shutdown::Both).is_ok();
-    thread::sleep(Duration::from_millis(5000));
-}
-
 pub fn dummy_address_to_hex(dummy_address: &str) -> String {
     let s = if dummy_address.len() > 20 {
         &dummy_address[..20]
@@ -549,8 +544,11 @@ pub mod unshared_test_utils {
     use crate::database::db_initializer::DATABASE_FILE;
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::neighborhood::DEFAULT_MIN_HOPS;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::accountant::{
+        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+    };
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
@@ -566,9 +564,9 @@ pub mod unshared_test_utils {
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use lazy_static::lazy_static;
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
-    #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
@@ -647,51 +645,97 @@ pub mod unshared_test_utils {
         MultiConfig::new_test_only(arg_matches)
     }
 
-    pub const ZERO: u32 = 0b0;
-    pub const MAPPING_PROTOCOL: u32 = 0b000010;
-    pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
-    pub const RATE_PACK: u32 = 0b001000;
-
-    pub fn configure_default_persistent_config(bit_flag: u32) -> PersistentConfigurationMock {
-        let config = default_persistent_config_just_base(PersistentConfigurationMock::new());
-        let config = if (bit_flag & MAPPING_PROTOCOL) == MAPPING_PROTOCOL {
-            config.mapping_protocol_result(Ok(None))
-        } else {
-            config
-        };
-        let config = if (bit_flag & ACCOUNTANT_CONFIG_PARAMS) == ACCOUNTANT_CONFIG_PARAMS {
-            default_persistent_config_just_accountant_config(config)
-        } else {
-            config
-        };
-        let config = if (bit_flag & RATE_PACK) == RATE_PACK {
-            config.rate_pack_result(Ok(DEFAULT_RATE_PACK))
-        } else {
-            config
-        };
-        config
+    pub enum PCField {
+        BlockchainServiceUrl,
+        CurrentSchemaVersion,
+        ChainName,
+        CheckPassword,
+        ChangePassword,
+        ClandestinePort,
+        GasPrice,
+        ConsumingWallet,
+        ConsumingWalletPrivateKey,
+        EarningWallet,
+        EarningWalletAddress,
+        MappingProtocol,
+        MinHops,
+        PastNeighbors,
+        StartBlock,
+        PaymentThresholds,
+        RatePack,
+        ScanIntervals,
     }
 
-    pub fn default_persistent_config_just_base(
-        persistent_config_mock: PersistentConfigurationMock,
-    ) -> PersistentConfigurationMock {
-        persistent_config_mock
-            .earning_wallet_address_result(Ok(None))
-            .earning_wallet_result(Ok(None))
-            .consuming_wallet_private_key_result(Ok(None))
-            .consuming_wallet_result(Ok(None))
-            .past_neighbors_result(Ok(None))
-            .gas_price_result(Ok(1))
-            .blockchain_service_url_result(Ok(None))
+    impl PCField {
+        fn prepare_default_result(
+            &self,
+            mock: PersistentConfigurationMock,
+        ) -> PersistentConfigurationMock {
+            match self {
+                PCField::BlockchainServiceUrl => mock.blockchain_service_url_result(Ok(None)),
+                PCField::CurrentSchemaVersion => {
+                    mock.current_schema_version_result(&CURRENT_SCHEMA_VERSION.to_string())
+                }
+                PCField::ChainName => mock.chain_name_result("polygon-mumbai".to_string()),
+                PCField::CheckPassword => mock.check_password_result(Ok(true)),
+                PCField::ChangePassword => mock.change_password_result(Ok(())),
+                PCField::ClandestinePort => mock.clandestine_port_result(Ok(1234)),
+                PCField::GasPrice => mock.gas_price_result(Ok(1)),
+                PCField::ConsumingWallet => mock.consuming_wallet_result(Ok(None)),
+                PCField::ConsumingWalletPrivateKey => {
+                    mock.consuming_wallet_private_key_result(Ok(None))
+                }
+                PCField::EarningWallet => mock.earning_wallet_result(Ok(None)),
+                PCField::EarningWalletAddress => mock.earning_wallet_address_result(Ok(None)),
+                PCField::MappingProtocol => mock.mapping_protocol_result(Ok(None)),
+                PCField::MinHops => mock.min_hops_result(Ok(DEFAULT_MIN_HOPS)),
+                PCField::PastNeighbors => mock.past_neighbors_result(Ok(None)),
+                PCField::StartBlock => mock.start_block_result(Ok(4321)),
+                PCField::PaymentThresholds => {
+                    mock.payment_thresholds_result(Ok(DEFAULT_PAYMENT_THRESHOLDS.clone()))
+                }
+                PCField::RatePack => mock.rate_pack_result(Ok(DEFAULT_RATE_PACK.clone())),
+                PCField::ScanIntervals => {
+                    mock.scan_intervals_result(Ok(DEFAULT_SCAN_INTERVALS.clone()))
+                }
+            }
             .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
+        }
+
+        pub fn just_base() -> Vec<PCField> {
+            vec![
+                PCField::EarningWalletAddress,
+                PCField::EarningWallet,
+                PCField::ConsumingWalletPrivateKey,
+                PCField::ConsumingWallet,
+                PCField::PastNeighbors,
+                PCField::GasPrice,
+                PCField::BlockchainServiceUrl,
+            ]
+        }
+
+        pub fn base_and_psmr() -> Vec<PCField> {
+            PCField::base_and(vec![
+                PCField::PaymentThresholds,
+                PCField::ScanIntervals,
+                PCField::MappingProtocol,
+                PCField::RatePack,
+            ])
+        }
+
+        pub fn base_and(mut additions: Vec<PCField>) -> Vec<PCField> {
+            let mut result = PCField::just_base();
+            result.append(&mut additions);
+            result
+        }
     }
 
-    pub fn default_persistent_config_just_accountant_config(
-        persistent_config_mock: PersistentConfigurationMock,
-    ) -> PersistentConfigurationMock {
-        persistent_config_mock
-            .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(ScanIntervals::default()))
+    pub fn configure_persistent_config(fields: Vec<PCField>) -> PersistentConfigurationMock {
+        fields
+            .into_iter()
+            .fold(PersistentConfigurationMock::new(), |so_far, field| {
+                field.prepare_default_result(so_far)
+            })
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
@@ -750,6 +794,7 @@ pub mod unshared_test_utils {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub struct ChannelFactoryMock {
         make_results: RefCell<
             Vec<(
@@ -767,6 +812,12 @@ pub mod unshared_test_utils {
             Receiver<HashMap<String, String>>,
         ) {
             self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl Default for ChannelFactoryMock {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
@@ -788,7 +839,7 @@ pub mod unshared_test_utils {
     }
 
     pub fn prove_that_crash_request_handler_is_hooked_up<
-        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+        T: Actor<Context = Context<T>> + Handler<NodeFromUiMessage>,
     >(
         actor: T,
         crash_key: &str,
@@ -809,9 +860,9 @@ pub mod unshared_test_utils {
 
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
+            .home_dir_result(Some(PathBuf::from("/nonexistent_home/nonexistent_alice")))
             .data_dir_result(Some(PathBuf::from(
-                "/unexisting_home/unexisting_alice/mock_directory",
+                "/nonexistent_home/nonexistent_alice/mock_directory",
             )))
     }
 
@@ -840,7 +891,7 @@ pub mod unshared_test_utils {
             type Context = Context<Self>;
 
             fn started(&mut self, ctx: &mut Self::Context) {
-                ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+                ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after);
             }
         }
 
@@ -1001,6 +1052,12 @@ pub mod unshared_test_utils {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct ArbitraryIdStamp {
             id: usize,
+        }
+
+        impl Default for ArbitraryIdStamp {
+            fn default() -> Self {
+                Self::new()
+            }
         }
 
         impl ArbitraryIdStamp {
@@ -1182,7 +1239,6 @@ pub mod unshared_test_utils {
 #[cfg(test)]
 mod tests {
     use std::borrow::BorrowMut;
-    use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -1235,7 +1291,7 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -1259,7 +1315,7 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -1283,8 +1339,8 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, cryptde);
 
-        let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
-        let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut first_garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
+        let mut second_garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut first_garbage_can[..]);
         cryptde.random(&mut second_garbage_can[..]);
         assert_eq!(

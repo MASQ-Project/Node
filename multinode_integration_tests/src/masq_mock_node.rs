@@ -1,13 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::command::Command;
+
 use crate::main::CONTROL_STREAM_PORT;
+use crate::masq_node::DataProbeUtils;
 use crate::masq_node::MASQNode;
-use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
+use crate::utils::{do_docker_run, wait_for_startup};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
@@ -28,6 +29,7 @@ use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::data_hunk::DataHunk;
 use node_lib::test_utils::data_hunk_framer::DataHunkFramer;
 use node_lib::test_utils::{make_paying_wallet, make_wallet};
+use std::any::Any;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Write};
@@ -37,7 +39,7 @@ use std::net::TcpStream;
 use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
 use std::rc::Rc;
-use std::thread;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 pub struct MASQMockNode {
@@ -49,7 +51,8 @@ pub struct MASQMockNode {
     guts: Rc<MASQMockNodeGuts>,
 }
 
-enum CryptDEEnum {
+#[derive(Clone)]
+pub enum CryptDEEnum {
     Real(CryptDEReal),
     Fake((CryptDENull, CryptDENull)),
 }
@@ -119,7 +122,7 @@ impl MASQNode for MASQMockNode {
     }
 
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr {
-        MASQNodeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
+        DataProbeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
     }
 
     fn earning_wallet(&self) -> Wallet {
@@ -238,6 +241,22 @@ impl MASQMockNode {
         }
     }
 
+    pub fn copy_guts_from(&mut self, other: &MASQMockNode) -> Rc<dyn Any> {
+        let container_preserver = self.guts.clone();
+        let mut guts = other.guts.as_ref().clone();
+        guts.name = container_preserver.name.clone();
+        guts.node_addr = container_preserver.node_addr.clone();
+        self.guts = Rc::new(guts);
+        container_preserver // When you drop this, self's Docker container will stop
+    }
+
+    pub fn guts_from_builder(&mut self, builder: MASQMockNodeGutsBuilder) -> Rc<dyn Any> {
+        let container_preserver = self.guts.clone();
+        let guts = builder.build();
+        self.guts = Rc::new(guts);
+        container_preserver
+    }
+
     pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), Error> {
         let to_transmit: Vec<u8> = data_hunk.into();
         match self.control_stream.borrow_mut().write(&to_transmit[..]) {
@@ -291,7 +310,7 @@ impl MASQMockNode {
         )
     }
 
-    pub fn transmit_debut(&self, receiver: &dyn MASQNode) -> Result<(), Error> {
+    pub fn transmit_ipchange_or_debut(&self, receiver: &dyn MASQNode) -> Result<(), Error> {
         let gossip = SingleNode::new(self);
         self.transmit_multinode_gossip(receiver, &gossip)
     }
@@ -485,10 +504,16 @@ impl MASQMockNode {
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
         let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
-        MASQNodeUtils::clean_up_existing_container(&name[..]);
-        MASQMockNode::do_docker_run(&node_addr, host_node_parent_dir, &name);
+        DataProbeUtils::clean_up_existing_container(&name[..]);
+        let mock_node_args = Self::make_mock_node_args(&node_addr);
+        do_docker_run(
+            node_addr.ip_addr(),
+            host_node_parent_dir,
+            &name,
+            mock_node_args,
+        );
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
-        let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
+        let control_stream = RefCell::new(wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
         let guts = MASQMockNodeGuts {
             name,
@@ -503,67 +528,25 @@ impl MASQMockNode {
         (control_stream, guts)
     }
 
-    fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {
-        let root = match host_node_parent_dir {
-            Some(dir) => dir,
-            None => MASQNodeUtils::find_project_root(),
-        };
-        let command_dir = format!("{}/node/target/release", root);
-        let mock_node_args = Self::make_node_args(node_addr);
-        let docker_command = "docker";
-        let ip_addr_string = format!("{}", node_addr.ip_addr());
-        let v_param = format!("{}:/node_root/node", command_dir);
-        let mut docker_args = Command::strings(vec![
-            "run",
-            "--detach",
-            "--ip",
-            &ip_addr_string,
-            "--name",
-            name,
-            "--net",
-            "integration_net",
-            "-v",
-            v_param.as_str(),
-            "test_node_image",
-            "/node_root/node/mock_node",
-        ]);
-        docker_args.extend(mock_node_args);
-        let mut command = Command::new(docker_command, docker_args);
-        command.stdout_or_stderr().unwrap();
+    fn make_mock_node_args(node_addr: &NodeAddr) -> Vec<String> {
+        vec![Self::add_tcp_specifications(node_addr.to_string())]
     }
 
-    fn wait_for_startup(wait_addr: SocketAddr, name: &str) -> TcpStream {
-        let mut retries = 10;
-        let mut stream: Option<TcpStream> = None;
-        loop {
-            match TcpStream::connect(wait_addr) {
-                Ok(s) => {
-                    println!("{} startup detected on {}", name, wait_addr);
-                    stream = Some(s);
-                    break;
-                }
-                Err(e) => {
-                    println!("{} not yet started on {}: {}", name, wait_addr, e);
-                }
+    fn add_tcp_specifications(node_addr_str: String) -> String {
+        let init: Vec<char> = vec![];
+        let chars = node_addr_str.chars().fold(init, |mut so_far, elem| {
+            so_far.push(elem);
+            if (elem == ':') || (elem == '/') {
+                so_far.push('T')
             }
-            retries -= 1;
-            if retries <= 0 {
-                break;
-            }
-            thread::sleep(Duration::from_millis(100))
-        }
-        if retries <= 0 {
-            panic!("Timed out trying to contact {}", name)
-        }
-        stream.unwrap()
-    }
-
-    fn make_node_args(node_addr: &NodeAddr) -> Vec<String> {
-        vec![format!("{}", node_addr)]
+            so_far
+        });
+        chars.iter().collect::<String>()
     }
 }
 
-struct MASQMockNodeGuts {
+#[derive(Clone)]
+pub struct MASQMockNodeGuts {
     name: String,
     node_addr: NodeAddr,
     earning_wallet: Wallet,
@@ -576,6 +559,88 @@ struct MASQMockNodeGuts {
 
 impl Drop for MASQMockNodeGuts {
     fn drop(&mut self) {
-        MASQNodeUtils::stop(self.name.as_str());
+        DataProbeUtils::stop(self.name.as_str());
+    }
+}
+
+pub struct MASQMockNodeGutsBuilder {
+    in_progress: MASQMockNodeGuts,
+}
+
+impl Default for MASQMockNodeGutsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MASQMockNodeGutsBuilder {
+    pub fn new() -> Self {
+        Self {
+            in_progress: MASQMockNodeGuts {
+                name: "Builder Node".to_string(),
+                node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5678]),
+                earning_wallet: Wallet::new("Earning"),
+                consuming_wallet: None,
+                rate_pack: DEFAULT_RATE_PACK,
+                cryptde_enum: CryptDEEnum::Fake((
+                    CryptDENull::new(Chain::PolyMumbai),
+                    CryptDENull::new(Chain::PolyMumbai),
+                )),
+                framer: RefCell::new(DataHunkFramer::new()),
+                chain: Chain::PolyMumbai,
+            },
+        }
+    }
+
+    pub fn name(mut self, name: &str) -> Self {
+        self.in_progress.name = name.to_string();
+        self
+    }
+
+    pub fn node_addr(mut self, node_addr: NodeAddr) -> Self {
+        self.in_progress.node_addr = node_addr;
+        self
+    }
+
+    pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
+        self.in_progress.earning_wallet = earning_wallet;
+        self
+    }
+
+    pub fn consuming_wallet_opt(mut self, consuming_wallet_opt: Option<Wallet>) -> Self {
+        self.in_progress.consuming_wallet = consuming_wallet_opt;
+        self
+    }
+
+    pub fn rate_pack(mut self, rate_pack: RatePack) -> Self {
+        self.in_progress.rate_pack = rate_pack;
+        self
+    }
+
+    pub fn cryptde_enum(mut self, cryptde_enum: CryptDEEnum) -> Self {
+        self.in_progress.cryptde_enum = cryptde_enum;
+        self
+    }
+
+    pub fn framer(mut self, framer: DataHunkFramer) -> Self {
+        self.in_progress.framer = RefCell::new(framer);
+        self
+    }
+
+    pub fn chain(mut self, chain: Chain) -> Self {
+        self.in_progress.chain = chain;
+        self
+    }
+
+    pub fn build(self) -> MASQMockNodeGuts {
+        self.in_progress
+    }
+}
+
+impl From<&MASQMockNode> for MASQMockNodeGutsBuilder {
+    fn from(init: &MASQMockNode) -> Self {
+        Self {
+            in_progress: init.guts.as_ref().clone(),
+        }
     }
 }

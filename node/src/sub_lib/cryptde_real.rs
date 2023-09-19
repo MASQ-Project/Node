@@ -24,6 +24,7 @@ lazy_static! {
 }
 
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Clone)]
 pub struct CryptDEReal {
     public_key: PublicKey,
     encryption_secret_key: encryption::SecretKey,
@@ -236,7 +237,7 @@ impl CryptDEReal {
 mod tests {
     use super::*;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
 
     impl Default for CryptDEReal {
         fn default() -> Self {

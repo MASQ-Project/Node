@@ -526,9 +526,9 @@ mod tests {
         route_to_proxy_client, route_to_proxy_server,
     };
     use actix::System;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
@@ -637,7 +637,7 @@ mod tests {
         init_test_logging();
         let (main_cryptde, alias_cryptde) = {
             //initialization to real CryptDEs
-            let pair = Bootstrapper::pub_initialize_cryptdes_for_testing(&None, &None);
+            let pair = Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
             (pair.main, pair.alias)
         };
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);

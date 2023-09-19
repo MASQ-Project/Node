@@ -467,7 +467,7 @@ mod tests {
                 },
                 UiSetupResponseValue {
                     name: "chain".to_string(),
-                    value: "ropsten".to_string(),
+                    value: "polygon-mumbai".to_string(),
                     status: UiSetupResponseValueStatus::Configured,
                 },
                 UiSetupResponseValue {
@@ -489,7 +489,7 @@ mod tests {
         let broadcast_output = "Daemon setup has changed:
 
 NAME                          VALUE                                                            STATUS
-chain                         ropsten                                                          Configured
+chain                         polygon-mumbai                                                   Configured
 data-directory                /home/booga                                                      Default
 ip                            4.4.4.4                                                          Set
 log-level                     error                                                            Set

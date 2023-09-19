@@ -29,7 +29,7 @@ serde_cbor = "0.11.2"
 serde_derive = "1.0.130"
 serde_json = "1.0"
 sha1 = "0.6.0"
-tiny-bip39 = "0.8.2"
+tiny-bip39 = "1.0.0"
 tiny-hderive = "0.3.0"
 uint = "0.9.1"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}

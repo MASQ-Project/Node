@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::Bootstrapper;
+use crate::bootstrapper::{main_cryptde_ref, Bootstrapper};
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -8,7 +8,6 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use crate::test_utils::main_cryptde;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -144,7 +143,7 @@ impl Handler<NewPublicIp> for Dispatcher {
             Some(node_addr) => {
                 let ports = &node_addr.ports();
                 self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
-                Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
+                Bootstrapper::report_local_descriptor(main_cryptde_ref(), &self.node_descriptor);
             }
         }
     }
@@ -189,7 +188,7 @@ impl Dispatcher {
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
         let node_desc_str_opt = match &self.node_descriptor.node_addr_opt {
             Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some(_) => Some(self.node_descriptor.to_string(main_cryptde())),
+            Some(_) => Some(self.node_descriptor.to_string(main_cryptde_ref())),
             None => None,
         };
         let response_inner = UiDescriptorResponse {
@@ -246,7 +245,7 @@ mod tests {
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
+            "masq://polygon-mumbai:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
         ))
         .unwrap();
     }

@@ -488,6 +488,8 @@ pub struct UiConfigurationResponse {
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<String>,
+    #[serde(rename = "pastNeighbors")]
+    pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
@@ -496,8 +498,6 @@ pub struct UiConfigurationResponse {
     // the UI doesn't need the code to derive address from private key.
     #[serde(rename = "consumingWalletAddressOpt")]
     pub consuming_wallet_address_opt: Option<String>,
-    #[serde(rename = "pastNeighbors")]
-    pub past_neighbors: Vec<String>,
     #[serde(rename = "paymentThresholds")]
     pub payment_thresholds: UiPaymentThresholds,
     #[serde(rename = "ratePack")]

@@ -265,7 +265,7 @@ mod tests {
     use super::*;
     use crate::test_utils::main_cryptde;
     use ethsign_crypto::Keccak256;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]

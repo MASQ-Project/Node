@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
@@ -62,7 +62,9 @@ fn neighborhood_notified_of_newly_missing_node() {
     );
     let witness_node = cluster
         .start_mock_node_with_public_key(vec![find_free_port()], &PublicKey::new(&[5, 6, 7, 8]));
-    witness_node.transmit_debut(&originating_node).unwrap();
+    witness_node
+        .transmit_ipchange_or_debut(&originating_node)
+        .unwrap();
     let (introductions, _) = witness_node
         .wait_for_gossip(Duration::from_millis(1000))
         .unwrap();

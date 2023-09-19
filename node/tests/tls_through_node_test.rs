@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use masq_lib::test_utils::utils::handle_connection_error;
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;

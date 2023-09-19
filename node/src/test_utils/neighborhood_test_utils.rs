@@ -13,7 +13,6 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -94,7 +93,7 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
-                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
+                vec![NodeDescriptor::from((neighbor, Chain::PolyMumbai, cryptde))],
                 *root.rate_pack(),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
@@ -285,7 +284,7 @@ pub fn make_ip(nonce: u8) -> IpAddr {
 
 pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
     NodeDescriptor {
-        blockchain: Chain::EthRopsten,
+        blockchain: Chain::PolyMumbai,
         encryption_public_key: PublicKey::from(&b"bitcoin is real money"[..]),
         node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
     }

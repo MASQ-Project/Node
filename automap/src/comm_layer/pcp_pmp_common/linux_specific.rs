@@ -1,15 +1,19 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "linux")]
 
-use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
+use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
+use itertools::Either;
 use std::net::IpAddr;
 use std::str::FromStr;
 
 pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
         Ok(stdout) => stdout,
-        Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
+        Err(Either::Left(stderr)) => return Err(AutomapError::FindRouterError(stderr)),
+        Err(Either::Right(error)) => {
+            return Err(AutomapError::FindRouterError(format!("{:?}", error)))
+        }
     };
     let init: Result<Vec<IpAddr>, AutomapError> = Ok(vec![]);
     output
@@ -41,7 +45,7 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
 pub struct LinuxFindRoutersCommand {}
 
 impl FindRoutersCommand for LinuxFindRoutersCommand {
-    fn execute(&self) -> Result<String, String> {
+    fn execute(&self) -> Result<CommandOutput, CommandError> {
         self.execute_command("ip route")
     }
 }
@@ -61,7 +65,7 @@ impl LinuxFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mocks::FindRoutersCommandMock;
+    use crate::test_utils::FindRoutersCommandMock;
     use regex::Regex;
     use std::str::FromStr;
 
@@ -73,7 +77,8 @@ mod tests {
         172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown\n\
         172.18.0.0/16 dev br-85f38f356a58 proto kernel scope link src 172.18.0.1 linkdown\n\
         192.168.0.0/24 dev enp4s0 proto kernel scope link src 192.168.0.100 metric 100";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&ip_route_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(ip_route_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -89,7 +94,8 @@ mod tests {
         169.254.0.0/16 dev enp0s3 scope link metric 1000\n\
         192.168.1.0/24 dev enp0s8 proto kernel scope link src 192.168.1.64 metric 101\n\
         192.168.1.1 via 10.0.2.15 dev enp0s3";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&ip_route_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(ip_route_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -108,7 +114,8 @@ mod tests {
         default via 2001:1:2:3:4:5:6:7 dev enX0 proto kernel metric 256 pref medium\n\
         fe80::/64 dev docker0 proto kernel metric 256 pref medium";
 
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command);
 
@@ -126,7 +133,8 @@ mod tests {
         168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
         169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
         172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -134,14 +142,15 @@ mod tests {
     }
 
     #[test]
-    fn find_routers_works_when_command_writes_to_stderr() {
-        let find_routers_command = FindRoutersCommandMock::new(Err("Booga!"));
+    fn find_routers_works_when_command_produces_stderr_output() {
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Err(Either::Left("Booga!".to_string())));
 
         let result = linux_find_routers(&find_routers_command);
 
         assert_eq!(
             result,
-            Err(AutomapError::ProtocolError("Booga!".to_string()))
+            Err(AutomapError::FindRouterError("Booga!".to_string()))
         )
     }
 
@@ -151,7 +160,8 @@ mod tests {
         default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
         default via 192.168.0 dev enp0s3 proto dhcp metric 102\n\
         169.254.0.0/16 dev enp4s0 scope link metric 1000";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command);
 

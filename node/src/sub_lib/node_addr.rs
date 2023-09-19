@@ -16,29 +16,6 @@ pub struct NodeAddr {
     ports: Vec<u16>,
 }
 
-impl NodeAddr {
-    pub const PORTS_SEPARATOR: &'static str = "/";
-
-    pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
-        let mut ports = ports.to_owned();
-        ports.sort_unstable();
-        ports.dedup();
-
-        NodeAddr {
-            ip_addr: *ip_addr,
-            ports,
-        }
-    }
-
-    pub fn ip_addr(&self) -> IpAddr {
-        self.ip_addr
-    }
-
-    pub fn ports(&self) -> Vec<u16> {
-        self.ports.clone()
-    }
-}
-
 impl Default for NodeAddr {
     fn default() -> Self {
         NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[])
@@ -51,20 +28,32 @@ impl<'a> From<&'a SocketAddr> for NodeAddr {
     }
 }
 
-impl From<NodeAddr> for SocketAddr {
-    fn from(node_addr: NodeAddr) -> Self {
+impl From<&NodeAddr> for SocketAddr {
+    fn from(node_addr: &NodeAddr) -> Self {
         let all: Vec<SocketAddr> = node_addr.into();
         all[0]
     }
 }
 
-impl From<NodeAddr> for Vec<SocketAddr> {
+impl From<NodeAddr> for SocketAddr {
     fn from(node_addr: NodeAddr) -> Self {
+        Self::from(&node_addr)
+    }
+}
+
+impl From<&NodeAddr> for Vec<SocketAddr> {
+    fn from(node_addr: &NodeAddr) -> Self {
         node_addr
             .ports()
             .iter()
             .map(|port| SocketAddr::new(node_addr.ip_addr(), *port))
             .collect()
+    }
+}
+
+impl From<NodeAddr> for Vec<SocketAddr> {
+    fn from(node_addr: NodeAddr) -> Self {
+        Self::from(&node_addr)
     }
 }
 
@@ -140,6 +129,39 @@ impl FromStr for NodeAddr {
             Err(msg) => return Err(msg),
         };
         Ok(NodeAddr::new(&ip_addr, &ports))
+    }
+}
+
+impl NodeAddr {
+    pub const PORTS_SEPARATOR: &'static str = "/";
+
+    pub fn new(ip_addr: &IpAddr, ports: &[u16]) -> NodeAddr {
+        let mut ports = ports.to_owned();
+        ports.sort_unstable();
+        ports.dedup();
+
+        NodeAddr {
+            ip_addr: *ip_addr,
+            ports,
+        }
+    }
+
+    pub fn ip_addr(&self) -> IpAddr {
+        self.ip_addr
+    }
+
+    pub fn ports(&self) -> Vec<u16> {
+        self.ports.clone()
+    }
+
+    pub fn contains(&self, socket_addr: SocketAddr) -> bool {
+        if socket_addr.ip() != self.ip_addr() {
+            return false;
+        }
+        if !self.ports().contains(&socket_addr.port()) {
+            return false;
+        }
+        true
     }
 }
 
@@ -301,5 +323,35 @@ mod tests {
                 &[1234, 2345, 3456]
             ))
         );
+    }
+
+    #[test]
+    fn contains_says_no_if_the_ip_address_doesnt_match() {
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let subject = NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &vec![5678, 5679]);
+
+        let result = subject.contains(socket_addr);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn contains_says_no_if_the_port_isnt_included() {
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5680").unwrap();
+        let subject = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![5678, 5679]);
+
+        let result = subject.contains(socket_addr);
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn contains_says_yes_if_theres_a_match() {
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5679").unwrap();
+        let subject = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &vec![5678, 5679]);
+
+        let result = subject.contains(socket_addr);
+
+        assert_eq!(result, true);
     }
 }

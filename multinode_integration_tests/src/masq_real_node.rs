@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
+use crate::masq_node::DataProbeUtils;
 use crate::masq_node::MASQNode;
-use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
@@ -10,8 +10,8 @@ use crate::masq_node_ui_client::MASQNodeUIClient;
 use bip39::{Language, Mnemonic, Seed};
 use log::Level;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
@@ -734,7 +734,7 @@ impl MASQNode for MASQRealNode {
     }
 
     fn socket_addr(&self, port_selector: PortSelector) -> SocketAddr {
-        MASQNodeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
+        DataProbeUtils::socket_addr(&self.node_addr(), port_selector, self.name())
     }
 
     fn earning_wallet(&self) -> Wallet {
@@ -809,7 +809,7 @@ impl MASQRealNode {
         docker_run_fn: RunDockerFn,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
-        MASQNodeUtils::clean_up_existing_container(name);
+        DataProbeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config,
             LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
@@ -822,7 +822,7 @@ impl MASQRealNode {
         };
         let root_dir = match host_node_parent_dir {
             Some(dir) => dir,
-            None => MASQNodeUtils::find_project_root(),
+            None => DataProbeUtils::find_project_root(),
         };
 
         docker_run_fn(&root_dir, ip_addr, name).expect("docker run");
@@ -988,7 +988,7 @@ impl MASQRealNode {
         let node_command_dir = format!("{}/node/target/release", root_dir);
         let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
         let test_runner_node_home_dir =
-            Self::node_home_dir(&MASQNodeUtils::find_project_root(), container_name_ref);
+            Self::node_home_dir(&DataProbeUtils::find_project_root(), container_name_ref);
         Self::remove_test_runner_node_home_dir(&test_runner_node_home_dir);
         Self::create_test_runner_node_home_dir(&container_name, &test_runner_node_home_dir);
         Self::set_permissions_test_runner_node_home_dir(&container_name, test_runner_node_home_dir);
@@ -1025,7 +1025,7 @@ impl MASQRealNode {
     fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =
-            Self::node_home_dir(&MASQNodeUtils::find_project_root(), container_name_ref);
+            Self::node_home_dir(&DataProbeUtils::find_project_root(), container_name_ref);
         Self::remove_test_runner_node_home_dir(&test_runner_node_home_dir);
         Self::create_test_runner_node_home_dir(&container_name, &test_runner_node_home_dir);
         Self::set_permissions_test_runner_node_home_dir(&container_name, test_runner_node_home_dir);
@@ -1232,7 +1232,7 @@ type RunDockerFn = Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>;
 
 impl Drop for MASQRealNodeGuts {
     fn drop(&mut self) {
-        MASQNodeUtils::stop(self.name.as_str())
+        DataProbeUtils::stop(self.name.as_str())
     }
 }
 
@@ -1240,7 +1240,6 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
 
     #[test]

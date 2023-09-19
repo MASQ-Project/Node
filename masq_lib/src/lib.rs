@@ -11,15 +11,13 @@ pub mod messages;
 #[macro_use]
 pub mod utils;
 
-#[macro_use]
-pub mod logger;
-
 pub mod blockchains;
 pub mod command;
 #[macro_use]
 pub mod constants;
 pub mod crash_point;
 pub mod data_version;
+pub mod logger;
 pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;

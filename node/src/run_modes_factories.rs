@@ -170,8 +170,6 @@ mod tests {
             .unwrap();
     }
 
-    //test for make() of DaemonInitializerReal moved to daemon_initializer.rs
-
     #[test]
     #[should_panic(
         expected = "value for 'node_lib::run_modes_factories::DIClusteredParams' badly prepared"

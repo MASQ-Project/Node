@@ -4,16 +4,17 @@ use crate::masq_mock_node::{
     ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
     MutableMASQMockNodeStarter,
 };
-use crate::masq_node::{MASQNode, MASQNodeUtils};
+use crate::masq_node::{DataProbeUtils, MASQNode};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
+use crate::mock_router::MockPcpRouter;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -135,6 +136,14 @@ impl MASQNodeCluster {
         self.mock_nodes.get(&name).unwrap().clone()
     }
 
+    pub fn start_mock_pcp_router(&mut self) -> MockPcpRouter {
+        let index = self.next_index;
+        self.next_index += 1;
+        let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
+        let name = format!("mock_router_{}", index);
+        MockPcpRouter::new(&name, ip_addr)
+    }
+
     pub fn stop(self) {
         MASQNodeCluster::cleanup().unwrap()
     }
@@ -186,7 +195,7 @@ impl MASQNodeCluster {
             &self
                 .host_node_parent_dir
                 .clone()
-                .unwrap_or_else(MASQNodeUtils::find_project_root),
+                .unwrap_or_else(DataProbeUtils::find_project_root),
             &name,
         )
     }

@@ -19,6 +19,7 @@ use masq_lib::ui_gateway::{
 
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::Bip39;
+use crate::bootstrapper::main_cryptde_ref;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -29,7 +30,6 @@ use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
@@ -581,7 +581,7 @@ impl Configurator {
                         None => vec![],
                         Some(pns) => pns
                             .into_iter()
-                            .map(|nd| nd.to_string(main_cryptde()))
+                            .map(|nd| nd.to_string(main_cryptde_ref()))
                             .collect::<Vec<String>>(),
                     };
                     (
@@ -830,6 +830,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
+    use crate::bootstrapper::Bootstrapper;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
@@ -838,9 +839,10 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, ZERO,
+        assert_on_initialization_with_panic_on_migration, configure_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, PCField,
     };
+    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
@@ -951,7 +953,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiCheckPasswordResponse { matches: false }.tmb(4321)
             }
         );
@@ -1028,7 +1030,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(1),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiChangePasswordResponse {}.tmb(4321)
             }
         );
@@ -1135,7 +1137,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiWalletAddressesResponse {
                     consuming_wallet_address: "0x1234567890123456789012345678901234567890"
                         .to_string(),
@@ -1819,7 +1821,7 @@ mod tests {
         };
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(ZERO)
+            configure_persistent_config(PCField::just_base())
                 .check_password_result(Ok(true))
                 .set_wallet_info_params(&set_wallet_info_params_arc)
                 .set_wallet_info_result(Ok(())),
@@ -1845,8 +1847,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1870,8 +1873,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: Some(earning_address),
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1896,8 +1900,9 @@ mod tests {
             earning_derivation_path_opt: None,
             earning_address_opt: None,
         };
-        let mut persistent_config: Box<dyn PersistentConfiguration> =
-            Box::new(configure_default_persistent_config(ZERO).check_password_result(Ok(true)));
+        let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
+            configure_persistent_config(PCField::just_base()).check_password_result(Ok(true)),
+        );
 
         let result =
             Configurator::unfriendly_handle_recover_wallets(msg, 1234, &mut persistent_config);
@@ -1921,7 +1926,7 @@ mod tests {
             earning_address_opt: Some("0x0123456789012345678901234567890123456789".to_string()),
         };
         let mut persistent_config: Box<dyn PersistentConfiguration> = Box::new(
-            configure_default_persistent_config(ZERO)
+            configure_persistent_config(PCField::just_base())
                 .check_password_result(Ok(true))
                 .set_wallet_info_result(Ok(())),
         );
@@ -2199,13 +2204,13 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polygon-mumbai".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2234,7 +2239,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "polygon-mumbai".to_string(),
                 gas_price: 2345,
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
@@ -2305,6 +2310,7 @@ mod tests {
 
     #[test]
     fn configuration_works_with_secrets() {
+        Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
         let consuming_wallet_private_key_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_private_key =
@@ -2321,18 +2327,18 @@ mod tests {
             .address()
         );
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
-        let public_key = PK::from(&b"xaca4sf4a56"[..]);
+        let public_key = make_meaningless_public_key();
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polygon-mumbai".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2364,7 +2370,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "polygon-mumbai".to_string(),
                 gas_price: 2345,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
@@ -2435,7 +2441,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polyton-mumbai".to_string())
             .gas_price_result(Ok(2345))
             .earning_wallet_address_result(Ok(Some(
                 "0x0123456789012345678901234567890123456789".to_string(),

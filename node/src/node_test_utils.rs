@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 #![cfg(test)]
 
 use crate::discriminator::Discriminator;
@@ -10,15 +11,16 @@ use crate::node_configurator::DirsWrapper;
 use crate::null_masquerader::NullMasquerader;
 use crate::privilege_drop::IdWrapper;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
-use crate::stream_messages::*;
+use crate::stream_messages::AddStreamMsg;
+use crate::stream_messages::PoolBindMessage;
+use crate::stream_messages::RemoveStreamMsg;
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder::Recorder;
-use actix::Actor;
-use actix::Addr;
+use actix::{Actor, Addr};
 use masq_lib::test_utils::logging::TestLog;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
@@ -33,6 +35,7 @@ pub trait TestLogOwner {
     fn get_test_log(&self) -> Arc<Mutex<TestLog>>;
 }
 
+#[allow(dead_code)]
 pub fn extract_log<T>(owner: T) -> (T, Arc<Mutex<TestLog>>)
 where
     T: TestLogOwner,
@@ -127,6 +130,12 @@ impl DirsWrapper for DirsWrapperMock {
     }
 }
 
+impl Default for DirsWrapperMock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DirsWrapperMock {
     pub fn new() -> Self {
         DirsWrapperMock {
@@ -211,6 +220,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub fn check_timestamp(before: SystemTime, timestamp: SystemTime, after: SystemTime) {
     timestamp.duration_since(before).unwrap_or_else(|_| {
         panic!(
@@ -272,6 +282,7 @@ impl DiscriminatorFactory for NullDiscriminatorFactory {
     }
 }
 
+#[allow(dead_code)]
 impl NullDiscriminatorFactory {
     pub fn new() -> NullDiscriminatorFactory {
         NullDiscriminatorFactory {
@@ -285,10 +296,12 @@ impl NullDiscriminatorFactory {
     }
 }
 
+#[allow(dead_code)]
 pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
     recorder.borrow_mut().take().unwrap().start()
 }
 
+#[allow(dead_code)]
 pub fn make_stream_handler_pool_subs_from(
     stream_handler_pool_opt: Option<Recorder>,
 ) -> StreamHandlerPoolSubs {
@@ -300,11 +313,12 @@ pub fn make_stream_handler_pool_subs_from(
     make_stream_handler_pool_subs_from_recorder(&addr)
 }
 
+#[allow(dead_code)]
 pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),
-        remove_sub: recipient!(addr, RemoveStreamMsg),
+        remove_stream_sub: recipient!(addr, RemoveStreamMsg),
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),

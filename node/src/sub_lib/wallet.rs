@@ -440,7 +440,7 @@ mod tests {
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, Seed};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::derivation_path;
     use rusqlite::Connection;
     use rustc_hex::FromHex;

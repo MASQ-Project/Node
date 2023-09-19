@@ -1,15 +1,17 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "macos")]
 
-use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
+use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
+use itertools::Either::{Left, Right};
 use std::net::IpAddr;
 use std::str::FromStr;
 
 pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr>, AutomapError> {
     let output = match command.execute() {
         Ok(stdout) => stdout,
-        Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
+        Err(Left(stderr)) => return Err(AutomapError::ProtocolError(stderr)),
+        Err(Right(error)) => return Err(AutomapError::ProtocolError(format!("{:?}", error))),
     };
     let addresses = output
         .split('\n')
@@ -29,7 +31,7 @@ pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
 pub struct MacOsFindRoutersCommand {}
 
 impl FindRoutersCommand for MacOsFindRoutersCommand {
-    fn execute(&self) -> Result<String, String> {
+    fn execute(&self) -> Result<CommandOutput, CommandError> {
         self.execute_command("route -n get default")
     }
 }
@@ -49,7 +51,8 @@ impl MacOsFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mocks::FindRoutersCommandMock;
+    use crate::test_utils::FindRoutersCommandMock;
+    use itertools::Either::Left;
     use std::collections::HashSet;
     use std::str::FromStr;
 
@@ -65,7 +68,8 @@ destination: default
  recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
        0         0         0         0         0         0      1500         0
 ";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
@@ -89,7 +93,8 @@ destination: default
  recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
        0         0         0         0         0         0      1500         0
 ";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = macos_find_routers(&find_routers_command).unwrap();
 
@@ -98,7 +103,8 @@ destination: default
 
     #[test]
     fn find_routers_works_when_command_writes_to_stderr() {
-        let find_routers_command = FindRoutersCommandMock::new(Err("Booga!"));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Err(Left("Booga!".to_string())));
 
         let result = macos_find_routers(&find_routers_command);
 

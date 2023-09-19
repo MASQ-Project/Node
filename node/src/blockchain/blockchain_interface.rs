@@ -768,8 +768,8 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
     use serde_derive::Deserialize;
     use serde_json::json;
@@ -1373,9 +1373,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a906851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa060b9f375c06f56\
-        41951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c031172ac6873037d90dcca36a1fbf2e67960ff".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad06851bf08eb00083011600949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007731323300000000000000000000000000000000000\
+                        00000000000000c7d713b49da000083027126a06bad9e403960cde22268b2bf8c1deab78581\
+                        9ac7152fa5ece046c6292c2f63c6a03a3f4b340e9d79649ea7d2c47cc4ed5ed2deb62a859ba\
+                        90873412b76c697f1f0"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1384,9 +1390,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dae894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        000000000000000000000000000000000000000000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00e61352bb2ac9b\
-        32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915ecfbaa58268010e00d32c18a49a9fc3b9bd20a".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad07851bf08eb00083011580949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007735353500000000000000000000000000000000000\
+                        000000000000000000000075bcd1583027126a096c5eedddc39555efab0ee4629fde8f7fe6f\
+                        7ab42d93dd634959ad047aa9be00a079cc22ae4813f43a0cf6b8a548c8a28370abfd2d57bfb\
+                        e801a1293fbb59f55c5"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1395,9 +1407,15 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02d300cc8ba7b63\
-        b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23fbe8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8ad08851bf08eb00083011600949b2\
+                        7034acabd44223fb23d628ba4849867ce1db280b844a9059cbb000000000000000000000000\
+                        000000000000000000000000000000007739383700000000000000000000000000000000000\
+                        0000000000000007680cd2f2d340083027125a005b432dbaf53189c32f37a6e0cfb82871e68\
+                        126c8ad1a986ac145bc90dcb71b1a01b05d415517ed5357af7de307749e03c3e71ac2455064\
+                        113a3e736fb9c754a38"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 )
@@ -1416,7 +1434,7 @@ mod tests {
         };
         //first successful request
         let expected_hash_1 =
-            H256::from_str("26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1")
+            H256::from_str("11b299d200856fc2cb0d8c15e4262f74d2330e428105039d60bcf44d838a5d3e")
                 .unwrap();
         check_expected_successful_request(expected_hash_1, 0);
         //failing request
@@ -1441,13 +1459,13 @@ mod tests {
             })
         );
         let expected_hash_2 =
-            H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
+            H256::from_str("b093cda60083b946bd206b8ad8c1711a0c1e1940afc1c9684a20f6ad04050956")
                 .unwrap();
         assert_eq!(hash_2, &expected_hash_2);
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
         let expected_hash_3 =
-            H256::from_str("a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44")
+            H256::from_str("bd0a664c42d98c62e805d222c6ed425aec62c7415f1d157e2deaf02112e8debc")
                 .unwrap();
         check_expected_successful_request(expected_hash_3, 2);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1473,7 +1491,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: sending_batch_payments: \
         Common attributes of payables to be transacted: sender wallet: 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725, contract: \
-          0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
+          0x9b27034acabd44223fb23d628ba4849867ce1db2, chain_id: 80001, gas_price: 120");
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 900,000,000,000,000,000 wei \
         to 0x0000000000000000000000000000000077313233 with nonce 6",
@@ -1491,7 +1509,7 @@ mod tests {
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 gwei\n\
-        chain:                                       ropsten\n\
+        chain:                                       mumbai\n\
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
@@ -1700,10 +1718,6 @@ mod tests {
         );
         assert_eq!(
             BlockchainInterfaceWeb3::<Http>::base_gas_limit(Chain::EthMainnet),
-            55_000
-        );
-        assert_eq!(
-            BlockchainInterfaceWeb3::<Http>::base_gas_limit(Chain::EthRopsten),
             55_000
         );
         assert_eq!(
@@ -2003,17 +2017,6 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    //with a real confirmation through a transaction sent with this data to the network
-    #[test]
-    fn web3_interface_signing_a_transaction_works_for_eth_ropsten() {
-        let chain = Chain::EthRopsten;
-        let nonce = 1; //must stay like this!
-        let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
-        let in_bytes = decode_hex(signed_transaction_data).unwrap();
-
-        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
-    }
-
     //not confirmed on the real network
     #[test]
     fn web3_interface_signing_a_transaction_for_polygon_mainnet() {
@@ -2088,41 +2091,6 @@ mod tests {
             ][..],
         ];
         assert_signature(Chain::EthMainnet, signatures)
-    }
-
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_ropsten() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 41, 160, 8, 220, 80, 201, 100, 41, 178, 35, 151, 227, 210, 85, 27,
-                41, 27, 82, 217, 176, 64, 92, 205, 10, 195, 169, 66, 91, 213, 199, 124, 52, 3, 192,
-                160, 94, 220, 102, 179, 128, 78, 150, 78, 230, 117, 10, 10, 32, 108, 241, 50, 19,
-                148, 198, 6, 147, 110, 175, 70, 157, 72, 31, 216, 193, 229, 151, 115,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 41, 160, 186, 65, 161, 205, 173, 93, 185, 43, 220, 161, 63,
-                65, 19, 229, 65, 186, 247, 197, 132, 141, 184, 196, 6, 117, 225, 181, 8, 81, 198,
-                102, 150, 198, 160, 112, 126, 42, 201, 234, 236, 168, 183, 30, 214, 145, 115, 201,
-                45, 191, 46, 3, 113, 53, 80, 203, 164, 210, 112, 42, 182, 136, 223, 125, 232, 21,
-                205,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 41, 160, 146, 204, 57, 32, 218, 236, 59, 94, 106, 72,
-                174, 211, 223, 160, 122, 186, 126, 44, 200, 41, 222, 117, 117, 177, 189, 78, 203,
-                8, 172, 155, 219, 66, 160, 83, 82, 37, 6, 243, 61, 188, 102, 176, 132, 102, 74,
-                111, 180, 105, 33, 122, 106, 109, 73, 180, 65, 10, 117, 175, 190, 19, 196, 17, 128,
-                193, 75,
-            ][..],
-        ];
-        assert_signature(Chain::EthRopsten, signatures)
     }
 
     #[derive(Deserialize)]

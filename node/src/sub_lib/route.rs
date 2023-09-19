@@ -349,7 +349,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use serde_cbor;
 
     #[test]
@@ -781,9 +781,9 @@ mod tests {
             result,
             String::from(
                 r#"
-Encrypted with 0x01020304: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320", s: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320" } }), component: Hopper }
-Encrypted with 0x02030405: LiveHop { public_key: 0x03040506, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b", s: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b" } }), component: Hopper }
-Encrypted with 0x03040506: LiveHop { public_key: 0x, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "9ca23557adf96d7aed407a06ce96851a4184e947a7b29b6c3872eef902fcba1e", s: "9ca23557adf96d7aed407a06ce96851a4184e947a7b29b6c3872eef902fcba1e" } }), component: Neighborhood }
+Encrypted with 0x01020304: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f", s: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f" } }), component: Hopper }
+Encrypted with 0x02030405: LiveHop { public_key: 0x03040506, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29", s: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29" } }), component: Hopper }
+Encrypted with 0x03040506: LiveHop { public_key: 0x, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "b6aef433e7f3808342aad470564087b1997b70100bde8523057509339e50ede0", s: "b6aef433e7f3808342aad470564087b1997b70100bde8523057509339e50ede0" } }), component: Neighborhood }
 "#
             )
         );
@@ -818,11 +818,11 @@ Encrypted with 0x03040506: LiveHop { public_key: 0x, payer: Some(Payer { wallet:
             result,
             String::from(
                 r#"
-Encrypted with 0x01020304: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320", s: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320" } }), component: Hopper }
-Encrypted with 0x02030405: LiveHop { public_key: 0x03040506, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b", s: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b" } }), component: Hopper }
-Encrypted with 0x03040506: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "9ca23557adf96d7aed407a06ce96851a4184e947a7b29b6c3872eef902fcba1e", s: "9ca23557adf96d7aed407a06ce96851a4184e947a7b29b6c3872eef902fcba1e" } }), component: ProxyClient }
-Encrypted with 0x02030405: LiveHop { public_key: 0x01020304, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b", s: "63be72962f19dda7802220ed48c0d8199d510b45608a3789c50f61912b98a15b" } }), component: Hopper }
-Encrypted with 0x01020304: LiveHop { public_key: 0x, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320", s: "8b663e5a10f40c3307e6fb5340482a5e11df78dafc619ceff97f11fa79fea320" } }), component: ProxyServer }
+Encrypted with 0x01020304: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f", s: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f" } }), component: Hopper }
+Encrypted with 0x02030405: LiveHop { public_key: 0x03040506, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29", s: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29" } }), component: Hopper }
+Encrypted with 0x03040506: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "b6aef433e7f3808342aad470564087b1997b70100bde8523057509339e50ede0", s: "b6aef433e7f3808342aad470564087b1997b70100bde8523057509339e50ede0" } }), component: ProxyClient }
+Encrypted with 0x02030405: LiveHop { public_key: 0x01020304, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29", s: "f4f5dce5cb51333051d95418e7f7c6aa48e74dc6b09ef46863c62f0c786beb29" } }), component: Hopper }
+Encrypted with 0x01020304: LiveHop { public_key: 0x, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f", s: "688a58a348fdde897451dfbd0de43956ca035cd45d88b610203a9ff062175f0f" } }), component: ProxyServer }
 Encrypted with 0x01020304: Return Route ID: 1234
 "#
             )

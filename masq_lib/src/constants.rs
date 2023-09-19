@@ -5,6 +5,8 @@ use crate::data_version::DataVersion;
 use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::PolyMumbai;
+pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const CURRENT_SCHEMA_VERSION: usize = 8;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
@@ -25,7 +27,6 @@ pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
@@ -95,7 +96,6 @@ pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK
 pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
-pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
 
 #[cfg(test)]
 mod tests {
@@ -104,6 +104,8 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DEFAULT_CHAIN, Chain::PolyMainnet);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::PolyMumbai);
+        assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);
@@ -118,7 +120,6 @@ mod tests {
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
-        assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
         assert_eq!(MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, 24_638_838);
@@ -165,7 +166,6 @@ mod tests {
         assert_eq!(POLYGON_MUMBAI_FULL_IDENTIFIER, "polygon-mumbai");
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
-        assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
         assert_eq!(
             CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }

@@ -11,8 +11,8 @@ use serde_derive::Serialize;
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::utils::is_running_under_github_actions;
 use masq_lib::utils::find_free_port;
+use multinode_integration_tests_lib::masq_node::DataProbeUtils;
 use multinode_integration_tests_lib::masq_node::MASQNode;
-use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
@@ -167,7 +167,7 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
         "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
         subject.consuming_wallet().unwrap()
     ));
-    MASQNodeUtils::wrote_log_containing(
+    DataProbeUtils::wrote_log_containing(
         subject.name(),
         &escaped_pattern,
         Duration::from_millis(1000),

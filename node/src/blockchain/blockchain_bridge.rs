@@ -514,8 +514,8 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, ZERO,
+        assert_on_initialization_with_panic_on_migration, configure_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, PCField,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -552,7 +552,7 @@ mod tests {
             Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
-            Box::new(configure_default_persistent_config(ZERO)),
+            Box::new(configure_persistent_config(PCField::just_base())),
             false,
             Some(consuming_wallet.clone()),
         );

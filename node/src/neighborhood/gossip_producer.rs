@@ -16,7 +16,7 @@ pub trait GossipProducer: Send {
         database: &mut NeighborhoodDatabase,
         target: &PublicKey,
     ) -> Option<Gossip_0v1>;
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1;
+    fn produce_debut_or_ipchange(&self, database: &NeighborhoodDatabase) -> Gossip_0v1;
 }
 
 pub struct GossipProducerReal {
@@ -76,7 +76,7 @@ impl GossipProducer for GossipProducerReal {
         Some(builder.build())
     }
 
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
+    fn produce_debut_or_ipchange(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
         GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build()
@@ -107,11 +107,12 @@ mod tests {
     use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use itertools::Itertools;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::constants::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
     use std::convert::TryFrom;
 
@@ -335,44 +336,37 @@ mod tests {
     }
 
     #[test]
-    fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_accepting_connections() {
-        let our_node_record: NodeRecord = make_node_record(7771, true);
-        let db = db_from_node(&our_node_record);
-        let subject = GossipProducerReal::new();
-
-        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
-
-        assert_eq!(result_gossip.node_records.len(), 1);
-        let result_gossip_record = result_gossip.node_records.first().unwrap();
-        assert_eq!(
-            result_gossip_record.node_addr_opt,
-            Some(our_node_record.metadata.node_addr_opt.clone().unwrap())
-        );
-        let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
-        assert_eq!(result_node_record_inner, our_node_record.inner);
-        let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
-        assert_eq!(
-            our_cryptde.verify_signature(
-                &our_node_record.signed_gossip,
-                &our_node_record.signature,
-                our_cryptde.public_key()
-            ),
-            true,
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip_with_node_addr_present_if_we_accept_connections_through_the_firewall(
+    ) {
+        let mut our_node_record: NodeRecord = make_node_record(7771, true);
+        our_node_record.inner.accepts_connections = true;
+        let expected_node_addr_opt = Some(our_node_record.metadata.node_addr_opt.clone().unwrap());
+        produce_debut_or_ipchange_creates_properly_formed_gossip(
+            our_node_record,
+            expected_node_addr_opt,
         );
     }
 
     #[test]
-    fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_not_accepting_connections() {
-        let mut our_node_record: NodeRecord = make_node_record(7771, true);
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip_with_node_addr_absent_if_we_dont_accept_connections_through_the_firewall(
+    ) {
+        let mut our_node_record: NodeRecord = make_node_record(7772, true);
         our_node_record.inner.accepts_connections = false;
+        produce_debut_or_ipchange_creates_properly_formed_gossip(our_node_record, None);
+    }
+
+    fn produce_debut_or_ipchange_creates_properly_formed_gossip(
+        our_node_record: NodeRecord,
+        expected_node_addr_opt: Option<NodeAddr>,
+    ) {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
+        let result_gossip: Gossip_0v1 = subject.produce_debut_or_ipchange(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
-        assert_eq!(result_gossip_record.node_addr_opt, None);
+        assert_eq!(result_gossip_record.node_addr_opt, expected_node_addr_opt);
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
         assert_eq!(result_node_record_inner, our_node_record.inner);
         let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);

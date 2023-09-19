@@ -561,7 +561,6 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -572,6 +571,7 @@ mod tests {
     use rusqlite::{Connection as RusqliteConnection, ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
     fn more_money_payable_works_for_new_address() {

@@ -163,8 +163,7 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;

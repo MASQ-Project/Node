@@ -11,7 +11,7 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "0.7.9"
-automap = { path = "../automap"}
+automap = { path = "../automap" }
 backtrace = "0.3.57"
 base64 = "0.13.0"
 bytes = "0.4.12"
@@ -25,7 +25,7 @@ ethsign-crypto = "0.2.1"
 ethereum-types = "0.9.0"
 fdlimit = "0.2.1"
 flexi_logger = { version = "0.15.12", features = [ "ziplogs" ] }
-futures = "0.1.31"
+futures = { version = "0.1.31" }
 heck = "0.3.3"
 http = "0.2.5"
 indoc = "1.0.3"
@@ -44,6 +44,7 @@ rlp = "0.4.6"
 rpassword = "5.0.1"
 rusqlite = {version = "0.28.0", features = ["bundled","functions"]}
 rustc-hex = "2.1.0"
+secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
 serde = "1.0.136"
 serde_derive = "1.0.136"
 serde_json = "1.0.79"
@@ -51,7 +52,7 @@ serde_cbor = "0.11.2"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
 sysinfo = "0.21.1"
-tiny-bip39 = "0.8.2"
+tiny-bip39 = "1.0.0"
 tiny-hderive = "0.3.0"
 thousands = "0.2.0"
 tokio = "0.1.22"
@@ -63,7 +64,6 @@ unindent = "0.1.7"
 variant_count = "1.1.0"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
-secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"

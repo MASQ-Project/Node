@@ -1,12 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
 #![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+#[cfg(test)]
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -657,4 +658,14 @@ impl PersistentConfigurationMock {
             borrowed.remove(0)
         }
     }
+}
+
+pub fn encrypted_past_neighbors(
+    cryptde: &dyn CryptDE,
+    past_neighbors: &str,
+) -> Vec<NodeDescriptor> {
+    past_neighbors
+        .split(",")
+        .map(|s| NodeDescriptor::try_from((cryptde, s)).unwrap())
+        .collect::<Vec<NodeDescriptor>>()
 }

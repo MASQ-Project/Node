@@ -142,6 +142,7 @@ dependencies = [
  "crossbeam-channel 0.5.8",
  "flexi_logger",
  "igd",
+ "itertools",
  "lazy_static",
  "local_ipaddress",
  "log 0.4.17",
@@ -150,6 +151,7 @@ dependencies = [
  "pretty-hex",
  "rand 0.7.3",
  "regex",
+ "socket2 0.4.7",
 ]
 
 [[package]]
@@ -908,7 +910,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08f7eadeaf4b52700de180d147c4805f199854600b36faa963d91114827b2ffc"
 dependencies = [
  "error-chain",
- "socket2",
+ "socket2 0.3.19",
  "widestring",
  "winapi 0.3.9",
  "winreg",
@@ -1844,6 +1846,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket2"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02e2d2db9033d13a1567121ddd7a095ee144db4e1ca1b1bda3419bc0da294ebd"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2259,7 +2271,7 @@ dependencies = [
  "log 0.4.17",
  "rand 0.5.6",
  "smallvec",
- "socket2",
+ "socket2 0.3.19",
  "tokio-executor",
  "tokio-io",
  "tokio-reactor",
@@ -2283,7 +2295,7 @@ dependencies = [
  "log 0.4.17",
  "rand 0.5.6",
  "smallvec",
- "socket2",
+ "socket2 0.3.19",
  "tokio-executor",
  "tokio-io",
  "tokio-reactor",

@@ -4,7 +4,7 @@ use crate::masq_node::NodeReference;
 use crate::masq_node_cluster::MASQNodeCluster;
 use crossbeam_channel::{unbounded, Receiver};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
+use masq_lib::constants::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use node_lib::discriminator::Discriminator;
 use node_lib::discriminator::DiscriminatorFactory;
