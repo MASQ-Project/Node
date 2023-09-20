@@ -341,7 +341,7 @@ mod tests {
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
-    use actix::{Actor, AsyncContext, Context, Handler, Message, System};
+    use actix::{Actor, Context, Handler, Message, System};
     use crossbeam_channel::{unbounded, Sender};
     use regex::Regex;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -371,7 +371,7 @@ mod tests {
 
         fn started(&mut self, ctx: &mut Self::Context) {
             ctx.set_mailbox_capacity(0); //important
-            ctx.notify_later(Stop {}, Duration::from_secs(10));
+            // ctx.notify_later(Stop {}, Duration::from_secs(10));
         }
     }
 
@@ -541,9 +541,11 @@ mod tests {
     }
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
-        let guard = TEST_LOG_RECIPIENT_GUARD
-            .lock()
-            .expect("Unable to lock TEST_LOG_RECIPIENT_GUARD");
+        let guard_result = TEST_LOG_RECIPIENT_GUARD.lock();
+        let guard = match guard_result {
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner()
+        };
         LOG_RECIPIENT_OPT
             .lock()
             .expect("Unable to lock LOG_RECIPIENT_OPT")
@@ -551,17 +553,18 @@ mod tests {
         guard
     }
 
-    #[actix::test]
+    // #[actix::test]
+    #[test]
     // #[ignore]
-    async fn prepare_log_recipient_works() {
+    fn prepare_log_recipient_works() {
         let _guard = prepare_test_environment();
-        let message_container_arc = Arc::new(Mutex::new(vec![]));
+        let message_container_arc = Arc::new(Mutex::<Vec<NodeToUiMessage>>::new(vec![]));
         let system = System::new();
         let ui_gateway = TestUiGateway::new(0, &message_container_arc);
         let recipient_addr = ui_gateway.start();
-        let recipient: Recipient<NodeToUiMessage> = recipient_addr.recipient();
+        let _recipient: Recipient<NodeToUiMessage> = recipient_addr.recipient();
 
-        prepare_log_recipient(recipient);
+        prepare_log_recipient(_recipient);
 
         LOG_RECIPIENT_OPT
             .lock()

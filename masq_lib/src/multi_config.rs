@@ -1092,7 +1092,7 @@ pub mod tests {
         let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
         assert_contains(
             &result.to_string(),
-            "isn't a valid TOML file: expected a table key, found a right bracket at line 1",
+            "isn't a valid TOML file: TOML parse error at line 1, column 1",
         )
     }
 

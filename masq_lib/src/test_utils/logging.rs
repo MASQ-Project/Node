@@ -137,7 +137,7 @@ impl TestLogHandler {
     pub fn assert_logs_match_in_order(&self, patterns: Vec<&str>) {
         let indexes: Vec<usize> = patterns
             .iter()
-            .map(|pattern| self.exists_log_matching(*pattern))
+            .map(|pattern| self.exists_log_matching(pattern))
             .collect();
         if self.in_order(&indexes) {
             return;
@@ -148,7 +148,7 @@ impl TestLogHandler {
     pub fn assert_logs_contain_in_order(&self, fragments: Vec<&str>) {
         let indexes: Vec<usize> = fragments
             .iter()
-            .map(|fragment| self.exists_log_containing(*fragment))
+            .map(|fragment| self.exists_log_containing(fragment))
             .collect();
         if self.in_order(&indexes) {
             return;
@@ -173,22 +173,12 @@ impl TestLogHandler {
     fn find_first_log_matching(&self, pattern: &str) -> Option<usize> {
         let logs = self.get_logs();
         let regex = Regex::new(pattern).unwrap();
-        for index in 0..logs.len() {
-            if regex.is_match(&logs[index][..]) {
-                return Some(index);
-            }
-        }
-        None
+        (0..logs.len()).find(|&index| regex.is_match(&logs[index][..]))
     }
 
     fn find_first_log_containing(&self, fragment: &str) -> Option<usize> {
         let logs = self.get_logs();
-        for index in 0..logs.len() {
-            if logs[index].contains(fragment) {
-                return Some(index);
-            }
-        }
-        None
+        (0..logs.len()).find(|&index| logs[index].contains(fragment))
     }
 
     fn in_order(&self, indexes: &[usize]) -> bool {
@@ -213,22 +203,12 @@ impl TestLogHandler {
     fn logs_match(&self, pattern: &str) -> Option<usize> {
         let logs = self.get_logs();
         let regex = Regex::new(pattern).unwrap();
-        for index in 0..logs.len() {
-            if regex.is_match(&logs[index][..]) {
-                return Some(index);
-            }
-        }
-        None
+        (0..logs.len()).find(|&index| regex.is_match(&logs[index][..]))
     }
 
     fn logs_contain(&self, fragment: &str) -> Option<usize> {
         let logs = self.get_logs();
-        for index in 0..logs.len() {
-            if logs[index].contains(fragment) {
-                return Some(index);
-            }
-        }
-        None
+        (0..logs.len()).find(|&index| logs[index].contains(fragment))
     }
 }
 
