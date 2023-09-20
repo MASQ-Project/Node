@@ -2478,7 +2478,7 @@ mod tests {
         .unwrap();
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-            let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
+            let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper");
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
@@ -4351,7 +4351,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_dns_resolve_failure_sends_message_to_neighborhood() {
+    fn handle_dns_resolve_failure_sends_message_to_neighborhoodzsh() {
         init_test_logging();
         let test_name = "handle_dns_resolve_failure_sends_message_to_neighborhood";
         let system = System::new(test_name);
@@ -5975,7 +5975,7 @@ mod tests {
             .unwrap();
         let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key.clone());
         let system = System::new(
-            "proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper",
+            "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop",
         );
         let mut subject = ProxyServer::new(
             main_cryptde,
