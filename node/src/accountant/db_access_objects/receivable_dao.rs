@@ -300,7 +300,7 @@ impl ReceivableDaoReal {
             .transaction()
             .map_err(|e| ErrorByFatality::NonFatal(ReceivableDaoError::from(e)))
             .and_then(|txn| {
-                Self::run_processing_received_payments(
+                Self::run_processing_of_received_payments(
                     big_int_db_processor,
                     txn,
                     received_payments,
@@ -325,7 +325,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn run_processing_received_payments<'txn>(
+    fn run_processing_of_received_payments<'txn>(
         big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
         txn: Box<dyn TransactionWrapper + 'txn>,
         received_payments: &[BlockchainTransaction],
@@ -359,9 +359,7 @@ impl ReceivableDaoReal {
 
             match result {
                 Ok(_) => Ok(()),
-                Err(BigIntDatabaseError::General(err_msg)) => {
-                    Err(ErrorByFatality::Panic(err_msg.to_string()))
-                }
+                Err(BigIntDatabaseError::General(err_msg)) => Err(ErrorByFatality::Panic(err_msg)),
                 Err(BigIntDatabaseError::RowChangeMismatch { .. }) => {
                     Self::verify_possibly_unknown_wallet(
                         txn.as_ref(),
@@ -531,6 +529,7 @@ mod tests {
     use rusqlite::{ffi, Connection, ErrorCode, OpenFlags, ToSql};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
@@ -1080,6 +1079,7 @@ mod tests {
         init_test_logging();
         let test_name = "multi_row_update_for_received_payments_leaves_transactions_uncommitted_if_panic_occurs";
         let data_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let time_of_change = SystemTime::now()
             .checked_sub(Duration::from_secs(1111))
             .unwrap();
@@ -1087,7 +1087,7 @@ mod tests {
         let first_initial_balance = 123_456;
         let first_previous_timestamp = UNIX_EPOCH;
         let second_wallet = make_wallet("def");
-        {
+        let receivable_dao = {
             let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
@@ -1100,9 +1100,10 @@ mod tests {
             .unwrap();
             dao
         };
-        let conn = DbInitializerReal::default()
+        let mut conn = DbInitializerReal::default()
             .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
+        let txn = conn.transaction().unwrap();
         let panic_causing_conn = {
             let conn = Connection::open_with_flags(
                 &data_dir.join(DATABASE_FILE),
@@ -1112,18 +1113,21 @@ mod tests {
             Box::new(ConnectionWrapperReal::new(conn))
         };
         let prepare_results = TransactionPrepareMethodResults::default()
-            .prod_code_calls_conn(conn)
+            .prod_code_calls_transaction(txn)
             .preceding_prod_code_calls(3)
             .stubbed_calls_conn(panic_causing_conn)
             .add_single_stubbed_call_from_prod_code_statement();
-        let mocked_transaction =
-            Box::new(TransactionWrapperMock::default().prepare_results(prepare_results));
+        let mocked_transaction = Box::new(
+            TransactionWrapperMock::default()
+                .prepare_params(&prepare_params_arc)
+                .prepare_results(prepare_results),
+        );
         let mut mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let logger = Logger::new(test_name);
         let first_transaction = BlockchainTransaction {
             block_number: 123_456,
-            from: first_wallet,
+            from: first_wallet.clone(),
             wei_amount: 45_678,
         };
         let second_transaction = BlockchainTransaction {
@@ -1133,7 +1137,7 @@ mod tests {
         };
         let transactions = vec![first_transaction, second_transaction];
 
-        let caught_err = catch_unwind(AssertUnwindSafe(|| {
+        let result = catch_unwind(AssertUnwindSafe(|| {
             ReceivableDaoReal::multi_row_update_from_received_payments(
                 mocked_conn.as_mut(),
                 &BigIntDatabaseProcessorReal::default(),
@@ -1141,15 +1145,37 @@ mod tests {
                 time_of_change,
                 transactions.as_slice(),
             )
-        }))
-        .unwrap_err();
+        }));
 
-        let panic_msg = caught_err.downcast_ref::<String>().unwrap();
+        let caught_panic = result.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
         let expected_panic_msg =
             "Error from invalid update command for receivable table and change of -111222 wei to \
             'wallet_address = 0x0000000000000000000000000000000000646566' with error 'attempt to \
             write a readonly database'";
         assert_eq!(panic_msg, &expected_panic_msg);
+        let prepare_params = prepare_params_arc.lock().unwrap();
+        // Asserting that we did perform the first transaction completely (including handling an overflow)
+        assert_eq!(&prepare_params[0..3],
+            &[
+              "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b \
+              = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address \
+              = :wallet",
+              "select balance_high_b, balance_low_b from receivable where wallet_address = \
+              '0x0000000000000000000000000000000000616263'",
+              "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
+              last_received_timestamp = :last_received where wallet_address = :wallet"
+            ]);
+        let account_status = receivable_dao.account_status(&first_wallet);
+        // The first transaction was rolled back
+        assert_eq!(
+            account_status,
+            Some(ReceivableAccount {
+                wallet: first_wallet,
+                balance_wei: first_initial_balance as i128,
+                last_received_timestamp: first_previous_timestamp,
+            })
+        );
         let log_handler = TestLogHandler::new();
         log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
         log_handler.exists_log_containing(&format!(
@@ -1159,23 +1185,26 @@ mod tests {
             789123     0x0000000000000000000000000000000000646566 111222            \n\
             TOTAL                                                 156900"
         ));
-        // Caution: Don't try to look into the persistent DB file! You might've seen that the first record did
-        // change and you could've thought that the first account update was committed. Instead, it would've been
-        // a disillusion from seeing just the committed statements generated within the code of the test
-        // framework for the 'prepare' method. Remember we supply legitimate rusqlite connections and have them
-        // produce a Statement (directly, without a Transaction involved) that is always executed and does not
-        // need the 'commit' call.
+        // The test framework used in here, the TransactionWrapperMock, is really a smart tool. It
+        // allows  to simulate errors thrown from Statements that come from our watched transaction
+        // acting a main role in the test. That goes along with the standard purposes of mocks. One
+        // of the extra features, though, is a simulation of how a transaction would behave in
+        // reality, especially concerning the commit time or a drop of the object, not having
+        // involved itself in an explicit call of 'commit', there a situation that should leave the
+        // database unmodified (using the roll-back strategy).
+        // Why is it important to think about? Well, the mocked wrapper functions based on having
+        // its own transaction that would be used for any number of initial calls done through it
+        // and which, if not also interacting with a real transaction, would all be persistently
+        // written into the database. In order to be faithful to the various distinct operations
+        // that take place in our code, we do care really a lot about the terminal stage of the
+        // transaction. If we don't make it to the 'commit' call for an issue stepping in before,
+        // the staged changes will not pass into the database. Which is exactly what happens in this
+        // test.
         //
-        // Chief test conclusion: even though we hadn't prepared a result for the mocked 'commit' method,
-        // the test didn't panic because of that. Another note is that if had been committing each transaction
-        // separately we would've come across at least one call of 'commit', yet we didn't.
-        //
-        // In order to harden the hypothesis, we're going to make two extra sorts of assertions:
-        // 1) To make sure that the current setting does not expect the real rusqlite transaction to commit
-        //    automatically during the deconstruction via the 'drop' call.
-        // 2) Those which will show that we definitely were taking part in the database writing operations
-        //    with our mocked transaction and so it wasn't a different one could've possibly been committed
-        //    elsewhere
+        // Another proof about the correct course of events is that even though we hadn't prepared
+        // a result for the mocked 'commit' method, the test didn't panic because of that. Besides
+        // that, if it had been committing each transaction separately we would've come across at
+        // least one call of 'commit' (and crashed), yet we didn't.
     }
 
     #[test]

@@ -5,6 +5,7 @@
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -59,13 +60,13 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
 }
 
 #[derive(Default, Debug)]
-pub struct TransactionWrapperMock {
+pub struct TransactionWrapperMock<'a> {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results_opt: Option<TransactionPrepareMethodResults>,
+    prepare_results: Option<TransactionPrepareMethodResults<'a>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
 }
 
-impl TransactionWrapperMock {
+impl<'a> TransactionWrapperMock<'a> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -75,8 +76,8 @@ impl TransactionWrapperMock {
         self
     }
 
-    pub fn prepare_results(mut self, results: TransactionPrepareMethodResults) -> Self {
-        self.prepare_results_opt = Some(results);
+    pub fn prepare_results(mut self, results: TransactionPrepareMethodResults<'a>) -> Self {
+        self.prepare_results = Some(results);
         self
     }
 
@@ -86,14 +87,14 @@ impl TransactionWrapperMock {
     }
 }
 
-impl TransactionWrapper for TransactionWrapperMock {
+impl TransactionWrapper for TransactionWrapperMock<'_> {
     fn prepare(&self, prod_code_query: &str) -> Result<Statement, Error> {
         self.prepare_params
             .lock()
             .unwrap()
             .push(prod_code_query.to_string());
 
-        let prepared_results = self.prepare_results_opt.as_ref().unwrap();
+        let prepared_results = self.prepare_results.as_ref().unwrap();
         let idx_info_opt = prepared_results.stubbed_call_idx_info_opt();
         prepared_results.produce_statement(idx_info_opt, prod_code_query)
     }
@@ -103,45 +104,61 @@ impl TransactionWrapper for TransactionWrapperMock {
     }
 
     fn commit(&mut self) -> Result<(), Error> {
-        self.commit_results.borrow_mut().remove(0)
+        let next_result = self.commit_results.borrow_mut().remove(0);
+        if next_result.is_ok() {
+            if let Some(results) = self.prepare_results.as_mut() {
+                if let Some(realistic_transaction) =
+                    results.prod_code_calls_transaction_opt.as_mut()
+                {
+                    return realistic_transaction.commit();
+                }
+            }
+            next_result
+        } else {
+            next_result
+        }
     }
 }
 
-// To store a Statement in the TransactionWrapperMock and, as one piece, put it into
-// the ConnectionWrapperMock turned out not working out well. It allured lifetime issues. There were
-// a couple of attempts to get those right but it was conditioned by a creation of lot of new
-// explicit lifetimes that sometimes called for strict hierarchical relations between one and another.
-// Giving up, the only practicable way to make this mock do what it should was to simplify the overuse
-// of borrows.
-// In order to achieve that, we necessarily had to have the mock much smarter and give it its own
-// DB connection thanks to which we would be able to spawn a native rusqlite Statement, because there
-// really isn't an option left than having the rusqlite library construct the Statement according to
-// their standard API, and secondly, because all our attempts to write a StatementWrapper had failed
-// for compilation issues where (static) generic arguments that are widespread across the original
-// implementation of the Statement were not replicable on our wrapper. The reason is
-// a trait object with such methods isn't valid.
+// The idea to store a rusqlite 'Statement' in the TransactionWrapperMock and put this compound into
+// the ConnectionWrapperMock did not turn out well. It allured lifetime issues. A fair amount of
+// attempts was made to get those right but a success was conditioned by a creation of lot of new
+// explicit lifetimes out of which some were calling for strict hierarchical relations between one
+// and another.
+// Having given up, the only practicable way to make this mock do what it should was to simplify
+// the high usage of borrows.
+// In order to see it done we necessarily had to have the mock much smarter and give it its own
+// DB connection serving as a future on-demand producer of a native rusqlite Statement, because
+// there really hasn't been an option left than having the rusqlite library construct the Statement
+// by itself, using their standard API, and secondly, because all our attempts to write
+// a StatementWrapper had failed for solid compilation issues where (statically determined) generic
+// arguments lies spread across the original implementation of the Statement which could not be
+// replicable with our wrapper, and we also could not avoid them. A trait using generics in its
+// methods isn't valid in Rust, while trait objects are the technology we otherwise exclusively use.
 
-// That having said, we are happy to have at least something. The hardest part of the mock below,
-// though, is the 'prepare' method. Most of time, if not always, you're not going to need an error
-// in there. That's because our production code usually treats the returned results from 'prepare'
-// by the use of 'expect'. As you may know, we don't consider 'expect' calls a requirement for
-// writing extra tests. There is therefore little to none value in stimulating an error which would
-// in turn stimulate a panic on the 'expect'.
+// That having said, we are glad to finally have at least something to use. The most difficult part
+// of the mocking system below, though, is in the 'prepare' method. Notice that most of time, if not
+// always, you're not going to need an error to turn up in there. That's because the production code
+// usually treats the returned results by 'prepare' with the use of 'expect'. As you may know, we
+// do not consider 'expect' usages a requirement for writing new tests. There is therefore little to
+// none value in stimulating an error which would only stimulate a panic on that 'expect'.
 
-// The previous paragraph explains that we do not need a mechanism to incorporate errors directly in
-// the 'prepare' method. The place that should draw our interest, though, is in fact the **produced
-// Statement** from this method. Even though maybe counter-intuitive at first, the 'prepare' method
-// can affect the result of the next, upstream function call, happening upon the given Statement that,
-// luckily for us and despite certain uneasiness, can be made shaped according to our needs. This
-// carefully prepared Statement then can cause a useful error, easing test writing. For example at
-// the following methods 'execute', 'query_row' or 'query_map'.
+// The previous paragraph clears up that we do not need to care about a mechanism to deliver errors
+// on the return of the 'prepare' method. The place worth our interest, though, is the produced
+// Statement coming out from this method. Even though looking perhaps a little nonsensical at first,
+// the 'prepare' method can have a strong impact on the result returned from the next, upstream
+// function call, to happen on top of this Statement, and which, luckily for us (despite certain
+// difficulties), can be indirectly shaped this way towards our requirements.
+// This distantly prepared Statement can then cause a certainly useful error, easing our test
+// writing. For some examples let's consider the following methods 'execute', 'query_row' or
+// 'query_map'.
 
 #[derive(Default, Debug)]
-pub struct TransactionPrepareMethodResults {
+pub struct TransactionPrepareMethodResults<'a> {
     calls_counter: RefCell<usize>,
     prod_code_calls_conn_shared_for_both: bool,
-    // Prod code setup
-    prod_code_conn_opt: Option<Box<dyn ConnectionWrapper>>,
+    // Prod code calls setup
+    prod_code_calls_transaction_opt: Option<Box<dyn TransactionWrapper + 'a>>,
     requested_preceding_prod_code_calls: usize,
     // Stubbed calls setup
     // Optional only because of the builder pattern
@@ -149,12 +166,12 @@ pub struct TransactionPrepareMethodResults {
     stubbed_calls_optional_statements_literals: Vec<Option<String>>,
 }
 
-impl TransactionPrepareMethodResults {
-    pub fn prod_code_calls_conn(mut self, conn: Box<dyn ConnectionWrapper>) -> Self {
-        if self.prod_code_conn_opt.is_none() {
-            self.prod_code_conn_opt = Some(conn)
+impl<'a> TransactionPrepareMethodResults<'a> {
+    pub fn prod_code_calls_transaction(mut self, txn: Box<dyn TransactionWrapper + 'a>) -> Self {
+        if self.prod_code_calls_transaction_opt.is_none() {
+            self.prod_code_calls_transaction_opt = Some(txn);
         } else {
-            panic!("Use only single call of \"prod_code_calls_conn!\"")
+            panic!("Use only single call of \"prod_code_calls_transaction_opt!\"")
         }
         self
     }
@@ -196,7 +213,9 @@ impl TransactionPrepareMethodResults {
     fn stubbed_call_idx_info_opt(&self) -> Option<StubbedCallIndexInfo> {
         let upcoming_call_idx = *self.calls_counter.borrow();
 
-        if self.prod_code_conn_opt.is_some() && self.requested_preceding_prod_code_calls > 0 {
+        if self.prod_code_calls_transaction_opt.is_some()
+            && self.requested_preceding_prod_code_calls > 0
+        {
             let preceding_prod_code_calls = self.requested_preceding_prod_code_calls;
             if preceding_prod_code_calls > upcoming_call_idx {
                 None
@@ -216,47 +235,64 @@ impl TransactionPrepareMethodResults {
         match idx_info_opt {
             None => {
                 let result = self
-                    .prod_code_conn_opt
+                    .prod_code_calls_transaction_opt
                     .as_ref()
-                    .expect("Conn for the requested initial prod code calls was not prepared")
+                    .expect("Prod code call with uninitialized txn")
                     .prepare(prod_code_query);
                 self.increment_counter();
                 result
             }
-            Some(stabbed_call_idx_info) => {
-                let upcoming_call_idx = *self.calls_counter.borrow_mut();
-                let idx = stabbed_call_idx_info.calculate_idx(upcoming_call_idx);
-                let query = match self
-                    .stubbed_calls_optional_statements_literals
-                    .get(idx)
-                    .unwrap()
-                {
-                    Some(stubbed_query) => stubbed_query,
-                    None => prod_code_query,
-                };
-                let conn = self.resolve_choice_of_stubbed_conn();
-                let result = conn.prepare(query);
+            Some(stubbed_call_idx_info) => {
+                let stm = self.bring_out_stubbed_statement(stubbed_call_idx_info, prod_code_query);
                 self.increment_counter();
-                result
+                Ok(stm)
             }
         }
+    }
+
+    fn bring_out_stubbed_statement(
+        &self,
+        idx_info: StubbedCallIndexInfo,
+        prod_code_query: &str,
+    ) -> Statement {
+        let upcoming_call_idx = *self.calls_counter.borrow_mut();
+        let idx = idx_info.calculate_idx(upcoming_call_idx);
+        let query = match self
+            .stubbed_calls_optional_statements_literals
+            .get(idx)
+            .unwrap()
+        {
+            Some(stubbed_query) => stubbed_query,
+            None => prod_code_query,
+        };
+        let result = match self.resolve_choice_of_stubbed_conn() {
+            Either::Left(txn) => txn.prepare(query),
+            Either::Right(conn) => conn.prepare(query),
+        };
+        result.unwrap()
     }
 
     fn increment_counter(&self) {
         *self.calls_counter.borrow_mut() += 1
     }
 
-    fn resolve_choice_of_stubbed_conn(&self) -> &dyn ConnectionWrapper {
+    fn resolve_choice_of_stubbed_conn(
+        &self,
+    ) -> Either<&dyn TransactionWrapper, &dyn ConnectionWrapper> {
         if self.prod_code_calls_conn_shared_for_both {
-            &**self
-                .prod_code_conn_opt
-                .as_ref()
-                .expect("Conn for prod code calls not available")
+            Either::Left(
+                self.prod_code_calls_transaction_opt
+                    .as_ref()
+                    .expect("Conn for prod code calls not available")
+                    .as_ref(),
+            )
         } else {
-            &**self
-                .stubbed_calls_conn_opt
-                .as_ref()
-                .expect("Conn for the requested stubbed calls was not prepared")
+            Either::Right(
+                self.stubbed_calls_conn_opt
+                    .as_ref()
+                    .expect("Conn for the requested stubbed calls was not prepared")
+                    .as_ref(),
+            )
         }
     }
 }
@@ -272,8 +308,8 @@ impl StubbedCallIndexInfo {
         }
     }
 
-    fn calculate_idx(&self, upcoming_call_absolute_idx: usize) -> usize {
-        upcoming_call_absolute_idx - self.preceding_prod_code_calls
+    fn calculate_idx(&self, upcoming_call_idx: usize) -> usize {
+        upcoming_call_idx - self.preceding_prod_code_calls
     }
 }
 
