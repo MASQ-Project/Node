@@ -89,14 +89,12 @@ impl StreamKey {
         }
     }
 
-    #[cfg(test)]
     pub fn make_meaningless_stream_key() -> StreamKey {
         StreamKey {
             hash: [0; sha1::DIGEST_LENGTH],
         }
     }
 
-    #[cfg(test)]
     pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {
         let mut hash = sha1::Sha1::new();
         hash.update(phrase.as_bytes());

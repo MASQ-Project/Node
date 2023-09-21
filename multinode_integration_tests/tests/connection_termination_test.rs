@@ -297,7 +297,10 @@ fn context_from_request_lcp(
 }
 
 fn arbitrary_context() -> (StreamKey, u32) {
-    (StreamKey::default(), 12345678)
+    (
+        StreamKey::make_meaningful_stream_key("arbitrary_context"),
+        12345678,
+    )
 }
 
 fn create_request_icp(
@@ -352,7 +355,8 @@ fn create_meaningless_icp(
     exit_node: &MASQRealNode,
 ) -> IncipientCoresPackage {
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
-    let stream_key = StreamKey::default();
+    let stream_key =
+        StreamKey::make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
     IncipientCoresPackage::new(
         originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
