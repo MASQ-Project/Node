@@ -5,7 +5,7 @@
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
-use rusqlite::{Connection, Error, Statement, ToSql};
+use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -61,7 +61,7 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
 #[derive(Default, Debug)]
 pub struct TransactionWrapperMock {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results_opt: Option<TransactionPrepareResults>,
+    prepare_results_opt: Option<TransactionPrepareMethodResults>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
 }
 
@@ -75,8 +75,8 @@ impl TransactionWrapperMock {
         self
     }
 
-    pub fn prepare_results(mut self, results_setup: TransactionPrepareResults) -> Self {
-        self.prepare_results_opt = Some(results_setup);
+    pub fn prepare_results(mut self, results: TransactionPrepareMethodResults) -> Self {
+        self.prepare_results_opt = Some(results);
         self
     }
 
@@ -94,15 +94,8 @@ impl TransactionWrapper for TransactionWrapperMock {
             .push(prod_code_query.to_string());
 
         let prepared_results = self.prepare_results_opt.as_ref().unwrap();
-        let upcoming_call_idx = *prepared_results.calls_counter.borrow();
-        let (should_make_prod_code_call, real_calls_total) =
-            prepared_results.decide_next_call_type();
-        prepared_results.produce_statement(
-            should_make_prod_code_call,
-            prod_code_query,
-            upcoming_call_idx,
-            real_calls_total,
-        )
+        let idx_info_opt = prepared_results.stubbed_call_idx_info_opt();
+        prepared_results.produce_statement(idx_info_opt, prod_code_query)
     }
 
     fn execute(&self, _query: &str, _params: &[&dyn ToSql]) -> Result<usize, Error> {
@@ -144,19 +137,19 @@ impl TransactionWrapper for TransactionWrapperMock {
 // the following methods 'execute', 'query_row' or 'query_map'.
 
 #[derive(Default, Debug)]
-pub struct TransactionPrepareResults {
+pub struct TransactionPrepareMethodResults {
     calls_counter: RefCell<usize>,
     prod_code_calls_conn_shared_for_both: bool,
     // Prod code setup
     prod_code_conn_opt: Option<Box<dyn ConnectionWrapper>>,
-    requested_prod_code_calls_since_beginning: usize,
+    requested_preceding_prod_code_calls: usize,
     // Stubbed calls setup
     // Optional only because of the builder pattern
     stubbed_calls_conn_opt: Option<Box<dyn ConnectionWrapper>>,
     stubbed_calls_optional_statements_literals: Vec<Option<String>>,
 }
 
-impl TransactionPrepareResults {
+impl TransactionPrepareMethodResults {
     pub fn prod_code_calls_conn(mut self, conn: Box<dyn ConnectionWrapper>) -> Self {
         if self.prod_code_conn_opt.is_none() {
             self.prod_code_conn_opt = Some(conn)
@@ -166,9 +159,9 @@ impl TransactionPrepareResults {
         self
     }
 
-    pub fn number_of_prod_code_calls(mut self, required_prod_code_calls: usize) -> Self {
-        if self.requested_prod_code_calls_since_beginning == 0 {
-            self.requested_prod_code_calls_since_beginning = required_prod_code_calls
+    pub fn preceding_prod_code_calls(mut self, total_of_prod_code_calls: usize) -> Self {
+        if self.requested_preceding_prod_code_calls == 0 {
+            self.requested_preceding_prod_code_calls = total_of_prod_code_calls
         } else {
             panic!("Use only single call of \"number_of_prod_code_calls!\"")
         }
@@ -200,50 +193,52 @@ impl TransactionPrepareResults {
         self
     }
 
-    fn decide_next_call_type(&self) -> (bool, usize) {
+    fn stubbed_call_idx_info_opt(&self) -> Option<StubbedCallIndexInfo> {
         let upcoming_call_idx = *self.calls_counter.borrow();
 
-        if self.prod_code_conn_opt.is_some() && self.requested_prod_code_calls_since_beginning > 0 {
-            let real_calls_total = self.requested_prod_code_calls_since_beginning;
-            if real_calls_total >= upcoming_call_idx {
-                (true, real_calls_total)
+        if self.prod_code_conn_opt.is_some() && self.requested_preceding_prod_code_calls > 0 {
+            let preceding_prod_code_calls = self.requested_preceding_prod_code_calls;
+            if preceding_prod_code_calls > upcoming_call_idx {
+                None
             } else {
-                (false, real_calls_total)
+                Some(StubbedCallIndexInfo::new(preceding_prod_code_calls))
             }
         } else {
-            (false, 0)
+            Some(StubbedCallIndexInfo::new(0))
         }
     }
 
     fn produce_statement(
         &self,
-        should_make_prod_code_call: bool,
+        idx_info_opt: Option<StubbedCallIndexInfo>,
         prod_code_query: &str,
-        upcoming_call_idx: usize,
-        real_calls_total: usize,
     ) -> Result<Statement, Error> {
-        if should_make_prod_code_call {
-            let result = self
-                .prod_code_conn_opt
-                .as_ref()
-                .expect("Conn for the requested initial prod code calls was not prepared")
-                .prepare(prod_code_query);
-            self.increment_counter();
-            result
-        } else {
-            let expected_idx = upcoming_call_idx - (real_calls_total + 1);
-            let query = match self
-                .stubbed_calls_optional_statements_literals
-                .get(expected_idx)
-                .unwrap()
-            {
-                Some(stubbed_query) => stubbed_query,
-                None => prod_code_query,
-            };
-            let conn = self.resolve_choice_of_stubbed_conn();
-            let result = conn.prepare(query);
-            self.increment_counter();
-            result
+        match idx_info_opt {
+            None => {
+                let result = self
+                    .prod_code_conn_opt
+                    .as_ref()
+                    .expect("Conn for the requested initial prod code calls was not prepared")
+                    .prepare(prod_code_query);
+                self.increment_counter();
+                result
+            }
+            Some(stabbed_call_idx_info) => {
+                let upcoming_call_idx = *self.calls_counter.borrow_mut();
+                let idx = stabbed_call_idx_info.calculate_idx(upcoming_call_idx);
+                let query = match self
+                    .stubbed_calls_optional_statements_literals
+                    .get(idx)
+                    .unwrap()
+                {
+                    Some(stubbed_query) => stubbed_query,
+                    None => prod_code_query,
+                };
+                let conn = self.resolve_choice_of_stubbed_conn();
+                let result = conn.prepare(query);
+                self.increment_counter();
+                result
+            }
         }
     }
 
@@ -263,6 +258,22 @@ impl TransactionPrepareResults {
                 .as_ref()
                 .expect("Conn for the requested stubbed calls was not prepared")
         }
+    }
+}
+
+struct StubbedCallIndexInfo {
+    preceding_prod_code_calls: usize,
+}
+
+impl StubbedCallIndexInfo {
+    fn new(preceding_prod_code_calls: usize) -> Self {
+        Self {
+            preceding_prod_code_calls,
+        }
+    }
+
+    fn calculate_idx(&self, upcoming_call_absolute_idx: usize) -> usize {
+        upcoming_call_absolute_idx - self.preceding_prod_code_calls
     }
 }
 

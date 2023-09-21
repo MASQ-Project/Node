@@ -520,7 +520,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::{
-        ConnectionWrapperMock, TransactionPrepareResults, TransactionWrapperMock,
+        ConnectionWrapperMock, TransactionPrepareMethodResults, TransactionWrapperMock,
     };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -531,7 +531,6 @@ mod tests {
     use rusqlite::{ffi, Connection, ErrorCode, OpenFlags, ToSql};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::Path;
-    use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
@@ -1112,13 +1111,13 @@ mod tests {
             .unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results_setup = TransactionPrepareResults::default()
+        let prepare_results = TransactionPrepareMethodResults::default()
             .prod_code_calls_conn(conn)
-            .number_of_prod_code_calls(2)
+            .preceding_prod_code_calls(3)
             .stubbed_calls_conn(panic_causing_conn)
             .add_single_stubbed_call_from_prod_code_statement();
         let mocked_transaction =
-            Box::new(TransactionWrapperMock::default().prepare_results(prepare_results_setup));
+            Box::new(TransactionWrapperMock::default().prepare_results(prepare_results));
         let mut mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let logger = Logger::new(test_name);
