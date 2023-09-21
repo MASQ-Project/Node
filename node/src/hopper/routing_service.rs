@@ -515,7 +515,6 @@ mod tests {
     use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
     use crate::sub_lib::route::{Route, RouteSegment};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
-    use crate::sub_lib::stream_key::StreamKey;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
@@ -1903,7 +1902,7 @@ mod tests {
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
-                        stream_key: StreamKey::default(),
+                        stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                         target_hostname: Some("hostname".to_string()),
                         target_port: 1234,
@@ -1929,7 +1928,7 @@ mod tests {
                 &MessageType::DnsResolveFailed(VersionedData::new(
                     &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
                     &DnsResolveFailure_0v1 {
-                        stream_key: StreamKey::default(),
+                        stream_key: make_meaningless_stream_key(),
                     },
                 )),
             )
@@ -1969,7 +1968,7 @@ mod tests {
                 &MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {
-                        stream_key: StreamKey::default(),
+                        stream_key: make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                     },
                 )),

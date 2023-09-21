@@ -122,6 +122,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::test_utils::make_meaningful_stream_key;
     use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
 
@@ -139,7 +140,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = ClientRequestPayload_0v1 {
-            stream_key: StreamKey::default(),
+            stream_key: make_meaningful_stream_key("All Things Must Pass"),
             sequenced_packet: SequencedPacket::new(vec![4, 3, 2, 1], 4321, false),
             target_hostname: Some("target.hostname.com".to_string()),
             target_port: 1234,

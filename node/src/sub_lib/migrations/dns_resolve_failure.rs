@@ -83,6 +83,7 @@ impl TryFrom<&Value> for DnsResolveFailure_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::make_meaningful_stream_key;
     use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
 
@@ -95,7 +96,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = DnsResolveFailure_0v1 {
-            stream_key: StreamKey::default(),
+            stream_key: make_meaningful_stream_key("All Things Must Pass"),
         };
         let future_crp = ExampleFutureDRF {
             stream_key: expected_crp.stream_key.clone(),

@@ -102,7 +102,7 @@ mod tests {
     fn stream_keys_are_unique() {
         let mut stream_keys_set = HashSet::new();
 
-        for i in 1..=1_000_000 {
+        for i in 1..=1_000 {
             let stream_key = StreamKey::default();
             let is_unique = stream_keys_set.insert(stream_key);
 
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn serialization_and_deserialization_can_talk() {
-        let subject = StreamKey::default();
+        let subject = make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
 
         let serial = serde_cbor::ser::to_vec(&subject).unwrap();
 

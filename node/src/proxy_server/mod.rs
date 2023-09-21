@@ -1024,7 +1024,6 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1033,6 +1032,7 @@ mod tests {
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
+    use crate::test_utils::{make_meaningful_stream_key, make_paying_wallet};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -2956,6 +2956,7 @@ mod tests {
     #[test]
     fn proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper(
     ) {
+        let test_name = "proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper";
         let tls_request = &[
             0xFF, // content_type: don't care, just not Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -2975,7 +2976,7 @@ mod tests {
             ),
         }));
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = StreamKey::default();
+        let stream_key = make_meaningful_stream_key(test_name);
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -3016,7 +3017,7 @@ mod tests {
                 false,
             );
             subject.keys_and_addrs.insert(stream_key, client_addr);
-            let system = System::new("proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper");
+            let system = System::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
@@ -4300,7 +4301,7 @@ mod tests {
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::default();
+        let unaffected_stream_key = make_meaningful_stream_key("unaffected");
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4346,9 +4347,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::default();
+        let unaffected_stream_key = make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::default();
+        let affected_stream_key = make_meaningful_stream_key("affected");
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4467,9 +4468,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::default();
+        let unaffected_stream_key = make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::default();
+        let affected_stream_key = make_meaningful_stream_key("affected");
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4575,9 +4576,9 @@ mod tests {
     fn handle_stream_shutdown_msg_does_not_report_to_counterpart_when_unnecessary() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key = StreamKey::default();
+        let unaffected_stream_key = make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key = StreamKey::default();
+        let affected_stream_key = make_meaningful_stream_key("affected");
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4639,7 +4640,7 @@ mod tests {
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
         subject.inbound_client_data_helper_opt = Some(Box::new(helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
-        let stream_key = StreamKey::default();
+        let stream_key = make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let msg = StreamShutdownMsg {
             peer_addr: socket_addr,
@@ -4664,7 +4665,7 @@ mod tests {
             .handle_normal_client_data_result(Ok(()));
         subject.inbound_client_data_helper_opt = Some(Box::new(icd_helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let stream_key = StreamKey::default();
+        let stream_key = make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         subject.stream_key_routes.insert(
             stream_key,
