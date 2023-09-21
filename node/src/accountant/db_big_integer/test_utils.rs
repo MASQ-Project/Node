@@ -46,8 +46,8 @@ where
         _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
         _config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDatabaseError> {
-        // You can implement params capture here but so far it was not needed,
-        // we've been always fine with testing on the prod code
+        // You can implement a params capture here but so far it hasn't been needed,
+        // we've done well with testing on the prod code
         self.execute_results.borrow_mut().remove(0)
     }
 }

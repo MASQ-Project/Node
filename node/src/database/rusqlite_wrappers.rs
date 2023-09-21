@@ -4,20 +4,16 @@ use crate::masq_lib::utils::ExpectValue;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 
-// The maximum we could devise in the mocked forms are the Connection and Transaction provided
-// by the rusqlite library. The implementation of Transaction got complex, where we had to
-// drift away from a dull mock to a much smarter one, because of a nontrivial coexistence
-// of lifetimes, which can make the storage of prepared results inside the mock hard or even
-// impossible. Of course, it would be highly convenient if we could have also a wrapper for
-// the rusqlite's Statement but there we found insurmountable obstacles.
-// Those are generic args (defined by the trait Params), but more seriously,
-// returned types from many of the provided methods of which some are used really frequently by us.
-// If not clear enough, we depend on the ability to define the mock as a trait object, however,
-// the generics we would have to take over into our trait defining the wrapper stand in our way
-// to compile because of the rules of Trait Object Safeness.
+// The maximum we could devise for mocks in this sphere covers the Connection and Transaction
+// provided by the rusqlite library. The implementation for 'Transaction' got complex, where we had
+// to drift away from a dull mock to much a smarter one, because of nontrivial co-interaction of
+// lifetimes which made the storage of results inside the mock hard or even impossible. Of course,
+// it would be highly convenient if we had another wrapper for the rusqlite's Statement but there
+// we found insurmountable obstacles. (See the documentation of the mock version)
 //
-// Even the WrappedTransaction doesn't come with easiness if it concerns more complex test scenarios.
-// On the other hand, it makes advanced testing at least possible, which wasn't the case before.
+// WrappedTransaction doesn't deploy with much simplicity either if it concerns more complex test
+// scenarios but the good news is it has brought us possibilities of advanced testing that used to
+// be plainly unthinkable.
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
