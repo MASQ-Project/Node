@@ -16,8 +16,8 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -26,9 +26,9 @@ use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-use rusqlite::{OptionalExtension};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -463,7 +463,7 @@ impl ReceivableDaoReal {
         fn finalize_report((report_lines, sum_of_all_txs): (Vec<String>, u128)) -> String {
             plus(
                 report_lines,
-                format!("{:10} {:42} {:18}", "TOTAL", "", sum_of_all_txs),
+                format!("{:10} {:42} {:<18}", "TOTAL", "", sum_of_all_txs),
             )
             .join("\n")
         }
@@ -516,10 +516,12 @@ mod tests {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account, trick_rusqlite_with_read_only_conn,
     };
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
-    use crate::database::test_utils::{ActiveStatementProducer, ConnectionWrapperMock, TransactionWrapperMock};
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+    use crate::database::test_utils::{
+        ConnectionWrapperMock, TransactionPrepareResults, TransactionWrapperMock,
+    };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -527,6 +529,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::{ffi, Connection, ErrorCode, OpenFlags, ToSql};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::Path;
     use std::thread;
     use std::time::{Duration, UNIX_EPOCH};
@@ -952,23 +955,21 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         };
-        let wallet = wallet.clone();
+        let conn = Connection::open_with_flags(
+            data_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let mut conn = ConnectionWrapperReal::new(conn);
+        let logger = Logger::new(test_name);
+        let transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: wallet,
+            wei_amount: 45_678,
+        };
+        let transactions = vec![transaction];
 
-        let thread_handle = thread::spawn(move || {
-            let conn = Connection::open_with_flags(
-                data_dir.join(DATABASE_FILE),
-                OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let mut conn = ConnectionWrapperReal::new(conn);
-            let logger = Logger::new(test_name);
-            let transaction = BlockchainTransaction {
-                block_number: 123_456,
-                from: wallet,
-                wei_amount: 45_678,
-            };
-            let transactions = vec![transaction];
-
+        let caught_err = catch_unwind(AssertUnwindSafe(|| {
             ReceivableDaoReal::multi_row_update_from_received_payments(
                 &mut conn,
                 &BigIntDatabaseProcessorReal::default(),
@@ -976,10 +977,10 @@ mod tests {
                 time_of_change,
                 transactions.as_slice(),
             )
-        });
+        }))
+        .unwrap_err();
 
-        let background_thread_error = thread_handle.join().unwrap_err();
-        let panic_msg = background_thread_error.downcast_ref::<String>().unwrap();
+        let panic_msg = caught_err.downcast_ref::<String>().unwrap();
         let expected_panic_msg = format!(
             "Error from invalid update command for receivable table and change of -45678 wei to \
             'wallet_address = 0x0000000000000000000000000000000000616263' with error 'attempt to \
@@ -1100,65 +1101,82 @@ mod tests {
             .unwrap();
             dao
         };
-        let first_wallet_clone = first_wallet.clone();
-        let second_wallet_clone = second_wallet.clone();
-        let data_dir_clone = data_dir.clone();
+        let conn = DbInitializerReal::default()
+            .initialize(&data_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let panic_causing_conn = {
+            let conn = Connection::open_with_flags(
+                &data_dir.join(DATABASE_FILE),
+                OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            Box::new(ConnectionWrapperReal::new(conn))
+        };
+        let prepare_results_setup = TransactionPrepareResults::default()
+            .prod_code_calls_conn(conn)
+            .number_of_prod_code_calls(2)
+            .stubbed_calls_conn(panic_causing_conn)
+            .add_single_stubbed_call_from_prod_code_statement();
+        let mocked_transaction =
+            Box::new(TransactionWrapperMock::default().prepare_results(prepare_results_setup));
+        let mut mocked_conn =
+            Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
+        let logger = Logger::new(test_name);
+        let first_transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: first_wallet,
+            wei_amount: 45_678,
+        };
+        let second_transaction = BlockchainTransaction {
+            block_number: 789_123,
+            from: second_wallet,
+            wei_amount: 111_222,
+        };
+        let transactions = vec![first_transaction, second_transaction];
 
-        let thread_handle = thread::spawn(move || {
-            let mut conn = DbInitializerReal::default()
-                .initialize(&data_dir_clone, DbInitializationConfig::test_default())
-                .unwrap();
-            let logger = Logger::new(test_name);
-            let first_transaction = BlockchainTransaction {
-                block_number: 123_456,
-                from: first_wallet_clone,
-                wei_amount: 45_678,
-            };
-            // We stimulate the late panic by this second transaction, with a prepared overflow from balance arithmetics
-            let second_transaction = BlockchainTransaction {
-                block_number: 789_123,
-                from: second_wallet_clone,
-                wei_amount: i128::MAX as u128 + 1,
-            };
-            let transactions = vec![first_transaction, second_transaction];
-
+        let caught_err = catch_unwind(AssertUnwindSafe(|| {
             ReceivableDaoReal::multi_row_update_from_received_payments(
-                conn.as_mut(),
+                mocked_conn.as_mut(),
                 &BigIntDatabaseProcessorReal::default(),
                 &logger,
                 time_of_change,
                 transactions.as_slice(),
             )
-        });
+        }))
+        .unwrap_err();
 
-        let background_thread_error = thread_handle.join().unwrap_err();
-        let panic_msg = background_thread_error.downcast_ref::<String>().unwrap();
-        let expected_panic_msg = format!(
-            "Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128"
-        );
+        let panic_msg = caught_err.downcast_ref::<String>().unwrap();
+        let expected_panic_msg =
+            "Error from invalid update command for receivable table and change of -111222 wei to \
+            'wallet_address = 0x0000000000000000000000000000000000646566' with error 'attempt to \
+            write a readonly database'";
         assert_eq!(panic_msg, &expected_panic_msg);
-        let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let receivable_dao = ReceivableDaoReal::new(conn);
-        let account_status = receivable_dao.account_status(&first_wallet).unwrap();
-        // Testing that the subtraction the first transaction would've driven hasn't persisted in the database
-        assert_eq!(
-            account_status,
-            ReceivableAccount {
-                wallet: first_wallet,
-                balance_wei: first_initial_balance as i128,
-                last_received_timestamp: first_previous_timestamp,
-            }
-        );
         let log_handler = TestLogHandler::new();
         log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
-        log_handler.exists_log_containing(&format!("ERROR: {test_name}: Payment reception failed, rolling back:\n\
+        log_handler.exists_log_containing(&format!(
+            "ERROR: {test_name}: Payment reception failed, rolling back:\n\
             Block #    Wallet                                     Amount            \n\
             123456     0x0000000000000000000000000000000000616263 45678             \n\
-            789123     0x0000000000000000000000000000000000646566 170141183460469231731687303715884105728\n\
-            TOTAL                                                 170141183460469231731687303715884151406"
+            789123     0x0000000000000000000000000000000000646566 111222            \n\
+            TOTAL                                                 156900"
         ));
+        // Caution: Don't try to look into the persistent DB file! You might've seen that the first record did
+        // change and you could've thought that the first account update was committed. Instead, it would've been
+        // a disillusion from seeing just the committed statements generated within the code of the test
+        // framework for the 'prepare' method. Remember we supply legitimate rusqlite connections and have them
+        // produce a Statement (directly, without a Transaction involved) that is always executed and does not
+        // need the 'commit' call.
+        //
+        // Chief test conclusion: even though we hadn't prepared a result for the mocked 'commit' method,
+        // the test didn't panic because of that. Another note is that if had been committing each transaction
+        // separately we would've come across at least one call of 'commit', yet we didn't.
+        //
+        // In order to harden the hypothesis, we're going to make two extra sorts of assertions:
+        // 1) To make sure that the current setting does not expect the real rusqlite transaction to commit
+        //    automatically during the deconstruction via the 'drop' call.
+        // 2) Those which will show that we definitely were taking part in the database writing operations
+        //    with our mocked transaction and so it wasn't a different one could've possibly been committed
+        //    elsewhere
     }
 
     #[test]

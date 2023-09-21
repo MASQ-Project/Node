@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
@@ -13,6 +12,7 @@ use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use masq_lib::logger::Logger;
 
 pub trait DbMigrator {
@@ -181,7 +181,6 @@ impl DbMigratorReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::ExternalData;
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
@@ -192,6 +191,7 @@ mod tests {
         DBMigratorInnerConfiguration,
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;

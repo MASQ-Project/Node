@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
@@ -237,11 +237,11 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_migrations::migrator_utils::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
         StatementObject, StatementWithRusqliteParams,
     };
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;

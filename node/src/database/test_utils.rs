@@ -2,12 +2,12 @@
 
 #![cfg(test)]
 
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use rusqlite::{Connection, Error, Statement, ToSql};
 use std::cell::RefCell;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -58,51 +58,11 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
     }
 }
 
-pub trait StatementProducer: Debug {
-    fn statement(&self) -> Statement;
-}
-
-impl StatementProducer for ActiveStatementProducer {
-    fn statement(&self) -> Statement {
-        self.conn.prepare(&self.sql_stm).unwrap()
-    }
-}
-
-pub struct ActiveStatementProducer {
-    conn: Connection,
-    sql_stm: String,
-}
-
-impl Debug for ActiveStatementProducer {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        unimplemented!("not needed yet")
-    }
-}
-
-impl ActiveStatementProducer {
-    pub fn new(conn: Connection, sql_stm: String) -> Self {
-        Self { conn, sql_stm }
-    }
-}
-
-#[derive(Default)]
-struct PrepareResults {
-    producers: Vec<(ActiveStatementProducer, usize)>,
-    errors: RefCell<Vec<(Error, usize)>>,
-    idx_during_filling: usize,
-    next_result_idx: RefCell<usize>,
-}
-
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TransactionWrapperMock {
-    prepare_results: PrepareResults,
+    prepare_params: Arc<Mutex<Vec<String>>>,
+    prepare_results_opt: Option<TransactionPrepareResults>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
-}
-
-impl Debug for TransactionWrapperMock {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        unimplemented!("not needed yet")
-    }
 }
 
 impl TransactionWrapperMock {
@@ -110,21 +70,13 @@ impl TransactionWrapperMock {
         Self::default()
     }
 
-    pub fn prepare_result(mut self, result: Result<ActiveStatementProducer, Error>) -> Self {
-        let current_idx = self.prepare_results.idx_during_filling;
-        match result {
-            Ok(producer) => {
-                self.prepare_results.producers.push((producer, current_idx));
-                self.prepare_results.idx_during_filling += 1
-            }
-            Err(e) => {
-                self.prepare_results
-                    .errors
-                    .borrow_mut()
-                    .push((e, current_idx));
-                self.prepare_results.idx_during_filling += 1;
-            }
-        };
+    pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.prepare_params = params.clone();
+        self
+    }
+
+    pub fn prepare_results(mut self, results_setup: TransactionPrepareResults) -> Self {
+        self.prepare_results_opt = Some(results_setup);
         self
     }
 
@@ -135,32 +87,22 @@ impl TransactionWrapperMock {
 }
 
 impl TransactionWrapper for TransactionWrapperMock {
-    fn prepare(&self, _query: &str) -> Result<Statement, Error> {
-        let next_result_idx = *self.prepare_results.next_result_idx.borrow();
-        *self.prepare_results.next_result_idx.borrow_mut() += 1;
-        match self
-            .prepare_results
-            .producers
-            .iter()
-            .find(|(_, idx)| *idx == next_result_idx)
-        {
-            Some((producer, _)) => Ok(producer.statement()),
-            None => {
-                let current_idx = self
-                    .prepare_results
-                    .errors
-                    .borrow()
-                    .iter()
-                    .position(|(_, idx)| *idx == next_result_idx)
-                    .expect("call of TransactionWrapperMock without a prepared result");
-                Err(self
-                    .prepare_results
-                    .errors
-                    .borrow_mut()
-                    .remove(current_idx)
-                    .0)
-            }
-        }
+    fn prepare(&self, prod_code_query: &str) -> Result<Statement, Error> {
+        self.prepare_params
+            .lock()
+            .unwrap()
+            .push(prod_code_query.to_string());
+
+        let prepared_results = self.prepare_results_opt.as_ref().unwrap();
+        let upcoming_call_idx = *prepared_results.calls_counter.borrow();
+        let (should_make_prod_code_call, real_calls_total) =
+            prepared_results.decide_next_call_type();
+        prepared_results.produce_statement(
+            should_make_prod_code_call,
+            prod_code_query,
+            upcoming_call_idx,
+            real_calls_total,
+        )
     }
 
     fn execute(&self, _query: &str, _params: &[&dyn ToSql]) -> Result<usize, Error> {
@@ -169,6 +111,158 @@ impl TransactionWrapper for TransactionWrapperMock {
 
     fn commit(&mut self) -> Result<(), Error> {
         self.commit_results.borrow_mut().remove(0)
+    }
+}
+
+// To store a Statement in the TransactionWrapperMock and, as one piece, put it into
+// the ConnectionWrapperMock turned out not working out well. It allured lifetime issues. There were
+// a couple of attempts to get those right but it was conditioned by a creation of lot of new
+// explicit lifetimes that sometimes called for strict hierarchical relations between one and another.
+// Giving up, the only practicable way to make this mock do what it should was to simplify the overuse
+// of borrows.
+// In order to achieve that, we necessarily had to have the mock much smarter and give it its own
+// DB connection thanks to which we would be able to spawn a native rusqlite Statement, because there
+// really isn't an option left than having the rusqlite library construct the Statement according to
+// their standard API, and secondly, because all our attempts to write a StatementWrapper had failed
+// for compilation issues where (static) generic arguments that are widespread across the original
+// implementation of the Statement were not replicable on our wrapper. The reason is
+// a trait object with such methods isn't valid.
+
+// That having said, we are happy to have at least something. The hardest part of the mock below,
+// though, is the 'prepare' method. Most of time, if not always, you're not going to need an error
+// in there. That's because our production code usually treats the returned results from 'prepare'
+// by the use of 'expect'. As you may know, we don't consider 'expect' calls a requirement for
+// writing extra tests. There is therefore little to none value in stimulating an error which would
+// in turn stimulate a panic on the 'expect'.
+
+// The previous paragraph explains that we do not need a mechanism to incorporate errors directly in
+// the 'prepare' method. The place that should draw our interest, though, is in fact the **produced
+// Statement** from this method. Even though maybe counter-intuitive at first, the 'prepare' method
+// can affect the result of the next, upstream function call, happening upon the given Statement that,
+// luckily for us and despite certain uneasiness, can be made shaped according to our needs. This
+// carefully prepared Statement then can cause a useful error, easing test writing. For example at
+// the following methods 'execute', 'query_row' or 'query_map'.
+
+#[derive(Default, Debug)]
+pub struct TransactionPrepareResults {
+    calls_counter: RefCell<usize>,
+    prod_code_calls_conn_shared_for_both: bool,
+    // Prod code setup
+    prod_code_conn_opt: Option<Box<dyn ConnectionWrapper>>,
+    requested_prod_code_calls_since_beginning: usize,
+    // Stubbed calls setup
+    // Optional only because of the builder pattern
+    stubbed_calls_conn_opt: Option<Box<dyn ConnectionWrapper>>,
+    stubbed_calls_optional_statements_literals: Vec<Option<String>>,
+}
+
+impl TransactionPrepareResults {
+    pub fn prod_code_calls_conn(mut self, conn: Box<dyn ConnectionWrapper>) -> Self {
+        if self.prod_code_conn_opt.is_none() {
+            self.prod_code_conn_opt = Some(conn)
+        } else {
+            panic!("Use only single call of \"prod_code_calls_conn!\"")
+        }
+        self
+    }
+
+    pub fn number_of_prod_code_calls(mut self, required_prod_code_calls: usize) -> Self {
+        if self.requested_prod_code_calls_since_beginning == 0 {
+            self.requested_prod_code_calls_since_beginning = required_prod_code_calls
+        } else {
+            panic!("Use only single call of \"number_of_prod_code_calls!\"")
+        }
+        self
+    }
+
+    pub fn prod_code_calls_conn_shared_for_both(mut self) -> Self {
+        self.prod_code_calls_conn_shared_for_both = true;
+        self
+    }
+
+    pub fn stubbed_calls_conn(mut self, conn: Box<dyn ConnectionWrapper>) -> Self {
+        if self.stubbed_calls_conn_opt.is_none() {
+            self.stubbed_calls_conn_opt = Some(conn)
+        } else {
+            panic!("Use only single call of \"stubbed_calls_conn!\"")
+        }
+        self
+    }
+
+    pub fn add_single_stubbed_call_from_prod_code_statement(mut self) -> Self {
+        self.stubbed_calls_optional_statements_literals.push(None);
+        self
+    }
+
+    pub fn add_single_stubbed_call_statement(mut self, statement: &str) -> Self {
+        self.stubbed_calls_optional_statements_literals
+            .push(Some(statement.to_string()));
+        self
+    }
+
+    fn decide_next_call_type(&self) -> (bool, usize) {
+        let upcoming_call_idx = *self.calls_counter.borrow();
+
+        if self.prod_code_conn_opt.is_some() && self.requested_prod_code_calls_since_beginning > 0 {
+            let real_calls_total = self.requested_prod_code_calls_since_beginning;
+            if real_calls_total >= upcoming_call_idx {
+                (true, real_calls_total)
+            } else {
+                (false, real_calls_total)
+            }
+        } else {
+            (false, 0)
+        }
+    }
+
+    fn produce_statement(
+        &self,
+        should_make_prod_code_call: bool,
+        prod_code_query: &str,
+        upcoming_call_idx: usize,
+        real_calls_total: usize,
+    ) -> Result<Statement, Error> {
+        if should_make_prod_code_call {
+            let result = self
+                .prod_code_conn_opt
+                .as_ref()
+                .expect("Conn for the requested initial prod code calls was not prepared")
+                .prepare(prod_code_query);
+            self.increment_counter();
+            result
+        } else {
+            let expected_idx = upcoming_call_idx - (real_calls_total + 1);
+            let query = match self
+                .stubbed_calls_optional_statements_literals
+                .get(expected_idx)
+                .unwrap()
+            {
+                Some(stubbed_query) => stubbed_query,
+                None => prod_code_query,
+            };
+            let conn = self.resolve_choice_of_stubbed_conn();
+            let result = conn.prepare(query);
+            self.increment_counter();
+            result
+        }
+    }
+
+    fn increment_counter(&self) {
+        *self.calls_counter.borrow_mut() += 1
+    }
+
+    fn resolve_choice_of_stubbed_conn(&self) -> &dyn ConnectionWrapper {
+        if self.prod_code_calls_conn_shared_for_both {
+            &**self
+                .prod_code_conn_opt
+                .as_ref()
+                .expect("Conn for prod code calls not available")
+        } else {
+            &**self
+                .stubbed_calls_conn_opt
+                .as_ref()
+                .expect("Conn for the requested stubbed calls was not prepared")
+        }
     }
 }
 
