@@ -75,7 +75,7 @@ impl ClientRequestPayloadFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
+    use crate::test_utils::main_cryptde;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -96,7 +96,7 @@ mod tests {
             data: data.clone().into(),
         };
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -135,12 +135,17 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(
+            &ibcd,
+            StreamKey::make_meaningless_stream_key(),
+            cryptde,
+            &logger,
+        );
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 1,
@@ -185,7 +190,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -238,12 +243,17 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(
+            &ibcd,
+            StreamKey::make_meaningless_stream_key(),
+            cryptde,
+            &logger,
+        );
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 0,
@@ -273,7 +283,12 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(
+            &ibcd,
+            StreamKey::make_meaningless_stream_key(),
+            cryptde,
+            &logger,
+        );
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
@@ -297,7 +312,12 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(
+            &ibcd,
+            StreamKey::make_meaningless_stream_key(),
+            cryptde,
+            &logger,
+        );
 
         assert_eq!(result, None);
         TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]");
@@ -319,7 +339,12 @@ mod tests {
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject
-            .make(&ibcd, make_meaningless_stream_key(), cryptde, &logger)
+            .make(
+                &ibcd,
+                StreamKey::make_meaningless_stream_key(),
+                cryptde,
+                &logger,
+            )
             .unwrap();
 
         assert_eq!(result.sequenced_packet.sequence_number, 1);
@@ -341,7 +366,12 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(
+            &ibcd,
+            StreamKey::make_meaningless_stream_key(),
+            cryptde,
+            &logger,
+        );
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(

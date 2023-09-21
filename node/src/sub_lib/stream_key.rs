@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
-    pub hash: HashType,
+    hash: HashType,
 }
 
 impl fmt::Debug for StreamKey {
@@ -88,6 +88,22 @@ impl StreamKey {
             hash: hash.digest().bytes(),
         }
     }
+
+    #[cfg(test)]
+    pub fn make_meaningless_stream_key() -> StreamKey {
+        StreamKey {
+            hash: [0; sha1::DIGEST_LENGTH],
+        }
+    }
+
+    #[cfg(test)]
+    pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {
+        let mut hash = sha1::Sha1::new();
+        hash.update(phrase.as_bytes());
+        StreamKey {
+            hash: hash.digest().bytes(),
+        }
+    }
 }
 
 type HashType = [u8; sha1::DIGEST_LENGTH];
@@ -95,7 +111,6 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::make_meaningful_stream_key;
     use std::collections::HashSet;
 
     #[test]
@@ -112,7 +127,7 @@ mod tests {
 
     #[test]
     fn debug_implementation() {
-        let subject = make_meaningful_stream_key("These are the times");
+        let subject = StreamKey::make_meaningful_stream_key("These are the times");
 
         let result = format!("{:?}", subject);
 
@@ -121,7 +136,7 @@ mod tests {
 
     #[test]
     fn display_implementation() {
-        let subject = make_meaningful_stream_key("These are the times");
+        let subject = StreamKey::make_meaningful_stream_key("These are the times");
 
         let result = format!("{}", subject);
 
@@ -130,7 +145,9 @@ mod tests {
 
     #[test]
     fn serialization_and_deserialization_can_talk() {
-        let subject = make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
+        let subject = StreamKey::make_meaningful_stream_key(
+            "Chancellor on brink of second bailout for banks",
+        );
 
         let serial = serde_cbor::ser::to_vec(&subject).unwrap();
 
