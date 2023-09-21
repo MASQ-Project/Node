@@ -62,21 +62,18 @@ impl<'a> MultiConfig<'a> {
         schema: &App<'a, 'a>,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        let mut computed_value_names = HashSet::new();
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let vlc_copy = &vcls;
-        {
-            vlc_copy.into_iter().for_each(|vcl| {
-                vcl.vcl_args().iter().for_each(|vcl_arg| {
-                    match vcl.is_computed() {
-                        true => computed_value_names.insert(vcl_arg.name().to_string()),
-                        false => computed_value_names.remove(&vcl_arg.name().to_string())
-                    };
-                })
-            });
-        }
-        let merged: Box<dyn VirtualCommandLine> = vcls.into_iter().fold(initial, |so_far, vcl | -> Box<dyn VirtualCommandLine> {
+        let mut computed_value_names = HashSet::new();
+        vcls.iter().for_each(|vcl| {
+            vcl.vcl_args().iter().for_each(|vcl_arg| {
+                match vcl.is_computed() {
+                    true => computed_value_names.insert(vcl_arg.name().to_string()),
+                    false => computed_value_names.remove(&vcl_arg.name().to_string())
+                };
+            })
+        });
+        let merged = vcls.into_iter().fold(initial, |so_far, vcl | {
             merge(so_far, vcl)
         });
 
@@ -432,16 +429,6 @@ impl VirtualCommandLine for ConfigFileVcl {
         vcl_args_to_args(&self.vcl_args)
     }
 }
-/*
-impl VirtualCommandLine for dyn VclArg {
-    fn vcl_args(&self) -> Vec<&dyn VclArg> {
-        vcl_args_to_vcl_args(&[Box::new(self.vcl_args().as_slice())])
-    }
-
-    fn args(&self) -> Vec<String> {
-        vcl_args_to_args(&[Box::new(self.vcl_args().as_slice())])
-    }
-}*/
 
 #[derive(Debug)]
 pub enum ConfigFileVclError {

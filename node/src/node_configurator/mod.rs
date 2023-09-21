@@ -27,14 +27,14 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-fn config_file_real_user_data_dir_from_enumerate(configs: Vec<String>) -> (String, String, String) {
-    let config_match = argument_from_enumerate(configs.clone(), "--config-file".to_string()).unwrap_or("".to_string());
-    let data_dir_match = argument_from_enumerate(configs.clone(), "--data-directory".to_string()).unwrap_or("".to_string());
-    let real_user_match = argument_from_enumerate(configs, "--real-user".to_string()).unwrap_or("".to_string());
+fn config_file_data_dir_real_user_from_enumerate(configs: &Vec<String>) -> (String, String, String) {
+    let config_match = argument_from_enumerate(&configs, "--config-file").unwrap_or("".to_string());
+    let data_dir_match = argument_from_enumerate(&configs, "--data-directory").unwrap_or("".to_string());
+    let real_user_match = argument_from_enumerate(configs, "--real-user").unwrap_or("".to_string());
     (config_match, data_dir_match, real_user_match)
 }
 
-fn argument_from_enumerate(configs: Vec<String>, needle: String) -> Option<String> {
+fn argument_from_enumerate(configs: &Vec<String>, needle: &str) -> Option<String> {
     let mut arg_match = None;
     for (i, arg) in configs.iter().enumerate() {
         if arg.as_str() == needle {
@@ -44,21 +44,27 @@ fn argument_from_enumerate(configs: Vec<String>, needle: String) -> Option<Strin
     arg_match
 }
 
+pub struct UserSpecificData {
+    pub(crate) config_file: PathBuf,
+    pub(crate) config_file_specified: bool,
+    pub(crate) data_directory: PathBuf,
+    pub(crate) data_directory_specified: bool,
+    pub(crate) real_user: RealUser,
+    pub(crate) real_user_specified: bool,
+    pub(crate) pre_orientation_args: Box<dyn VirtualCommandLine>
+}
+
 pub fn determine_user_specific_data (
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<(PathBuf, bool, PathBuf, bool, RealUser, bool, Box<dyn VirtualCommandLine>), ConfiguratorError> {
-    let env_args = Box::new(EnvironmentVcl::new(&app)).args();
-    let args_to_vec = args.to_vec();
-    let pre_orientation_args = match create_preorientation_args(env_args, args_to_vec.clone(), &app) {
+) -> Result<UserSpecificData, ConfiguratorError> {
+
+    let pre_orientation_args = match create_preorientation_args(args, &app, dirs_wrapper) {
         Ok(pre_orientation_args) => pre_orientation_args,
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string()))
     };
-    let orientation_args: Vec<Box<dyn VclArg>> = merge(
-        pre_orientation_args,
-        Box::new(CommandLineVcl::new(args_to_vec))
-    )
+    let orientation_args: Vec<Box<dyn VclArg>> = pre_orientation_args
     .vcl_args()
     .into_iter()
     .filter(|vcl_arg| {
@@ -70,14 +76,14 @@ pub fn determine_user_specific_data (
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
-    let (config_file, data_dir, mut real_user) = config_file_real_user_data_dir_from_enumerate(orientation_vcl.args());
+    let (mut config_file, data_dir, mut real_user) = config_file_data_dir_real_user_from_enumerate(&orientation_vcl.args());
     let config_user_specified = !config_file.is_empty();
     let data_directory_specified = !data_dir.is_empty();
     let real_user_specified = !real_user.is_empty();
     if real_user.is_empty() {
         real_user = RealUser::new(None, None, None).populate(dirs_wrapper).to_string();
     }
-    let chain = match argument_from_enumerate(orientation_vcl.args(), "--chain".to_string()) {
+    let chain = match argument_from_enumerate(&orientation_vcl.args(), "--chain") {
         Some(chain) => {
             Chain::from(chain.as_str())
         },
@@ -92,14 +98,27 @@ pub fn determine_user_specific_data (
         false => PathBuf::from(data_dir),
         true => data_directory_from_context(dirs_wrapper, &real_user_obj, chain),
     };
-    Ok((
-        PathBuf::from(config_file),
-        config_user_specified,
+    // let final_orientation_args;
+    // if !config_user_specified {
+    //     config_file = data_directory.join("config.toml").to_string_lossy().to_string();
+    //     final_orientation_args = merge(
+    //         Box::new(orientation_vcl),
+    //         Box::new(CommandLineVcl::new(vec!["".to_string(), "--config-file".to_string(), config_file.clone()]))
+    //     );
+    // } else {
+    //     final_orientation_args = Box::new(orientation_vcl);
+    // }
+
+    Ok( UserSpecificData {
+        config_file: PathBuf::from(config_file),
+        config_file_specified: config_user_specified,
         data_directory,
         data_directory_specified,
-        real_user_obj,
+        real_user: real_user_obj,
         real_user_specified,
-        Box::new(orientation_vcl)))
+        pre_orientation_args: Box::new(orientation_vcl)
+        }
+    )
 }
 
 struct CombinedVcl {
@@ -112,9 +131,11 @@ impl CombinedVcl {
     }
 }
 
-fn create_preorientation_args(envargs: Vec<String>, argstovec: Vec<String>, app: &App) -> Result<Box<dyn VirtualCommandLine>, ConfigFileVclError> {
-    let (env_config_file, env_data_dir, env_real_user) = config_file_real_user_data_dir_from_enumerate(envargs);
-    let (cmd_config_file, cmd_data_dir, cmd_real_user) = config_file_real_user_data_dir_from_enumerate(argstovec);
+fn create_preorientation_args(cmd_args: &[String], app: &App, dirs_wrapper: &dyn DirsWrapper,) -> Result<Box<dyn VirtualCommandLine>, ConfigFileVclError> {
+    let env_args = Box::new(EnvironmentVcl::new(&app)).args();
+    let cmd_args = cmd_args.to_vec();
+    let (env_config_file, env_data_dir, env_real_user) = config_file_data_dir_real_user_from_enumerate(&env_args);
+    let (cmd_config_file, cmd_data_dir, cmd_real_user) = config_file_data_dir_real_user_from_enumerate(&cmd_args);
     let mut combined_vcl: CombinedVcl = CombinedVcl { content: vec![] };
     let combine_vcl = | name: String, vcl: &mut CombinedVcl, cmd_str: &String, env_str: &String | {
         if !cmd_str.is_empty() {
@@ -139,36 +160,79 @@ fn create_preorientation_args(envargs: Vec<String>, argstovec: Vec<String>, app:
     // config file location, when config file is specified without absolute path or current directory eg.: "./" or "../"
 
     if combined_vcl.len() > 0 {
-        let (mut config_file, data_directory, _real_user) = config_file_real_user_data_dir_from_enumerate(combined_vcl.content);
-        if  !config_file.is_empty() &&
-            (!config_file.starts_with("/") && !config_file.starts_with("./") && !config_file.starts_with("../"))
-            && data_directory.is_empty() {
-            return Err(ConfigFileVclError::InvalidConfig(
-                PathBuf::from(&config_file),
-                "Config file defined in Environment with relative path needs data-directory to be defined too".to_string()
-            ));
+        let (mut config_file, data_directory, real_user) = config_file_data_dir_real_user_from_enumerate(&combined_vcl.content);
+        if !config_file.is_empty() {
+            if  (!config_file.starts_with("/") && !config_file.starts_with("./") && !config_file.starts_with("../"))
+                && data_directory.is_empty() {
+                return Err(ConfigFileVclError::InvalidConfig(
+                    PathBuf::from(&config_file),
+                    "Config file defined in Environment with relative path needs data-directory to be defined too".to_string()
+                ));
+            }
+
+            if config_file.starts_with("./") {
+                let pwd = current_dir().expect("expected current directory");
+                config_file = config_file.replacen(".", pwd.to_string_lossy().to_string().as_str(), 1);
+            }
+
+            let mut config_file_path = PathBuf::from(&config_file.to_string());
+            let user_specified = !config_file.is_empty();
+            if config_file_path.is_relative() && !data_directory.is_empty() {
+                config_file_path = PathBuf::from(data_directory.to_string()).join(config_file_path);
+            }
+            let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
+                Ok(cfv) => Box::new(cfv),
+                Err(e) => return Err(e),
+            };
+            let args = merge(
+                Box::new(EnvironmentVcl::new(app)),
+                config_file_vcl,
+            );
+            let args = merge(
+                args,
+                Box::new(CommandLineVcl::new(
+                    vec!["".to_string(),
+                         "--config-file".to_string(),
+                         config_file_path.to_string_lossy().to_string()]
+                ))
+            );
+            Ok(args)
+        } else {
+            let config_file = PathBuf::from("config.toml");
+            let config_file_path = match data_directory.as_str() {
+                "" => PathBuf::from().join(config_file),
+                _ =>
+            };
+            let args = merge(
+                Box::new(EnvironmentVcl::new(app)),
+                Box::new(CommandLineVcl::new(
+                    vec!["".to_string(),
+                         "--config-file".to_string(),
+                         config_file_path.to_string_lossy().to_string()]
+                ))
+            );
+            Ok(args)
         }
 
-        if config_file.starts_with("./") {
-            let pwd = current_dir().expect("expected current directory");
-            config_file = config_file.replacen(".", pwd.to_string_lossy().to_string().as_str(), 1);
-        }
-
-        let mut config_file_path = PathBuf::from(&config_file.to_string());
-        let user_specified = !config_file.is_empty();
-        if config_file_path.is_relative() && !data_directory.is_empty() {
-            config_file_path = PathBuf::from(data_directory.to_string()).join(config_file_path);
-        }
-        let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
-            Ok(cfv) => Box::new(cfv),
-            Err(e) => return Err(e),
+    } else {
+        //Ok(Box::new(EnvironmentVcl::new(app)))
+        let config_file = PathBuf::from("config.toml");
+        let real_user = &RealUser::new(None, None, None).populate(dirs_wrapper);
+        let cmd_chain = argument_from_enumerate(&cmd_args, "--chain").expect("expected chain");
+        let env_chain = argument_from_enumerate(&env_args, "--chain").expect("expected chain");
+        let chain = match cmd_chain.is_empty() {
+            true => {
+                match env_chain.is_empty() {
+                    true => DEFAULT_CHAIN.rec().literal_identifier,
+                    false => env_chain.as_str()
+                }
+            }
+            false => cmd_chain.as_str()
         };
+        let data_dir = data_directory_from_context(dirs_wrapper, real_user, Chain::from(chain));
+        let config_file_path = PathBuf::from(data_dir).join(config_file);
         let args = merge(
             Box::new(EnvironmentVcl::new(app)),
-            config_file_vcl,
-        );
-        let args = merge(
-            args,
             Box::new(CommandLineVcl::new(
                 vec!["".to_string(),
                      "--config-file".to_string(),
@@ -176,8 +240,6 @@ fn create_preorientation_args(envargs: Vec<String>, argstovec: Vec<String>, app:
             ))
         );
         Ok(args)
-    } else {
-        Ok(Box::new(EnvironmentVcl::new(app)))
     }
 }
 
@@ -319,18 +381,18 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified, _preorientation) = determine_user_specific_data(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
         .unwrap();
         assert_eq!(
-            &format!("{}", config_file_path.parent().unwrap().display()),
-            &data_directory.to_string_lossy().to_string(),
+            &format!("{}", user_specific_data.config_file.parent().unwrap().display()),
+            &user_specific_data.data_directory.to_string_lossy().to_string(),
         );
-        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
-        assert_eq!(true, user_specified);
+        assert_eq!("booga.toml", user_specific_data.config_file.file_name().unwrap());
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[test]
@@ -348,18 +410,18 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
-        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified, _preorientation_args) = determine_user_specific_data(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
         .unwrap();
         assert_eq!(
-            format!("{}", config_file_path.parent().unwrap().display()),
-            data_directory.to_string_lossy().to_string(),
+            format!("{}", user_specific_data.config_file.parent().unwrap().display()),
+            user_specific_data.data_directory.to_string_lossy().to_string(),
         );
-        assert_eq!("booga.toml", config_file_path.file_name().unwrap());
-        assert_eq!(true, user_specified);
+        assert_eq!("booga.toml", user_specific_data.config_file.file_name().unwrap());
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -371,7 +433,7 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _data_dir_specified, _real_user, _real_user_specified, _preorientation_args) = determine_user_specific_data(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -380,9 +442,9 @@ mod tests {
 
         assert_eq!(
             "/tmp/booga.toml",
-            &format!("{}", config_file_path.display())
+            &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(true, user_specified);
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[cfg(target_os = "windows")]
@@ -394,7 +456,7 @@ mod tests {
             .param("--config-file", r"\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -403,9 +465,9 @@ mod tests {
 
         assert_eq!(
             r"\tmp\booga.toml",
-            &format!("{}", config_file_path.display())
+            &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(true, user_specified);
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[cfg(target_os = "windows")]
@@ -417,7 +479,7 @@ mod tests {
             .param("--config-file", r"c:\tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -426,9 +488,9 @@ mod tests {
 
         assert_eq!(
             r"c:\tmp\booga.toml",
-            &format!("{}", config_file_path.display())
+            &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(true, user_specified);
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[cfg(target_os = "windows")]
@@ -440,7 +502,7 @@ mod tests {
             .param("--config-file", r"\\TMP\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -449,9 +511,9 @@ mod tests {
 
         assert_eq!(
             r"\\TMP\booga.toml",
-            &format!("{}", config_file_path.display())
+            &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(true, user_specified);
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[cfg(target_os = "windows")]
@@ -464,7 +526,7 @@ mod tests {
             .param("--config-file", r"c:tmp\booga.toml");
         let args_vec: Vec<String> = args.into();
 
-        let (config_file_path, user_specified, _data_dir, _real_user) = determine_fundamentals(
+        let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
             &determine_config_file_path_app(),
             args_vec.as_slice(),
@@ -473,9 +535,9 @@ mod tests {
 
         assert_eq!(
             r"c:tmp\booga.toml",
-            &format!("{}", config_file_path.display())
+            &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(true, user_specified);
+        assert_eq!(true, user_specific_data.real_user_specified);
     }
 
     #[test]
