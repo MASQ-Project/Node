@@ -20,6 +20,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -72,6 +73,7 @@ pub struct DaoFactories {
     pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
+    pub config_dao_factory: Box<dyn ConfigDaoFactory>
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

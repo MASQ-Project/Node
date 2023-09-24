@@ -39,6 +39,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use crate::database::rusqlite_wrappers::TransactionWrapper;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -83,7 +84,7 @@ pub struct AccountantBuilder {
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
     banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
+    config_dao_factory: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
@@ -305,7 +306,7 @@ impl AccountantBuilder {
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(config_dao)));
+        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
@@ -331,6 +332,7 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
+        let config_dao_factory = self.config_dao_factory.unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
             DaoFactories {
@@ -338,6 +340,7 @@ impl AccountantBuilder {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
         );
         if let Some(logger) = self.logger {
@@ -455,27 +458,32 @@ impl BannedDaoFactoryMock {
 }
 
 pub struct ConfigDaoFactoryMock {
-    called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<ConfigDaoMock>>,
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn ConfigDao>>>,
 }
 
 impl ConfigDaoFactory for ConfigDaoFactoryMock {
     fn make(&self) -> Box<dyn ConfigDao> {
-        *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl ConfigDaoFactoryMock {
-    pub fn new(mock: ConfigDaoMock) -> Self {
+    pub fn new() -> Self {
         Self {
-            called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-        self.called = called.clone();
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: ConfigDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }
@@ -637,7 +645,7 @@ pub struct ReceivableDaoMock {
     more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
-    more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
+    more_money_received_results: RefCell<Vec<Box<dyn TransactionWrapper>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
@@ -661,11 +669,12 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>) {
+    fn more_money_received(&mut self, now: SystemTime, transactions: &[BlockchainTransaction]) -> Box<dyn TransactionWrapper>{
         self.more_money_received_parameters
             .lock()
             .unwrap()
-            .push((now, transactions));
+            .push((now, transactions.to_vec()));
+        self.more_money_received_results.borrow_mut().remove(0)
     }
 
     fn new_delinquencies(
@@ -721,7 +730,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_parameters(
+    pub fn more_money_received_params(
         mut self,
         parameters: &Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     ) -> Self {
@@ -729,7 +738,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_result(self, result: Result<(), PayableDaoError>) -> Self {
+    pub fn more_money_received_result(self, result: Box<dyn TransactionWrapper>) -> Self {
         self.more_money_received_results.borrow_mut().push(result);
         self
     }
@@ -1127,6 +1136,7 @@ impl PendingPayableScannerBuilder {
 pub struct ReceivableScannerBuilder {
     receivable_dao: ReceivableDaoMock,
     banned_dao: BannedDaoMock,
+    config_dao: ConfigDaoMock,
     payment_thresholds: PaymentThresholds,
     earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
@@ -1137,6 +1147,7 @@ impl ReceivableScannerBuilder {
         Self {
             receivable_dao: ReceivableDaoMock::new(),
             banned_dao: BannedDaoMock::new(),
+            config_dao: ConfigDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
@@ -1167,6 +1178,7 @@ impl ReceivableScannerBuilder {
         ReceivableScanner::new(
             Box::new(self.receivable_dao),
             Box::new(self.banned_dao),
+            Box::new(self.config_dao),
             Rc::new(self.payment_thresholds),
             Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),

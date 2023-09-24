@@ -51,6 +51,7 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::db_config::config_dao::ConfigDao;
 
 pub struct Scanners {
     pub payable: Box<dyn Scanner<RequestBalancesToPayPayables, SentPayables>>,
@@ -82,6 +83,7 @@ impl Scanners {
             receivable: Box::new(ReceivableScanner::new(
                 dao_factories.receivable_dao_factory.make(),
                 dao_factories.banned_dao_factory.make(),
+                dao_factories.config_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 earning_wallet,
                 financial_statistics,
@@ -719,6 +721,7 @@ pub struct ReceivableScanner {
     pub common: ScannerCommon,
     pub receivable_dao: Box<dyn ReceivableDao>,
     pub banned_dao: Box<dyn BannedDao>,
+    pub config_dao: Box<dyn ConfigDao>,
     pub earning_wallet: Rc<Wallet>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
@@ -761,9 +764,10 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                 .payments
                 .iter()
                 .fold(0, |so_far, now| so_far + now.wei_amount);
-            self.receivable_dao
+            let txn = self.receivable_dao
                 .as_mut()
-                .more_money_received(message.timestamp, message.payments);
+                .more_money_received(message.timestamp, &message.payments);
+            todo!();
             self.financial_statistics
                 .borrow_mut()
                 .total_paid_receivable_wei += total_newly_paid_receivable;
@@ -787,6 +791,7 @@ impl ReceivableScanner {
     pub fn new(
         receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
+        config_dao: Box<dyn ConfigDao>,
         payment_thresholds: Rc<PaymentThresholds>,
         earning_wallet: Rc<Wallet>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
@@ -796,6 +801,7 @@ impl ReceivableScanner {
             earning_wallet,
             receivable_dao,
             banned_dao,
+            config_dao,
             financial_statistics,
         }
     }
@@ -1079,14 +1085,7 @@ mod tests {
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
         ScannerCommon, Scanners,
     };
-    use crate::accountant::test_utils::{
-        make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
-        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
-        ReceivableScannerBuilder,
-    };
+    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, ConfigDaoFactoryMock};
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
         RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1124,6 +1123,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
+    use crate::db_config::mocks::ConfigDaoMock;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -1136,6 +1136,7 @@ mod tests {
         let receivable_dao_factory =
             ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
+        let config_dao_factory = ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new());
         let when_pending_too_long_sec = 1234;
         let financial_statistics = FinancialStatistics {
             total_paid_payable_wei: 1,
@@ -1152,6 +1153,7 @@ mod tests {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
             Rc::clone(&payment_thresholds_rc),
             Rc::new(earning_wallet.clone()),
@@ -2808,7 +2810,7 @@ mod tests {
         let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
+            .more_money_received_params(&more_money_received_params_arc)
             .more_money_receivable_result(Ok(()));
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)

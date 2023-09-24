@@ -63,6 +63,7 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
 pub struct TransactionWrapperMock<'a> {
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results: Option<TransactionPrepareMethodResults<'a>>,
+    commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
 }
 
@@ -78,6 +79,11 @@ impl<'a> TransactionWrapperMock<'a> {
 
     pub fn prepare_results(mut self, results: TransactionPrepareMethodResults<'a>) -> Self {
         self.prepare_results = Some(results);
+        self
+    }
+
+    pub fn commit_params(mut self, params: &Arc<Mutex<Vec<()>>>)->Self{
+        self.commit_params = params.clone();
         self
     }
 

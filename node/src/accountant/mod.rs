@@ -1012,12 +1012,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock,
-    };
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ConfigDaoFactoryMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
@@ -1068,6 +1063,9 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
+    use crate::database::rusqlite_wrappers::TransactionWrapper;
+    use crate::database::test_utils::TransactionWrapperMock;
+    use crate::db_config::mocks::ConfigDaoMock;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1094,6 +1092,7 @@ mod tests {
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new()) // For Accountant
@@ -1111,6 +1110,9 @@ mod tests {
         let banned_dao_factory = BannedDaoFactoryMock::new()
             .make_params(&banned_dao_factory_params_arc)
             .make_result(BannedDaoMock::new()); // For Receivable Scanner
+        let config_dao_factory = ConfigDaoFactoryMock::new()
+            .make_params(&config_dao_factory_params_arc)
+            .make_result(ConfigDaoMock::new()); // For receivable scanner
 
         let _ = Accountant::new(
             config,
@@ -1119,6 +1121,7 @@ mod tests {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
         );
 
@@ -1135,6 +1138,7 @@ mod tests {
             vec![(), ()]
         );
         assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![()]);
+        assert_eq!(*config_dao_factory_params_arc.lock().unwrap(), vec![()]);
     }
 
     #[test]
@@ -1159,6 +1163,8 @@ mod tests {
         );
         let banned_dao_factory =
             Box::new(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
+        let config_dao_factory =
+            Box::new(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
 
         let result = Accountant::new(
             bootstrapper_config,
@@ -1167,6 +1173,7 @@ mod tests {
                 pending_payable_dao_factory,
                 receivable_dao_factory,
                 banned_dao_factory,
+                config_dao_factory
             },
         );
 
@@ -1694,7 +1701,10 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_msg_with_received_payments_using_receivables_dao() {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block() {
+        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1707,13 +1717,19 @@ mod tests {
             from: make_wallet("wallet1"),
             wei_amount: 10000,
         };
-        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction = TransactionWrapperMock::default()
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
-            .more_money_received_result(Ok(()));
+            .more_money_received_params(&more_money_received_params_arc)
+            .more_money_received_result(Box::new(transaction));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
+            .config_dao(config_dao)
             .build();
         let system =
             System::new("accountant_processes_msg_with_received_payments_using_receivables_dao");
@@ -1733,7 +1749,11 @@ mod tests {
         assert_eq!(
             *more_money_received_params,
             vec![(now, vec![expected_receivable_1, expected_receivable_2])]
-        )
+        );
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![(("start_block".to_string(),Some("13456789".to_string())))])
     }
 
     #[test]
