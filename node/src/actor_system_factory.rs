@@ -628,9 +628,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::assertion_messages::test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions;
+    use crate::accountant::exportable_tests::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::blockchain::blockchain_bridge::assertion_messages::test_blockchain_bridge_sets_up_functioning_connections_during_its_construction;
+    use crate::blockchain::blockchain_bridge::exportable_tests::test_blockchain_bridge_is_constructed_with_correctly_functioning_connections;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
@@ -1958,7 +1958,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions() {
+    fn accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions(
+    ) {
         let act = |bootstrapper_config: BootstrapperConfig,
                    db_initializer: DbInitializerReal,
                    banned_cache_loader: BannedCacheLoaderMock,
@@ -1971,24 +1972,24 @@ mod tests {
             )
         };
 
-        test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions(
+        test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions(
             "actor_system_factory",
-            "accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions",
+            "accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions",
             act,
         )
     }
 
     #[test]
-    fn blockchain_bridge_sets_up_functioning_connections_during_its_construction() {
+    fn blockchain_bridge_is_constructed_with_correctly_functioning_connections() {
         let act = |bootstrapper_config: BootstrapperConfig,
                    address_leaker: SubsFactoryTestAddrLeaker<BlockchainBridge>| {
             ActorFactoryReal {}
                 .make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker)
         };
 
-        test_blockchain_bridge_sets_up_functioning_connections_during_its_construction(
+        test_blockchain_bridge_is_constructed_with_correctly_functioning_connections(
             "actor_system_factory",
-            "blockchain_bridge_sets_up_functioning_connections_during_its_construction",
+            "blockchain_bridge_is_constructed_with_correctly_functioning_connections",
             act,
         )
     }

@@ -1,20 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::ProtectedPayables;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use actix::Message;
 use std::fmt::Debug;
+use masq_lib::type_obfuscation::Obfuscated;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub protected_qualified_payables: ProtectedPayables,
+    pub protected_qualified_payables: Obfuscated,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
-        protected_qualified_payables: ProtectedPayables,
+        protected_qualified_payables: Obfuscated,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
@@ -32,14 +32,14 @@ impl SkeletonOptHolder for QualifiedPayablesMessage {
 
 #[derive(Message)]
 pub struct BlockchainAgentWithContextMessage {
-    pub protected_qualified_payables: ProtectedPayables,
+    pub protected_qualified_payables: Obfuscated,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl BlockchainAgentWithContextMessage {
     pub fn new(
-        qualified_payables: ProtectedPayables,
+        qualified_payables: Obfuscated,
         blockchain_agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {

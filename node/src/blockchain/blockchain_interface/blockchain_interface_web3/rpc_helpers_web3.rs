@@ -164,7 +164,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result, U256::from(3_735_928_559_u64));
+        assert_eq!(result, U256::from(0xDEADBEEF_u64));
         let requests = test_server.requests_so_far();
         let bodies: Vec<Value> = requests
             .into_iter()
@@ -224,7 +224,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result, U256::from(3_735_928_559_u64));
+        assert_eq!(result, U256::from(0xDEADBEEF_u64));
         let requests = test_server.requests_so_far();
         let bodies: Vec<Value> = requests
             .into_iter()

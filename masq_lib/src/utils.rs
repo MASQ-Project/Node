@@ -380,10 +380,10 @@ macro_rules! as_any_in_trait_impl {
 
 #[macro_export]
 macro_rules! test_only_use {
-    ($($definition: item),+) => {
+    ($($use_clause: item),+) => {
       $(
         #[cfg(test)]
-        $definition
+        $use_clause
       )+
     }
 }

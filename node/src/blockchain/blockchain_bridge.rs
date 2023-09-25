@@ -1649,7 +1649,7 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod assertion_messages {
+pub mod exportable_tests {
     use super::*;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::test_utils::http_test_server::TestServer;
@@ -1660,7 +1660,9 @@ pub mod assertion_messages {
     use crossbeam_channel::{bounded, Receiver};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
-    use serde_json::Value;
+    use rusqlite::ToSql;
+    use serde_json::Value::Object;
+    use serde_json::{Map, Value};
     use std::net::Ipv4Addr;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
@@ -1674,7 +1676,7 @@ pub mod assertion_messages {
         }
     }
 
-    pub fn test_blockchain_bridge_sets_up_functioning_connections_during_its_construction<A>(
+    pub fn test_blockchain_bridge_is_constructed_with_correctly_functioning_connections<A>(
         test_module: &str,
         test_name: &str,
         act: A,
@@ -1684,7 +1686,7 @@ pub mod assertion_messages {
             SubsFactoryTestAddrLeaker<BlockchainBridge>,
         ) -> BlockchainBridgeSubs,
     {
-        fn arrange_db(data_dir: &Path, gas_price: u64) {
+        fn prepare_db_with_unique_value(data_dir: &Path, gas_price: u64) {
             let mut persistent_config = {
                 let conn = DbInitializerReal::default()
                     .initialize(data_dir, DbInitializationConfig::test_default())
@@ -1704,48 +1706,63 @@ pub mod assertion_messages {
                 server_url,
             )
         }
-        fn assert_on_persistent_config_connection(
-            blockchain_bridge_addr_rv: Receiver<Addr<BlockchainBridge>>,
+        fn send_rpc_request_to_assert_on_later_and_assert_db_connection(
+            actor_addr_rx: Receiver<Addr<BlockchainBridge>>,
             wallet: Wallet,
             expected_gas_price: u64,
         ) {
-            let blockchain_bridge_addr = blockchain_bridge_addr_rv.try_recv().unwrap();
+            let blockchain_bridge_addr = actor_addr_rx.try_recv().unwrap();
             let msg = AssertionsMessage {
                 assertions: Box::new(move |bb: &mut BlockchainBridge| {
-                    // the assertion on this call is made outside and checks
-                    // the received request
+                    // We will assert on soundness of the connection by checking the receipt of
+                    // this request
                     let _result = bb.blockchain_interface.helpers().get_masq_balance(&wallet);
 
+                    // Asserting that we can look into the expected db from here, meaning the
+                    // PersistentConfiguration was set up correctly
                     assert_eq!(
                         bb.persistent_config.gas_price().unwrap(),
                         expected_gas_price
                     );
-
+                    // I don't know why exactly but the standard position
+                    // of this call doesn't work
                     System::current().stop();
                 }),
             };
-            //this assertion message will eventually stop the system
             blockchain_bridge_addr.try_send(msg).unwrap();
         }
-        fn assert_on_blockchain_interface_connection(test_server: &TestServer, wallet: Wallet) {
+        fn assert_blockchain_interface_connection(test_server: &TestServer, wallet: Wallet) {
             let requests = test_server.requests_so_far();
             let bodies: Vec<Value> = requests
                 .into_iter()
                 .map(|request| serde_json::from_slice(&request.body()).unwrap())
                 .collect();
+            let params = &bodies[0]["params"];
+            let expected_params = {
+                let mut map = Map::new();
+                let hashed_data = format!(
+                    "0x70a08231000000000000000000000000{}",
+                    &wallet.to_string()[2..]
+                );
+                map.insert("data".to_string(), Value::String(hashed_data));
+                map.insert(
+                    "to".to_string(),
+                    Value::String(format!("{:?}", TEST_DEFAULT_CHAIN.rec().contract)),
+                );
+                map
+            };
             assert_eq!(
-                bodies[0]["params"][0]["data"].to_string()[35..75],
-                wallet.to_string()[2..]
-            );
-            assert_eq!(
-                bodies[0]["params"][0]["to"],
-                format!("{:?}", TEST_DEFAULT_CHAIN.rec().contract)
+                params,
+                &Value::Array(vec![
+                    Object(expected_params),
+                    Value::String("latest".to_string())
+                ])
             );
         }
 
         let data_dir = ensure_node_home_directory_exists(test_module, test_name);
         let gas_price = 444;
-        arrange_db(&data_dir, gas_price);
+        prepare_db_with_unique_value(&data_dir, gas_price);
         let (test_server, server_url) = launch_prepared_test_server();
         let wallet = make_wallet("abc");
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1754,18 +1771,18 @@ pub mod assertion_messages {
             .blockchain_service_url_opt = Some(server_url);
         bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         bootstrapper_config.data_directory = data_dir;
-        let (tx, blockchain_bridge_addr_rv) = bounded(1);
+        let (tx, blockchain_bridge_addr_rx) = bounded(1);
         let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
         let system = System::new(test_name);
 
         act(bootstrapper_config, address_leaker);
 
-        assert_on_persistent_config_connection(
-            blockchain_bridge_addr_rv,
+        send_rpc_request_to_assert_on_later_and_assert_db_connection(
+            blockchain_bridge_addr_rx,
             wallet.clone(),
             gas_price,
         );
         assert_eq!(system.run(), 0);
-        assert_on_blockchain_interface_connection(&test_server, wallet)
+        assert_blockchain_interface_connection(&test_server, wallet)
     }
 }

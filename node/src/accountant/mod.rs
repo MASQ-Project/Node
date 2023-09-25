@@ -4467,7 +4467,7 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod assertion_messages {
+pub mod exportable_tests {
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::actor_system_factory::SubsFactory;
@@ -4531,13 +4531,16 @@ pub mod assertion_messages {
             if let Some(line) = semicolon_line_opt {
                 let regex = Regex::new(r"Vec<\w+>;").unwrap();
                 if regex.is_match(&line) {
-                    // The important part of the regex is the ending semicolon. Trait implementations don't use it;
-                    // they just go on with an opening bracket of the function body. Its presence therefore signifies
-                    // we have to do with a trait definition
-                    panic!("the second parsed chunk of code is a trait definition and the implementation lies first")
+                    // The important part of the regex is the semicolon at the end. Trait
+                    // implementations don't use it. They go on with an opening bracket of
+                    // the function body. Its presence therefore signifies we have to do
+                    // with a trait definition
+                    panic!(
+                        "The second parsed chunk of code is a trait definition \
+                    and the implementation lies before it. Conventions say the opposite. Simply \
+                    change the placement order in the production code."
+                    )
                 }
-            } else {
-                () //means is a clean function body without semicolon
             }
             line_undivided_fn_body
         }
@@ -4593,7 +4596,7 @@ pub mod assertion_messages {
         }
     }
 
-    pub fn test_accountant_gets_constructed_with_db_connection_that_knows_our_own_sqlite_functions<
+    pub fn test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions<
         A,
     >(
         test_module: &str,
@@ -4637,7 +4640,6 @@ pub mod assertion_messages {
         );
 
         let accountant_addr = accountant_addr_rv.try_recv().unwrap();
-        //the message also stops the system
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
                 // Will crash a test if our user-defined SQLite fns have been unreachable;
@@ -4648,13 +4650,14 @@ pub mod assertion_messages {
                 accountant
                     .receivable_dao
                     .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
-
+                // Don't move this the main test, it could produce a deceiving result.
+                // It wouldn't actually process this message. I don't know why exactly
                 System::current().stop();
             }),
         };
         accountant_addr.try_send(assertion_msg).unwrap();
         assert_eq!(system.run(), 0);
-        //we didn't blow up, it recognized the functions
-        //this is an example of the error: "no such function: slope_drop_high_bytes"
+        // We didn't blow up, it recognized the functions.
+        // This is an example of the error: "no such function: slope_drop_high_bytes"
     }
 }

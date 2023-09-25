@@ -26,9 +26,6 @@ impl BlockchainAgent for BlockchainAgentMock {
 
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
         todo!("to be implemented by GH-711")
-        // self.consuming_wallet_balances_results
-        //     .borrow_mut()
-        //     .remove(0)
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {

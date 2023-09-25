@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
@@ -147,7 +146,6 @@ pub trait PersistentConfiguration {
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 
-    #[cfg(test)]
     arbitrary_id_stamp_in_trait!();
 }
 

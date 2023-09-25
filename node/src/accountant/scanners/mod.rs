@@ -56,7 +56,8 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor, ProtectedPayables};
+use masq_lib::type_obfuscation::Obfuscated;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::PayableTransactionError;
 
@@ -499,21 +500,12 @@ impl PayableScanner {
         };
     }
 
-    fn protect_payables(&self, payables: Vec<PayableAccount>) -> ProtectedPayables {
-        Self::protect_payables_shared(payables)
+    fn protect_payables(&self, payables: Vec<PayableAccount>) -> Obfuscated {
+        Obfuscated::obfuscate_data(payables)
     }
 
-    pub fn protect_payables_shared(payables: Vec<PayableAccount>) -> ProtectedPayables {
-        #[allow(clippy::unsound_collection_transmute)]
-        let bytes = unsafe { transmute::<Vec<PayableAccount>, Vec<u8>>(payables) };
-        ProtectedPayables(bytes)
-    }
-
-    fn expose_payables(&self, protected: ProtectedPayables) -> Vec<PayableAccount> {
-        #[allow(clippy::unsound_collection_transmute)]
-        unsafe {
-            transmute::<Vec<u8>, Vec<PayableAccount>>(protected.0)
-        }
+    fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<PayableAccount> {
+        obfuscated.expose_data()
     }
 }
 

@@ -36,9 +36,6 @@ pub trait SolvencySensitivePaymentInstructor {
     ) -> OutboundPaymentsInstructions;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProtectedPayables(pub(in crate::accountant) Vec<u8>);
-
 pub struct PreparedAdjustment {
     pub original_setup_msg: BlockchainAgentWithContextMessage,
     pub adjustment: Adjustment,
