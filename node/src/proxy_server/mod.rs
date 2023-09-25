@@ -4351,7 +4351,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_dns_resolve_failure_sends_message_to_neighborhoodzsh() {
+    fn handle_dns_resolve_failure_sends_message_to_neighborhood() {
         init_test_logging();
         let test_name = "handle_dns_resolve_failure_sends_message_to_neighborhood";
         let system = System::new(test_name);
