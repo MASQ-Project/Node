@@ -4,8 +4,6 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::B
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
-#[cfg(test)]
-use std::any::Any;
 use std::time::SystemTime;
 
 pub trait PaymentAdjuster {

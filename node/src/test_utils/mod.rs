@@ -542,6 +542,14 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
+#[macro_export]
+macro_rules! arbitrary_id_stamp_in_trait {
+    () => {
+        #[cfg(test)]
+        $crate::arbitrary_id_stamp_in_trait_internal___!();
+    };
+}
+
 #[cfg(test)]
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
@@ -969,6 +977,7 @@ pub mod unshared_test_utils {
 
     pub mod arbitrary_id_stamp {
         use super::*;
+        use crate::arbitrary_id_stamp_in_trait;
 
         //The issues we are to solve might look as follows:
 
@@ -1018,11 +1027,14 @@ pub mod unshared_test_utils {
         }
 
         // To be added together with other methods in your trait
+        // DO NOT USE ME DIRECTLY, USE arbitrary_id_stamp_in_trait INSTEAD!
         #[macro_export]
-        macro_rules! arbitrary_id_stamp_in_trait {
+        macro_rules! arbitrary_id_stamp_in_trait_internal___ {
             () => {
                 #[cfg(test)]
-                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                fn arbitrary_id_stamp(
+                    &self,
+                ) -> crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp {
                     // No necessity to implement this method for all impls,
                     // basically you want to do that just for the mock version
 

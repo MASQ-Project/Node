@@ -50,7 +50,6 @@ use masq_lib::utils::ExpectValue;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem::transmute;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use time::format_description::parse;
@@ -501,11 +500,11 @@ impl PayableScanner {
     }
 
     fn protect_payables(&self, payables: Vec<PayableAccount>) -> Obfuscated {
-        Obfuscated::obfuscate_data(payables)
+        Obfuscated::obfuscate_vector(payables)
     }
 
     fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<PayableAccount> {
-        obfuscated.expose_data()
+        obfuscated.expose_vector()
     }
 }
 

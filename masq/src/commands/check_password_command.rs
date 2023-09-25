@@ -8,8 +8,6 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::as_any_in_trait_impl;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {

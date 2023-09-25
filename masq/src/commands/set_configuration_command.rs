@@ -7,8 +7,6 @@ use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {

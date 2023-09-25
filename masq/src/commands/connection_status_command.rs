@@ -12,8 +12,6 @@ use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Eq)]

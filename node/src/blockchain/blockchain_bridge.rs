@@ -1660,7 +1660,6 @@ pub mod exportable_tests {
     use crossbeam_channel::{bounded, Receiver};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
-    use rusqlite::ToSql;
     use serde_json::Value::Object;
     use serde_json::{Map, Value};
     use std::net::Ipv4Addr;

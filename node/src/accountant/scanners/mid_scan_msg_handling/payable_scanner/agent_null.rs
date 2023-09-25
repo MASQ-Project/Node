@@ -6,8 +6,6 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {

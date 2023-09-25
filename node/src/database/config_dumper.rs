@@ -28,8 +28,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
-#[cfg(test)]
-use std::any::Any;
 use std::path::{Path, PathBuf};
 
 pub struct DumpConfigRunnerReal;

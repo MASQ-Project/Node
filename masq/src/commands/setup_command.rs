@@ -12,8 +12,6 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::index_of_from;
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 

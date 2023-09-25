@@ -31,8 +31,6 @@ use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-#[cfg(test)]
-use std::any::Any;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]

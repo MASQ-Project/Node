@@ -361,7 +361,7 @@ macro_rules! intentionally_blank {
 macro_rules! as_any_in_trait {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             use masq_lib::intentionally_blank;
             intentionally_blank!()
         }
@@ -372,7 +372,7 @@ macro_rules! as_any_in_trait {
 macro_rules! as_any_in_trait_impl {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             self
         }
     };

@@ -49,7 +49,6 @@ use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
-use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;

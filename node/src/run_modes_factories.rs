@@ -15,8 +15,6 @@ use crate::server_initializer::{
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;

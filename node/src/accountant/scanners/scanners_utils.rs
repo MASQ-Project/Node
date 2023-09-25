@@ -12,8 +12,6 @@ pub mod payable_scanner_utils {
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
-    #[cfg(test)]
-    use std::any::Any;
     use std::cmp::Ordering;
     use std::ops::Not;
     use std::time::SystemTime;
