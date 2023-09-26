@@ -1649,7 +1649,7 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod exportable_tests {
+pub mod exportable_test_parts {
     use super::*;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::test_utils::http_test_server::TestServer;

@@ -1031,7 +1031,6 @@ pub mod unshared_test_utils {
         #[macro_export]
         macro_rules! arbitrary_id_stamp_in_trait_internal___ {
             () => {
-                #[cfg(test)]
                 fn arbitrary_id_stamp(
                     &self,
                 ) -> crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp {

@@ -628,9 +628,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::exportable_tests::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
+    use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::blockchain::blockchain_bridge::exportable_tests::test_blockchain_bridge_is_constructed_with_correctly_functioning_connections;
+    use crate::blockchain::blockchain_bridge::exportable_test_parts::test_blockchain_bridge_is_constructed_with_correctly_functioning_connections;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,

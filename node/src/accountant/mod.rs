@@ -4467,7 +4467,7 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod exportable_tests {
+pub mod exportable_test_parts {
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::actor_system_factory::SubsFactory;
@@ -4650,7 +4650,7 @@ pub mod exportable_tests {
                 accountant
                     .receivable_dao
                     .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
-                // Don't move this the main test, it could produce a deceiving result.
+                // Don't move this to the main test, it could produce a deceiving result.
                 // It wouldn't actually process this message. I don't know why exactly
                 System::current().stop();
             }),

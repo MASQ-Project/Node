@@ -10,16 +10,19 @@ pub struct Obfuscated {
 }
 
 impl Obfuscated {
-    // We don't irritate the compiler because of asking for a cast between
-    // two types with one being generic where they could possibly be of
-    // different sizes. It's an issue in our implementation. The use of
-    // vectors at the input as well as output lets us avoid the situation.
-    // If you wish to write a more complicated implementation instead of
-    // using a library like 'bytemuck' consider functions like
-    // 'mem::transmute_copy' or 'mem::forget()' which will help you earn
-    // the compiler's trust but then the adventure begins when you are
-    // supposed to write the code to realign the plain bytes back to
-    // your desired type...
+    // Although we're asking the compiler for a cast between two types
+    // where one is generic and both could possibly be of a different
+    // size, which almost applies to un unsupported kind of operation,
+    // the compiler stays calm here. The use of vectors at the input as
+    // well as output lets us avoid the above depicted situation.
+    //
+    // If you wish to write an implementation allowing more arbitrary
+    // types on your own, instead of helping yourself by a library like
+    // 'bytemuck', consider these functions from the std library,
+    // 'mem::transmute_copy' or 'mem::forget()', which will renew
+    // the compiler's trust for you. However, the true adventure will
+    // begin when you are supposed to write code to realign the plain
+    // bytes backwards to your desired type...
 
     pub fn obfuscate_vector<D: 'static>(data: Vec<D>) -> Obfuscated {
         let bytes = unsafe { transmute::<Vec<D>, Vec<u8>>(data) };
@@ -32,7 +35,7 @@ impl Obfuscated {
 
     pub fn expose_vector<D: 'static>(self) -> Vec<D> {
         if self.type_id != TypeId::of::<D>() {
-            panic!("Forbidden! You're trying to interpret obfuscated type A as type B")
+            panic!("Forbidden! You're trying to interpret obfuscated data as the wrong type.")
         }
 
         unsafe { transmute::<Vec<u8>, Vec<D>>(self.bytes) }
@@ -40,14 +43,15 @@ impl Obfuscated {
 
     // Proper casting from a non vec structure into a vector of bytes
     // is difficult and ideally requires an involvement of a library
-    // like bytemuck
+    // like bytemuck.
     // If you think we do need such cast, place other methods in here
     // and don't remove the ones above because:
-    //    a) bytemuck will force you implement its 'Pod' trait which
-    //       might implementation for a std type like a Vec (minimally)
-    //       ugly because both the trait and the type are defined
-    //       externally to our project, therefore you might make it work
-    //       via introducing a super-trait defined in our code
+    //    a) bytemuck will force you to implement its 'Pod' trait which
+    //       might imply an (at minimum) ugly implementation for a std
+    //       type like a Vec because both the trait and the type have
+    //       their definitions situated externally to our project,
+    //       therefore you might need to solve it by introducing
+    //       a super-trait from our code
     //    b) using our simple 'obfuscate_vector' function will always
     //       be fairly more efficient than if done with help of
     //       the other library
@@ -68,7 +72,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Forbidden! You're trying to interpret obfuscated type A as type B")]
+    #[should_panic(
+        expected = "Forbidden! You're trying to interpret obfuscated data as the wrong type."
+    )]
     fn obfuscation_attempt_to_reinterpret_to_wrong_type() {
         let data = vec![0_u64];
         let obfuscated_data = Obfuscated::obfuscate_vector(data.clone());
