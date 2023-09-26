@@ -6,7 +6,7 @@ pub mod rpc_helpers;
 pub mod test_utils;
 
 use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
@@ -16,8 +16,12 @@ use actix::Recipient;
 use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use variant_count::VariantCount;
 use web3::types::{Address, TransactionReceipt, H256};
 use web3::Error;
+
+const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "To avoid being delinquency-banned, you should \
+restart the Node with a value for blockchain-service-url";
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -28,6 +32,7 @@ pub trait BlockchainInterface {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
+    // TODO change the string to a real err type and then make changes in the BINull
     fn build_blockchain_agent(
         &self,
         consuming_wallet: &Wallet,
@@ -44,6 +49,8 @@ pub trait BlockchainInterface {
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
     fn helpers(&self) -> &dyn RPCHelpers;
+
+    as_any_in_trait!();
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,12 +70,13 @@ impl fmt::Display for BlockchainTransaction {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum BlockchainError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
+    UninitializedBlockchainInterface,
 }
 
 impl Display for BlockchainError {
@@ -78,6 +86,9 @@ impl Display for BlockchainError {
             Self::InvalidAddress => Either::Left("Invalid address"),
             Self::InvalidResponse => Either::Left("Invalid response"),
             Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)),
+            Self::UninitializedBlockchainInterface => {
+                Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
+            }
         };
         write!(f, "Blockchain error: {}", err_spec)
     }
@@ -86,7 +97,7 @@ impl Display for BlockchainError {
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum PayableTransactionError {
     MissingConsumingWallet,
     GasPriceQueryFailed(String),
@@ -94,6 +105,7 @@ pub enum PayableTransactionError {
     UnusableWallet(String),
     Signing(String),
     Sending { msg: String, hashes: Vec<H256> },
+    UninitializedBlockchainInterface,
 }
 
 impl Display for PayableTransactionError {
@@ -120,6 +132,9 @@ impl Display for PayableTransactionError {
                 msg,
                 comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
             ),
+            Self::UninitializedBlockchainInterface => {
+                write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
+            }
         }
     }
 }
@@ -145,39 +160,23 @@ pub struct RpcPayablesFailure {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, PayableTransactionError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
-    use std::fmt::Display;
 
-    fn collect_match_displayable_error_variants_in_exhaustive_mode<E, C>(
-        errors_to_assert: &[E],
-        exhaustive_error_matching: C,
-        expected_check_nums: Vec<u8>,
-    ) -> Vec<String>
-    where
-        E: Display,
-        C: Fn(&E) -> (String, u8),
-    {
-        let displayed_errors_with_check_nums = errors_to_assert
-            .iter()
-            .map(exhaustive_error_matching)
-            .collect::<Vec<(String, u8)>>();
-        let check_nums_alone = displayed_errors_with_check_nums
-            .iter()
-            .map(|(_, num_check)| *num_check)
-            .collect::<Vec<u8>>();
-        assert_eq!(check_nums_alone, expected_check_nums);
-        displayed_errors_with_check_nums
-            .into_iter()
-            .map(|(msg, _)| msg)
-            .collect()
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+            "To avoid being delinquency-banned, you should restart the Node with a value for \
+            blockchain-service-url"
+        )
     }
 
     #[test]
     fn blockchain_error_implements_display() {
-        //TODO at the time of writing this test 'core::mem::variant_count' was only in nightly,
-        // consider its implementation instead of these match statements here and in the test below
         let original_errors = [
             BlockchainError::InvalidUrl,
             BlockchainError::InvalidAddress,
@@ -185,20 +184,19 @@ mod tests {
             BlockchainError::QueryFailed(
                 "Don't query so often, it gives me a headache".to_string(),
             ),
+            BlockchainError::UninitializedBlockchainInterface,
         ];
-        let pretty_print_closure = |err_to_resolve: &BlockchainError| match err_to_resolve {
-            BlockchainError::InvalidUrl => (err_to_resolve.to_string(), 11),
-            BlockchainError::InvalidAddress => (err_to_resolve.to_string(), 22),
-            BlockchainError::InvalidResponse => (err_to_resolve.to_string(), 33),
-            BlockchainError::QueryFailed(..) => (err_to_resolve.to_string(), 44),
-        };
 
-        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
-            original_errors.as_slice(),
-            pretty_print_closure,
-            vec![11, 22, 33, 44],
+        let actual_error_msgs = original_errors
+            .iter()
+            .map(|err| err.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            original_errors.len(),
+            BlockchainError::VARIANT_COUNT,
+            "you forgot to add all variants in this test"
         );
-
         assert_eq!(
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
@@ -206,8 +204,9 @@ mod tests {
                 "Blockchain error: Invalid address",
                 "Blockchain error: Invalid response",
                 "Blockchain error: Query failed: Don't query so often, it gives me a headache",
+                &format!("Blockchain error: {}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             ])
-        )
+        );
     }
 
     #[test]
@@ -228,22 +227,19 @@ mod tests {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
                 hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
+            PayableTransactionError::UninitializedBlockchainInterface,
         ];
-        let pretty_print_closure = |err_to_resolve: &PayableTransactionError| match err_to_resolve {
-            PayableTransactionError::MissingConsumingWallet => (err_to_resolve.to_string(), 11),
-            PayableTransactionError::GasPriceQueryFailed(_) => (err_to_resolve.to_string(), 22),
-            PayableTransactionError::TransactionCount(_) => (err_to_resolve.to_string(), 33),
-            PayableTransactionError::UnusableWallet(_) => (err_to_resolve.to_string(), 44),
-            PayableTransactionError::Signing(_) => (err_to_resolve.to_string(), 55),
-            PayableTransactionError::Sending { .. } => (err_to_resolve.to_string(), 66),
-        };
 
-        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
-            original_errors.as_slice(),
-            pretty_print_closure,
-            vec![11, 22, 33, 44, 55, 66],
+        let actual_error_msgs = original_errors
+            .iter()
+            .map(|err| err.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            original_errors.len(),
+            PayableTransactionError::VARIANT_COUNT,
+            "you forgot to add all variants in this test"
         );
-
         assert_eq!(
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
@@ -255,7 +251,8 @@ mod tests {
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
                 "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
                 transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
-                0x00000000000000000000000000000000000000000000000000000000000000de"
+                0x00000000000000000000000000000000000000000000000000000000000000de",
+                BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])
         )
     }

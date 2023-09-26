@@ -5,22 +5,22 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
+use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
-    NodeStartupConfigBuilder,
+    ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
 };
-use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
-use node_lib::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::database_access_objects::receivable_dao::{
-    ReceivableDao, ReceivableDaoReal,
+use multinode_integration_tests_lib::utils::{
+    node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
 };
+use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
+use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
-use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
-};
+use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::BlockchainInterface;
+use node_lib::blockchain::blockchain_interface::{
+    BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+};
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
@@ -61,8 +61,7 @@ fn verify_bill_payment() {
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
-    let blockchain_interface =
-        BlockchainInterfaceNonClandestine::new(http, event_loop_handle, cluster.chain);
+    let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
@@ -101,9 +100,8 @@ fn verify_bill_payment() {
 
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
 
-    let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
-    let consuming_node_path = MASQRealNode::node_home_dir(&project_root, &consuming_node_name);
+    let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&consuming_node_path),
@@ -141,7 +139,7 @@ fn verify_bill_payment() {
 
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
-    let serving_node_1_path = MASQRealNode::node_home_dir(&project_root, &serving_node_1_name);
+    let serving_node_1_path = node_chain_specific_data_directory(&serving_node_1_name);
     let serving_node_1_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_1_path),
@@ -156,7 +154,7 @@ fn verify_bill_payment() {
 
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
-    let serving_node_2_path = MASQRealNode::node_home_dir(&project_root, &serving_node_2_name);
+    let serving_node_2_path = node_chain_specific_data_directory(&serving_node_2_name);
     let serving_node_2_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_2_path),
@@ -171,7 +169,7 @@ fn verify_bill_payment() {
 
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
-    let serving_node_3_path = MASQRealNode::node_home_dir(&project_root, &serving_node_3_name);
+    let serving_node_3_path = node_chain_specific_data_directory(&serving_node_3_name);
     let serving_node_3_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_3_path),
@@ -322,7 +320,7 @@ fn make_init_config(chain: Chain) -> DbInitializationConfig {
 
 fn assert_balances(
     wallet: &Wallet,
-    blockchain_interface: &BlockchainInterfaceNonClandestine<Http>,
+    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
@@ -396,7 +394,7 @@ fn make_node_wallet(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
     let secret = extended_priv_key.secret().to_hex::<String>();
 
     (
-        Wallet::from(Bip32ECKeyProvider::from_key(extended_priv_key)),
+        Wallet::from(Bip32EncryptionKeyProvider::from_key(extended_priv_key)),
         secret,
     )
 }

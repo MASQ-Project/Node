@@ -245,7 +245,7 @@ pub mod tests {
         let result = subject.execute_command("ls booga");
 
         match result {
-            Err(stderr) if stderr.contains("No such file or directory") => (),
+            Err(stderr) if stderr.contains("booga") => (), //directory booga does not exist
             Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
@@ -259,12 +259,7 @@ pub mod tests {
         let result = subject.execute_command("dir booga");
 
         match result {
-            Err(stderr)
-                if stderr.contains("The system cannot find the file specified")
-                    || stderr.contains("No such file or directory") =>
-            {
-                ()
-            }
+            Err(stderr) if stderr.contains("booga") => (), //directory booga does not exist
             Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }

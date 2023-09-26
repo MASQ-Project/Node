@@ -1,11 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
+use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +36,40 @@ lazy_static! {
 
 lazy_static! {
     static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
+}
+
+//data-directory help
+lazy_static! {
+    pub static ref DATA_DIRECTORY_DAEMON_HELP: String = compute_data_directory_help();
+}
+
+fn compute_data_directory_help() -> String {
+    let data_dir = data_local_dir().unwrap();
+    let home_dir = home_dir().unwrap();
+    let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
+        .join("MASQ")
+        .join("polygon-mainnet");
+    let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+        .join("MASQ")
+        .join("polygon-mumbai");
+    format!("Directory in which the Node will store its persistent state, including at least its database \
+        and by default its configuration file as well. By default, your data-directory is located in \
+        your application directory, under your home directory e.g.: '{}'.\n\n\
+        In case you change your chain to a different one, the data-directory path is automatically changed \
+        to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+        automatically changed to: '{}'.\n\n\
+        You can specify your own data-directory to the Daemon in two different ways: \n\n\
+        1. If you provide a path without the chain name on the end, the Daemon will automatically change \
+        your data-directory to correspond with the chain. For example: {}/masq_home will be automatically \
+        changed to: '{}/masq_home/polygon-mainnet'.\n\n\
+        2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
+        there will be no change until you set the chain parameter to a different value.",
+            polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
+            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            &home_dir.to_string_lossy().to_string().as_str(),
+            home_dir.to_string_lossy().to_string().as_str()
+    )
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -127,6 +164,18 @@ fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
         return false;
     }
     true
+}
+
+pub fn add_masq_and_chain_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
+    let masq_dir = PathBuf::from(local_data_dir).join("MASQ");
+    add_chain_specific_directory(chain, masq_dir.as_path())
+}
+
+pub fn add_chain_specific_directory(chain: Chain, local_data_dir: &Path) -> PathBuf {
+    match local_data_dir.ends_with(chain.rec().literal_identifier) {
+        true => PathBuf::from(local_data_dir),
+        false => PathBuf::from(local_data_dir).join(chain.rec().literal_identifier),
+    }
 }
 
 pub fn localhost() -> IpAddr {
@@ -388,9 +437,29 @@ macro_rules! test_only_use {
     }
 }
 
+#[macro_export(local_inner_macros)]
+macro_rules! hashmap {
+    () => {
+        ::std::collections::HashMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        hashmap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _hm = ::std::collections::HashMap::new();
+            $(
+                let _ = _hm.insert($key, $value);
+            )*
+            _hm
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
@@ -711,5 +780,38 @@ mod tests {
     fn type_name_of_works() {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
+    }
+
+    #[test]
+    fn hashmap_macro_works() {
+        let empty_hashmap: HashMap<i32, i32> = hashmap!();
+        let hashmap_with_one_element = hashmap!(1 => 2);
+        let hashmap_with_multiple_elements = hashmap!(1 => 2, 10 => 20, 12 => 42);
+        let hashmap_with_trailing_comma = hashmap!(1 => 2, 10 => 20,);
+        let hashmap_of_string = hashmap!("key" => "val");
+
+        let expected_empty_hashmap: HashMap<i32, i32> = HashMap::new();
+        let mut expected_hashmap_with_one_element = HashMap::new();
+        expected_hashmap_with_one_element.insert(1, 2);
+        let mut expected_hashmap_with_multiple_elements = HashMap::new();
+        expected_hashmap_with_multiple_elements.insert(1, 2);
+        expected_hashmap_with_multiple_elements.insert(10, 20);
+        expected_hashmap_with_multiple_elements.insert(12, 42);
+        let mut expected_hashmap_with_trailing_comma = HashMap::new();
+        expected_hashmap_with_trailing_comma.insert(1, 2);
+        expected_hashmap_with_trailing_comma.insert(10, 20);
+        let mut expected_hashmap_of_string = HashMap::new();
+        expected_hashmap_of_string.insert("key", "val");
+        assert_eq!(empty_hashmap, expected_empty_hashmap);
+        assert_eq!(hashmap_with_one_element, expected_hashmap_with_one_element);
+        assert_eq!(
+            hashmap_with_multiple_elements,
+            expected_hashmap_with_multiple_elements
+        );
+        assert_eq!(
+            hashmap_with_trailing_comma,
+            expected_hashmap_with_trailing_comma
+        );
+        assert_eq!(hashmap_of_string, expected_hashmap_of_string);
     }
 }

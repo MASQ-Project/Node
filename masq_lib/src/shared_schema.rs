@@ -32,8 +32,9 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
 pub const DATA_DIRECTORY_HELP: &str =
-    "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well.";
+    "Directory in which the Node will store its persistent state, including at least its database \
+    and by default its configuration file as well.\nNote: any existing database in the data directory \
+    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
@@ -220,6 +221,16 @@ lazy_static! {
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
+pub fn chain_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("chain")
+        .long("chain")
+        .value_name("CHAIN")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(official_chain_names())
+        .help(CHAIN_HELP)
+}
+
 pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("config-file")
         .long("config-file")
@@ -231,7 +242,7 @@ pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
         .help(CONFIG_FILE_HELP)
 }
 
-pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
+pub fn data_directory_arg(help: &str) -> Arg {
     Arg::with_name("data-directory")
         .long("data-directory")
         .value_name("DATA-DIRECTORY")
@@ -239,17 +250,7 @@ pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
         .min_values(0)
         .max_values(1)
         .empty_values(false)
-        .help(DATA_DIRECTORY_HELP)
-}
-
-pub fn chain_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("chain")
-        .long("chain")
-        .value_name("CHAIN")
-        .min_values(0)
-        .max_values(1)
-        .possible_values(official_chain_names())
-        .help(CHAIN_HELP)
+        .help(help)
 }
 
 pub fn official_chain_names() -> &'static [&'static str] {
@@ -285,6 +286,26 @@ where
         .max_values(1)
         .validator(validator)
         .help(help)
+}
+
+pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("gas-price")
+        .long("gas-price")
+        .value_name("GAS-PRICE")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_gas_price)
+        .help(&GAS_PRICE_HELP)
+}
+
+pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("min-hops")
+        .long("min-hops")
+        .value_name("MIN-HOPS")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(&["1", "2", "3", "4", "5", "6"])
+        .help(MIN_HOPS_HELP)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -368,7 +389,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg())
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -391,15 +412,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .hidden(true),
     )
-    .arg(
-        Arg::with_name("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
-    )
+    .arg(gas_price_arg())
     .arg(
         Arg::with_name("ip")
             .long("ip")
@@ -429,17 +442,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
-    .arg(
-        Arg::with_name("min-hops")
-            .long("min-hops")
-            .value_name("MIN_HOPS")
-            .default_value("3")
-            .required(false)
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["1", "2", "3", "4", "5", "6"])
-            .help(MIN_HOPS_HELP),
-    )
+    .arg(min_hops_arg())
     .arg(
         Arg::with_name("neighborhood-mode")
             .long("neighborhood-mode")
@@ -710,7 +713,9 @@ mod tests {
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \
-             least its database and by default its configuration file as well."
+             least its database and by default its configuration file as well.\nNote: any existing \
+             database in the data directory must have been created from the same chain this run is using, \
+             or the Node will be terminated."
         );
         assert_eq!(
             DB_PASSWORD_HELP,

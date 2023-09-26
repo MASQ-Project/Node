@@ -7,9 +7,10 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::utils::{ExpectValue, NeighborhoodModeLight};
+use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 
 use clap::value_t;
 use log::LevelFilter;
@@ -23,8 +24,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_config_file_path,
-    real_user_data_directory_opt_and_chain, real_user_from_multi_config_or_populate,
+    data_directory_from_context, determine_fundamentals, real_user_data_directory_path_and_chain,
 };
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::PublicKey;
@@ -141,12 +141,15 @@ pub fn server_initializer_collected_params<'a>(
     args: &[String],
 ) -> Result<GatheredParams<'a>, ConfiguratorError> {
     let app = app_node();
-    let (config_file_path, user_specified) = determine_config_file_path(dirs_wrapper, &app, args)?;
+
+    let (config_file_path, user_specified, data_directory, real_user) =
+        determine_fundamentals(dirs_wrapper, &app, args)?;
+
     let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
         Ok(cfv) => Box::new(cfv),
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
-    let multi_config = make_new_multi_config(
+    let full_multi_config = make_new_multi_config(
         &app,
         vec![
             Box::new(CommandLineVcl::new(args.to_vec())),
@@ -154,12 +157,14 @@ pub fn server_initializer_collected_params<'a>(
             config_file_vcl,
         ],
     )?;
-    let data_directory = config_file_path
-        .parent()
-        .map(|dir| dir.to_path_buf())
-        .expectv("data_directory");
-    let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
-    Ok(GatheredParams::new(multi_config, data_directory, real_user))
+    let config_file_path =
+        value_m!(full_multi_config, "config-file", PathBuf).expect("defaulted param");
+    Ok(GatheredParams::new(
+        full_multi_config,
+        config_file_path,
+        real_user,
+        data_directory,
+    ))
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -188,10 +193,12 @@ pub fn privileged_parse_args(
     multi_config: &MultiConfig,
     privileged_config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let (real_user, data_directory_opt, chain) =
-        real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
-    let directory =
-        data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
+    let (real_user, data_directory_path, chain) =
+        real_user_data_directory_path_and_chain(dirs_wrapper, multi_config);
+    let directory = match data_directory_path {
+        Some(data_directory_path) => data_directory_path,
+        None => data_directory_from_context(dirs_wrapper, &real_user, chain),
+    };
     privileged_config.real_user = real_user;
     privileged_config.data_directory = directory;
     privileged_config.blockchain_bridge_config.chain = chain;
@@ -247,6 +254,8 @@ fn configure_database(
     config: &BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    // We don't want to panic in case clandestine_port or blockchain_service_url is not configured
+    // inside the bootstrap config
     if let Some(port) = config.clandestine_port_opt {
         if let Err(pce) = persistent_config.set_clandestine_port(port) {
             return Err(pce.into_configurator_error("clandestine-port"));
@@ -255,6 +264,9 @@ fn configure_database(
     let neighborhood_mode_light: NeighborhoodModeLight = (&config.neighborhood_config.mode).into();
     if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
+    }
+    if let Err(pce) = persistent_config.set_min_hops(config.neighborhood_config.min_hops) {
+        return Err(pce.into_configurator_error("min-hops"));
     }
     if let Some(url) = config
         .blockchain_bridge_config
@@ -274,7 +286,7 @@ fn configure_database(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
@@ -303,7 +315,7 @@ mod tests {
     use std::convert::TryFrom;
     use std::fs::File;
     use std::io::Write;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
 
@@ -379,6 +391,7 @@ mod tests {
         config.clandestine_port_opt = None;
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_gas_price_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -396,6 +409,7 @@ mod tests {
             Some("https://infura.io/ID".to_string());
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_blockchain_service_url_result(Err(PersistentConfigError::TransactionError));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -423,6 +437,22 @@ mod tests {
         )
     }
 
+    #[test]
+    fn configure_database_handles_error_during_setting_min_hops() {
+        let mut config = BootstrapperConfig::new();
+        config.neighborhood_config.min_hops = Hops::FourHops;
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Err(PersistentConfigError::TransactionError));
+
+        let result = configure_database(&config, &mut persistent_config);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
+        )
+    }
+
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
     }
@@ -432,7 +462,7 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
+            "node_configurator_standard",
             "server_initializer_collected_params_can_read_parameters_from_config_file",
         );
         {
@@ -460,7 +490,7 @@ mod tests {
     fn can_read_dns_servers_and_consuming_private_key_from_config_file() {
         running_test();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
+            "node_configurator_standard",
             "can_read_wallet_parameters_from_config_file",
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
@@ -506,7 +536,8 @@ mod tests {
 
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
-            Bip32ECKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref())
+                .unwrap();
         assert_eq!(
             bootstrapper_config.consuming_wallet_opt,
             Some(Wallet::from(consuming_keypair)),
@@ -527,7 +558,7 @@ mod tests {
     fn privileged_parse_args_creates_configurations() {
         running_test();
         let home_dir = ensure_node_home_directory_exists(
-            "node_configurator",
+            "node_configurator_standard",
             "privileged_parse_args_creates_configurations",
         );
         let args = ArgsBuilder::new()
@@ -553,7 +584,8 @@ mod tests {
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
-            .param("--real-user", "999:999:/home/booga");
+            .param("--real-user", "999:999:/home/booga")
+            .param("--chain", "polygon-mumbai");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -577,7 +609,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
-                min_hops_count: Hops::ThreeHops,
+                min_hops: Hops::ThreeHops,
             }
         );
         assert_eq!(
@@ -709,16 +741,15 @@ mod tests {
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
         running_test();
-        let data_dir = ensure_node_home_directory_exists(
-            "node_configurator_standard",
-            "server_initializer_collected_params_senses_when_user_specifies_config_file",
-        );
-        let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
+        let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
+        let data_dir = home_dir.join("data_dir");
+        let args = ArgsBuilder::new()
+            .param("--config-file", "booga.toml") // nonexistent config file: should return error because user-specified
+            .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
+            .home_dir_result(Some(home_dir))
             .data_dir_result(Some(data_dir));
-
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).err();
 
         match result {
@@ -881,12 +912,14 @@ mod tests {
                 .as_str(),
             ))
             .unwrap()]);
+        config.neighborhood_config.min_hops = Hops::FourHops;
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let set_gas_price_params_arc = Arc::new(Mutex::new(vec![]));
         let set_neighborhood_mode_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()))
@@ -895,7 +928,9 @@ mod tests {
             .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
             .set_neighborhood_mode_result(Ok(()))
             .set_gas_price_params(&set_gas_price_params_arc)
-            .set_gas_price_result(Ok(()));
+            .set_gas_price_result(Ok(()))
+            .set_min_hops_params(&set_min_hops_params_arc)
+            .set_min_hops_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);
 
@@ -914,6 +949,8 @@ mod tests {
         assert_eq!(*set_gas_price_params, vec![gas_price]);
         let set_clandestine_port_params = set_clandestine_port_params_arc.lock().unwrap();
         assert_eq!(*set_clandestine_port_params, vec![1234]);
+        let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
+        assert_eq!(*set_min_hops_params, vec![Hops::FourHops])
     }
 
     #[test]
@@ -928,6 +965,7 @@ mod tests {
             .set_blockchain_service_url_params(&set_blockchain_service_params_arc)
             .set_neighborhood_mode_params(&set_neighborhood_mode_params_arc)
             .set_neighborhood_mode_result(Ok(()))
+            .set_min_hops_result(Ok(()))
             .set_gas_price_result(Ok(()));
 
         let result = configure_database(&config, &mut persistent_config);
@@ -985,5 +1023,88 @@ mod tests {
 
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
+    }
+
+    fn check_data_directory_combinations_when_user_specifies_data_directory_without_chain_specific_directory(
+        chain_opt: Option<&str>,
+        data_directory_opt: Option<&str>,
+        expected: Option<&str>,
+    ) {
+        let home_dir = PathBuf::from("/home/cooga");
+        let standard_data_dir = PathBuf::from("/home/cooga/.local");
+
+        let args = match (chain_opt, data_directory_opt) {
+            (Some(chain_opt), Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--chain", chain_opt)
+                .param("--real-user", "999:999:/home/cooga")
+                .param("--data-directory", data_directory_opt),
+            (None, Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--data-directory", data_directory_opt)
+                .param("--real-user", "999:999:/home/cooga"),
+            (Some(chain_opt), None) => ArgsBuilder::new()
+                .param("--chain", chain_opt)
+                .param("--real-user", "999:999:/home/cooga"),
+            (None, None) => ArgsBuilder::new().param("--real-user", "999:999:/home/cooga"),
+        };
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = match data_directory_opt {
+            Some(data_directory_opt) => DirsWrapperMock::new()
+                .home_dir_result(Some(home_dir))
+                .data_dir_result(Some(PathBuf::from(data_directory_opt))),
+            None => DirsWrapperMock::new()
+                .home_dir_result(Some(home_dir))
+                .data_dir_result(Some(PathBuf::from(standard_data_dir))),
+        };
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
+            .unwrap()
+            .data_directory
+            .to_string_lossy()
+            .to_string();
+
+        assert_eq!(result, expected.unwrap());
+    }
+
+    #[test]
+    fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory(
+    ) {
+        running_test();
+        let _guard = EnvironmentGuard::new();
+        let home_dir = Path::new("/home/cooga");
+        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
+        let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
+        vec![
+            (None, None, Some(home_dir_poly_main.to_str().unwrap())),
+            (
+                Some("polygon-mumbai"),
+                None,
+                Some(home_dir_poly_mumbai.to_str().unwrap()),
+            ),
+            (None, Some("/cooga"), Some("/cooga")),
+            (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
+            (
+                None,
+                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+            ),
+            (
+                None,
+                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+            ),
+            (
+                Some("polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-mumbai"),
+            ),
+        ]
+        .iter()
+        .for_each(|(chain_opt, data_directory_opt, expected)| {
+            check_data_directory_combinations_when_user_specifies_data_directory_without_chain_specific_directory(
+                *chain_opt,
+                *data_directory_opt,
+                *expected
+            );
+        });
     }
 }

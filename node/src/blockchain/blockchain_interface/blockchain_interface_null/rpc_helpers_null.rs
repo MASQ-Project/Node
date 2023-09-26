@@ -3,9 +3,9 @@
 use crate::blockchain::blockchain_interface::rpc_helpers::{
     RPCHelpers, ResultForBalance, ResultForNonce,
 };
+use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
-use web3::types::U256;
 
 pub struct RPCHelpersNull {
     logger: Logger,
@@ -13,15 +13,15 @@ pub struct RPCHelpersNull {
 
 impl RPCHelpers for RPCHelpersNull {
     fn get_transaction_fee_balance(&self, _wallet: &Wallet) -> ResultForBalance {
-        Ok(self.handle_null_call("transaction fee balance"))
+        Err(self.handle_null_call("transaction fee balance"))
     }
 
     fn get_masq_balance(&self, _wallet: &Wallet) -> ResultForBalance {
-        Ok(self.handle_null_call("masq balance"))
+        Err(self.handle_null_call("masq balance"))
     }
 
     fn get_transaction_id(&self, _wallet: &Wallet) -> ResultForNonce {
-        Ok(self.handle_null_call("transaction id"))
+        Err(self.handle_null_call("transaction id"))
     }
 }
 
@@ -32,9 +32,9 @@ impl RPCHelpersNull {
         }
     }
 
-    fn handle_null_call(&self, operation: &str) -> U256 {
+    fn handle_null_call(&self, operation: &str) -> BlockchainError {
         error!(self.logger, "Null version can't fetch {operation}");
-        0.into()
+        BlockchainError::UninitializedBlockchainInterface
     }
 }
 
@@ -86,7 +86,10 @@ mod tests {
 
         let result = act(&subject, &wallet);
 
-        assert_eq!(result, Ok(U256::zero()));
+        assert_eq!(
+            result,
+            Err(BlockchainError::UninitializedBlockchainInterface)
+        );
         let _expected_log_msg = TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Null version can't fetch {expected_method_name}"
         ));
