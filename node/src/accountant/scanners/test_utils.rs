@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::ProtectedPayables;
 use crate::accountant::scanners::PayableScanner;
 

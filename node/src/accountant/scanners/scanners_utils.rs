@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::database_access_objects::utils::ThresholdUtils;
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
@@ -397,7 +397,7 @@ pub mod pending_payable_scanner_utils {
 }
 
 pub mod receivable_scanner_utils {
-    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::wei_to_gwei;
     use std::time::{Duration, SystemTime};
     use thousands::Separable;
@@ -413,9 +413,9 @@ pub mod receivable_scanner_utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };

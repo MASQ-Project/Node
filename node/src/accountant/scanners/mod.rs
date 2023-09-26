@@ -4,9 +4,9 @@ pub mod mid_scan_msg_handling;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
-use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::database_access_objects::receivable_dao::ReceivableDao;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
@@ -29,7 +29,7 @@ use crate::accountant::{
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
-use crate::accountant::database_access_objects::banned_dao::BannedDao;
+use crate::accountant::db_access_objects::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
@@ -1027,6 +1027,14 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::payable_dao::{
+        PayableAccount, PayableDaoError, PendingPayable,
+    };
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::{
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, ScanSchedulers,
         Scanner, ScannerCommon, Scanners,
@@ -1044,18 +1052,6 @@ mod tests {
         RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use std::cell::RefCell;
-    use std::ops::Sub;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    use crate::accountant::database_access_objects::payable_dao::{
-        PayableAccount, PayableDaoError, PendingPayable,
-    };
-    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::database_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainTransaction, PayableTransactionError, RpcPayablesFailure,
@@ -1072,6 +1068,9 @@ mod tests {
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
+    use std::cell::RefCell;
+    use std::ops::Sub;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};

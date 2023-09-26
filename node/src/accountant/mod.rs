@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod big_int_processing;
-pub mod database_access_objects;
+pub mod db_access_objects;
+pub mod db_big_integer;
 pub mod financials;
 pub mod payment_adjuster;
 pub mod scanners;
@@ -13,18 +13,10 @@ use core::fmt::Debug;
 use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
-use masq_lib::messages::{
-    QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
-    UiScanRequest,
-};
-use masq_lib::ui_gateway::{MessageBody, MessagePath};
-
-use crate::accountant::database_access_objects::payable_dao::{PayableDao, PayableDaoError};
-use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::database_access_objects::receivable_dao::{
-    ReceivableDao, ReceivableDaoError,
-};
-use crate::accountant::database_access_objects::utils::{
+use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
+use crate::accountant::db_access_objects::utils::{
     remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
 use crate::accountant::financials::visibility_restricted_module::{
@@ -66,7 +58,12 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
+use masq_lib::messages::{
+    QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
+    UiScanRequest,
+};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
+use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
@@ -986,13 +983,12 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::payable_dao::{
+    use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
     };
-    use crate::accountant::database_access_objects::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::database_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::database_access_objects::utils::from_time_t;
-    use crate::accountant::database_access_objects::utils::{to_time_t, CustomQuery};
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
+    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
@@ -3567,59 +3563,81 @@ mod tests {
           confirmation for all these transactions: 0x00000000000000000000000000000000000000000000000000000000000001c8");
     }
 
+    const EXAMPLE_RESPONSE_SKELETON: ResponseSkeleton = ResponseSkeleton {
+        client_id: 1234,
+        context_id: 4321,
+    };
+
+    const EXAMPLE_ERROR_MSG: &str = "My tummy hurts";
+
     #[test]
-    fn handles_scan_error() {
-        let response_skeleton = ResponseSkeleton {
-            client_id: 1234,
-            context_id: 4321,
-        };
-        let msg = "My tummy hurts";
+    fn handling_scan_error_for_externally_triggered_payables() {
         assert_scan_error_is_handled_properly(
-            "payables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_externally_triggered_pending_payables() {
         assert_scan_error_is_handled_properly(
-            "pending_payables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_externally_triggered_receivables() {
         assert_scan_error_is_handled_properly(
-            "receivables_externally_triggered",
+            "handling_scan_error_for_externally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
-                response_skeleton_opt: Some(response_skeleton),
-                msg: msg.to_string(),
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_payables() {
         assert_scan_error_is_handled_properly(
-            "payables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_pending_payables() {
         assert_scan_error_is_handled_properly(
-            "pending_payables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_receivables() {
         assert_scan_error_is_handled_properly(
-            "receivables_internally_triggered",
+            "handling_scan_error_for_internally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: None,
-                msg: msg.to_string(),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
     }
@@ -4567,7 +4585,7 @@ pub mod assertion_messages {
         let file_path = current_dir.join(PathBuf::from_iter([
             "src",
             "accountant",
-            "database_access_objects",
+            "db_access_objects",
             "receivable_dao.rs",
         ]));
         let file = match File::open(file_path) {

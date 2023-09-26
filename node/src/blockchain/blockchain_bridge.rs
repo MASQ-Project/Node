@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
@@ -10,7 +10,7 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
 };
@@ -22,7 +22,6 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -46,7 +45,6 @@ pub struct BlockchainBridge {
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
-    set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     payable_payments_setup_subs_opt: Option<Recipient<BlockchainAgentWithContextMessage>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
@@ -68,10 +66,6 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.set_consuming_wallet_subs_opt = Some(vec![
-            msg.peer_actors.neighborhood.set_consuming_wallet_sub,
-            msg.peer_actors.proxy_server.set_consuming_wallet_sub,
-        ]);
         self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
@@ -197,7 +191,6 @@ impl BlockchainBridge {
             consuming_wallet_opt,
             blockchain_interface,
             persistent_config,
-            set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
             payable_payments_setup_subs_opt: None,
             received_payments_subs_opt: None,
@@ -232,7 +225,7 @@ impl BlockchainBridge {
                 // probably want to make BlockchainInterfaceInitializer a collaborator that's a part of the actor
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
-            None => Box::new(BlockchainInterfaceClandestine::new(chain)), //TODO make sure this is tested for BlockchainInterfaceNull (after the merge??)
+            None => Box::new(BlockchainInterfaceNull::default()), //TODO make sure this is tested for BlockchainInterfaceNull (after the merge??)
         }
     }
 
@@ -454,10 +447,10 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -465,7 +458,7 @@ mod tests {
 
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceClandestine;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, PayableTransactionError,
@@ -487,7 +480,7 @@ mod tests {
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use rustc_hex::FromHex;
     use std::any::TypeId;
     use std::path::Path;
@@ -522,7 +515,8 @@ mod tests {
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
             .unwrap();
-        let consuming_wallet = Wallet::from(Bip32ECKeyProvider::from_raw_secret(&secret).unwrap());
+        let consuming_wallet =
+            Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(configure_default_persistent_config(ZERO)),
@@ -543,6 +537,16 @@ mod tests {
             "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
             consuming_wallet
         ));
+    }
+
+    #[test]
+    fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
+        let result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
+
+        result
+            .as_any()
+            .downcast_ref::<BlockchainInterfaceNull>()
+            .unwrap();
     }
 
     #[test]
@@ -1191,7 +1195,7 @@ mod tests {
         let (accountant, _, accountant_recording) = make_recorder();
         let recipient = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceClandestine::new(Chain::Dev)),
+            Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
             false,
             Some(Wallet::new("mine")),

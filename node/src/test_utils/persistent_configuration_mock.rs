@@ -4,7 +4,7 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -44,6 +44,9 @@ pub struct PersistentConfigurationMock {
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
     set_mapping_protocol_params: Arc<Mutex<Vec<Option<AutomapProtocol>>>>,
     set_mapping_protocol_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    min_hops_results: RefCell<Vec<Result<Hops, PersistentConfigError>>>,
+    set_min_hops_params: Arc<Mutex<Vec<Hops>>>,
+    set_min_hops_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodModeLight, PersistentConfigError>>>,
     set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodModeLight>>>,
     set_neighborhood_mode_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -170,6 +173,15 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     ) -> Result<(), PersistentConfigError> {
         self.set_mapping_protocol_params.lock().unwrap().push(value);
         self.set_mapping_protocol_results.borrow_mut().remove(0)
+    }
+
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
+        self.min_hops_results.borrow_mut().remove(0)
+    }
+
+    fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
+        self.set_min_hops_params.lock().unwrap().push(value);
+        self.set_min_hops_results.borrow_mut().remove(0)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -371,6 +383,27 @@ impl PersistentConfigurationMock {
         result: Result<(), PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.set_clandestine_port_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn min_hops_result(self, result: Result<Hops, PersistentConfigError>) -> Self {
+        self.min_hops_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_min_hops_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Hops>>>,
+    ) -> PersistentConfigurationMock {
+        self.set_min_hops_params = params.clone();
+        self
+    }
+
+    pub fn set_min_hops_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> PersistentConfigurationMock {
+        self.set_min_hops_results.borrow_mut().push(result);
         self
     }
 

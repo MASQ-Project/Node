@@ -20,14 +20,16 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
+use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, ConnectionProgressMessage};
+
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -42,7 +44,6 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -127,6 +128,8 @@ recorder_message_handler_t_m_p!(AddReturnRouteMessage);
 recorder_message_handler_t_m_p!(AddRouteMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
+recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
+recorder_message_handler_t_m_p!(ConfigurationChangeMessage);
 recorder_message_handler_t_m_p!(ConnectionProgressMessage);
 recorder_message_handler_t_m_p!(CrashNotification);
 recorder_message_handler_t_m_p!(DaemonBindMessage);
@@ -141,17 +144,16 @@ recorder_message_handler_t_m_p!(ExpiredCoresPackage<GossipFailure_0v1>);
 recorder_message_handler_t_m_p!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler_t_m_p!(InboundClientData);
 recorder_message_handler_t_m_p!(InboundServerData);
-recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
 recorder_message_handler_t_m_p!(IncipientCoresPackage);
-recorder_message_handler_t_m_p!(NewPasswordMessage);
+recorder_message_handler_t_m_p!(NewPasswordMessage); // GH-728
 recorder_message_handler_t_m_p!(NewPublicIp);
 recorder_message_handler_t_m_p!(NodeFromUiMessage);
 recorder_message_handler_t_m_p!(NodeToUiMessage);
 recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
-recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
 recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
 recorder_message_handler_t_m_p!(PoolBindMessage);
+recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
 recorder_message_handler_t_m_p!(RemoveNeighborMessage);
 recorder_message_handler_t_m_p!(RemoveStreamMsg);
@@ -159,16 +161,15 @@ recorder_message_handler_t_m_p!(ReportExitServiceProvidedMessage);
 recorder_message_handler_t_m_p!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler_t_m_p!(ReportServicesConsumedMessage);
 recorder_message_handler_t_m_p!(ReportTransactionReceipts);
-recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(RequestTransactionReceipts);
+recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(ScanError);
-recorder_message_handler_t_m_p!(SentPayables);
-recorder_message_handler_t_m_p!(SetConsumingWalletMessage);
-recorder_message_handler_t_m_p!(StartMessage);
-recorder_message_handler_t_m_p!(StreamShutdownMsg);
-recorder_message_handler_t_m_p!(ScanForReceivables);
 recorder_message_handler_t_m_p!(ScanForPayables);
 recorder_message_handler_t_m_p!(ScanForPendingPayables);
+recorder_message_handler_t_m_p!(ScanForReceivables);
+recorder_message_handler_t_m_p!(SentPayables);
+recorder_message_handler_t_m_p!(StartMessage);
+recorder_message_handler_t_m_p!(StreamShutdownMsg);
 recorder_message_handler_t_m_p!(TransmitDataMsg);
 recorder_message_handler_t_m_p!(UpdateNodeRecordMetadataMessage);
 
@@ -400,7 +401,6 @@ pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServe
         add_return_route: recipient!(addr, AddReturnRouteMessage),
         add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
     }
 }
@@ -447,10 +447,10 @@ pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> Neighborho
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_password_sub: recipient!(addr, NewPasswordMessage),
+        new_password_sub: recipient!(addr, NewPasswordMessage), // GH-728
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }

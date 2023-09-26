@@ -18,7 +18,7 @@ pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
 
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
@@ -514,7 +514,8 @@ pub fn make_payer(secret: &[u8], public_key: &PublicKey) -> Payer {
 pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     let digest = secret.keccak256();
     Wallet::from(
-        Bip32ECKeyProvider::from_raw_secret(&digest).expect("Invalid Secret for Bip32ECKeyPair"),
+        Bip32EncryptionKeyProvider::from_raw_secret(&digest)
+            .expect("Invalid Secret for Bip32ECKeyPair"),
     )
 }
 
@@ -558,6 +559,7 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
@@ -684,6 +686,7 @@ pub mod unshared_test_utils {
             .past_neighbors_result(Ok(None))
             .gas_price_result(Ok(1))
             .blockchain_service_url_result(Ok(None))
+            .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
     }
 
     pub fn default_persistent_config_just_accountant_config(

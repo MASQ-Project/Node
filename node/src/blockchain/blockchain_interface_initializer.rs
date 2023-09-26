@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
+    BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use masq_lib::blockchains::chains::Chain;
@@ -26,7 +26,7 @@ impl BlockchainInterfaceInitializer {
         chain: Chain,
     ) -> Box<dyn BlockchainInterface> {
         match Http::with_max_parallel(blockchain_service_url, REQUESTS_IN_PARALLEL) {
-            Ok((event_loop_handle, transport)) => Box::new(BlockchainInterfaceNonClandestine::new(
+            Ok((event_loop_handle, transport)) => Box::new(BlockchainInterfaceWeb3::new(
                 transport,
                 event_loop_handle,
                 chain,

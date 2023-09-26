@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
@@ -13,7 +13,7 @@ use crate::db_config::typed_config_layer::{
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -118,6 +118,8 @@ pub trait PersistentConfiguration {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError>;
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError>;
+    fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError>;
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
     fn set_neighborhood_mode(
         &mut self,
@@ -219,13 +221,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                         "Database corruption {:?}: consuming private key is not hex, but '{}'",
                         e, key
                     ),
-                    Ok(bytes) => match Bip32ECKeyProvider::from_raw_secret(bytes.as_slice()) {
-                        Err(e) => panic!(
-                            "Database corruption {:?}: consuming private key is invalid",
-                            e
-                        ),
-                        Ok(pair) => Wallet::from(pair),
-                    },
+                    Ok(bytes) => {
+                        match Bip32EncryptionKeyProvider::from_raw_secret(bytes.as_slice()) {
+                            Err(e) => panic!(
+                                "Database corruption {:?}: consuming private key is invalid",
+                                e
+                            ),
+                            Ok(pair) => Wallet::from(pair),
+                        }
+                    }
                 })
             })
     }
@@ -333,6 +337,19 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self
             .dao
             .set("mapping_protocol", value.map(|v| v.to_string()))?)
+    }
+
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
+        let result = self.get("min_hops")?.map(|val| Hops::from_str(&val));
+        match result {
+            None => Self::missing_value_panic("min_hops"),
+            Some(Ok(hops)) => Ok(hops),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
+        }
+    }
+
+    fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("min_hops", Some(value.to_string()))?)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -1043,7 +1060,7 @@ mod tests {
         let consuming_private_key =
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyProvider::from_raw_secret(
+            Bip32EncryptionKeyProvider::from_raw_secret(
                 consuming_private_key
                     .from_hex::<Vec<u8>>()
                     .unwrap()
@@ -1176,7 +1193,7 @@ mod tests {
         let earning_private_key =
             ExtendedPrivKey::derive(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let earning_key_pair =
-            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
         let earning_wallet = Wallet::from(earning_key_pair);
         let earning_wallet_address = earning_wallet.to_string();
         (
@@ -1683,6 +1700,49 @@ mod tests {
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(*set_params, vec![("mapping_protocol".to_string(), None)]);
+    }
+
+    #[test]
+    fn min_hops_works() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "min_hops",
+            Some("3"),
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let min_hops = subject.min_hops().unwrap();
+
+        assert_eq!(min_hops, Hops::ThreeHops);
+    }
+
+    #[test]
+    fn set_min_hops_to_some() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_min_hops(Hops::TwoHops);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("min_hops".to_string(), Some("2".to_string()))]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing: min_hops; database is corrupt!")]
+    fn panics_when_min_hops_value_is_missing() {
+        let config_dao = Box::new(
+            ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new("min_hops", None, false))),
+        );
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let _result = subject.min_hops();
     }
 
     #[test]
