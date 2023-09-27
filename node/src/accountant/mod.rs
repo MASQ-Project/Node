@@ -245,6 +245,7 @@ impl Handler<SentPayables> for Accountant {
 }
 
 impl Handler<ScanForPayables> for Accountant {
+    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
@@ -256,6 +257,7 @@ impl Handler<ScanForPayables> for Accountant {
 }
 
 impl Handler<ScanForPendingPayables> for Accountant {
+    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
@@ -267,6 +269,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 }
 
 impl Handler<ScanForReceivables> for Accountant {
+    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
