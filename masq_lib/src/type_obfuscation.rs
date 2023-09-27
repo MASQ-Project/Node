@@ -12,7 +12,7 @@ pub struct Obfuscated {
 impl Obfuscated {
     // Although we're asking the compiler for a cast between two types
     // where one is generic and both could possibly be of a different
-    // size, which almost applies to un unsupported kind of operation,
+    // size, which almost applies to an unsupported kind of operation,
     // the compiler stays calm here. The use of vectors at the input as
     // well as output lets us avoid the above depicted situation.
     //
