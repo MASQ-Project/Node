@@ -15,12 +15,11 @@ use multinode_integration_tests_lib::utils::{
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
-use node_lib::blockchain::blockchain_interface::BlockchainInterface;
-use node_lib::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
+use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
