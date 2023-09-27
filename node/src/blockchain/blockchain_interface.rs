@@ -9,6 +9,7 @@ use crate::blockchain::blockchain_interface::BlockchainError::{
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
+use futures::future::err;
 use futures::{future, Future};
 use indoc::indoc;
 use itertools::Either::{Left, Right};
@@ -23,6 +24,7 @@ use std::iter::once;
 use thousands::Separable;
 use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
+use web3::helpers::CallFuture;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
@@ -181,7 +183,10 @@ pub trait BlockchainInterface<T: Transport = Http> {
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
 
-    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance;
+    fn get_transaction_fee_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
 
@@ -225,8 +230,13 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("pay payables")
     }
 
-    fn get_transaction_fee_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.handle_uninitialized_interface("get transaction fee balance")
+    fn get_transaction_fee_balance(
+        &self,
+        _address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(err(self
+            .handle_uninitialized_interface::<U256, _>("get transaction fee balance")
+            .unwrap_err()))
     }
 
     fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
@@ -432,13 +442,28 @@ where
         }
     }
 
-    fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
-        self.web3
-            .eth()
-            .balance(wallet.address(), None)
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
+    fn get_transaction_fee_balance(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(
+            self.web3
+                .eth()
+                .balance(wallet.address(), None)
+                .map_err(|e| QueryFailed(e.to_string())),
+        )
     }
+
+    // fn get_transaction_fee_balance(
+    //     &self,
+    //     wallet: &Wallet,
+    // ) -> CallFuture<U256, Http::Out> {
+    //     self.web3
+    //         .eth()
+    //         .balance(wallet.address(), None)
+    //     // .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+    //     // .wait()
+    // }
 
     fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.contract
@@ -1146,6 +1171,7 @@ mod tests {
             .get_transaction_fee_balance(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
+            .wait()
             .unwrap();
 
         assert_eq!(result, U256::from(65_535));
@@ -1164,9 +1190,9 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = subject.get_transaction_fee_balance(&Wallet::new(
-            "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ",
-        ));
+        let result = subject
+            .get_transaction_fee_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
+            .wait();
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
@@ -1189,9 +1215,11 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = subject.get_transaction_fee_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .get_transaction_fee_balance(
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .wait();
 
         match result {
             Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
@@ -1204,7 +1232,7 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_returns_error_for_unintelligible_response_to_gas_balance() {
         let act = |subject: &BlockchainInterfaceWeb3<Http>, wallet: &Wallet| {
-            subject.get_transaction_fee_balance(wallet)
+            subject.get_transaction_fee_balance(wallet).wait()
         };
 
         assert_error_during_requesting_balance(act, "invalid hex character");

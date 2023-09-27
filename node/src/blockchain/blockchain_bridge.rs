@@ -26,6 +26,8 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
+use futures::future::err;
+use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -136,7 +138,7 @@ impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: RequestBalancesToPayPayables, _ctx: &mut Self::Context) {
-        self.handle_scan(
+        self.handle_scan_future(
             Self::handle_request_balances_to_pay_payables,
             ScanType::Payables,
             msg,
@@ -254,59 +256,71 @@ impl BlockchainBridge {
     fn handle_request_balances_to_pay_payables(
         &mut self,
         msg: RequestBalancesToPayPayables,
-    ) -> Result<(), String> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
             None => {
-                return Err(
+                return Box::new(err(
                     "Cannot inspect available balances for payables while consuming wallet \
                     is missing"
                         .to_string(),
-                )
+                ))
             }
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let gas_balance = match self
-            .blockchain_interface
-            .get_transaction_fee_balance(consuming_wallet)
-        {
-            Ok(gas_balance) => gas_balance,
-            Err(e) => {
-                return Err(format!(
-                    "Did not find out gas balance of the consuming wallet: {:?}",
-                    e
-                ))
-            }
-        };
+
         let token_balance = match self
             .blockchain_interface
-            .get_token_balance(consuming_wallet)
+            .get_token_balance(consuming_wallet) // Will become a Future also
         {
             Ok(token_balance) => token_balance,
             Err(e) => {
-                return Err(format!(
+                return Box::new(err(format!(
                     "Did not find out token balance of the consuming wallet: {:?}",
                     e
-                ))
+                )))
             }
         };
-        let consuming_wallet_balances = {
-            ConsumingWalletBalances {
-                gas_currency: gas_balance,
-                masq_tokens: token_balance,
-            }
-        };
-        self.balances_and_payables_sub_opt
-            .as_ref()
-            .expect("Accountant is unbound")
-            .try_send(ConsumingWalletBalancesAndQualifiedPayables {
-                qualified_payables: msg.accounts,
-                consuming_wallet_balances,
-                response_skeleton_opt: msg.response_skeleton_opt,
-            })
-            .expect("Accountant is dead");
 
-        Ok(())
+        let balances_and_payables_sub_opt = self.balances_and_payables_sub_opt.clone();
+        return Box::new(
+            self.blockchain_interface
+                .get_transaction_fee_balance(consuming_wallet)
+                .map_err(|e| e.to_string())
+                .and_then(move |gas_balance| {
+                    let consuming_wallet_balances = {
+                        ConsumingWalletBalances {
+                            gas_currency: gas_balance,
+                            masq_tokens: token_balance,
+                        }
+                    };
+                    balances_and_payables_sub_opt
+                        .as_ref()
+                        .expect("Accountant is unbound")
+                        .try_send(ConsumingWalletBalancesAndQualifiedPayables {
+                            qualified_payables: msg.accounts,
+                            consuming_wallet_balances,
+                            response_skeleton_opt: msg.response_skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+                    Ok(())
+                }),
+        );
+
+        // let gas_balance = match self
+        //     .blockchain_interface
+        //     .get_transaction_fee_balance(consuming_wallet)  // Has become a future
+        // {
+        //     Ok(gas_balance) => gas_balance,
+        //     Err(e) => {
+        //         return Box::new(err(format!(
+        //             "Did not find out gas balance of the consuming wallet: {:?}",
+        //             e
+        //         )))
+        //     }
+        // };
+
+        // Ok(())
     }
 
     fn handle_report_accounts_payable(&mut self, msg: ReportAccountsPayable) -> Result<(), String> {
@@ -413,6 +427,29 @@ impl BlockchainBridge {
             ));
         }
         Ok(())
+    }
+
+    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
+    where
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
+        M: SkeletonOptHolder,
+    {
+        let skeleton_opt = msg.skeleton_opt();
+        let logger = self.logger.clone();
+        let scan_error_subs_opt = self.scan_error_subs_opt.clone();
+        let future = handler(self, msg).map_err(move |e| {
+            warning!(logger, "{}", e);
+            scan_error_subs_opt
+                .as_ref()
+                .expect("Accountant not bound")
+                .try_send(ScanError {
+                    scan_type,
+                    response_skeleton_opt: skeleton_opt,
+                    msg: e,
+                })
+                .expect("Accountant is dead");
+        });
+        actix::spawn(future);
     }
 
     fn handle_scan<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
@@ -828,7 +865,9 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_request_balances_to_pay_payables(request);
+        let result = subject
+            .handle_request_balances_to_pay_payables(request)
+            .wait();
 
         assert_eq!(
             result,

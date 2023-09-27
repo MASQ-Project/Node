@@ -12,6 +12,8 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
+use futures::future::result;
+use futures::Future;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
@@ -122,14 +124,19 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .remove(0)
     }
 
-    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
+    fn get_transaction_fee_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         self.get_transaction_fee_balance_params
             .lock()
             .unwrap()
             .push(address.clone());
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .remove(0)
+        Box::new(result(
+            self.get_transaction_fee_balance_results
+                .borrow_mut()
+                .remove(0),
+        ))
     }
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
