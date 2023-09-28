@@ -26,9 +26,9 @@ use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
-use rusqlite::{OptionalExtension, Transaction};
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
+use rusqlite::{OptionalExtension, Transaction};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -67,7 +67,11 @@ pub trait ReceivableDao {
         amount: u128,
     ) -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: &[BlockchainTransaction])->Box<dyn TransactionWrapper + '_>;
+    fn more_money_received(
+        &mut self,
+        now: SystemTime,
+        transactions: &[BlockchainTransaction],
+    ) -> Box<dyn TransactionWrapper + '_>;
 
     fn new_delinquencies(
         &self,
@@ -141,8 +145,13 @@ impl ReceivableDao for ReceivableDaoReal {
         )?)
     }
 
-    fn more_money_received(&mut self, timestamp: SystemTime, received_payments: &[BlockchainTransaction]) ->Box<dyn TransactionWrapper+'_>{
-        match self.conn
+    fn more_money_received(
+        &mut self,
+        timestamp: SystemTime,
+        received_payments: &[BlockchainTransaction],
+    ) -> Box<dyn TransactionWrapper + '_> {
+        match self
+            .conn
             .transaction()
             .map_err(|e| ReceivableDaoError::from(e))
             .and_then(|txn| {
@@ -153,16 +162,12 @@ impl ReceivableDao for ReceivableDaoReal {
                     timestamp,
                     &self.logger,
                 )
-            }){
-            // .and_then(|mut txn| {
-            //     txn.commit().map_err(|e| {
-            //         ReceivableDaoError::RusqliteError(format!("{:?}", e)))
-            //     })
-            // }) {
+            }) {
             Ok(txn) => txn,
             Err(e) => {
                 Self::more_money_received_roll_back_error_log(&self.logger, received_payments);
-                panic!("{:?}", e)
+                panic!("Database corruption suspected during updating accounts for newly received \
+                payments: {:?}", e)
             }
         }
     }
@@ -365,7 +370,9 @@ impl ReceivableDaoReal {
 
             match result {
                 Ok(_) => Ok(()),
-                Err(BigIntDatabaseError::General(err_msg)) => Err(ReceivableDaoError::RusqliteError(err_msg)),
+                Err(BigIntDatabaseError::General(err_msg)) => {
+                    Err(ReceivableDaoError::RusqliteError(err_msg))
+                }
                 Err(BigIntDatabaseError::RowChangeMismatch { .. }) => {
                     Self::verify_possibly_unknown_wallet(
                         txn.as_ref(),
@@ -498,12 +505,6 @@ impl ReceivableDaoReal {
     }
 }
 
-#[derive(Debug)]
-enum ErrorByFatality {
-    Panic(String),
-    NonFatal(ReceivableDaoError),
-}
-
 impl TableNameDAO for ReceivableDaoReal {
     fn table_name() -> String {
         String::from("receivable")
@@ -524,7 +525,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::{
-        ConnectionWrapperMock, TransactionPrepareMethodResults, TransactionWrapperMock,
+        ConnectionWrapperMock, TxnPrepareMethodResultsSetup, TransactionWrapperMock,
     };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -906,12 +907,10 @@ mod tests {
         };
         let transactions = vec![transaction_1, transaction_2, transaction_3];
 
-        let mut txn = subject.more_money_received(
-            time_of_change,
-            transactions.as_slice(),
-        );
+        let mut txn = subject.more_money_received(time_of_change, transactions.as_slice());
 
         txn.commit().unwrap();
+        drop(txn);
         let actual_record_1 = subject.account_status(&first_tracked_wallet).unwrap();
         assert_eq!(actual_record_1.wallet, first_tracked_wallet);
         assert_eq!(
@@ -973,10 +972,7 @@ mod tests {
         let transactions = vec![transaction];
 
         let caught_err = catch_unwind(AssertUnwindSafe(|| {
-            let _ = subject.more_money_received(
-                time_of_change,
-                transactions.as_slice(),
-            );
+            let _ = subject.more_money_received(time_of_change, transactions.as_slice());
         }))
         .unwrap_err();
 
@@ -1102,10 +1098,9 @@ mod tests {
             .unwrap();
             dao
         };
-        let mut conn = DbInitializerReal::default()
+        let prod_code_calls_conn = DbInitializerReal::default()
             .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let txn = conn.transaction().unwrap();
         let panic_causing_conn = {
             let conn = Connection::open_with_flags(
                 &data_dir.join(DATABASE_FILE),
@@ -1114,11 +1109,12 @@ mod tests {
             .unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = TransactionPrepareMethodResults::default()
-            .prod_code_calls_transaction(txn)
-            .preceding_prod_code_calls(3)
-            .stubbed_calls_conn(panic_causing_conn)
-            .add_single_stubbed_call_from_prod_code_statement();
+        let prepare_results = TxnPrepareMethodResultsSetup::new_with_both_prod_code_and_stubbed_calls(
+            prod_code_calls_conn,
+            panic_causing_conn,
+        )
+        .preceding_prod_code_calls(3)
+        .add_single_stubbed_call_from_prod_code_statement();
         let mocked_transaction = Box::new(
             TransactionWrapperMock::default()
                 .prepare_params(&prepare_params_arc)
@@ -1127,7 +1123,7 @@ mod tests {
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);
-        let logger = Logger::new(test_name);
+        subject.logger = Logger::new(test_name);
         let first_transaction = BlockchainTransaction {
             block_number: 123_456,
             from: first_wallet.clone(),
@@ -1141,18 +1137,16 @@ mod tests {
         let transactions = vec![first_transaction, second_transaction];
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = subject.more_money_received(
-                time_of_change,
-                &transactions,
-            );
+            let _ = subject.more_money_received(time_of_change, &transactions);
         }));
 
         let caught_panic = result.unwrap_err();
         let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
         let expected_panic_msg =
-            "Error from invalid update command for receivable table and change of -111222 wei to \
-            'wallet_address = 0x0000000000000000000000000000000000646566' with error 'attempt to \
-            write a readonly database'";
+            "Database corruption suspected during updating accounts for newly received payments: \
+            RusqliteError(\"Error from invalid update command for receivable table and change of \
+            -111222 wei to 'wallet_address = 0x0000000000000000000000000000000000646566' with error \
+            'attempt to write a readonly database'\")";
         assert_eq!(panic_msg, &expected_panic_msg);
         let prepare_params = prepare_params_arc.lock().unwrap();
         // Asserting that we did perform the first transaction completely (including handling an overflow)
@@ -1192,14 +1186,14 @@ mod tests {
         // reality, especially concerning the commit time or a drop of the object, not having
         // involved itself in an explicit call of 'commit', there a situation that should leave the
         // database unmodified (using the roll-back strategy).
-        // Why is it important to think about? Well, the mocked wrapper functions based on having
-        // its own transaction that would be used for any number of initial calls done through it
-        // and which, if not also interacting with a real transaction, would all be persistently
+        // Why is it important to think about? You should know that the mocked wrapper based on having
+        // its own transaction that can be used for any number of initial calls done on this single
+        // piece of it, if not also interacting with a real transaction, would all be persistently
         // written into the database. In order to be faithful to the various distinct operations
         // that take place in our code, we do care really a lot about the terminal stage of the
-        // transaction. If we don't make it to the 'commit' call for an issue stepping in before,
-        // the staged changes will not pass into the database. Which is exactly what happens in this
-        // test.
+        // transaction. If we don't make it to the 'commit' call for an issue having stepped in before,
+        // the staged changes will not engrave into the database. Which is exactly you can watch in
+        // this test.
         //
         // Another proof about the correct course of events is that even though we hadn't prepared
         // a result for the mocked 'commit' method, the test didn't panic because of that. Besides
@@ -1244,7 +1238,12 @@ mod tests {
         let expected_panic_msg = "Update for received payment with 1000000000 wei ran \
         without producing a data change, despite a record for the wallet \
         0x00000000000000000000000000000000626c6168 exists";
-        assert_eq!(result, Err(ReceivableDaoError::RusqliteError(expected_panic_msg.to_string())))
+        assert_eq!(
+            result,
+            Err(ReceivableDaoError::RusqliteError(
+                expected_panic_msg.to_string()
+            ))
+        )
     }
 
     #[test]

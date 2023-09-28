@@ -8,6 +8,7 @@ use crate::accountant::{
     ReportTransactionReceipts, ScanError, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::db_config::config_dao::{ConfigDaoFactory};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -20,7 +21,6 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
-use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -73,7 +73,7 @@ pub struct DaoFactories {
     pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
-    pub config_dao_factory: Box<dyn ConfigDaoFactory>
+    pub config_dao_factory: Box<dyn ConfigDaoFactory>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

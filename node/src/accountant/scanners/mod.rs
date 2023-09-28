@@ -764,7 +764,8 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                 .payments
                 .iter()
                 .fold(0, |so_far, now| so_far + now.wei_amount);
-            let txn = self.receivable_dao
+            let txn = self
+                .receivable_dao
                 .as_mut()
                 .more_money_received(message.timestamp, &message.payments);
             todo!();
@@ -1085,7 +1086,14 @@ mod tests {
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
         ScannerCommon, Scanners,
     };
-    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, ConfigDaoFactoryMock};
+    use crate::accountant::test_utils::{
+        make_custom_payment_thresholds, make_payable_account, make_payables,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ReceivableScannerBuilder,
+    };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
         RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1107,6 +1115,7 @@ mod tests {
         BlockchainTransaction, PayableTransactionError, RpcPayableFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
+    use crate::db_config::mocks::ConfigDaoMock;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
     };
@@ -1123,7 +1132,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::db_config::mocks::ConfigDaoMock;
+    use crate::database::test_utils::TransactionWrapperMock;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -2809,9 +2818,10 @@ mod tests {
         let test_name = "receivable_scanner_handles_received_payments_message";
         let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction = Box::new(TransactionWrapperMock::new());
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
-            .more_money_receivable_result(Ok(()));
+            .more_money_received_result(transaction);
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
             .build();

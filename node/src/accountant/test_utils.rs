@@ -20,6 +20,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::rusqlite_wrappers::TransactionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
@@ -39,7 +40,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use crate::database::rusqlite_wrappers::TransactionWrapper;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -332,7 +332,9 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
-        let config_dao_factory = self.config_dao_factory.unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
+        let config_dao_factory = self
+            .config_dao_factory
+            .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
             DaoFactories {
@@ -669,7 +671,11 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: &[BlockchainTransaction]) -> Box<dyn TransactionWrapper>{
+    fn more_money_received(
+        &mut self,
+        now: SystemTime,
+        transactions: &[BlockchainTransaction],
+    ) -> Box<dyn TransactionWrapper> {
         self.more_money_received_parameters
             .lock()
             .unwrap()

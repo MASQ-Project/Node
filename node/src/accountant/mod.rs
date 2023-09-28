@@ -1012,13 +1012,20 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ConfigDaoFactoryMock};
+    use crate::accountant::test_utils::{
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock,
+        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::database::test_utils::TransactionWrapperMock;
+    use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
@@ -1063,9 +1070,6 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
-    use crate::database::rusqlite_wrappers::TransactionWrapper;
-    use crate::database::test_utils::TransactionWrapperMock;
-    use crate::db_config::mocks::ConfigDaoMock;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1173,7 +1177,7 @@ mod tests {
                 pending_payable_dao_factory,
                 receivable_dao_factory,
                 banned_dao_factory,
-                config_dao_factory
+                config_dao_factory,
             },
         );
 
@@ -1701,7 +1705,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block() {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block(
+    ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1753,7 +1758,10 @@ mod tests {
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
         let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(*set_params, vec![(("start_block".to_string(),Some("13456789".to_string())))])
+        assert_eq!(
+            *set_params,
+            vec![(("start_block".to_string(), Some("13456789".to_string())))]
+        )
     }
 
     #[test]
