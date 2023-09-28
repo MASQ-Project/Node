@@ -8,7 +8,7 @@ use crate::accountant::{
     ReportTransactionReceipts, ScanError, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::db_config::config_dao::{ConfigDaoFactory};
+use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;

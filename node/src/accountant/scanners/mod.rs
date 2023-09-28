@@ -1115,6 +1115,7 @@ mod tests {
         BlockchainTransaction, PayableTransactionError, RpcPayableFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
@@ -1132,7 +1133,6 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {

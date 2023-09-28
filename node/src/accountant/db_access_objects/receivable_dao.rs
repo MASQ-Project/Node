@@ -26,9 +26,9 @@ use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-use rusqlite::{OptionalExtension};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -166,8 +166,11 @@ impl ReceivableDao for ReceivableDaoReal {
             Ok(txn) => txn,
             Err(e) => {
                 Self::more_money_received_roll_back_error_log(&self.logger, received_payments);
-                panic!("Database corruption suspected during updating accounts for newly received \
-                payments: {:?}", e)
+                panic!(
+                    "Database corruption suspected during updating accounts for newly received \
+                payments: {:?}",
+                    e
+                )
             }
         }
     }
@@ -524,6 +527,10 @@ mod tests {
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+    use crate::database::test_utils::transaction_wrapper_mock::{
+        PrepareMethodResults, TransactionWrapperMock,
+    };
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -535,8 +542,6 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, UNIX_EPOCH};
-    use crate::database::test_utils::ConnectionWrapperMock;
-    use crate::database::test_utils::transaction_wrapper_mock::{TransactionWrapperMock, PrepareMethodResults};
 
     #[test]
     fn conversion_from_pce_works() {
@@ -976,12 +981,17 @@ mod tests {
         .unwrap_err();
 
         let panic_msg = caught_err.downcast_ref::<String>().unwrap();
-        let expected_panic_msg = format!(
+        let expected_panic_fragment = format!(
             "Error from invalid update command for receivable table and change of -45678 wei to \
             'wallet_address = 0x0000000000000000000000000000000000616263' with error 'attempt to \
             write a readonly database'"
         );
-        assert_eq!(panic_msg, &expected_panic_msg);
+        assert!(
+            panic_msg.contains(&expected_panic_fragment),
+            "Actual panic msg: {} does not contain this fragment {}",
+            panic_msg,
+            expected_panic_fragment
+        );
         // The background thread is used just for this log assertion
         TestLogHandler::new().exists_no_log_containing(&format!("INFO: {test_name}: "));
     }
@@ -1112,7 +1122,7 @@ mod tests {
             prod_code_calls_conn,
             panic_causing_conn,
         )
-        .preceding_prod_code_calls(3)
+        .count_of_initial_prod_code_calls(3)
         .add_single_stubbed_call_from_prod_code_statement();
         let mocked_transaction = Box::new(
             TransactionWrapperMock::default()

@@ -2,11 +2,11 @@
 
 #![cfg(test)]
 
-use std::cell::RefCell;
-use std::sync::{Arc, Mutex};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
 pub struct TransactionWrapperMock {
@@ -49,9 +49,10 @@ impl TransactionWrapper for TransactionWrapperMock {
             .unwrap()
             .push(prod_code_query.to_string());
 
-        let prepared_results = self.prepare_results_opt.as_ref().unwrap();
-        let idx_info_opt = prepared_results.stubbed_call_idx_info_opt();
-        prepared_results.produce_statement(idx_info_opt, prod_code_query)
+        self.prepare_results_opt
+            .as_ref()
+            .unwrap()
+            .produce_statement(prod_code_query)
     }
 
     fn execute(&self, _query: &str, _params: &[&dyn ToSql]) -> Result<usize, Error> {
@@ -62,11 +63,7 @@ impl TransactionWrapper for TransactionWrapperMock {
         let next_result = self.commit_results.borrow_mut().remove(0);
         if next_result.is_ok() {
             match &mut self.prepare_results_opt.as_mut().unwrap().setup {
-                Either::Left(for_both) => {
-                    return for_both.prod_code_calls_transaction_opt.take()
-                        .expect("Error: missing transaction in the setup for both prod code and stubbed calls")
-                        .commit();
-                }
+                Either::Left(for_both) => for_both.commit_prod_calls(),
                 Either::Right(_) => next_result,
             }
         } else {
@@ -121,6 +118,15 @@ struct SetupForBoth {
     prod_code_calls_transaction_opt: Option<Box<dyn TransactionWrapper>>,
     requested_preceding_prod_code_calls: usize,
     stubbed: SetupForStubbed<Option<String>>,
+}
+
+impl SetupForBoth {
+    fn commit_prod_calls(&mut self) -> Result<(), Error> {
+        let txn_opt = self.prod_code_calls_transaction_opt.take();
+        let mut txn = txn_opt
+            .expect("Error: missing transaction in setup for both prod code and stubbed calls");
+        txn.commit()
+    }
 }
 
 impl Drop for SetupForBoth {
@@ -183,10 +189,10 @@ impl PrepareMethodResults {
         }
     }
 
-    pub fn preceding_prod_code_calls(mut self, total_of_prod_code_calls: usize) -> Self {
+    pub fn count_of_initial_prod_code_calls(mut self, prod_code_calls: usize) -> Self {
         let dual_setup = self.setup_for_both_or_panic_ref_mut();
         if dual_setup.requested_preceding_prod_code_calls == 0 {
-            dual_setup.requested_preceding_prod_code_calls = total_of_prod_code_calls
+            dual_setup.requested_preceding_prod_code_calls = prod_code_calls
         } else {
             panic!("Use only single call of \"number_of_prod_code_calls!\"")
         }
@@ -217,107 +223,117 @@ impl PrepareMethodResults {
         self
     }
 
-    const DUAL_SETUP_MISMATCH: &'static str = "This mock was construct as intended for the setup \
-    with both prod code and stubbed calls. Reconsider that step, if you think you will be using \
-    only the stubbed calls";
+    fn dual_setup_mismatch() -> ! {
+        panic!(
+            "{}",
+            "This mock was construct as intended for the setup with both prod code and stubbed \
+            calls. Reconsider that step, if you think you will be using only the stubbed calls"
+        )
+    }
 
     fn setup_for_both_or_panic_ref(&self) -> &SetupForBoth {
         match self.setup.as_ref() {
             Either::Left(both) => both,
-            Either::Right(_) => panic!("{}", Self::DUAL_SETUP_MISMATCH),
+            Either::Right(_) => Self::dual_setup_mismatch(),
         }
     }
 
     fn setup_for_both_or_panic_ref_mut(&mut self) -> &mut SetupForBoth {
         match self.setup.as_mut() {
             Either::Left(both) => both,
-            Either::Right(_) => panic!("{}", Self::DUAL_SETUP_MISMATCH),
+            Either::Right(_) => Self::dual_setup_mismatch(),
         }
     }
 
-    fn stubbed_call_idx_info_opt(
-        &self,
-    ) -> Either<Option<StubbedCallIndexInfo>, StubbedCallIndexInfo> {
+    fn determine_stubbed_queue_idx_opt(&self) -> Option<StubbedCallIndexInfo> {
         let upcoming_call_idx = *self.calls_counter.borrow();
         if let Either::Left(for_both) = &self.setup {
-            if for_both.requested_preceding_prod_code_calls > 0 {
+            if for_both.requested_preceding_prod_code_calls != 0 {
                 let preceding_prod_code_calls = for_both.requested_preceding_prod_code_calls;
-                let res = if preceding_prod_code_calls > upcoming_call_idx {
+
+                if preceding_prod_code_calls > upcoming_call_idx {
                     None
                 } else {
                     Some(StubbedCallIndexInfo::new(preceding_prod_code_calls))
-                };
-                Either::Left(res)
+                }
             } else {
-                Either::Left(Some(StubbedCallIndexInfo::new(0)))
+                panic!(
+                    "You're using the dual setup but have ordered 0 preceding prod code calls. \
+                You should be using the single setup then"
+                )
             }
         } else {
-            Either::Right(StubbedCallIndexInfo::new(0))
+            Some(StubbedCallIndexInfo::new(0))
         }
     }
 
-    fn produce_statement(
-        &self,
-        idx_info: Either<Option<StubbedCallIndexInfo>, StubbedCallIndexInfo>,
-        prod_code_query: &str,
-    ) -> Result<Statement, Error> {
-        match idx_info {
-            Either::Left(idx_info_opt) => match idx_info_opt {
-                None => {
-                    if let Either::Left(for_both) = &self.setup {
-                        let result = for_both.prod_code_calls_conn.prepare(prod_code_query);
-                        self.increment_counter();
-                        result
-                    } else {
-                        panic!("Idx info (on the left: for both) diverges from the setup variant \
-                        (on the right: stubbed only), design mistake")
-                    }
-                }
-                Some(idx_info) => {
-                    let stm = idx_info.handle_setup_for_stubbed_only(self, prod_code_query);
-                    Ok(stm)
-                }
-            },
-            Either::Right(idx_info) => {
-                let stm = idx_info.handle_setup_for_stubbed_only(self, prod_code_query);
+    fn produce_statement(&self, prod_code_stm: &str) -> Result<Statement, Error> {
+        let idx_opt = self.determine_stubbed_queue_idx_opt();
+
+        match idx_opt {
+            None => self.handle_prod_code_call(prod_code_stm),
+            Some(idx_info) => {
+                let stm = idx_info.handle_setup_for_stubbed_only(self, prod_code_stm);
                 Ok(stm)
             }
         }
     }
 
-    fn bring_out_stubbed_statement(
+    fn handle_prod_code_call(&self, prod_code_stm: &str) -> Result<Statement, Error> {
+        if let Either::Left(for_both) = &self.setup {
+            let result = for_both.prod_code_calls_conn.prepare(prod_code_stm);
+            self.increment_counter();
+            result
+        } else {
+            panic!(
+                "Idx info (on the left: for both) diverges from the setup variant (on the right: \
+            stubbed only), design mistake"
+            )
+        }
+    }
+
+    fn get_stubbed_statement(
         &self,
         idx_info: StubbedCallIndexInfo,
-        prod_code_query: &str,
+        prod_code_stm: &str,
     ) -> Statement {
         let upcoming_call_idx = *self.calls_counter.borrow();
-        let idx = idx_info.calculate_idx(upcoming_call_idx);
+        let absolute_idx = idx_info.calculate_idx(upcoming_call_idx);
         match &self.setup {
-            Either::Left(for_both) => {
-                let query = match for_both
-                    .stubbed
-                    .stubbed_calls_optional_statements_literals
-                    .get(idx)
-                    .unwrap()
-                {
-                    Some(stubbed_query) => stubbed_query,
-                    None => prod_code_query,
-                };
-
-                let result = match self.resolve_choice_of_stubbed_conn() {
-                    Either::Left(txn) => txn.prepare(query),
-                    Either::Right(conn) => conn.prepare(query),
-                };
-                result.unwrap()
-            }
-            Either::Right(stubbed_only) => {
-                let query = stubbed_only
-                    .stubbed_calls_optional_statements_literals
-                    .get(idx)
-                    .unwrap();
-                stubbed_only.stubbed_calls_conn.prepare(query).unwrap()
-            }
+            Either::Left(for_both) => self.get_from_for_both(for_both, absolute_idx, prod_code_stm),
+            Either::Right(stubbed_only) => Self::get_from_stubbed_only(stubbed_only, absolute_idx),
         }
+    }
+
+    fn get_from_for_both(
+        &self,
+        setup: &SetupForBoth,
+        absolute_idx: usize,
+        prod_code_stm: &str,
+    ) -> Statement {
+        let stm = match setup
+            .stubbed
+            .stubbed_calls_optional_statements_literals
+            .get(absolute_idx)
+            .unwrap()
+        {
+            Some(stubbed_stm) => stubbed_stm,
+            None => prod_code_stm,
+        };
+
+        let result = match self.resolve_choice_of_stubbed_conn() {
+            Either::Left(txn) => txn.prepare(stm),
+            Either::Right(conn) => conn.prepare(stm),
+        };
+        result.unwrap()
+    }
+
+    fn get_from_stubbed_only(setup: &SetupForStubbed<String>, absolute_idx: usize) -> Statement {
+        let stm = setup
+            .stubbed_calls_optional_statements_literals
+            .get(absolute_idx)
+            .unwrap();
+        setup.stubbed_calls_conn.prepare(stm).unwrap()
     }
 
     fn increment_counter(&self) {
@@ -363,7 +379,7 @@ impl StubbedCallIndexInfo {
         super_setup_structure: &'a PrepareMethodResults,
         prod_code_query: &str,
     ) -> Statement<'a> {
-        let stm = super_setup_structure.bring_out_stubbed_statement(self, prod_code_query);
+        let stm = super_setup_structure.get_stubbed_statement(self, prod_code_query);
         super_setup_structure.increment_counter();
         stm
     }

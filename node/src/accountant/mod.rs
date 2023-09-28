@@ -1024,6 +1024,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1069,7 +1070,6 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::{TransactionReceipt, U256};
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();

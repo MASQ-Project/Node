@@ -6,9 +6,7 @@ pub mod transaction_wrapper_mock;
 
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, TransactionWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use rusqlite::{Error, Statement};
 use std::cell::RefCell;
 use std::fmt::Debug;
