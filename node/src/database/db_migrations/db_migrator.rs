@@ -192,7 +192,6 @@ mod tests {
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
     use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::logger::Logger;
@@ -205,6 +204,7 @@ mod tests {
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use crate::database::test_utils::ConnectionWrapperMock;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {

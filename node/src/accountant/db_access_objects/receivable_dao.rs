@@ -28,7 +28,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-use rusqlite::{OptionalExtension, Transaction};
+use rusqlite::{OptionalExtension};
 #[cfg(test)]
 use std::any::Any;
 use std::time::SystemTime;
@@ -524,9 +524,6 @@ mod tests {
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
-    use crate::database::test_utils::{
-        ConnectionWrapperMock, TxnPrepareMethodResultsSetup, TransactionWrapperMock,
-    };
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -538,6 +535,8 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, UNIX_EPOCH};
+    use crate::database::test_utils::ConnectionWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::{TransactionWrapperMock, PrepareMethodResults};
 
     #[test]
     fn conversion_from_pce_works() {
@@ -1109,7 +1108,7 @@ mod tests {
             .unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = TxnPrepareMethodResultsSetup::new_with_both_prod_code_and_stubbed_calls(
+        let prepare_results = PrepareMethodResults::new_with_both_prod_code_and_stubbed_calls(
             prod_code_calls_conn,
             panic_causing_conn,
         )

@@ -1,70 +1,17 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #![cfg(test)]
 
-use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, InitializationError};
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, TransactionWrapper,
-};
+use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
-use std::cell::RefCell;
-use std::fmt::Debug;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-
-#[derive(Debug, Default)]
-pub struct ConnectionWrapperMock<'a> {
-    prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-    transaction_results: RefCell<Vec<Result<Box<dyn TransactionWrapper + 'a>, Error>>>,
-}
-
-unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
-
-impl<'a> ConnectionWrapperMock<'a> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
-        self.prepare_params = params.clone();
-        self
-    }
-
-    pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
-        self.prepare_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn transaction_result(
-        self,
-        result: Result<Box<dyn TransactionWrapper + 'a>, Error>,
-    ) -> Self {
-        self.transaction_results.borrow_mut().push(result);
-        self
-    }
-}
-
-impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
-    fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.prepare_params
-            .lock()
-            .unwrap()
-            .push(String::from(query));
-        self.prepare_results.borrow_mut().remove(0)
-    }
-
-    fn transaction<'b>(&'b mut self) -> Result<Box<dyn TransactionWrapper + 'b>, Error> {
-        self.transaction_results.borrow_mut().remove(0)
-    }
-}
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 
 #[derive(Default, Debug)]
 pub struct TransactionWrapperMock {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results: Option<TxnPrepareMethodResultsSetup>,
+    prepare_results_opt: Option<PrepareMethodResults>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
 }
@@ -79,8 +26,8 @@ impl TransactionWrapperMock {
         self
     }
 
-    pub fn prepare_results(mut self, results: TxnPrepareMethodResultsSetup) -> Self {
-        self.prepare_results = Some(results);
+    pub fn prepare_results(mut self, results: PrepareMethodResults) -> Self {
+        self.prepare_results_opt = Some(results);
         self
     }
 
@@ -102,7 +49,7 @@ impl TransactionWrapper for TransactionWrapperMock {
             .unwrap()
             .push(prod_code_query.to_string());
 
-        let prepared_results = self.prepare_results.as_ref().unwrap();
+        let prepared_results = self.prepare_results_opt.as_ref().unwrap();
         let idx_info_opt = prepared_results.stubbed_call_idx_info_opt();
         prepared_results.produce_statement(idx_info_opt, prod_code_query)
     }
@@ -114,9 +61,11 @@ impl TransactionWrapper for TransactionWrapperMock {
     fn commit(&mut self) -> Result<(), Error> {
         let next_result = self.commit_results.borrow_mut().remove(0);
         if next_result.is_ok() {
-            match &mut self.prepare_results.as_mut().unwrap().setup {
+            match &mut self.prepare_results_opt.as_mut().unwrap().setup {
                 Either::Left(for_both) => {
-                    return for_both.prod_code_calls_transaction_opt.take().expect("Error: missing transaction in the setup for both prod code and stubbed calls").commit();
+                    return for_both.prod_code_calls_transaction_opt.take()
+                        .expect("Error: missing transaction in the setup for both prod code and stubbed calls")
+                        .commit();
                 }
                 Either::Right(_) => next_result,
             }
@@ -183,12 +132,12 @@ impl Drop for SetupForBoth {
 }
 
 #[derive(Debug)]
-pub struct TxnPrepareMethodResultsSetup {
+pub struct PrepareMethodResults {
     calls_counter: RefCell<usize>,
     setup: Either<SetupForBoth, SetupForStubbed<String>>,
 }
 
-impl TxnPrepareMethodResultsSetup {
+impl PrepareMethodResults {
     pub fn new_with_both_prod_code_and_stubbed_calls(
         prod_code_calls_conn: Box<dyn ConnectionWrapper>,
         stubbed_calls_conn: Box<dyn ConnectionWrapper>,
@@ -411,66 +360,11 @@ impl StubbedCallIndexInfo {
 
     fn handle_setup_for_stubbed_only<'a>(
         self,
-        super_setup_structure: &'a TxnPrepareMethodResultsSetup,
+        super_setup_structure: &'a PrepareMethodResults,
         prod_code_query: &str,
     ) -> Statement<'a> {
         let stm = super_setup_structure.bring_out_stubbed_statement(self, prod_code_query);
         super_setup_structure.increment_counter();
         stm
-    }
-}
-
-#[derive(Default)]
-pub struct DbInitializerMock {
-    pub initialize_params: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
-    pub initialize_results: RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
-}
-
-impl DbInitializer for DbInitializerMock {
-    fn initialize(
-        &self,
-        path: &Path,
-        init_config: DbInitializationConfig,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        self.initialize_params
-            .lock()
-            .unwrap()
-            .push((path.to_path_buf(), init_config));
-        self.initialize_results.borrow_mut().remove(0)
-    }
-
-    #[allow(unused_variables)]
-    fn initialize_to_version(
-        &self,
-        path: &Path,
-        target_version: usize,
-        init_config: DbInitializationConfig,
-    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        intentionally_blank!()
-        /*all existing test calls only initialize() in the mocked version,
-        but we need to call initialize_to_version() for the real object
-        in order to carry out some important tests too*/
-    }
-}
-
-impl DbInitializerMock {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn initialize_parameters(
-        mut self,
-        parameters: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
-    ) -> DbInitializerMock {
-        self.initialize_params = parameters;
-        self
-    }
-
-    pub fn initialize_result(
-        self,
-        result: Result<Box<dyn ConnectionWrapper>, InitializationError>,
-    ) -> DbInitializerMock {
-        self.initialize_results.borrow_mut().push(result);
-        self
     }
 }

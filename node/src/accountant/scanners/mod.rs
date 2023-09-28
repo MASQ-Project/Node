@@ -1132,7 +1132,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::database::test_utils::TransactionWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
