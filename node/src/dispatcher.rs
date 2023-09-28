@@ -211,7 +211,7 @@ mod tests {
     use super::*;
     use crate::actor_system_factory::{ActorFactory, ActorFactoryReal};
     use crate::bootstrapper::BootstrapperConfig;
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::node_test_utils::make_stream_handler_pool_subs_from_recorder;
     use crate::stream_messages::NonClandestineAttributes;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::Endpoint;
@@ -426,7 +426,7 @@ mod tests {
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs =
-            make_stream_handler_pool_subs_from(Some(stream_handler_pool));
+            make_stream_handler_pool_subs_from_recorder(&stream_handler_pool.start());
         subject_addr
             .try_send(PoolBindMessage {
                 dispatcher_subs: peer_actors.dispatcher.clone(),
@@ -440,14 +440,11 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-
         awaiter.await_message_count(1);
         let recording = recording_arc.lock().unwrap();
-
         let message = recording.get_record::<TransmitDataMsg>(0);
         let actual_endpoint = message.endpoint.clone();
         let actual_data = message.data.clone();
-
         assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);

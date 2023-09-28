@@ -1,15 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
-use std::any::Any;
-
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
 use lazy_static::lazy_static;
-use masq_lib::implement_as_any;
+use masq_lib::as_any_in_trait_impl;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
@@ -168,7 +165,7 @@ impl Command for GenerateWalletsCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 pub fn generate_wallets_subcommand() -> App<'static, 'static> {

@@ -3,11 +3,6 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
-    ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
-};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
@@ -21,13 +16,22 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
+    ResultForReceipt, RetrievedBlockchainTransactions,
+};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::set_arbitrary_id_stamp_in_mock_impl;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
-
-use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -58,33 +62,27 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_payables_within_batch_params: Arc<
+    build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
+    build_blockchain_agent_results: RefCell<Vec<Result<Box<dyn BlockchainAgent>, String>>>,
+    send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
-                Wallet,
-                u64,
-                U256,
+                ArbitraryIdStamp,
                 Recipient<PendingPayableFingerprintSeeds>,
                 Vec<PayableAccount>,
             )>,
         >,
     >,
-    send_payables_within_batch_results:
+    send_batch_of_payables_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
-    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
-    get_token_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_token_balance_results: RefCell<Vec<ResultForBalance>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
-    contract_address_results: RefCell<Vec<Address>>,
-    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
     fn contract_address(&self) -> Address {
-        self.contract_address_results.borrow_mut().remove(0)
+        unimplemented!("not needed so far")
     }
 
     fn retrieve_transactions(
@@ -99,53 +97,30 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn send_payables_within_batch(
+    fn build_blockchain_agent(
         &self,
         consuming_wallet: &Wallet,
-        gas_price: u64,
-        last_nonce: U256,
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Box<dyn BlockchainAgent>, String> {
+        self.build_blockchain_agent_params.lock().unwrap().push((
+            consuming_wallet.clone(),
+            persistent_config.arbitrary_id_stamp(),
+        ));
+        self.build_blockchain_agent_results.borrow_mut().remove(0)
+    }
+
+    fn send_batch_of_payables(
+        &self,
+        agent: Box<dyn BlockchainAgent>,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.send_payables_within_batch_params
-            .lock()
-            .unwrap()
-            .push((
-                consuming_wallet.clone(),
-                gas_price,
-                last_nonce,
-                new_fingerprints_recipient.clone(),
-                accounts.to_vec(),
-            ));
-        self.send_payables_within_batch_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_transaction_fee_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_token_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        self.get_token_balance_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
+        self.send_batch_of_payables_params.lock().unwrap().push((
+            agent.arbitrary_id_stamp(),
+            new_fingerprints_recipient.clone(),
+            accounts.to_vec(),
+        ));
+        self.send_batch_of_payables_results.borrow_mut().remove(0)
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
@@ -154,6 +129,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .unwrap()
             .push(hash);
         self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+    fn helpers(&self) -> &dyn RPCHelpers {
+        intentionally_blank!()
     }
 }
 
@@ -171,68 +150,47 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_payables_within_batch_params(
+    pub fn build_blockchain_agent_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
+    ) -> Self {
+        self.build_blockchain_agent_params = params.clone();
+        self
+    }
+
+    pub fn build_blockchain_agent_result(
+        self,
+        result: Result<Box<dyn BlockchainAgent>, String>,
+    ) -> Self {
+        self.build_blockchain_agent_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn send_batch_of_payables_params(
         mut self,
         params: &Arc<
             Mutex<
                 Vec<(
-                    Wallet,
-                    u64,
-                    U256,
+                    ArbitraryIdStamp,
                     Recipient<PendingPayableFingerprintSeeds>,
                     Vec<PayableAccount>,
                 )>,
             >,
         >,
     ) -> Self {
-        self.send_payables_within_batch_params = params.clone();
+        self.send_batch_of_payables_params = params.clone();
         self
     }
 
-    pub fn send_payables_within_batch_result(
+    pub fn send_batch_of_payables_result(
         self,
         result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
     ) -> Self {
-        self.send_payables_within_batch_results
+        self.send_batch_of_payables_results
             .borrow_mut()
             .push(result);
-        self
-    }
-
-    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_fee_balance_params = params.clone();
-        self
-    }
-
-    pub fn get_transaction_fee_balance_result(self, result: ResultForBalance) -> Self {
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn get_token_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_token_balance_params = params.clone();
-        self
-    }
-
-    pub fn get_token_balance_result(self, result: ResultForBalance) -> Self {
-        self.get_token_balance_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn contract_address_result(self, address: Address) -> Self {
-        self.contract_address_results.borrow_mut().push(address);
-        self
-    }
-
-    pub fn get_transaction_count_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_count_parameters = params.clone();
-        self
-    }
-
-    pub fn get_transaction_count_result(self, result: BlockchainResult<U256>) -> Self {
-        self.get_transaction_count_results.borrow_mut().push(result);
         self
     }
 
@@ -247,6 +205,8 @@ impl BlockchainInterfaceMock {
             .push(result);
         self
     }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 #[derive(Debug, Default, Clone)]
@@ -459,6 +419,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.sign_transaction_params = params.clone();
         self
     }
+
     pub fn sign_transaction_result(self, result: Result<SignedTransaction, Web3Error>) -> Self {
         self.sign_transaction_results.borrow_mut().push(result);
         self
@@ -497,6 +458,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.submit_batch_params = params.clone();
         self
     }
+
     pub fn submit_batch_result(
         self,
         result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,
@@ -519,4 +481,13 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
 
 pub fn make_tx_hash(base: u32) -> H256 {
     H256::from_uint(&U256::from(base))
+}
+
+pub fn all_chains() -> [Chain; 4] {
+    [
+        Chain::EthMainnet,
+        Chain::PolyMainnet,
+        Chain::PolyMumbai,
+        Chain::Dev,
+    ]
 }

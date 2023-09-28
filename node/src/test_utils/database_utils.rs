@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 

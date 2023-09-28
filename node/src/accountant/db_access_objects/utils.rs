@@ -288,11 +288,11 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
                 let gwei =  (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
                 if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
                  between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
-                        if account.balance_wei.is_positive() {"1"}else{"-1"},
-                        account.wallet,
-                        account.balance_wei
-            )}
-          },
+                                                 if account.balance_wei.is_positive() {"1"}else{"-1"},
+                                                 account.wallet,
+                                                 account.balance_wei
+                )}
+            },
         })
         .collect()
 }

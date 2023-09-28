@@ -6,11 +6,9 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
 use itertools::{Either, Itertools};
-use masq_lib::implement_as_any;
+use masq_lib::as_any_in_trait_impl;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -121,7 +119,7 @@ impl Command for RecoverWalletsCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 const RECOVER_WALLETS_ABOUT: &str =

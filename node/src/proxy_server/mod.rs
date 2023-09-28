@@ -24,7 +24,7 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ExpectedService, UpdateNodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
@@ -33,7 +33,6 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
@@ -61,7 +60,7 @@ struct ProxyServerOutSubs {
     hopper: Recipient<IncipientCoresPackage>,
     accountant: Recipient<ReportServicesConsumedMessage>,
     route_source: Recipient<RouteQueryMessage>,
-    update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
     add_route: Recipient<AddRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -105,21 +104,6 @@ impl Handler<BindMessage> for ProxyServer {
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
         };
         self.subs = Some(subs);
-    }
-}
-
-//TODO comes across as basically dead code
-// I think the idea was to supply the wallet if wallets hadn't been generated until recently, without the need to kill the Node
-// I also found out that there is a test for this, but it changes nothing on it's normally unused
-impl Handler<SetConsumingWalletMessage> for ProxyServer {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        _msg: SetConsumingWalletMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.consuming_wallet_balance = Some(0);
     }
 }
 
@@ -247,7 +231,6 @@ impl ProxyServer {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
@@ -283,7 +266,7 @@ impl ProxyServer {
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
                         .update_node_record_metadata
-                        .try_send(NodeRecordMetadataMessage {
+                        .try_send(UpdateNodeRecordMetadataMessage {
                             public_key: exit_public_key.clone(),
                             metadata_change: NRMetadataChange::AddUnreachableHost {
                                 hostname: server_name,
@@ -1083,7 +1066,7 @@ mod tests {
             hopper: recipient!(addr, IncipientCoresPackage),
             accountant: recipient!(addr, ReportServicesConsumedMessage),
             route_source: recipient!(addr, RouteQueryMessage),
-            update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -1987,86 +1970,6 @@ mod tests {
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-            system.run();
-        });
-
-        hopper_awaiter.await_message_count(1);
-        let recording = hopper_log_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record, &expected_pkg);
-    }
-
-    #[test]
-    fn proxy_server_applies_late_wallet_information() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let hopper_mock = Recorder::new();
-        let hopper_log_arc = hopper_mock.get_recording();
-        let hopper_awaiter = hopper_mock.get_awaiter();
-        let destination_key = PublicKey::from(&b"our destination"[..]);
-        let route_query_response = RouteQueryResponse {
-            route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(
-                vec![make_exit_service_from_key(destination_key.clone())],
-                vec![],
-                1234,
-            ),
-        };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let expected_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(0),
-            last_data: true,
-            is_clandestine: false,
-            data: expected_data.clone(),
-        };
-        let expected_http_request = PlainData::new(http_request);
-        let route = route_query_response.route.clone();
-        let expected_payload = ClientRequestPayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: expected_http_request.into(),
-                sequence_number: 0,
-                last_data: true,
-            },
-            target_hostname: Some(String::from("nowhere.com")),
-            target_port: HTTP_PORT,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
-        };
-        let expected_pkg = IncipientCoresPackage::new(
-            main_cryptde,
-            route,
-            expected_payload.into(),
-            &destination_key,
-        )
-        .unwrap();
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
-            let system = System::new("proxy_server_applies_late_wallet_information");
-            let mut subject = ProxyServer::new(main_cryptde, alias_cryptde, true, None, false);
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject
-                .stream_key_routes
-                .insert(stream_key, route_query_response);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            subject_addr
-                .try_send(SetConsumingWalletMessage {
-                    wallet: make_wallet("Consuming wallet"),
-                })
-                .unwrap();
-
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
             system.run();
         });
 
@@ -3878,10 +3781,10 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
-        let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        let record = neighborhood_recording.get_record::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(
             record,
-            &NodeRecordMetadataMessage {
+            &UpdateNodeRecordMetadataMessage {
                 public_key: exit_public_key,
                 metadata_change: NRMetadataChange::AddUnreachableHost {
                     hostname: "server.com".to_string()
@@ -3942,7 +3845,8 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
+        let record_opt =
+            neighborhood_recording.get_record_opt::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
     }
 
