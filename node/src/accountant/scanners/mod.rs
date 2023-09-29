@@ -821,11 +821,31 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                 .payments
                 .iter()
                 .fold(0, |so_far, now| so_far + now.wei_amount);
-            let txn = self
+
+            let mut txn = self
                 .receivable_dao
                 .as_mut()
                 .more_money_received(message.timestamp, &message.payments);
-            todo!();
+
+            let new_start_block = message.new_start_block;
+            match self.config_dao.set_by_started_transaction(
+                txn.as_mut(),
+                "start_block",
+                Some(new_start_block.to_string()),
+            ) {
+                Ok(()) => (),
+                Err(e) => todo!(),
+            }
+
+            match txn.commit() {
+                Ok(_) => {
+                    debug!(logger, "Updated start block to: {}", new_start_block)
+                }
+                Err(e) => todo!(),
+            }
+            // The trait object wrapper cannot consume it,
+            // disallowed by the Rust rules, so we do
+            drop(txn);
             self.financial_statistics
                 .borrow_mut()
                 .total_paid_receivable_wei += total_newly_paid_receivable;
@@ -2753,6 +2773,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
+            new_start_block: 1234567,
             response_skeleton_opt: None,
         };
 
@@ -2764,18 +2785,25 @@ mod tests {
         ));
     }
 
+    // TODO this might be considered a test duplicate with a test in accountant/mod.rs where we start it by
+    // sending the appropriate msg to Accountant resulting in this call immediately
     #[test]
     fn receivable_scanner_handles_received_payments_message() {
         init_test_logging();
         let test_name = "receivable_scanner_handles_received_payments_message";
         let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction = Box::new(TransactionWrapperMock::new());
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(transaction);
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
+            .config_dao(config_dao)
             .build();
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_receivable_wei += 2_222_123_123;
@@ -2795,6 +2823,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: now,
             payments: receivables.clone(),
+            new_start_block: 7890123,
             response_skeleton_opt: None,
         };
         subject.mark_as_started(SystemTime::now());
@@ -2810,6 +2839,11 @@ mod tests {
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![(("start_block".to_string(), Some("7890123".to_string())))]
+        );
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );

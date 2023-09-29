@@ -3,6 +3,8 @@
 #![cfg(test)]
 
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
@@ -14,6 +16,7 @@ pub struct TransactionWrapperMock {
     prepare_results_opt: Option<PrepareMethodResults>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl TransactionWrapperMock {
@@ -40,6 +43,8 @@ impl TransactionWrapperMock {
         self.commit_results.borrow_mut().push(result);
         self
     }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 impl TransactionWrapper for TransactionWrapperMock {
@@ -60,18 +65,21 @@ impl TransactionWrapper for TransactionWrapperMock {
     }
 
     fn commit(&mut self) -> Result<(), Error> {
+        self.commit_params.lock().unwrap().push(());
         let next_result = self.commit_results.borrow_mut().remove(0);
-        if next_result.is_ok() {
-            match &mut self.prepare_results_opt.as_mut().unwrap().setup {
+        match (next_result.is_ok(), self.prepare_results_opt.as_mut()) {
+            (true, Some(prepared_results)) => match &mut prepared_results.setup {
                 Either::Left(for_both) => for_both.commit_prod_calls(),
                 Either::Right(_) => next_result,
-            }
-        } else {
-            next_result
+            },
+            _ => next_result,
         }
     }
+
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
+// TODO curate this text (probably not up to date)
 // The idea to store a rusqlite 'Statement' in the TransactionWrapperMock and put this compound into
 // the ConnectionWrapperMock did not turn out well. It allured lifetime issues. A fair amount of
 // attempts was made to get those right but a success was conditioned by a creation of lot of new

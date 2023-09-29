@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::arbitrary_id_stamp_in_trait;
 use crate::masq_lib::utils::ExpectValue;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
@@ -46,6 +47,8 @@ pub trait TransactionWrapper: Debug {
     fn prepare(&self, query: &str) -> Result<Statement, Error>;
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error>;
     fn commit(&mut self) -> Result<(), Error>;
+
+    arbitrary_id_stamp_in_trait!();
 }
 
 #[derive(Debug)]

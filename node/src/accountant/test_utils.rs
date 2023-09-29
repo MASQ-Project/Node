@@ -1196,6 +1196,11 @@ impl ReceivableScannerBuilder {
         self
     }
 
+    pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
+        self.config_dao = config_dao;
+        self
+    }
+
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
         self.banned_dao = banned_dao;
         self

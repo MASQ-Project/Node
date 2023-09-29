@@ -311,12 +311,12 @@ impl BlockchainBridge {
 
         match retrieved_transactions {
             Ok(transactions) => {
-                if let Err(e) = self
-                    .persistent_config
-                    .set_start_block(transactions.new_start_block)
-                {
-                    panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
-                };
+                // if let Err(e) = self
+                //     .persistent_config
+                //     .set_start_block(transactions.new_start_block)
+                // {
+                //     panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
+                // };
                 if transactions.transactions.is_empty() {
                     debug!(self.logger, "No new receivable detected");
                 }
@@ -326,6 +326,7 @@ impl BlockchainBridge {
                     .try_send(ReceivedPayments {
                         timestamp: SystemTime::now(),
                         payments: transactions.transactions,
+                        new_start_block: u64::MAX, //TODO drive this value out
                         response_skeleton_opt: msg.response_skeleton_opt,
                     })
                     .expect("Accountant is dead.");
@@ -1313,7 +1314,7 @@ mod tests {
         let amount = 42;
         let amount2 = 55;
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 1234,
+            new_start_block: 9876,
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 7,
@@ -1330,11 +1331,7 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(6));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
@@ -1359,8 +1356,6 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![1234]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
@@ -1372,6 +1367,7 @@ mod tests {
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
                 payments: expected_transactions.transactions,
+                new_start_block: 9876,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1388,11 +1384,7 @@ mod tests {
                 new_start_block: 7,
                 transactions: vec![],
             }));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(6));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new(
             "processing_of_received_payments_continues_even_if_no_payments_are_detected",
@@ -1421,8 +1413,6 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![7]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments.timestamp, after);
@@ -1431,6 +1421,7 @@ mod tests {
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
                 payments: vec![],
+                new_start_block: 7,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321

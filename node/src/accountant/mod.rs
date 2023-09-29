@@ -122,6 +122,7 @@ pub struct ReceivedPayments {
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
+    pub new_start_block: u64,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -996,7 +997,13 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock, ConfigDaoFactoryMock};
+    use crate::accountant::test_utils::{
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
+        PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ScannerMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
@@ -1265,6 +1272,7 @@ mod tests {
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
+            new_start_block: 1234567,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1857,7 +1865,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_by_started_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1870,15 +1878,17 @@ mod tests {
             from: make_wallet("wallet1"),
             wei_amount: 10000,
         };
+        let transaction_id = ArbitraryIdStamp::new();
         let transaction = TransactionWrapperMock::default()
             .commit_params(&commit_params_arc)
-            .commit_result(Ok(()));
+            .commit_result(Ok(()))
+            .set_arbitrary_id_stamp(transaction_id);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(Box::new(transaction));
         let config_dao = ConfigDaoMock::new()
-            .set_params(&set_params_arc)
-            .set_result(Ok(()));
+            .set_by_started_transaction_params(&set_by_started_transaction_params_arc)
+            .set_by_started_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
@@ -1891,6 +1901,7 @@ mod tests {
             .try_send(ReceivedPayments {
                 timestamp: now,
                 payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
+                new_start_block: 123456789,
                 response_skeleton_opt: None,
             })
             .expect("unexpected actix error");
@@ -1904,10 +1915,15 @@ mod tests {
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
-        let set_params = set_params_arc.lock().unwrap();
+        let set_by_started_transaction_params =
+            set_by_started_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *set_params,
-            vec![(("start_block".to_string(), Some("13456789".to_string())))]
+            *set_by_started_transaction_params,
+            vec![(
+                transaction_id,
+                "start_block".to_string(),
+                Some("123456789".to_string())
+            )]
         )
     }
 
