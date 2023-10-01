@@ -3,7 +3,6 @@ use crate::accountant::db_access_objects::utils::DaoFactoryReal;
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
-use web3::types::Res;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConfigDaoError {
@@ -41,7 +40,7 @@ pub trait ConfigDao {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn set_by_started_transaction(
+    fn set_from_started_transaction(
         &self,
         txn: &mut dyn TransactionWrapper,
         name: &str,
@@ -75,7 +74,7 @@ impl ConfigDao for ConfigDaoReal {
         Self::set(stm_preparer, name, value)
     }
 
-    fn set_by_started_transaction(
+    fn set_from_started_transaction(
         &self,
         txn: &mut dyn TransactionWrapper,
         name: &str,
@@ -177,7 +176,6 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
-    use libc::hostent;
     use masq_lib::constants::{CURRENT_SCHEMA_VERSION, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::path::Path;
@@ -285,7 +283,7 @@ mod tests {
         let mut txn = conn.transaction().unwrap();
 
         subject
-            .set_by_started_transaction(&mut *txn, "schema_version", Some("3".to_string()))
+            .set_from_started_transaction(&mut *txn, "schema_version", Some("3".to_string()))
             .unwrap();
 
         let assert_dao = make_subject(&home_dir);

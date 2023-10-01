@@ -1865,7 +1865,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_by_started_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_from_started_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1887,8 +1887,8 @@ mod tests {
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(Box::new(transaction));
         let config_dao = ConfigDaoMock::new()
-            .set_by_started_transaction_params(&set_by_started_transaction_params_arc)
-            .set_by_started_transaction_result(Ok(()));
+            .set_from_started_transaction_params(&set_from_started_transaction_params_arc)
+            .set_from_started_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
@@ -1915,10 +1915,10 @@ mod tests {
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
-        let set_by_started_transaction_params =
-            set_by_started_transaction_params_arc.lock().unwrap();
+        let set_from_started_transaction_params =
+            set_from_started_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *set_by_started_transaction_params,
+            *set_from_started_transaction_params,
             vec![(
                 transaction_id,
                 "start_block".to_string(),

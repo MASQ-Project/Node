@@ -73,7 +73,7 @@ impl ConfigDao for ConfigDaoNull {
         Ok(())
     }
 
-    fn set_by_started_transaction(
+    fn set_from_started_transaction(
         &self,
         _txn: &mut dyn TransactionWrapper,
         _name: &str,
@@ -157,7 +157,6 @@ mod tests {
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::collections::HashSet;
-    use time::format_description::modifier::Padding::Space;
 
     #[test]
     fn get_works() {
@@ -305,28 +304,26 @@ mod tests {
             .set("schema_version", Some("456".to_string()))
             .unwrap();
 
-        let bright_new_dao_null = ConfigDaoNull::default();
         let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
         let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
         assert_eq!(subject_data_sorted, comparison_subject_data_sorted)
     }
 
     #[test]
-    fn set_by_started_transaction_works_simple() {
+    fn set_from_started_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let mut txn = TransactionWrapperMock::new();
 
         subject
-            .set_by_started_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .set_from_started_transaction(&mut txn, "param1", Some("value1".to_string()))
             .unwrap();
         subject
-            .set_by_started_transaction(&mut txn, "schema_version", None)
+            .set_from_started_transaction(&mut txn, "schema_version", None)
             .unwrap();
         subject
-            .set_by_started_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .set_from_started_transaction(&mut txn, "schema_version", Some("456".to_string()))
             .unwrap();
 
-        let bright_new_dao_null = ConfigDaoNull::default();
         let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
         let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
         assert_eq!(subject_data_sorted, comparison_subject_data_sorted)

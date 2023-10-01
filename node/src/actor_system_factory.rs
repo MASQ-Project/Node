@@ -632,7 +632,6 @@ mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::blockchain::blockchain_bridge::exportable_test_parts::test_blockchain_bridge_is_constructed_with_correctly_functioning_connections;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };

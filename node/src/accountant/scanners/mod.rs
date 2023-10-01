@@ -828,23 +828,26 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                 .more_money_received(message.timestamp, &message.payments);
 
             let new_start_block = message.new_start_block;
-            match self.config_dao.set_by_started_transaction(
+            match self.config_dao.set_from_started_transaction(
                 txn.as_mut(),
                 "start_block",
                 Some(new_start_block.to_string()),
             ) {
                 Ok(()) => (),
-                Err(e) => todo!(),
+                Err(e) => panic!(
+                    "Attempt to set the new start block to {} failed due to: {:?}",
+                    new_start_block, e
+                ),
             }
 
             match txn.commit() {
                 Ok(_) => {
                     debug!(logger, "Updated start block to: {}", new_start_block)
                 }
-                Err(e) => todo!(),
+                Err(e) => panic!("Commit of received transactions failed: {:?}", e),
             }
-            // The trait object wrapper cannot consume it,
-            // disallowed by the Rust rules, so we do
+            // At this moment the txn is useless; but we cannot have it consumed by its method
+            // because of it qualifies as a trait object
             drop(txn);
             self.financial_statistics
                 .borrow_mut()
@@ -1076,18 +1079,21 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::db_config::config_dao::ConfigDaoError;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::make_wallet;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use actix::{Message, System};
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
+    use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -2785,19 +2791,24 @@ mod tests {
         ));
     }
 
-    // TODO this might be considered a test duplicate with a test in accountant/mod.rs where we start it by
-    // sending the appropriate msg to Accountant resulting in this call immediately
     #[test]
     fn receivable_scanner_handles_received_payments_message() {
         init_test_logging();
         let test_name = "receivable_scanner_handles_received_payments_message";
         let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction = Box::new(TransactionWrapperMock::new());
+        let set_from_started_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_id = ArbitraryIdStamp::new();
+        let transaction = Box::new(
+            TransactionWrapperMock::new()
+                .commit_params(&commit_params_arc)
+                .commit_result(Ok(()))
+                .set_arbitrary_id_stamp(transaction_id),
+        );
         let config_dao = ConfigDaoMock::new()
-            .set_params(&set_params_arc)
-            .set_result(Ok(()));
+            .set_from_started_transaction_params(&set_from_started_transaction_params_arc)
+            .set_from_started_transaction_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(transaction);
@@ -2834,19 +2845,102 @@ mod tests {
             .financial_statistics
             .borrow()
             .total_paid_receivable_wei;
-        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
+        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
-        let set_params = set_params_arc.lock().unwrap();
+        let set_from_started_transaction_params =
+            set_from_started_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *set_params,
-            vec![(("start_block".to_string(), Some("7890123".to_string())))]
+            *set_from_started_transaction_params,
+            vec![(
+                transaction_id,
+                "start_block".to_string(),
+                Some("7890123".to_string())
+            )]
         );
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Attempt to set the new start block to 7890123 failed due to: \
+    DatabaseError(\"Fatigue\")"
+    )]
+    fn updated_accounts_by_retrieved_transactions_but_start_block_setting_fails() {
+        init_test_logging();
+        let test_name = "updated_accounts_by_retrieved_transactions_but_start_block_setting_fails";
+        let now = SystemTime::now();
+        let transaction = Box::new(TransactionWrapperMock::new());
+        let config_dao = ConfigDaoMock::new().set_from_started_transaction_result(Err(
+            ConfigDaoError::DatabaseError("Fatigue".to_string()),
+        ));
+        let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
+        let mut subject = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .config_dao(config_dao)
+            .build();
+        let receivables = vec![BlockchainTransaction {
+            block_number: 4578910,
+            from: make_wallet("abc"),
+            wei_amount: 45_780,
+        }];
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: receivables,
+            new_start_block: 7890123,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Commit of received transactions failed: SqliteFailure(Error { code: \
+    InternalMalfunction, extended_code: 0 }, Some(\"blah\"))"
+    )]
+    fn transaction_for_balance_start_block_updates_fails_on_its_commit() {
+        init_test_logging();
+        let test_name = "transaction_for_balance_start_block_updates_fails_on_its_commit";
+        let now = SystemTime::now();
+        let transaction = Box::new(TransactionWrapperMock::new().commit_result(Err(
+            rusqlite::Error::SqliteFailure(
+                ffi::Error {
+                    code: ErrorCode::InternalMalfunction,
+                    extended_code: 0,
+                },
+                Some("blah".to_string()),
+            ),
+        )));
+        let config_dao = ConfigDaoMock::new().set_from_started_transaction_result(Ok(()));
+        let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
+        let mut subject = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .config_dao(config_dao)
+            .build();
+        let receivables = vec![BlockchainTransaction {
+            block_number: 4578910,
+            from: make_wallet("abc"),
+            wei_amount: 45_780,
+        }];
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: receivables,
+            new_start_block: 7890123,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
     }
 
     #[test]

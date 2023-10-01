@@ -151,7 +151,7 @@ impl ReceivableDao for ReceivableDaoReal {
         match self
             .conn
             .transaction()
-            .map_err(|e| ReceivableDaoError::from(e))
+            .map_err(ReceivableDaoError::from)
             .and_then(|txn| {
                 Self::run_processing_of_received_payments(
                     &*self.big_int_db_processor,
@@ -518,7 +518,6 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{
         from_time_t, now_time_t, to_time_t, CustomQuery,
     };
-    use crate::accountant::db_big_integer::test_utils::BigIntDatabaseProcessorMock;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
@@ -841,8 +840,10 @@ mod tests {
             },
         ];
 
-        subject.more_money_received(payment_time, &transactions);
+        let mut txn = subject.more_money_received(payment_time, &transactions);
 
+        txn.commit().unwrap();
+        drop(txn);
         let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, first_expected_result);
@@ -967,7 +968,6 @@ mod tests {
         )
         .unwrap();
         let conn = ConnectionWrapperReal::new(conn);
-        let logger = Logger::new(test_name);
         let mut subject = ReceivableDaoReal::new(Box::new(conn));
         let transaction = BlockchainTransaction {
             block_number: 123_456,
@@ -997,35 +997,14 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing(&format!("INFO: {test_name}: "));
     }
 
-    fn test_non_fatal_error_with_roll_back_for_more_money_received(
-        test_name: &str,
-        mut subject: ReceivableDaoReal,
-        wallet: Wallet,
-        error_specific_expected_msg: &str,
-    ) {
-        init_test_logging();
-        subject.logger = Logger::new(test_name);
-        let transaction = BlockchainTransaction {
-            block_number: 123_456,
-            from: wallet,
-            wei_amount: 1,
-        };
-        let transactions = vec![transaction];
-
-        subject.more_money_received(SystemTime::now(), &transactions);
-
-        let log_handler = TestLogHandler::new();
-        log_handler.assert_logs_contain_in_order(vec![
-            &format!("ERROR: {test_name}: Payment reception failed, rolling back:"),
-            &format!("ERROR: {test_name}: {error_specific_expected_msg}"),
-        ]);
-        log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
-    }
-
     #[test]
-    fn more_money_received_logs_error_from_transaction_initialization() {
-        let test_name = "more_money_received_logs_error_from_transaction_initialization";
-        let subject = {
+    #[should_panic(
+        expected = "Database corruption suspected during updating accounts for newly \
+    received payments: RusqliteError(\"SqliteFailure(Error { code: InternalMalfunction, extended_\
+    code: 0 }, Some(\\\"blah\\\"))\")"
+    )]
+    fn more_money_received_hits_error_from_transaction_initialization() {
+        let mut subject = {
             let conn = ConnectionWrapperMock::default().transaction_result(Err(
                 rusqlite::Error::SqliteFailure(
                     ffi::Error {
@@ -1037,49 +1016,14 @@ mod tests {
             ));
             ReceivableDaoReal::new(Box::new(conn))
         };
-        let expected_error_msg = "Db modification failed for received payments due to: \
-        RusqliteError(\"SqliteFailure(Error { code: InternalMalfunction, extended_code: 0 }, \
-        Some(\\\"blah\\\"))\"";
-
-        test_non_fatal_error_with_roll_back_for_more_money_received(
-            test_name,
-            subject,
-            make_wallet("abc"),
-            expected_error_msg,
-        )
-    }
-
-    #[test]
-    fn more_money_received_logs_error_from_committing_the_common_transaction() {
-        let test_name = "more_money_received_logs_error_from_committing_the_common_transaction";
-        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
-        let wallet = make_wallet("def");
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let preparation_subject = ReceivableDaoReal::new(conn);
-        preparation_subject
-            .more_money_receivable(SystemTime::now(), &wallet, 123)
-            .unwrap();
-        let subject = {
-            let transaction = Box::new(
-                TransactionWrapperMock::default().commit_result(Err(Error::UnwindingPanic)),
-            );
-            let conn = ConnectionWrapperMock::default().transaction_result(Ok(transaction));
-            let mut dao = ReceivableDaoReal::new(Box::new(conn));
-            let big_int_processor = BigIntDatabaseProcessorMock::default().execute_result(Ok(()));
-            dao.big_int_db_processor = Box::new(big_int_processor);
-            dao
+        let transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: make_wallet("abc"),
+            wei_amount: 1,
         };
-        let expected_error_msg = "Db modification failed for received payments due to: \
-        RusqliteError(\"UnwindingPanic\")";
+        let transactions = vec![transaction];
 
-        test_non_fatal_error_with_roll_back_for_more_money_received(
-            test_name,
-            subject,
-            wallet,
-            expected_error_msg,
-        )
+        subject.more_money_received(SystemTime::now(), &transactions);
     }
 
     #[test]
