@@ -319,23 +319,32 @@ impl PayableScanner {
 
     fn separate_id_triples_by_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
-        sent_payments: &'a [&'a PendingPayable],
+        sent_payables: &'a [&'a PendingPayable],
     ) -> (Vec<PendingPayableTriple>, Vec<PendingPayableTriple>) {
-        let hashes = sent_payments
+        fn join<'a>(
+            ((rowid_opt, hash), pending_payable): ((Option<u64>, H256), &'a &'a PendingPayable),
+        ) -> PendingPayableTriple<'a> {
+            PendingPayableTriple::new(&pending_payable.recipient_wallet, hash, rowid_opt)
+        }
+
+        let hashes = sent_payables
             .iter()
             .map(|pending_payable| pending_payable.hash)
             .collect::<Vec<H256>>();
-        self.pending_payable_dao
+
+        let sent_payables_sorted_by_hashes = sent_payables
+            .iter()
+            .sorted_by(|a, b| Ord::cmp(&a.hash, &b.hash));
+
+        let rowid_pairs_sorted_by_hashes = self
+            .pending_payable_dao
             .fingerprints_rowids(&hashes)
             .into_iter()
-            .zip(sent_payments.iter())
-            .map(
-                |((rowid_opt, hash), pending_payable)| PendingPayableTriple {
-                    recipient: &pending_payable.recipient_wallet,
-                    hash,
-                    rowid_opt,
-                },
-            )
+            .sorted_by(|(_, hash_a), (_, hash_b)| Ord::cmp(&hash_a, &hash_b));
+
+        rowid_pairs_sorted_by_hashes
+            .zip(sent_payables_sorted_by_hashes)
+            .map(join)
             .partition(|pp_triple| pp_triple.rowid_opt.is_some())
     }
 
@@ -1101,7 +1110,9 @@ mod tests {
         PayableAccount, PayableDaoError, PendingPayable,
     };
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+        PayableThresholdsGaugeReal, PendingPayableTriple,
+    };
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
@@ -1321,8 +1332,8 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(vec![
-                (Some(correct_payable_rowid_1), correct_payable_hash_1),
                 (Some(correct_payable_rowid_3), correct_payable_hash_3),
+                (Some(correct_payable_rowid_1), correct_payable_hash_1),
             ])
             .fingerprints_rowids_result(vec![(
                 Some(failure_payable_rowid_2),
@@ -1398,10 +1409,54 @@ mod tests {
     }
 
     #[test]
+    fn keeping_entries_consistent_and_aligned_is_so_important() {
+        let wallet_1 = make_wallet("abc");
+        let hash_1 = make_tx_hash(123);
+        let wallet_2 = make_wallet("def");
+        let hash_2 = make_tx_hash(345);
+        let wallet_3 = make_wallet("ghi");
+        let hash_3 = make_tx_hash(546);
+        let wallet_4 = make_wallet("jkl");
+        let hash_4 = make_tx_hash(678);
+        let pending_payables_owned = vec![
+            PendingPayable::new(wallet_1.clone(), hash_1),
+            PendingPayable::new(wallet_2.clone(), hash_2),
+            PendingPayable::new(wallet_3.clone(), hash_3),
+            PendingPayable::new(wallet_4.clone(), hash_4),
+        ];
+        let pending_payables_ref = pending_payables_owned
+            .iter()
+            .collect::<Vec<&PendingPayable>>();
+        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(vec![
+            (Some(4), hash_4),
+            (Some(1), hash_1),
+            (Some(3), hash_3),
+            (Some(2), hash_2),
+        ]);
+        let subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+
+        let (existent, nonexistent) = subject
+            .separate_id_triples_by_existent_and_nonexistent_fingerprints(&pending_payables_ref);
+
+        assert_eq!(
+            existent,
+            vec![
+                PendingPayableTriple::new(&wallet_1, hash_1, Some(1)),
+                PendingPayableTriple::new(&wallet_2, hash_2, Some(2)),
+                PendingPayableTriple::new(&wallet_3, hash_3, Some(3)),
+                PendingPayableTriple::new(&wallet_4, hash_4, Some(4))
+            ]
+        );
+        assert!(nonexistent.is_empty())
+    }
+
+    #[test]
     #[should_panic(
-        expected = "Expected pending payable fingerprints for (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
-     to wallet: 0x000000000000000000000000000000626f6f6761), (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
-     to wallet: 0x00000000000000000000000000000061676f6f62) were not found; system unreliable"
+        expected = "Expected pending payable fingerprints for (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+     to wallet: 0x00000000000000000000000000000061676f6f62), (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
+     to wallet: 0x000000000000000000000000000000626f6f6761) were not found; system unreliable"
     )]
     fn payable_scanner_panics_when_fingerprints_for_correct_payments_not_found() {
         let hash_1 = make_tx_hash(0x315);
@@ -1473,10 +1528,7 @@ mod tests {
             hash_2,
         );
 
-        // the panic captured in the shared body cannot take record in the test log collection,
-        // despite it does get "ERROR: ..." printed in the reality;
-        // for that reason we can look for evidences of no ERROR log, which would've spoken for
-        // missing fingerprints otherwise
+        // Missing fingerprints, being an additional issue, would provoke an error log, but not here.
         TestLogHandler::new().exists_no_log_containing(&format!("ERROR: {test_name}:"));
     }
 
@@ -1559,7 +1611,7 @@ mod tests {
             Deleting fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
             0x0000000000000000000000000000000000000000000000000000000000003039",
         ));
-        //we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
+        // we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
     }
 
     #[test]
@@ -1623,16 +1675,16 @@ mod tests {
         00000000000000000000000000000000000000000315 failed due to RecordDeletion(\"Gosh, I overslept \
         without an alarm set\")");
         let log_handler = TestLogHandler::new();
-        // there is a situation when we also stumble over missing fingerprints and so we log this
-        // actuality. Here we don't and so that ERROR log shouldn't be there
+        // There is a possible situation when we stumble over missing fingerprints and so we log it.
+        // Here we don't and so any ERROR log shouldn't turn up
         log_handler.exists_no_log_containing(&format!("ERROR: {}", test_name))
     }
 
     #[test]
-    fn payable_scanner_panics_for_missing_fingerprints_of_some_failed_payments_but_deletion_works()
-    {
+    fn payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works() {
         init_test_logging();
-        let test_name = "payable_scanner_panics_for_missing_fingerprints_of_some_failed_payments_but_deletion_works";
+        let test_name =
+            "payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works";
         let hash_1 = make_tx_hash(0x1b669);
         let hash_2 = make_tx_hash(0x3039);
         let hash_3 = make_tx_hash(0x223d);
@@ -1673,11 +1725,12 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails() {
-        // two fatal failures, missing fingerprints and fingerprint deletion error are both legitimate
-        // reasons for panic
+    fn payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails()
+    {
+        // Two fatal failures at once, missing fingerprints and fingerprint deletion error are both
+        // legitimate reasons for panic
         init_test_logging();
-        let test_name = "payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails";
+        let test_name = "payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails";
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
         let pending_payable_dao = PendingPayableDaoMock::default()
@@ -1755,7 +1808,7 @@ mod tests {
             threshold_value,
             DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
         )
-        //no other method was called (absence of panic) and that means we returned early
+        // No panic and so no other method was called, which means an early return
     }
 
     #[test]
