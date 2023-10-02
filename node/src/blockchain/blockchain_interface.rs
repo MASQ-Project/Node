@@ -188,7 +188,10 @@ pub trait BlockchainInterface<T: Transport = Http> {
         address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
+    fn get_token_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
@@ -239,8 +242,13 @@ impl BlockchainInterface for BlockchainInterfaceNull {
             .unwrap_err()))
     }
 
-    fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        self.handle_uninitialized_interface("get token balance")
+    fn get_token_balance(
+        &self,
+        _address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(err(self
+            .handle_uninitialized_interface::<U256, _>("get token balance")
+            .unwrap_err()))
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
@@ -465,18 +473,37 @@ where
     //     // .wait()
     // }
 
-    fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
-        self.contract
-            .query(
-                "balanceOf",
-                wallet.address(),
-                None,
-                Options::default(),
-                None,
-            )
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
+    fn get_token_balance(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(
+            self.contract
+                .query(
+                    "balanceOf",
+                    wallet.address(),
+                    None,
+                    Options::default(),
+                    None,
+                )
+                .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
+        )
+        // .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+        // .wait()
     }
+
+    // fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    //     self.contract
+    //         .query(
+    //             "balanceOf",
+    //             wallet.address(),
+    //             None,
+    //             Options::default(),
+    //             None,
+    //         )
+    //         .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+    //         .wait()
+    // }
 
     fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
         self.web3
@@ -1257,6 +1284,7 @@ mod tests {
             .get_token_balance(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
+            .wait()
             .unwrap();
 
         assert_eq!(result, U256::from(65_535));
@@ -1275,8 +1303,9 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result =
-            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
+        let result = subject
+            .get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
+            .wait();
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
@@ -1284,7 +1313,7 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_returns_error_for_unintelligible_response_to_token_balance() {
         let act = |subject: &BlockchainInterfaceWeb3<Http>, wallet: &Wallet| {
-            subject.get_token_balance(wallet)
+            subject.get_token_balance(wallet).wait()
         };
 
         assert_error_during_requesting_balance(act, "Invalid hex");

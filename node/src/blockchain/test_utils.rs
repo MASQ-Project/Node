@@ -139,12 +139,17 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         ))
     }
 
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
+    fn get_token_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         self.get_token_balance_params
             .lock()
             .unwrap()
             .push(address.clone());
-        self.get_token_balance_results.borrow_mut().remove(0)
+        Box::new(result(
+            self.get_token_balance_results.borrow_mut().remove(0),
+        ))
     }
 
     fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {

@@ -26,6 +26,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
+use ethereum_types::U256;
 use futures::future::err;
 use futures::Future;
 use itertools::Itertools;
@@ -135,6 +136,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
 }
 
 impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
+    // Done
     type Result = ();
 
     fn handle(&mut self, msg: RequestBalancesToPayPayables, _ctx: &mut Self::Context) {
@@ -269,41 +271,50 @@ impl BlockchainBridge {
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
 
-        let token_balance = match self
-            .blockchain_interface
-            .get_token_balance(consuming_wallet) // Will become a Future also
-        {
-            Ok(token_balance) => token_balance,
-            Err(e) => {
-                return Box::new(err(format!(
-                    "Did not find out token balance of the consuming wallet: {:?}",
-                    e
-                )))
-            }
-        };
+        // let token_balance = match self
+        //     .blockchain_interface
+        //     .get_token_balance(consuming_wallet) // Will become a Future also
+        // {
+        //     Ok(token_balance) => token_balance,
+        //     Err(e) => {
+        //         return Box::new(err(format!(
+        //             "Did not find out token balance of the consuming wallet: {:?}",
+        //             e
+        //         )))
+        //     }
+        // };
 
         let balances_and_payables_sub_opt = self.balances_and_payables_sub_opt.clone();
+        let get_transaction_fee_balance = self
+            .blockchain_interface
+            .get_transaction_fee_balance(consuming_wallet)
+            .map_err(|e| e.to_string());
+
         return Box::new(
             self.blockchain_interface
-                .get_transaction_fee_balance(consuming_wallet)
+                .get_token_balance(consuming_wallet)
                 .map_err(|e| e.to_string())
-                .and_then(move |gas_balance| {
-                    let consuming_wallet_balances = {
-                        ConsumingWalletBalances {
-                            gas_currency: gas_balance,
-                            masq_tokens: token_balance,
-                        }
-                    };
-                    balances_and_payables_sub_opt
-                        .as_ref()
-                        .expect("Accountant is unbound")
-                        .try_send(ConsumingWalletBalancesAndQualifiedPayables {
-                            qualified_payables: msg.accounts,
-                            consuming_wallet_balances,
-                            response_skeleton_opt: msg.response_skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-                    Ok(())
+                .and_then(move |token_balance| {
+                    // Need to put Error here --  "Did not find out token balance of the consuming wallet: {:?}",
+
+                    get_transaction_fee_balance.and_then(move |gas_balance| {
+                        let consuming_wallet_balances = {
+                            ConsumingWalletBalances {
+                                gas_currency: gas_balance,
+                                masq_tokens: token_balance,
+                            }
+                        };
+                        balances_and_payables_sub_opt
+                            .as_ref()
+                            .expect("Accountant is unbound")
+                            .try_send(ConsumingWalletBalancesAndQualifiedPayables {
+                                qualified_payables: msg.accounts,
+                                consuming_wallet_balances,
+                                response_skeleton_opt: msg.response_skeleton_opt,
+                            })
+                            .expect("Accountant is dead");
+                        Ok(())
+                    })
                 }),
         );
 
