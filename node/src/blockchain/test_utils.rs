@@ -20,6 +20,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
 use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
+use crate::blockchain::blockchain_interface::test_utils::RPCHelpersMock;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
     ResultForReceipt, RetrievedBlockchainTransactions,
@@ -29,7 +30,7 @@ use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
@@ -59,7 +60,7 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
@@ -78,6 +79,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+    helpers_result: Option<Box<RPCHelpersMock>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -87,13 +89,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.retrieve_transactions_parameters
-            .lock()
-            .unwrap()
-            .push((start_block, recipient.clone()));
+        self.retrieve_transactions_parameters.lock().unwrap().push((
+            start_block,
+            end_block,
+            recipient.clone(),
+        ));
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
@@ -132,12 +136,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn helpers(&self) -> &dyn RPCHelpers {
-        intentionally_blank!()
+        self.helpers_result.as_ref().unwrap().as_ref()
     }
 }
 
 impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+    pub fn retrieve_transactions_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+    ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
     }
@@ -203,6 +210,11 @@ impl BlockchainInterfaceMock {
         self.get_transaction_receipt_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn helpers_results(mut self, aggregated_results: Box<RPCHelpersMock>) -> Self {
+        self.helpers_result = Some(aggregated_results);
         self
     }
 

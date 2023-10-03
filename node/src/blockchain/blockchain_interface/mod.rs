@@ -17,7 +17,7 @@ use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, TransactionReceipt, H256};
+use web3::types::{Address, BlockNumber, TransactionReceipt, H256};
 use web3::Error;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "To avoid being delinquency-banned, you should \
@@ -28,7 +28,8 @@ pub trait BlockchainInterface {
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 

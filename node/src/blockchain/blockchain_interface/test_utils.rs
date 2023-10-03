@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::rpc_helpers::{
-    RPCHelpers, ResultForBalance, ResultForNonce,
+    LatestBlockNumber, RPCHelpers, ResultForBalance, ResultForNonce,
 };
 
 use crate::blockchain::blockchain_interface::BlockchainInterface;
@@ -22,6 +22,7 @@ pub struct RPCHelpersMock {
     get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_masq_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
     get_transaction_id_params: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
 }
@@ -43,6 +44,10 @@ impl RPCHelpers for RPCHelpersMock {
             .unwrap()
             .push(address.clone());
         self.get_masq_balance_results.borrow_mut().remove(0)
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
     }
 
     fn get_transaction_id(&self, address: &Wallet) -> ResultForNonce {
@@ -74,6 +79,11 @@ impl RPCHelpersMock {
 
     pub fn get_masq_balance_result(self, result: ResultForBalance) -> Self {
         self.get_masq_balance_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
         self
     }
 

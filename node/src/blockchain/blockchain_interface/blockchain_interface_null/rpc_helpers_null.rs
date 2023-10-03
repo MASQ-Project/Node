@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_interface::rpc_helpers::{
-    RPCHelpers, ResultForBalance, ResultForNonce,
+    LatestBlockNumber, RPCHelpers, ResultForBalance, ResultForNonce,
 };
 use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
@@ -18,6 +18,10 @@ impl RPCHelpers for RPCHelpersNull {
 
     fn get_masq_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         Err(self.handle_null_call("masq balance"))
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        Err(self.handle_null_call("block number"))
     }
 
     fn get_transaction_id(&self, _wallet: &Wallet) -> ResultForNonce {
@@ -43,16 +47,15 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
     use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use masq_lib::logger::Logger;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use web3::types::U256;
-
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::fmt::Debug;
 
     #[test]
-    fn rpc_helpers_null_get_no_transaction_fee_balance() {
-        let test_name = "rpc_helpers_null_get_no_transaction_fee_balance";
+    fn rpc_helpers_null_gets_no_transaction_fee_balance() {
+        let test_name = "rpc_helpers_null_gets_no_transaction_fee_balance";
         let act =
             |subject: &RPCHelpersNull, wallet: &Wallet| subject.get_transaction_fee_balance(wallet);
 
@@ -60,24 +63,32 @@ mod tests {
     }
 
     #[test]
-    fn rpc_helpers_null_get_no_masq_balance() {
-        let test_name = "rpc_helpers_null_get_no_masq_balance";
+    fn rpc_helpers_null_gets_no_masq_balance() {
+        let test_name = "rpc_helpers_null_gets_no_masq_balance";
         let act = |subject: &RPCHelpersNull, wallet: &Wallet| subject.get_masq_balance(wallet);
 
         test_null_method(test_name, act, "masq balance");
     }
 
     #[test]
-    fn rpc_helpers_null_get_no_transaction_id() {
-        let test_name = "rpc_helpers_null_get_no_transaction_id";
+    fn rpc_helpers_null_gets_no_block_number() {
+        let test_name = "rpc_helpers_null_gets_no_block_number";
+        let act = |subject: &RPCHelpersNull, _wallet: &Wallet| subject.get_block_number();
+
+        test_null_method(test_name, act, "block number");
+    }
+
+    #[test]
+    fn rpc_helpers_null_gets_no_transaction_id() {
+        let test_name = "rpc_helpers_null_gets_no_transaction_id";
         let act = |subject: &RPCHelpersNull, wallet: &Wallet| subject.get_transaction_id(wallet);
 
         test_null_method(test_name, act, "transaction id");
     }
 
-    fn test_null_method(
+    fn test_null_method<T: Debug + PartialEq>(
         test_name: &str,
-        act: fn(&RPCHelpersNull, &Wallet) -> Result<U256, BlockchainError>,
+        act: fn(&RPCHelpersNull, &Wallet) -> Result<T, BlockchainError>,
         expected_method_name: &str,
     ) {
         init_test_logging();

@@ -16,7 +16,7 @@ use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use web3::types::{Address, H160, H256};
+use web3::types::{Address, BlockNumber, H160, H256};
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
@@ -31,8 +31,9 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn retrieve_transactions(
         &self,
-        _start_block: u64,
-        _recipient: &Wallet,
+        _start_block: BlockNumber,
+        _end_block: BlockNumber,
+        _wallet: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         self.handle_uninitialized_interface("retrieve transactions")
     }
@@ -134,9 +135,10 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
+    use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use web3::types::H160;
+    use web3::types::{BlockNumber, H160};
 
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
@@ -157,7 +159,11 @@ mod tests {
         let test_name = "blockchain_interface_null_retrieves_no_transactions";
         let wallet = make_wallet("blah");
 
-        let result = make_subject(test_name).retrieve_transactions(0, &wallet);
+        let result = make_subject(test_name).retrieve_transactions(
+            BlockNumber::Number(U64::zero()),
+            BlockNumber::Latest,
+            &wallet,
+        );
 
         assert_eq!(
             result,
