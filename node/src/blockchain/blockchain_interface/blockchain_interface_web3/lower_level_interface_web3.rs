@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::rpc_helpers::{
-    LatestBlockNumber, RPCHelpers, ResultForBalance, ResultForNonce,
+use crate::blockchain::blockchain_interface::lower_level_interface::{
+    LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
 };
 use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
@@ -12,7 +12,7 @@ use web3::transports::Batch;
 use web3::types::BlockNumber;
 use web3::{BatchTransport, Web3};
 
-pub struct RPCHelpersWeb3<T>
+pub struct LowerBCIWeb3<T>
 where
     T: BatchTransport,
 {
@@ -22,7 +22,7 @@ where
     contract: Contract<T>,
 }
 
-impl<T> RPCHelpers for RPCHelpersWeb3<T>
+impl<T> LowerBCI for LowerBCIWeb3<T>
 where
     T: BatchTransport,
 {
@@ -64,7 +64,7 @@ where
     }
 }
 
-impl<T> RPCHelpersWeb3<T>
+impl<T> LowerBCIWeb3<T>
 where
     T: BatchTransport,
 {
@@ -79,11 +79,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::rpc_helpers_web3::RPCHelpersWeb3;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         CONTRACT_ABI, REQUESTS_IN_PARALLEL,
     };
-    use crate::blockchain::blockchain_interface::rpc_helpers::{RPCHelpers, ResultForBalance};
+    use crate::blockchain::blockchain_interface::lower_level_interface::{LowerBCI, ResultForBalance};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn web3_helper_get_transaction_fee_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &RPCHelpersWeb3<Http>, wallet: &Wallet| {
+        let act = |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| {
             subject.get_transaction_fee_balance(wallet)
         };
 
@@ -218,8 +218,7 @@ mod tests {
 
     #[test]
     fn web3_helper_get_masq_balance_returns_err_for_unintelligible_response() {
-        let act =
-            |subject: &RPCHelpersWeb3<Http>, wallet: &Wallet| subject.get_masq_balance(wallet);
+        let act = |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_masq_balance(wallet);
 
         assert_error_from_unintelligible_response(act, "Invalid hex");
     }
@@ -338,14 +337,14 @@ mod tests {
     #[test]
     fn web3_helper_get_transaction_id_handles_err() {
         let act =
-            |subject: &RPCHelpersWeb3<Http>, wallet: &Wallet| subject.get_transaction_id(wallet);
+            |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_transaction_id(wallet);
 
         assert_error_from_unintelligible_response(act, "invalid hex character")
     }
 
     fn assert_error_from_unintelligible_response<F>(act: F, expected_err_fragment: &str)
     where
-        F: FnOnce(&RPCHelpersWeb3<Http>, &Wallet) -> ResultForBalance,
+        F: FnOnce(&LowerBCIWeb3<Http>, &Wallet) -> ResultForBalance,
     {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -379,7 +378,7 @@ mod tests {
         )
     }
 
-    fn make_subject<T>(transport: T, chain: Chain) -> RPCHelpersWeb3<T>
+    fn make_subject<T>(transport: T, chain: Chain) -> LowerBCIWeb3<T>
     where
         T: BatchTransport,
     {
@@ -388,6 +387,6 @@ mod tests {
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
-        RPCHelpersWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
+        LowerBCIWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
     }
 }

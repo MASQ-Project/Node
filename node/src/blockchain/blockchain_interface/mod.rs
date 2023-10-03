@@ -2,14 +2,14 @@
 
 pub mod blockchain_interface_null;
 pub mod blockchain_interface_web3;
-pub mod rpc_helpers;
+pub mod lower_level_interface;
 pub mod test_utils;
 
 use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -49,7 +49,7 @@ pub trait BlockchainInterface {
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
-    fn helpers(&self) -> &dyn RPCHelpers;
+    fn lower_interface(&self) -> &dyn LowerBCI;
 
     as_any_in_trait!();
 }

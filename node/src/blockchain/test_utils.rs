@@ -6,8 +6,8 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
-use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
-use crate::blockchain::blockchain_interface::test_utils::RPCHelpersMock;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
+use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
     ResultForReceipt, RetrievedBlockchainTransactions,
@@ -76,7 +76,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-    helpers_result: Option<Box<RPCHelpersMock>>,
+    helpers_result: Option<Box<LowerBCIMock>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -132,7 +132,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn helpers(&self) -> &dyn RPCHelpers {
+    fn lower_interface(&self) -> &dyn LowerBCI {
         self.helpers_result.as_ref().unwrap().as_ref()
     }
 }
@@ -210,7 +210,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn helpers_results(mut self, aggregated_results: Box<RPCHelpersMock>) -> Self {
+    pub fn helpers_results(mut self, aggregated_results: Box<LowerBCIMock>) -> Self {
         self.helpers_result = Some(aggregated_results);
         self
     }

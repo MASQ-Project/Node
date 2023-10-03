@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 mod batch_payable_tools;
-pub mod rpc_helpers_web3;
+pub mod lower_level_interface_web3;
 mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
@@ -12,8 +12,8 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_payable_tools::{
     BatchPayableTools, BatchPayableToolsReal,
 };
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::rpc_helpers_web3::RPCHelpersWeb3;
-use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainTransaction, PayableTransactionError,
     ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions,
@@ -82,7 +82,7 @@ where
     web3: Rc<Web3<T>>,
     web3_batch: Rc<Web3<Batch<T>>>,
     batch_payable_tools: Box<dyn BatchPayableTools<T>>,
-    helpers: Box<dyn RPCHelpers>,
+    lower_interface: Box<dyn LowerBCI>,
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceWeb3<T>
@@ -220,18 +220,21 @@ where
             Err(e) => return err!("gas price: {:?}", e),
         };
 
-        let transaction_fee_balance =
-            match self.helpers.get_transaction_fee_balance(consuming_wallet) {
-                Ok(balance) => balance,
-                Err(e) => return err!("transaction fee balance for {}: {}", consuming_wallet, e),
-            };
+        let transaction_fee_balance = match self
+            .lower_interface
+            .get_transaction_fee_balance(consuming_wallet)
+        {
+            Ok(balance) => balance,
+            Err(e) => return err!("transaction fee balance for {}: {}", consuming_wallet, e),
+        };
 
-        let masq_token_balance = match self.helpers.get_masq_balance(consuming_wallet) {
+        let masq_token_balance = match self.lower_interface.get_masq_balance(consuming_wallet) {
             Ok(balance) => balance,
             Err(e) => return err!("masq balance for {}: {}", consuming_wallet, e),
         };
 
-        let pending_transaction_id = match self.helpers.get_transaction_id(consuming_wallet) {
+        let pending_transaction_id = match self.lower_interface.get_transaction_id(consuming_wallet)
+        {
             Ok(id) => id,
             Err(e) => return err!("transaction id for {}: {}", consuming_wallet, e),
         };
@@ -308,8 +311,8 @@ where
             .wait()
     }
 
-    fn helpers(&self) -> &dyn RPCHelpers {
-        &*self.helpers
+    fn lower_interface(&self) -> &dyn LowerBCI {
+        &*self.lower_interface
     }
 }
 
@@ -324,7 +327,7 @@ where
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
-        let lower_level_blockchain_interface = Box::new(RPCHelpersWeb3::new(
+        let lower_level_blockchain_interface = Box::new(LowerBCIWeb3::new(
             Rc::clone(&web3),
             Rc::clone(&web3_batch),
             contract,
@@ -338,7 +341,7 @@ where
             _event_loop_handle: event_loop_handle,
             web3,
             web3_batch,
-            helpers: lower_level_blockchain_interface,
+            lower_interface: lower_level_blockchain_interface,
             batch_payable_tools,
         }
     }
@@ -620,7 +623,7 @@ mod tests {
         TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
-        test_blockchain_interface_is_connected_and_functioning, RPCHelpersMock,
+        test_blockchain_interface_is_connected_and_functioning, LowerBCIMock,
     };
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
@@ -1049,14 +1052,14 @@ mod tests {
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(444_444_444);
         let transaction_id = U256::from(23);
-        let blockchain_interface_helper = RPCHelpersMock::default()
+        let blockchain_interface_helper = LowerBCIMock::default()
             .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_params(&get_masq_balance_params_arc)
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_params(&get_transactions_id_params_arc)
             .get_transaction_id_result(Ok(transaction_id));
-        subject.helpers = Box::new(blockchain_interface_helper);
+        subject.lower_interface = Box::new(blockchain_interface_helper);
 
         let result = subject
             .build_blockchain_agent(&wallet, &persistent_config)
@@ -1114,7 +1117,7 @@ mod tests {
     }
 
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
-        blockchain_interface_helper: RPCHelpersMock,
+        blockchain_interface_helper: LowerBCIMock,
         expected_err_msg: &str,
     ) {
         let chain = Chain::EthMainnet;
@@ -1125,7 +1128,7 @@ mod tests {
             make_fake_event_loop_handle(),
             chain,
         );
-        subject.helpers = Box::new(blockchain_interface_helper);
+        subject.lower_interface = Box::new(blockchain_interface_helper);
 
         let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
@@ -1138,7 +1141,7 @@ mod tests {
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
-        let blockchain_interface_helper = RPCHelpersMock::default()
+        let blockchain_interface_helper = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::InvalidAddress));
         let expected_err_msg =
             "Blockchain agent construction failed at fetching transaction fee balance for \
@@ -1153,7 +1156,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let transaction_fee_balance = U256::from(123_456_789);
-        let blockchain_interface_helper = RPCHelpersMock::default()
+        let blockchain_interface_helper = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Err(BlockchainError::InvalidAddress));
         let expected_err_msg = "Blockchain agent construction failed at fetching masq \
@@ -1170,7 +1173,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_id() {
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(500_000_000);
-        let blockchain_interface_helper = RPCHelpersMock::default()
+        let blockchain_interface_helper = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_result(Err(BlockchainError::InvalidResponse));

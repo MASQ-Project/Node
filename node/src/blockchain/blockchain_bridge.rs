@@ -310,7 +310,11 @@ impl BlockchainBridge {
             Ok(mbc) => mbc,
             _ => u64::MAX,
         };
-        let end_block = match self.blockchain_interface.helpers().get_block_number() {
+        let end_block = match self
+            .blockchain_interface
+            .lower_interface()
+            .get_block_number()
+        {
             Ok(eb) => {
                 if u64::MAX == max_block_count {
                     BlockNumber::Number(eb)
@@ -529,8 +533,8 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
-    use crate::blockchain::blockchain_interface::rpc_helpers::LatestBlockNumber;
-    use crate::blockchain::blockchain_interface::test_utils::RPCHelpersMock;
+    use crate::blockchain::blockchain_interface::lower_level_interface::LatestBlockNumber;
+    use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
@@ -1115,7 +1119,7 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(ScanError))
             .start()
             .recipient();
-        let rpc_helpers = RPCHelpersMock::default()
+        let rpc_helpers = LowerBCIMock::default()
             .get_block_number_result(LatestBlockNumber::Ok(U64::from(1234u64)));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
@@ -1410,10 +1414,9 @@ mod tests {
                 },
             ],
         };
-        let rpc_helpers =
-            RPCHelpersMock::default().get_block_number_result(LatestBlockNumber::Err(
-                BlockchainError::QueryFailed("Failed to read the latest block number".to_string()),
-            ));
+        let rpc_helpers = LowerBCIMock::default().get_block_number_result(LatestBlockNumber::Err(
+            BlockchainError::QueryFailed("Failed to read the latest block number".to_string()),
+        ));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
@@ -1504,7 +1507,7 @@ mod tests {
             ],
         };
         let latest_block_number = LatestBlockNumber::Ok(1024u64.into());
-        let rpc_helpers = RPCHelpersMock::default().get_block_number_result(latest_block_number);
+        let rpc_helpers = LowerBCIMock::default().get_block_number_result(latest_block_number);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
@@ -1570,7 +1573,7 @@ mod tests {
     #[test]
     fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
         init_test_logging();
-        let rpc_helpers = RPCHelpersMock::default().get_block_number_result(Ok(0u64.into()));
+        let rpc_helpers = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 7,
@@ -1636,7 +1639,7 @@ mod tests {
         expected = "Cannot retrieve start block from database; payments to you may not be processed: TransactionError"
     )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_read() {
-        let rpc_helpers = RPCHelpersMock::default().get_block_number_result(Ok(0u64.into()));
+        let rpc_helpers = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface =
             BlockchainInterfaceMock::default().helpers_results(Box::new(rpc_helpers));
         let persistent_config = PersistentConfigurationMock::new()
@@ -1664,7 +1667,7 @@ mod tests {
             .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError))
             .max_block_count_result(Ok(10000u64));
-        let rpc_helpers = RPCHelpersMock::default().get_block_number_result(Ok(0u64.into()));
+        let rpc_helpers = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 1234,
@@ -2037,7 +2040,10 @@ pub mod exportable_test_parts {
                 assertions: Box::new(move |bb: &mut BlockchainBridge| {
                     // We will assert on soundness of the connection by checking the receipt of
                     // this request
-                    let _result = bb.blockchain_interface.helpers().get_masq_balance(&wallet);
+                    let _result = bb
+                        .blockchain_interface
+                        .lower_interface()
+                        .get_masq_balance(&wallet);
 
                     // Asserting that we can look into the expected db from here, meaning the
                     // PersistentConfiguration was set up correctly

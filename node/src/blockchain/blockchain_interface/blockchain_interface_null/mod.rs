@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod rpc_helpers_null;
+pub mod lower_level_interface_null;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
-use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
     ResultForReceipt, RetrievedBlockchainTransactions,
@@ -20,7 +20,7 @@ use web3::types::{Address, BlockNumber, H160, H256};
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
-    helper: Box<dyn RPCHelpers>,
+    helper: Box<dyn LowerBCI>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceNull {
@@ -60,7 +60,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("get transaction receipt")
     }
 
-    fn helpers(&self) -> &dyn RPCHelpers {
+    fn lower_interface(&self) -> &dyn LowerBCI {
         error!(self.logger, "Provides null RPC helpers only");
         &*self.helper
     }
@@ -93,7 +93,7 @@ impl BlockchainInterfaceUninitializedError for BlockchainError {
 impl BlockchainInterfaceNull {
     pub fn new() -> Self {
         let logger = Logger::new("BlockchainInterface");
-        let helper = Box::new(RPCHelpersNull::new(&logger));
+        let helper = Box::new(LowerBCINull::new(&logger));
         BlockchainInterfaceNull { logger, helper }
     }
 
@@ -123,7 +123,7 @@ impl BlockchainInterfaceNull {
 mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::{
         BlockchainInterfaceNull, BlockchainInterfaceUninitializedError,
     };
@@ -142,7 +142,7 @@ mod tests {
 
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
-        let helper = Box::new(RPCHelpersNull::new(&logger));
+        let helper = Box::new(LowerBCINull::new(&logger));
         BlockchainInterfaceNull { logger, helper }
     }
 
@@ -242,7 +242,7 @@ mod tests {
         let wallet = make_wallet("abc");
 
         let _ = make_subject(test_name)
-            .helpers()
+            .lower_interface()
             .get_transaction_id(&wallet);
 
         let expected_log_msg_from_helpers_call =
