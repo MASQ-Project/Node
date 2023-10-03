@@ -293,10 +293,13 @@ impl BlockchainBridge {
         return Box::new(
             self.blockchain_interface
                 .get_token_balance(consuming_wallet)
-                .map_err(|e| e.to_string())
+                .map_err(|e| {
+                    format!(
+                        "Did not find out token balance of the consuming wallet: {:?}",
+                        e
+                    )
+                })
                 .and_then(move |token_balance| {
-                    // Need to put Error here --  "Did not find out token balance of the consuming wallet: {:?}",
-
                     get_transaction_fee_balance.and_then(move |gas_balance| {
                         let consuming_wallet_balances = {
                             ConsumingWalletBalances {
