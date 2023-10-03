@@ -26,7 +26,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
-use ethereum_types::U256;
 use futures::future::err;
 use futures::Future;
 use itertools::Itertools;
@@ -288,7 +287,12 @@ impl BlockchainBridge {
         let get_transaction_fee_balance = self
             .blockchain_interface
             .get_transaction_fee_balance(consuming_wallet)
-            .map_err(|e| e.to_string());
+            .map_err(|e| {
+                format!(
+                    "Did not find out gas balance of the consuming wallet: {:?}",
+                    e
+                )
+            });
 
         return Box::new(
             self.blockchain_interface
@@ -704,6 +708,9 @@ mod tests {
         let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let accountant = accountant.system_stop_conditions(match_every_type_id!(
+            ConsumingWalletBalancesAndQualifiedPayables
+        ));
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let wallet_balances_found = ConsumingWalletBalances {
@@ -745,7 +752,6 @@ mod tests {
         })
         .unwrap();
 
-        System::current().stop();
         system.run();
         let get_transaction_fee_balance_params =
             get_transaction_fee_balance_params_arc.lock().unwrap();
@@ -835,6 +841,7 @@ mod tests {
         let test_name =
             "handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_token_balance_result(Ok(U256::from(1)))
             .get_transaction_fee_balance_result(Err(BlockchainError::QueryFailed(
                 "Lazy and yet you're asking for balances?".to_string(),
             )));
