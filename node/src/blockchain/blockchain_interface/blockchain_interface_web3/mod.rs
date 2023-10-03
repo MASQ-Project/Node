@@ -1,13 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+mod batch_payable_tools;
 pub mod rpc_helpers_web3;
+mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::gwei_to_wei;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_payable_tools::{
+    BatchPayableTools, BatchPayableToolsReal,
+};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::rpc_helpers_web3::RPCHelpersWeb3;
 use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
 use crate::blockchain::blockchain_interface::{
@@ -77,8 +81,8 @@ where
     _event_loop_handle: EventLoopHandle,
     web3: Rc<Web3<T>>,
     web3_batch: Rc<Web3<Batch<T>>>,
-    helper: Box<dyn RPCHelpers>,
     batch_payable_tools: Box<dyn BatchPayableTools<T>>,
+    helpers: Box<dyn RPCHelpers>,
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceWeb3<T>
@@ -217,17 +221,17 @@ where
         };
 
         let transaction_fee_balance =
-            match self.helper.get_transaction_fee_balance(consuming_wallet) {
+            match self.helpers.get_transaction_fee_balance(consuming_wallet) {
                 Ok(balance) => balance,
                 Err(e) => return err!("transaction fee balance for {}: {}", consuming_wallet, e),
             };
 
-        let masq_token_balance = match self.helper.get_masq_balance(consuming_wallet) {
+        let masq_token_balance = match self.helpers.get_masq_balance(consuming_wallet) {
             Ok(balance) => balance,
             Err(e) => return err!("masq balance for {}: {}", consuming_wallet, e),
         };
 
-        let pending_transaction_id = match self.helper.get_transaction_id(consuming_wallet) {
+        let pending_transaction_id = match self.helpers.get_transaction_id(consuming_wallet) {
             Ok(id) => id,
             Err(e) => return err!("transaction id for {}: {}", consuming_wallet, e),
         };
@@ -305,7 +309,7 @@ where
     }
 
     fn helpers(&self) -> &dyn RPCHelpers {
-        &*self.helper
+        &*self.helpers
     }
 }
 
@@ -334,7 +338,7 @@ where
             _event_loop_handle: event_loop_handle,
             web3,
             web3_batch,
-            helper: lower_level_blockchain_interface,
+            helpers: lower_level_blockchain_interface,
             batch_payable_tools,
         }
     }
@@ -624,8 +628,7 @@ mod tests {
         RetrievedBlockchainTransactions, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::{
-        all_chains, make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
-        BatchPayableToolsMock, TestTransport,
+        all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -653,6 +656,9 @@ mod tests {
 
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
+        make_default_signed_transaction, BatchPayableToolsMock,
+    };
     use indoc::indoc;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1050,7 +1056,7 @@ mod tests {
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_params(&get_transactions_id_params_arc)
             .get_transaction_id_result(Ok(transaction_id));
-        subject.helper = Box::new(blockchain_interface_helper);
+        subject.helpers = Box::new(blockchain_interface_helper);
 
         let result = subject
             .build_blockchain_agent(&wallet, &persistent_config)
@@ -1119,7 +1125,7 @@ mod tests {
             make_fake_event_loop_handle(),
             chain,
         );
-        subject.helper = Box::new(blockchain_interface_helper);
+        subject.helpers = Box::new(blockchain_interface_helper);
 
         let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
