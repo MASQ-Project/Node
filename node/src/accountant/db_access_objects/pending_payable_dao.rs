@@ -26,6 +26,7 @@ pub enum PendingPayableDaoError {
 }
 
 pub trait PendingPayableDao {
+    // Note that the order of the returned results is not guaranteed
     fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)>;
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
     fn insert_new_fingerprints(
@@ -65,9 +66,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .filter(|hash| !all_found_records.keys().contains(hash));
         all_found_records
             .iter()
-            .sorted()
             .map(|(hash, rowid)| (Some(*rowid), *hash))
-            .rev()
             .chain(hashes_of_missing_rowids.map(|hash| (None, *hash)))
             .collect()
     }
@@ -388,14 +387,28 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
 
-        assert_eq!(result, vec![(Some(1), hash_1), (Some(2), hash_2)])
+        let first_expected_pair = (Some(1), hash_1);
+        assert!(
+            result.contains(&first_expected_pair),
+            "Returned rowid pairs should have contained {:?} but all it did is {:?}",
+            first_expected_pair,
+            result
+        );
+        let second_expected_pair = (Some(2), hash_2);
+        assert!(
+            result.contains(&second_expected_pair),
+            "Returned rowid pairs should have contained {:?} but all it did is {:?}",
+            second_expected_pair,
+            result
+        );
+        assert_eq!(result.len(), 2);
     }
 
     #[test]
-    fn fingerprints_rowids_when_nonexistent_record() {
+    fn fingerprints_rowids_when_nonexistent_records() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "fingerprints_rowids_when_nonexistent_record",
+            "fingerprints_rowids_when_nonexistent_records",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -403,10 +416,32 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash_1 = make_tx_hash(11119);
         let hash_2 = make_tx_hash(22229);
+        let hash_3 = make_tx_hash(33339);
+        let hash_4 = make_tx_hash(44449);
+        {
+            // For more illustrative results with the hash_3 linking to rowid 2 instead of the ambiguous 1
+            subject
+                .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
+                .unwrap();
+            {
+                subject
+                    .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
+                    .unwrap()
+            }
+            subject.delete_fingerprints(&[1]).unwrap()
+        }
 
-        let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
+        let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
-        assert_eq!(result, vec![(None, hash_1), (None, hash_2)])
+        assert_eq!(
+            result,
+            vec![
+                (Some(2), hash_3),
+                (None, hash_1),
+                (None, hash_2),
+                (None, hash_4)
+            ]
+        )
     }
 
     #[test]
