@@ -48,21 +48,6 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PendingPayable {
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
-impl PendingPayable {
-    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
-        Self {
-            recipient_wallet,
-            hash,
-        }
-    }
-}
-
 pub trait PayableDao: Debug + Send {
     fn more_money_payable(
         &self,

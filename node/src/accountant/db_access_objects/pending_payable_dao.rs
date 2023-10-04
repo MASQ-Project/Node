@@ -7,6 +7,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::Row;
@@ -209,13 +210,18 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 }
 
-pub trait PendingPayableDaoFactory {
-    fn make(&self) -> Box<dyn PendingPayableDao>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPayable {
+    pub recipient_wallet: Wallet,
+    pub hash: H256,
 }
 
-impl PendingPayableDaoFactory for DaoFactoryReal {
-    fn make(&self) -> Box<dyn PendingPayableDao> {
-        Box::new(PendingPayableDaoReal::new(self.make_connection()))
+impl PendingPayable {
+    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
+        Self {
+            recipient_wallet,
+            hash,
+        }
     }
 }
 
@@ -235,6 +241,16 @@ impl<'a> PendingPayableDaoReal<'a> {
 
     fn serialize_ids(ids: &[u64]) -> String {
         comma_joined_stringifiable(ids, |id| id.to_string())
+    }
+}
+
+pub trait PendingPayableDaoFactory {
+    fn make(&self) -> Box<dyn PendingPayableDao>;
+}
+
+impl PendingPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn PendingPayableDao> {
+        Box::new(PendingPayableDaoReal::new(self.make_connection()))
     }
 }
 

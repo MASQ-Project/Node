@@ -4,8 +4,8 @@ pub mod mid_scan_msg_handling;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
+use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
@@ -1059,10 +1059,10 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::{
-        PayableAccount, PayableDaoError, PendingPayable,
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::db_access_objects::pending_payable_dao::{
+        PendingPayable, PendingPayableDaoError,
     };
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableTriple;
@@ -1087,7 +1087,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure,
+        BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
@@ -1335,9 +1335,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(correct_pending_payable_1),
-                ProcessedPayableFallible::Failed(failure_payable_2),
-                ProcessedPayableFallible::Correct(correct_pending_payable_3),
+                Ok(correct_pending_payable_1),
+                Err(failure_payable_2),
+                Ok(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -1538,10 +1538,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(payment_1),
-                ProcessedPayableFallible::Correct(payment_2),
-            ]),
+            payment_procedure_result: Ok(vec![Ok(payment_1), Ok(payment_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1564,10 +1561,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(payable_1),
-                ProcessedPayableFallible::Correct(payable_2),
-            ]),
+            payment_procedure_result: Ok(vec![Ok(payable_1), Ok(payable_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1817,12 +1811,12 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = ProcessedPayableFallible::Failed(RpcPayablesFailure {
+        let failed_payment_1 = Err(RpcPayablesFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = ProcessedPayableFallible::Failed(RpcPayablesFailure {
+        let failed_payment_2 = Err(RpcPayablesFailure {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,

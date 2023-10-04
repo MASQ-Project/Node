@@ -162,11 +162,11 @@ pub struct PendingPayableFingerprintSeeds {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PendingPayableFingerprint {
-    //Sqlite begins counting from 1
+    // Sqlite begins counting from 1
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
-    //Sqlite begins counting from 1
+    // We have Sqlite begin counting from 1
     pub attempt: u16,
     pub amount: u128,
     pub process_error: Option<String>,
@@ -524,7 +524,8 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
@@ -845,11 +846,11 @@ mod tests {
             .set_arbitrary_id_stamp(blockchain_interface_id_stamp)
             .send_batch_of_payables_params(&send_batch_of_payables_params_arc)
             .send_batch_of_payables_result(Ok(vec![
-                ProcessedPayableFallible::Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
                     hash: H256::from("sometransactionhash".keccak256()),
                 }),
-                ProcessedPayableFallible::Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: wallet_account_2.clone(),
                     hash: H256::from("someothertransactionhash".keccak256()),
                 }),
@@ -908,11 +909,11 @@ mod tests {
             *sent_payments_msg,
             SentPayables {
                 payment_procedure_result: Ok(vec![
-                    ProcessedPayableFallible::Correct(PendingPayable {
+                    Ok(PendingPayable {
                         recipient_wallet: wallet_account_1,
                         hash: H256::from("sometransactionhash".keccak256())
                     }),
-                    ProcessedPayableFallible::Correct(PendingPayable {
+                    Ok(PendingPayable {
                         recipient_wallet: wallet_account_2,
                         hash: H256::from("someothertransactionhash".keccak256())
                     })

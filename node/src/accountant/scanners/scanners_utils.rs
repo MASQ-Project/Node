@@ -2,11 +2,11 @@
 
 pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::utils::ThresholdUtils;
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, ProcessedPayableFallible, SentPayables};
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
@@ -17,8 +17,9 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayablesFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{RpcPayablesFailure};
 
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
@@ -153,10 +154,8 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            ProcessedPayableFallible::Correct(pending_payable) => {
-                add_pending_payable(acc, pending_payable)
-            }
-            ProcessedPayableFallible::Failed(RpcPayablesFailure {
+            Ok(pending_payable) => add_pending_payable(acc, pending_payable),
+            Err(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -429,7 +428,7 @@ pub mod receivable_scanner_utils {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
@@ -448,8 +447,9 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
-    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayablesFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{RpcPayablesFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -519,8 +519,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(correct_payment_1.clone()),
-                ProcessedPayableFallible::Correct(correct_payment_2.clone()),
+                Ok(correct_payment_1.clone()),
+                Ok(correct_payment_2.clone()),
             ]),
             response_skeleton_opt: None,
         };
@@ -567,10 +567,7 @@ mod tests {
             hash: make_tx_hash(0x315),
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(payable_ok.clone()),
-                ProcessedPayableFallible::Failed(bad_rpc_call.clone()),
-            ]),
+            payment_procedure_result: Ok(vec![Ok(payable_ok.clone()), Err(bad_rpc_call.clone())]),
             response_skeleton_opt: None,
         };
 

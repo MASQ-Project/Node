@@ -4,8 +4,8 @@ mod batch_payable_tools;
 pub mod lower_level_interface_web3;
 mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::gwei_to_wei;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
+use crate::accountant::{gwei_to_wei};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -14,7 +14,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_pa
 };
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
-use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions};
+use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError, ResultForReceipt, RetrievedBlockchainTransactions};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -36,7 +36,8 @@ use web3::types::{
     H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, RpcPayablesFailure};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -452,11 +453,11 @@ where
             .zip(accounts.iter());
         iterator_with_all_data
             .map(|((rpc_result, (hash, _)), account)| match rpc_result {
-                Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
+                Ok(_) => Ok(PendingPayable {
                     recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayablesFailure {
+                Err(rpc_error) => Err(RpcPayablesFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
                     hash,
@@ -631,7 +632,6 @@ mod tests {
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowerBCIMock,
     };
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError,
         RetrievedBlockchainTransactions,
@@ -663,7 +663,8 @@ mod tests {
     use serde_json::{json, Value};
     use std::net::Ipv4Addr;
 
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
         make_default_signed_transaction, BatchPayableToolsMock,
@@ -1306,8 +1307,8 @@ mod tests {
         );
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
             let pending_payable = match &result[idx]{
-                Correct(pp) => pp,
-                Failed(RpcPayablesFailure { rpc_error, recipient_wallet: recipient, hash }) => panic!(
+                Ok(pp) => pp,
+                Err(RpcPayablesFailure { rpc_error, recipient_wallet: recipient, hash }) => panic!(
                     "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                     rpc_error, hash, recipient
                 ),
@@ -1323,11 +1324,11 @@ mod tests {
         //failing request
         let pending_payable_fallible_2 = &result[1];
         let (rpc_error, recipient_2, hash_2) = match pending_payable_fallible_2 {
-            Correct(pp) => panic!(
+            Ok(pp) => panic!(
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
-            Failed(RpcPayablesFailure {
+            Err(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet: recipient,
                 hash,
@@ -1508,8 +1509,8 @@ mod tests {
         assert_eq!(
             result,
             Ok(vec![
-                Correct(first_resulting_pending_payable),
-                Correct(second_resulting_pending_payable)
+                Ok(first_resulting_pending_payable),
+                Ok(second_resulting_pending_payable)
             ])
         );
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
@@ -2182,11 +2183,11 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
-                Failed(RpcPayablesFailure {
+                Err(RpcPayablesFailure {
                     rpc_error: web3::Error::Rpc(RPCError {
                         code: ErrorCode::ParseError,
                         message: "I guess we've got a problem".to_string(),

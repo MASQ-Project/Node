@@ -10,8 +10,8 @@ use web3::transports::Http;
 pub(in crate::blockchain) struct BlockchainInterfaceInitializer {}
 
 impl BlockchainInterfaceInitializer {
-    // TODO when we have multiple chains of fundamentally different architectures and also the ability to switch them,
-    // this should probably be replaced by a HashMap of distinct blockchain interfaces for each chain
+    // TODO when we have multiple chains of fundamentally different architectures and are able to switch them,
+    // this should probably be replaced by a HashMap of distinct interfaces for each chain
     pub fn initialize_interface(
         &self,
         blockchain_service_url: &str,
