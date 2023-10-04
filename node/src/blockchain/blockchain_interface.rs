@@ -4,6 +4,7 @@ use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_interface;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed, UninitializedBlockchainInterface,
 };
@@ -180,7 +181,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
 
     fn get_transaction_fee_balance(
         &self,
@@ -192,7 +193,10 @@ pub trait BlockchainInterface<T: Transport = Http> {
         address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
+    fn get_transaction_count(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 }
@@ -228,8 +232,11 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _last_nonce: U256,
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.handle_uninitialized_interface("pay payables")
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
+        Box::new(err(self
+            .handle_uninitialized_interface::<PayableTransactionError, _>("pay payables")
+            .unwrap_err()))
     }
 
     fn get_transaction_fee_balance(
@@ -250,8 +257,13 @@ impl BlockchainInterface for BlockchainInterfaceNull {
             .unwrap_err()))
     }
 
-    fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-        self.handle_uninitialized_interface("get transaction count")
+    fn get_transaction_count(
+        &self,
+        _address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(err(self
+            .handle_uninitialized_interface::<BlockchainError, _>("get transaction count")
+            .unwrap_err()))
     }
 
     fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
@@ -409,7 +421,8 @@ where
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         debug!(
             self.logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -424,29 +437,43 @@ where
             gas_price,
             pending_nonce,
             accounts,
-        )?;
+        );
         let timestamp = self.batch_payable_tools.batch_wide_timestamp();
+
         self.batch_payable_tools
             .send_new_payable_fingerprints_seeds(
                 timestamp,
                 new_fingerprints_recipient,
                 &hashes_and_paid_amounts,
             );
-
         info!(
             self.logger,
             "{}",
             self.transmission_log(accounts, gas_price)
         );
 
-        match self.batch_payable_tools.submit_batch(&self.batch_web3) {
-            Ok(responses) => Ok(Self::merged_output_data(
-                responses,
-                hashes_and_paid_amounts,
-                accounts,
-            )),
-            Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
-        }
+        return Box::new(
+            self.batch_payable_tools
+                .submit_batch(&self.batch_web3)
+                .map_err(|e| Self::error_with_hashes(e, hashes_and_paid_amounts.clone()))
+                .and_then(move |batch_response| {
+                    Ok(Self::merged_output_data(
+                        batch_response,
+                        hashes_and_paid_amounts,
+                        accounts,
+                    ))
+
+                    // match self.batch_payable_tools.submit_batch(&self.batch_web3) {
+                    //     // Future Here
+                    //     Ok(responses) => Ok(Self::merged_output_data(
+                    //         responses,
+                    //         hashes_and_paid_amounts,
+                    //         accounts,
+                    //     )),
+                    //     Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
+                    // }
+                }),
+        );
     }
 
     fn get_transaction_fee_balance(
@@ -504,12 +531,16 @@ where
     //         .wait()
     // }
 
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
-        self.web3
-            .eth()
-            .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
+    fn get_transaction_count(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(
+            self.web3
+                .eth()
+                .transaction_count(wallet.address(), Some(BlockNumber::Pending))
+                .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
+        )
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {

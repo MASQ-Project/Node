@@ -32,7 +32,7 @@ where
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error>;
+    ) -> Box<dyn Future<Item = Vec<web3::transports::Result<Value>>, Error = Web3Error>>;
 }
 
 #[derive(Debug)]
@@ -82,11 +82,12 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
             .expect("Accountant is dead");
     }
 
+    //Result<Vec<web3::transports::Result<Value>>, Web3Error>
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error> {
-        web3.transport().submit_batch().wait()
+    ) -> Box<dyn Future<Item = Vec<web3::transports::Result<Value>>, Error = Web3Error>> {
+        Box::new(web3.transport().submit_batch())
     }
 }
 

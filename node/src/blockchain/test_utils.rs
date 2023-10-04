@@ -12,7 +12,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
-use futures::future::result;
+use futures::future::{err, result};
 use futures::Future;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
@@ -108,7 +108,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         last_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         self.send_payables_within_batch_params
             .lock()
             .unwrap()
@@ -119,9 +120,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
                 new_fingerprints_recipient.clone(),
                 accounts.to_vec(),
             ));
-        self.send_payables_within_batch_results
+        Box::new(err(self
+            .send_payables_within_batch_results
             .borrow_mut()
-            .remove(0)
+            .remove(0)))
     }
 
     fn get_transaction_fee_balance(
@@ -152,12 +154,18 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         ))
     }
 
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
+    fn get_transaction_count(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         self.get_transaction_count_parameters
             .lock()
             .unwrap()
             .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
+        Box::new(err(self
+            .get_transaction_count_results
+            .borrow_mut()
+            .remove(0)))
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
@@ -449,9 +457,9 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
+    ) -> Box<dyn Future<Item = Vec<web3::transports::Result<rpc::Value>>, Error = Web3Error>> {
         self.submit_batch_params.lock().unwrap().push(web3.clone());
-        self.submit_batch_results.borrow_mut().remove(0)
+        Box::new(err(self.submit_batch_results.borrow_mut().remove(0)))
     }
 }
 

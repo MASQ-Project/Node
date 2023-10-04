@@ -26,7 +26,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
-use futures::future::err;
+use futures::future::{err, result};
 use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -151,7 +151,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: ReportAccountsPayable, _ctx: &mut Self::Context) {
-        self.handle_scan(
+        self.handle_scan_future(
             Self::handle_report_accounts_payable,
             ScanType::Payables,
             msg,
@@ -341,25 +341,46 @@ impl BlockchainBridge {
         // Ok(())
     }
 
-    fn handle_report_accounts_payable(&mut self, msg: ReportAccountsPayable) -> Result<(), String> {
+    // Result<(), String>
+    fn handle_report_accounts_payable(
+        &mut self,
+        msg: ReportAccountsPayable,
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let skeleton_opt = msg.response_skeleton_opt;
-        let result = self.process_payments(&msg);
-
-        let local_processing_result = match &result {
-            Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
-            Ok(_) => Ok(()),
-        };
-
-        self.sent_payable_subs_opt
+        let sent_payable_subs_opt = self
+            .sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
-            .try_send(SentPayables {
-                payment_procedure_result: result,
-                response_skeleton_opt: skeleton_opt,
-            })
-            .expect("Accountant is dead");
+            .clone();
 
-        local_processing_result
+        return Box::new(
+            self.process_payments(&msg)
+                .map_err(move |e| {
+                    sent_payable_subs_opt
+                        .try_send(SentPayables {
+                            payment_procedure_result: Err(e),
+                            response_skeleton_opt: skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+                    format!("ReportAccountsPayable: {}", e)
+                })
+                .and_then(move |payment_result| {
+                    // let local_processing_result = match &payment_result {
+                    //     Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
+                    //     Ok(_) => Ok(()),
+                    // };
+
+                    sent_payable_subs_opt
+                        .try_send(SentPayables {
+                            payment_procedure_result: Ok(payment_result),
+                            response_skeleton_opt: skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+
+                    // local_processing_result
+                    Ok(())
+                }),
+        );
     }
 
     fn handle_retrieve_transactions(&mut self, msg: RetrieveTransactions) -> Result<(), String> {
@@ -493,37 +514,41 @@ impl BlockchainBridge {
         }
     }
 
+    // ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
     fn process_payments(
         &self,
         msg: &ReportAccountsPayable,
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => (consuming_wallet, gas_price),
                 Err(e) => {
-                    return Err(PayableTransactionError::GasPriceQueryFailed(format!(
+                    return Box::new(err(PayableTransactionError::GasPriceQueryFailed(format!(
                         "{:?}",
                         e
-                    )))
+                    ))))
                 }
             },
-            None => return Err(PayableTransactionError::MissingConsumingWallet),
+            None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
         };
 
-        let pending_nonce = self
-            .blockchain_interface
-            .get_transaction_count(consuming_wallet)
-            .map_err(PayableTransactionError::TransactionCount)?;
+        return Box::new(
+            self.blockchain_interface
+                .get_transaction_count(consuming_wallet) //Future here
+                .map_err(|e| PayableTransactionError::TransactionCount(e))
+                .and_then(move |pending_nonce| {
+                    let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
-        let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
-
-        self.blockchain_interface.send_payables_within_batch(
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            new_fingerprints_recipient,
-            &msg.accounts,
-        )
+                    self.blockchain_interface.send_payables_within_batch(
+                        consuming_wallet,
+                        gas_price,
+                        pending_nonce,
+                        new_fingerprints_recipient,
+                        &msg.accounts,
+                    )
+                }),
+        );
     }
 
     fn get_new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
