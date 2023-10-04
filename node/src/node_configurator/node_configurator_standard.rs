@@ -140,21 +140,22 @@ pub fn server_initializer_collected_params<'a>(
 ) -> Result<MultiConfig<'a>, ConfiguratorError> {
     let app = app_node();
     let user_specific_data = determine_user_specific_data(dirs_wrapper, &app, args)?;
+    println!("user_specific_data.pre_orientation_args: {:#?}", user_specific_data.pre_orientation_args);
     let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(EnvironmentVcl::new(&app)),
             user_specific_data.pre_orientation_args
         ];
 
-    let mut fill_specified_or_unspecified_box = |key: String, value: String, specified: bool | {
+    let mut fill_specified_or_unspecified_box = |key: &str, value: &str, specified: bool | {
         match specified {
-            true => full_multi_config_vec.push(Box::new(CommandLineVcl::new(vec!["".to_string(), key, value,]))),
-            false => full_multi_config_vec.push(Box::new(ComputedVcl::new(vec!["".to_string(), key, value,])))
+            true => full_multi_config_vec.push(Box::new(CommandLineVcl::new(vec!["".to_string(), key.to_string(), value.to_string(),]))),
+            false => full_multi_config_vec.push(Box::new(ComputedVcl::new(vec!["".to_string(), key.to_string(), value.to_string(),])))
         };
     };
-    fill_specified_or_unspecified_box("--config-file".to_string(), user_specific_data.config_file.to_string_lossy().to_string(), user_specific_data.config_file_specified);
-    fill_specified_or_unspecified_box("--data-directory".to_string(), user_specific_data.data_directory.to_string_lossy().to_string(), user_specific_data.data_directory_specified);
-    fill_specified_or_unspecified_box("--real-user".to_string(), user_specific_data.real_user.to_string(), user_specific_data.real_user_specified);
-
+    fill_specified_or_unspecified_box("--config-file", user_specific_data.config_file.to_string_lossy().as_ref(), user_specific_data.config_file_specified);
+    fill_specified_or_unspecified_box("--data-directory", user_specific_data.data_directory.to_string_lossy().as_ref(), user_specific_data.data_directory_specified);
+    fill_specified_or_unspecified_box("--real-user", user_specific_data.real_user.to_string().as_str(), user_specific_data.real_user_specified);
+    println!("full_multi_config_vec: {:#?}", full_multi_config_vec);
     let full_multi_config = make_new_multi_config(&app,full_multi_config_vec)?;
 
     Ok(full_multi_config)

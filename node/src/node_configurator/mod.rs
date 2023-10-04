@@ -116,8 +116,8 @@ pub fn determine_user_specific_data (
         data_directory_specified,
         real_user: real_user_obj,
         real_user_specified,
-        pre_orientation_args: Box::new(orientation_vcl)
-        }
+        pre_orientation_args
+    }
     )
 }
 
@@ -159,9 +159,13 @@ fn create_preorientation_args(cmd_args: &[String], app: &App, dirs_wrapper: &dyn
     // to specify also data-directory in Environment or Command line, to be Node able figure out the
     // config file location, when config file is specified without absolute path or current directory eg.: "./" or "../"
 
+    let computed_real_user = &RealUser::new(None, None, None).populate(dirs_wrapper);
+    let preargs: Box<dyn VirtualCommandLine>;
+    let mut config_file_path: PathBuf;
     if combined_vcl.len() > 0 {
-        let (mut config_file, data_directory, real_user) = config_file_data_dir_real_user_from_enumerate(&combined_vcl.content);
+        let (mut config_file, data_directory, _real_user) = config_file_data_dir_real_user_from_enumerate(&combined_vcl.content);
         if !config_file.is_empty() {
+            println!("if");
             if  (!config_file.starts_with("/") && !config_file.starts_with("./") && !config_file.starts_with("../"))
                 && data_directory.is_empty() {
                 return Err(ConfigFileVclError::InvalidConfig(
@@ -175,7 +179,7 @@ fn create_preorientation_args(cmd_args: &[String], app: &App, dirs_wrapper: &dyn
                 config_file = config_file.replacen(".", pwd.to_string_lossy().to_string().as_str(), 1);
             }
 
-            let mut config_file_path = PathBuf::from(&config_file.to_string());
+            config_file_path = PathBuf::from(&config_file.to_string());
             let user_specified = !config_file.is_empty();
             if config_file_path.is_relative() && !data_directory.is_empty() {
                 config_file_path = PathBuf::from(data_directory.to_string()).join(config_file_path);
@@ -184,40 +188,52 @@ fn create_preorientation_args(cmd_args: &[String], app: &App, dirs_wrapper: &dyn
                 Ok(cfv) => Box::new(cfv),
                 Err(e) => return Err(e),
             };
-            let args = merge(
-                Box::new(EnvironmentVcl::new(app)),
+            preargs = merge(
                 config_file_vcl,
-            );
-            let args = merge(
-                args,
-                Box::new(CommandLineVcl::new(
-                    vec!["".to_string(),
-                         "--config-file".to_string(),
-                         config_file_path.to_string_lossy().to_string()]
-                ))
-            );
-            Ok(args)
-        } else {
-            let config_file = PathBuf::from("config.toml");
-            let config_file_path = match data_directory.as_str() {
-                "" => PathBuf::from().join(config_file),
-                _ =>
-            };
-            let args = merge(
                 Box::new(EnvironmentVcl::new(app)),
-                Box::new(CommandLineVcl::new(
-                    vec!["".to_string(),
-                         "--config-file".to_string(),
-                         config_file_path.to_string_lossy().to_string()]
-                ))
             );
-            Ok(args)
+        } else if !data_directory.as_str().is_empty() {
+            println!("data dir not empty");
+            let config_file = PathBuf::from("config.toml");
+            config_file_path = PathBuf::from(data_directory).join(config_file);
+            let config_file_vcl = match ConfigFileVcl::new(&config_file_path, false) {
+                Ok(cfv) => Box::new(cfv),
+                Err(e) => return Err(e),
+            };
+            preargs = merge(
+                config_file_vcl,
+                Box::new(EnvironmentVcl::new(app)),
+            );
+        } else {
+            println!("data dir is empty");
+            let config_file = PathBuf::from("config.toml");
+
+            let cmd_chain = argument_from_enumerate(&cmd_args, "--chain").expect("expected chain");
+            let env_chain = argument_from_enumerate(&env_args, "--chain").expect("expected chain");
+            let chain = match cmd_chain.is_empty() {
+                true => {
+                    match env_chain.is_empty() {
+                        true => DEFAULT_CHAIN.rec().literal_identifier,
+                        false => env_chain.as_str()
+                    }
+                }
+                false => cmd_chain.as_str()
+            };
+            let data_dir = data_directory_from_context(dirs_wrapper, computed_real_user, Chain::from(chain));
+            config_file_path = PathBuf::from(data_dir).join(config_file);
+            let config_file_vcl = match ConfigFileVcl::new(&config_file_path, false) {
+                Ok(cfv) => Box::new(cfv),
+                Err(e) => return Err(e),
+            };
+            preargs = merge(
+                config_file_vcl,
+                Box::new(EnvironmentVcl::new(app)),
+            );
         }
 
     } else {
-        //Ok(Box::new(EnvironmentVcl::new(app)))
         let config_file = PathBuf::from("config.toml");
-        let real_user = &RealUser::new(None, None, None).populate(dirs_wrapper);
+        // let real_user = &RealUser::new(None, None, None).populate(dirs_wrapper);
         let cmd_chain = argument_from_enumerate(&cmd_args, "--chain").expect("expected chain");
         let env_chain = argument_from_enumerate(&env_args, "--chain").expect("expected chain");
         let chain = match cmd_chain.is_empty() {
@@ -229,18 +245,29 @@ fn create_preorientation_args(cmd_args: &[String], app: &App, dirs_wrapper: &dyn
             }
             false => cmd_chain.as_str()
         };
-        let data_dir = data_directory_from_context(dirs_wrapper, real_user, Chain::from(chain));
-        let config_file_path = PathBuf::from(data_dir).join(config_file);
-        let args = merge(
+        let data_dir = data_directory_from_context(dirs_wrapper, computed_real_user, Chain::from(chain));
+        config_file_path = PathBuf::from(data_dir).join(config_file);
+        let config_file_vcl = match ConfigFileVcl::new(&config_file_path, false) {
+            Ok(cfv) => Box::new(cfv),
+            Err(e) => return Err(e),
+        };
+        preargs = merge(
+            config_file_vcl,
             Box::new(EnvironmentVcl::new(app)),
-            Box::new(CommandLineVcl::new(
-                vec!["".to_string(),
-                     "--config-file".to_string(),
-                     config_file_path.to_string_lossy().to_string()]
-            ))
         );
-        Ok(args)
     }
+    println!("completition");
+    //Ok(Box::new(EnvironmentVcl::new(app)))
+
+    let args = merge(
+        preargs,
+        Box::new(CommandLineVcl::new(
+            vec!["".to_string(),
+                 "--config-file".to_string(),
+                 config_file_path.to_string_lossy().to_string()]
+        ))
+    );
+    Ok(args)
 }
 
 pub fn initialize_database(
