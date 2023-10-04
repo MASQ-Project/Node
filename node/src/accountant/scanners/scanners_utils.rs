@@ -219,10 +219,25 @@ pub mod payable_scanner_utils {
         }
     }
 
+    #[derive(Debug, PartialEq, Eq)]
     pub struct PendingPayableTriple<'a> {
         pub recipient: &'a Wallet,
         pub hash: H256,
         pub rowid_opt: Option<u64>,
+    }
+
+    impl<'a> PendingPayableTriple<'a> {
+        pub fn new(
+            recipient: &'a Wallet,
+            hash: H256,
+            rowid_opt: Option<u64>,
+        ) -> PendingPayableTriple<'a> {
+            PendingPayableTriple {
+                recipient,
+                hash,
+                rowid_opt,
+            }
+        }
     }
 
     pub fn mark_pending_payable_fatal_error(

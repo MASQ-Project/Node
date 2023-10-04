@@ -10,7 +10,7 @@ impl DatabaseMigration for Migrate_8_to_9 {
         declaration_utils: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
-            &"INSERT INTO config (name, value, encrypted) VALUES ('max_block_count', null, 0)",
+            &"INSERT INTO config (name, value, encrypted) VALUES ('max_block_count', '', 0)",
         ])
     }
 
@@ -51,7 +51,7 @@ mod tests {
         let connection = result.unwrap();
         let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "max_block_count");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(mp_value, None);
+        assert_eq!(mp_value, Some("".to_string()));
         assert_eq!(mp_encrypted, false);
         assert_eq!(cs_value, Some("9".to_string()));
         assert_eq!(cs_encrypted, false);

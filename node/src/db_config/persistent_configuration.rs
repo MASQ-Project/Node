@@ -133,8 +133,8 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn max_block_count(&self) -> Result<u64, PersistentConfigError>;
-    fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -411,19 +411,25 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("start_block", value)
     }
 
-    fn max_block_count(&self) -> Result<u64, PersistentConfigError> {
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
         match self.get("max_block_count") {
             Ok(max_block_count) => match decode_u64(max_block_count) {
-                Ok(Some(mbc)) => Ok(mbc),
+                Ok(mbc_opt) => Ok(mbc_opt),
+                Err(TypedConfigLayerError::BadNumberFormat(value)) if value.is_empty() => Ok(None),
                 Err(e) => Err(PersistentConfigError::from(e)),
-                Ok(None) => Err(PersistentConfigError::NotPresent),
             },
             Err(e) => Err(PersistentConfigError::from(e)),
         }
     }
 
-    fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("max_block_count", value)
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        self.simple_set_method(
+            "max_block_count",
+            match encode_u64(value) {
+                Ok(Some(mbc)) => mbc,
+                _ => "".to_string(),
+            },
+        )
     }
 
     fn set_wallet_info(
@@ -1949,10 +1955,38 @@ mod tests {
     }
 
     #[test]
-    fn max_block_count_set_method_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "max_block_count",
-            100000u64
+    fn max_block_count_set_method_works_with_some() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(Some(100_000u64));
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some(100_000u64.to_string()))]
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_none() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some("".to_string()))]
         );
     }
 
