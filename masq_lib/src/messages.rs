@@ -4,6 +4,7 @@ use crate::messages::UiMessageError::{DeserializationError, PayloadError, Unexpe
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
+use crate::utils::to_string;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -243,7 +244,7 @@ impl UiSetupRequest {
                 .into_iter()
                 .map(|(name, value)| UiSetupRequestValue {
                     name: name.to_string(),
-                    value: value.map(|v| v.to_string()),
+                    value: value.map(to_string),
                 })
                 .collect(),
         }

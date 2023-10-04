@@ -13,13 +13,9 @@ pub fn macos_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
     };
     let addresses = output
         .split('\n')
-        .map(|line_ref| line_ref.to_string())
+        .map(to_string)
         .filter(|line| line.contains("gateway:"))
-        .map(|line| {
-            line.split(": ")
-                .map(|piece| piece.to_string())
-                .collect::<Vec<String>>()
-        })
+        .map(|line| line.split(": ").map(to_string).collect::<Vec<String>>())
         .filter(|pieces| pieces.len() > 1)
         .map(|pieces| IpAddr::from_str(&pieces[1]).expect("Bad syntax from route -n get default"))
         .collect::<Vec<IpAddr>>();

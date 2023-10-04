@@ -12,7 +12,7 @@ use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::localhost;
+use masq_lib::utils::{localhost, to_string};
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
@@ -260,7 +260,7 @@ impl NodeStartupConfig {
     }
 
     fn slices_to_strings(strs: Vec<&str>) -> Vec<String> {
-        strs.into_iter().map(|x| x.to_string()).collect()
+        strs.into_iter().map(to_string).collect()
     }
 
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
@@ -642,7 +642,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
-        self.db_password = value.map(|str| str.to_string());
+        self.db_password = value.map(to_string);
         self
     }
 

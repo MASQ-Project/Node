@@ -10,6 +10,7 @@ use masq_lib::as_any_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
+use masq_lib::utils::to_string;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
@@ -74,7 +75,7 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.value_of("db-password").map(to_string),
         })
     }
 

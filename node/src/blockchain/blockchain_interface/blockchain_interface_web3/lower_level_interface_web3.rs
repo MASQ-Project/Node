@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
 };
-use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use std::rc::Rc;
@@ -85,7 +85,6 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::lower_level_interface::{LowerBCI, ResultForBalance};
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::test_utils::TestTransport;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_paying_wallet;
@@ -102,6 +101,7 @@ mod tests {
     use web3::transports::{Batch, Http};
     use web3::types::U256;
     use web3::{BatchTransport, Web3};
+    use crate::blockchain::test_utils::TestTransport;
 
     #[test]
     fn web3_helper_transaction_fee_balance_works() {

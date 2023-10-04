@@ -6,12 +6,15 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::data_structures::errors::{
+    BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
+};
+use crate::blockchain::blockchain_interface::data_structures::{
+    ProcessedPayableFallible, RetrievedBlockchainTransactions,
+};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
 use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
-    ResultForReceipt, RetrievedBlockchainTransactions,
-};
+use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
@@ -22,6 +25,7 @@ use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::to_string;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -40,10 +44,7 @@ lazy_static! {
 }
 
 pub fn make_meaningless_phrase_words() -> Vec<String> {
-    BIG_MEANINGLESS_PHRASE
-        .iter()
-        .map(|word| word.to_string())
-        .collect()
+    BIG_MEANINGLESS_PHRASE.iter().map(to_string).collect()
 }
 
 pub fn make_meaningless_phrase() -> String {
@@ -61,7 +62,8 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
-    build_blockchain_agent_results: RefCell<Vec<Result<Box<dyn BlockchainAgent>, String>>>,
+    build_blockchain_agent_results:
+        RefCell<Vec<Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>>>,
     send_batch_of_payables_params: Arc<
         Mutex<
             Vec<(
@@ -102,7 +104,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, String> {
+    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
         self.build_blockchain_agent_params.lock().unwrap().push((
             consuming_wallet.clone(),
             persistent_config.arbitrary_id_stamp(),
@@ -164,7 +166,7 @@ impl BlockchainInterfaceMock {
 
     pub fn build_blockchain_agent_result(
         self,
-        result: Result<Box<dyn BlockchainAgent>, String>,
+        result: Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>,
     ) -> Self {
         self.build_blockchain_agent_results
             .borrow_mut()

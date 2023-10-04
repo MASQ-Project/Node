@@ -14,7 +14,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -417,9 +417,9 @@ mod tests {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account,
     };
-    use crate::blockchain::blockchain_interface::BlockchainTransaction;
-    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
-    use crate::database::db_initializer::{DbInitializerReal, ExternalData};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
+    };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;

@@ -8,6 +8,7 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::as_any_in_trait_impl;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
+use masq_lib::utils::to_string;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
@@ -60,7 +61,7 @@ impl CheckPasswordCommand {
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
-            db_password_opt: matches.value_of("db-password").map(|r| r.to_string()),
+            db_password_opt: matches.value_of("db-password").map(to_string),
         })
     }
 }

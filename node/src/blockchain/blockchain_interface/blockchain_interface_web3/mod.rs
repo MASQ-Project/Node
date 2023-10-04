@@ -14,11 +14,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_pa
 };
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainTransaction, PayableTransactionError,
-    ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions,
-    RpcPayablesFailure,
-};
+use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible, ResultForReceipt, RetrievedBlockchainTransactions};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -40,6 +36,7 @@ use web3::types::{
     H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, RpcPayablesFailure};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -208,16 +205,10 @@ where
         &self,
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, String> {
-        macro_rules! err {
-            ($($arg: tt)*) => {
-                Err(format!("Blockchain agent construction failed at fetching {}", format!($($arg)*)))
-            };
-        }
-
+    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
         let gas_price_gwei = match persistent_config.gas_price() {
             Ok(price) => price,
-            Err(e) => return err!("gas price: {:?}", e),
+            Err(e) => return Err(BlockchainAgentBuildError::GasPrice(e)),
         };
 
         let transaction_fee_balance = match self
@@ -225,18 +216,33 @@ where
             .get_transaction_fee_balance(consuming_wallet)
         {
             Ok(balance) => balance,
-            Err(e) => return err!("transaction fee balance for {}: {}", consuming_wallet, e),
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionFeeBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
         };
 
         let masq_token_balance = match self.lower_interface.get_masq_balance(consuming_wallet) {
             Ok(balance) => balance,
-            Err(e) => return err!("masq balance for {}: {}", consuming_wallet, e),
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::MasqBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
         };
 
         let pending_transaction_id = match self.lower_interface.get_transaction_id(consuming_wallet)
         {
             Ok(id) => id,
-            Err(e) => return err!("transaction id for {}: {}", consuming_wallet, e),
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionID(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
         };
 
         let consuming_wallet_balances = ConsumingWalletBalances {
@@ -627,8 +633,8 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainInterface, BlockchainTransaction, PayableTransactionError,
-        RetrievedBlockchainTransactions, RpcPayablesFailure,
+        BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError,
+        RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::{
         all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
@@ -661,6 +667,9 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
         make_default_signed_transaction, BatchPayableToolsMock,
+    };
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, RpcPayablesFailure,
     };
     use indoc::indoc;
     use std::str::FromStr;
@@ -1093,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn build_of_the_blockchain_agent_fails_on_gas_price() {
+    fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
         let chain = Chain::PolyMumbai;
         let wallet = make_wallet("abc");
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(
@@ -1111,15 +1120,18 @@ mod tests {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
         };
-        let expected_err_msg = "Blockchain agent construction failed at fetching gas price: \
-        UninterpretableValue(\"booga\")";
-        assert_eq!(err, expected_err_msg)
+        let expected_err = BlockchainAgentBuildError::GasPrice(
+            PersistentConfigError::UninterpretableValue("booga".to_string()),
+        );
+        assert_eq!(err, expected_err)
     }
 
-    fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+    fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
         blockchain_interface_helper: LowerBCIMock,
-        expected_err_msg: &str,
-    ) {
+        expected_err_factory: F,
+    ) where
+        F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
+    {
         let chain = Chain::EthMainnet;
         let wallet = make_wallet("bcd");
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(30));
@@ -1136,36 +1148,40 @@ mod tests {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
         };
-        assert_eq!(err, expected_err_msg)
+        let expected_err = expected_err_factory(&wallet);
+        assert_eq!(err, expected_err)
     }
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
-        let blockchain_interface_helper = LowerBCIMock::default()
+        let lower_interface = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::InvalidAddress));
-        let expected_err_msg =
-            "Blockchain agent construction failed at fetching transaction fee balance for \
-        0x0000000000000000000000000000000000626364: Blockchain error: Invalid address";
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::TransactionFeeBalance(
+                wallet.clone(),
+                BlockchainError::InvalidAddress,
+            )
+        };
 
         build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
-            blockchain_interface_helper,
-            expected_err_msg,
+            lower_interface,
+            expected_err_factory,
         )
     }
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let transaction_fee_balance = U256::from(123_456_789);
-        let blockchain_interface_helper = LowerBCIMock::default()
+        let lower_interface = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
-            .get_masq_balance_result(Err(BlockchainError::InvalidAddress));
-        let expected_err_msg = "Blockchain agent construction failed at fetching masq \
-        balance for 0x0000000000000000000000000000000000626364: Blockchain error: Invalid \
-        address";
+            .get_masq_balance_result(Err(BlockchainError::InvalidResponse));
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::MasqBalance(wallet.clone(), BlockchainError::InvalidResponse)
+        };
 
         build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
-            blockchain_interface_helper,
-            expected_err_msg,
+            lower_interface,
+            expected_err_factory,
         )
     }
 
@@ -1173,16 +1189,20 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_id() {
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(500_000_000);
-        let blockchain_interface_helper = LowerBCIMock::default()
+        let lower_interface = LowerBCIMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_result(Err(BlockchainError::InvalidResponse));
-        let expected_err_msg = "Blockchain agent construction failed at fetching transaction \
-        id for 0x0000000000000000000000000000000000626364: Blockchain error: Invalid response";
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::TransactionID(
+                wallet.clone(),
+                BlockchainError::InvalidResponse,
+            )
+        };
 
         build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
-            blockchain_interface_helper,
-            expected_err_msg,
+            lower_interface,
+            expected_err_factory,
         );
     }
 

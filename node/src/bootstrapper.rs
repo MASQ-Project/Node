@@ -766,7 +766,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, to_string};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -933,9 +933,9 @@ mod tests {
             sudo_user: Option<&str>,
         ) -> EnvironmentWrapperMock {
             EnvironmentWrapperMock {
-                sudo_uid: sudo_uid.map(|s| s.to_string()),
-                sudo_gid: sudo_gid.map(|s| s.to_string()),
-                sudo_user: sudo_user.map(|s| s.to_string()),
+                sudo_uid: sudo_uid.map(to_string),
+                sudo_gid: sudo_gid.map(to_string),
+                sudo_user: sudo_user.map(to_string),
             }
         }
     }

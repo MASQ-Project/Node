@@ -11,9 +11,11 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
+use crate::blockchain::blockchain_interface::data_structures::errors::{
+    BlockchainError, PayableTransactionError,
 };
+use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
+use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -34,6 +36,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::to_string;
 use regex::Regex;
 use std::path::Path;
 use std::time::SystemTime;
@@ -135,11 +138,7 @@ impl Handler<QualifiedPayablesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: QualifiedPayablesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan(
-            Self::handle_payable_payments_setup_msg_payload,
-            ScanType::Payables,
-            msg,
-        );
+        self.handle_scan(Self::handle_qualified_payable_msg, ScanType::Payables, msg);
     }
 }
 
@@ -226,7 +225,7 @@ impl BlockchainBridge {
                 // probably want to make BlockchainInterfaceInitializer a collaborator that's a part of the actor
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
-            None => Box::new(BlockchainInterfaceNull::default()), //TODO make sure this is tested for BlockchainInterfaceNull (after the merge??)
+            None => Box::new(BlockchainInterfaceNull::default()),
         }
     }
 
@@ -241,24 +240,23 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_payable_payments_setup_msg_payload(
+    fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
-        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
-            Some(wallet) => wallet,
-            None => {
-                return Err(
-                    "Cannot inspect available balances for payables while consuming wallet \
-                    is missing"
-                        .to_string(),
-                )
-            }
+        let consuming_wallet = if let Some(wallet) = self.consuming_wallet_opt.as_ref() {
+            wallet
+        } else {
+            return Err(
+                "Cannot inspect available balances for payables while consuming wallet is missing"
+                    .to_string(),
+            );
         };
 
         let agent = self
             .blockchain_interface
-            .build_blockchain_agent(consuming_wallet, &*self.persistent_config)?;
+            .build_blockchain_agent(consuming_wallet, &*self.persistent_config)
+            .map_err(to_string)?;
 
         let outgoing_message = BlockchainAgentWithContextMessage::new(
             incoming_message.protected_qualified_payables,
@@ -533,12 +531,14 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
+    use crate::blockchain::blockchain_interface::data_structures::errors::{
+        BlockchainAgentBuildError, PayableTransactionError,
+    };
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, RetrievedBlockchainTransactions,
+    };
     use crate::blockchain::blockchain_interface::lower_level_interface::LatestBlockNumber;
     use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
-    };
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -735,10 +735,10 @@ mod tests {
     }
 
     #[test]
-    fn build_of_blockchain_agent_throws_err_in_the_handler_for_qualified_payables_message() {
+    fn build_of_blockchain_agent_throws_err_out_and_ends_handling_qualified_payables_message() {
         init_test_logging();
         let test_name =
-            "build_of_blockchain_agent_throws_err_in_the_handler_for_qualified_payables_message";
+            "build_of_blockchain_agent_throws_err_out_and_ends_handling_qualified_payables_message";
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant
             .system_stop_conditions(match_every_type_id!(ScanError))
@@ -747,7 +747,9 @@ mod tests {
         let persistent_configuration = PersistentConfigurationMock::default();
         let consuming_wallet = make_wallet(test_name);
         let blockchain_interface = BlockchainInterfaceMock::default()
-            .build_blockchain_agent_result(Err("Damn it!".to_string()));
+            .build_blockchain_agent_result(Err(BlockchainAgentBuildError::GasPrice(
+                PersistentConfigError::NotPresent,
+            )));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
@@ -779,7 +781,8 @@ mod tests {
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
         assert_eq!(recording.len(), 1);
-        let expected_error_msg = "Damn it!";
+        let expected_error_msg = "Blockchain agent construction failed at fetching gas \
+        price from the database: NotPresent";
         assert_eq!(
             message,
             &ScanError {
@@ -796,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_payable_payments_setup_msg_payload_fails_at_missing_consuming_wallet() {
+    fn handle_qualified_payable_msg_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
@@ -815,7 +818,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_payable_payments_setup_msg_payload(request);
+        let result = subject.handle_qualified_payable_msg(request);
 
         assert_eq!(
             result,
@@ -842,11 +845,11 @@ mod tests {
             .set_arbitrary_id_stamp(blockchain_interface_id_stamp)
             .send_batch_of_payables_params(&send_batch_of_payables_params_arc)
             .send_batch_of_payables_result(Ok(vec![
-                Correct(PendingPayable {
+                ProcessedPayableFallible::Correct(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
                     hash: H256::from("sometransactionhash".keccak256()),
                 }),
-                Correct(PendingPayable {
+                ProcessedPayableFallible::Correct(PendingPayable {
                     recipient_wallet: wallet_account_2.clone(),
                     hash: H256::from("someothertransactionhash".keccak256()),
                 }),
@@ -905,11 +908,11 @@ mod tests {
             *sent_payments_msg,
             SentPayables {
                 payment_procedure_result: Ok(vec![
-                    Correct(PendingPayable {
+                    ProcessedPayableFallible::Correct(PendingPayable {
                         recipient_wallet: wallet_account_1,
                         hash: H256::from("sometransactionhash".keccak256())
                     }),
-                    Correct(PendingPayable {
+                    ProcessedPayableFallible::Correct(PendingPayable {
                         recipient_wallet: wallet_account_2,
                         hash: H256::from("someothertransactionhash".keccak256())
                     })

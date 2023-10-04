@@ -3,20 +3,18 @@
 pub mod lower_level_interface_null;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
-    ResultForReceipt, RetrievedBlockchainTransactions,
-};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use web3::types::{Address, BlockNumber, H160, H256};
+use crate::blockchain::blockchain_interface::BlockchainInterface;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
@@ -42,9 +40,8 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         &self,
         _consuming_wallet: &Wallet,
         _persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, String> {
-        error!(self.logger, "Builds a null blockchain agent only");
-        Ok(Box::new(BlockchainAgentNull::new()))
+    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
+        self.handle_uninitialized_interface("build blockchain agent")
     }
 
     fn send_batch_of_payables(
@@ -78,17 +75,23 @@ trait BlockchainInterfaceUninitializedError {
     fn error() -> Self;
 }
 
-impl BlockchainInterfaceUninitializedError for PayableTransactionError {
-    fn error() -> Self {
-        Self::UninitializedBlockchainInterface
+macro_rules! impl_bci_uninitialized {
+    ($($error_type: ty),+) => {
+        $(
+            impl BlockchainInterfaceUninitializedError for $error_type {
+                fn error() -> Self {
+                    Self::UninitializedBlockchainInterface
+                }
+            }
+        )+
     }
 }
 
-impl BlockchainInterfaceUninitializedError for BlockchainError {
-    fn error() -> Self {
-        Self::UninitializedBlockchainInterface
-    }
-}
+impl_bci_uninitialized!(
+    PayableTransactionError,
+    BlockchainError,
+    BlockchainAgentBuildError
+);
 
 impl BlockchainInterfaceNull {
     pub fn new() -> Self {
@@ -127,9 +130,6 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_null::{
         BlockchainInterfaceNull, BlockchainInterfaceUninitializedError,
     };
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainInterface, PayableTransactionError,
-    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -139,6 +139,8 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::{BlockNumber, H160};
+    use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
@@ -182,15 +184,20 @@ mod tests {
         let wallet = make_wallet("blah");
         let persistent_config = PersistentConfigurationMock::new();
 
-        let result = make_subject(test_name)
-            .build_blockchain_agent(&wallet, &persistent_config)
-            .unwrap();
+        let result = make_subject(test_name).build_blockchain_agent(&wallet, &persistent_config);
 
-        result
-            .as_any()
-            .downcast_ref::<BlockchainAgentNull>()
-            .unwrap();
-        let expected_log_msg = format!("ERROR: {test_name}: Builds a null blockchain agent only");
+        let err = match result {
+            Ok(_) => panic!("we expected an error but got ok"),
+            Err(e) => e,
+        };
+        assert_eq!(
+            err,
+            BlockchainAgentBuildError::UninitializedBlockchainInterface
+        );
+        let expected_log_msg = format!(
+            "ERROR: {test_name}: Failed to build blockchain agent with uninitialized blockchain \
+            interface. Parameter blockchain-service-url is missing."
+        );
         TestLogHandler::new().exists_log_containing(expected_log_msg.as_str());
     }
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::BlockchainResult;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainResult;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U64;
 use web3::types::U256;

@@ -58,7 +58,7 @@ use web3::types::{TransactionReceipt, H256};
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::blockchain::blockchain_interface::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -1085,9 +1085,9 @@ mod tests {
         RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        BlockchainTransaction, PayableTransactionError, RpcPayablesFailure,
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
@@ -1335,9 +1335,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Correct(correct_pending_payable_1),
-                Failed(failure_payable_2),
-                Correct(correct_pending_payable_3),
+                ProcessedPayableFallible::Correct(correct_pending_payable_1),
+                ProcessedPayableFallible::Failed(failure_payable_2),
+                ProcessedPayableFallible::Correct(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -1538,7 +1538,10 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
+            payment_procedure_result: Ok(vec![
+                ProcessedPayableFallible::Correct(payment_1),
+                ProcessedPayableFallible::Correct(payment_2),
+            ]),
             response_skeleton_opt: None,
         };
 
@@ -1561,7 +1564,10 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
+            payment_procedure_result: Ok(vec![
+                ProcessedPayableFallible::Correct(payable_1),
+                ProcessedPayableFallible::Correct(payable_2),
+            ]),
             response_skeleton_opt: None,
         };
 
@@ -1811,12 +1817,12 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Failed(RpcPayablesFailure {
+        let failed_payment_1 = ProcessedPayableFallible::Failed(RpcPayablesFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = Failed(RpcPayablesFailure {
+        let failed_payment_2 = ProcessedPayableFallible::Failed(RpcPayablesFailure {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,

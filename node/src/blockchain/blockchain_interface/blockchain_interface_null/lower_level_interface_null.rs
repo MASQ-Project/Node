@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
 };
-use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 
@@ -44,9 +44,9 @@ impl LowerBCINull {
 
 #[cfg(test)]
 mod tests {
+    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
     use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
-    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;

@@ -16,8 +16,8 @@ use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{to_string, AutomapProtocol};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -332,9 +332,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set("mapping_protocol", value.map(|v| v.to_string()))?)
+        Ok(self.dao.set("mapping_protocol", value.map(to_string))?)
     }
 
     fn min_hops(&self) -> Result<Hops, PersistentConfigError> {

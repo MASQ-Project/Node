@@ -321,10 +321,7 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
-    slice
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<String>>()
+    slice.iter().map(to_string).collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -387,6 +384,14 @@ where
     }
 
     fn helper_access(&mut self) -> &mut Option<T>;
+}
+
+// A handy function for closures
+pub fn to_string<D>(displayable: D) -> String
+where
+    D: Display,
+{
+    displayable.to_string()
 }
 
 #[macro_export]

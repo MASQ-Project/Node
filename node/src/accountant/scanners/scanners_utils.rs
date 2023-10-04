@@ -17,8 +17,8 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
-    use crate::blockchain::blockchain_interface::{PayableTransactionError, ProcessedPayableFallible, RpcPayablesFailure};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayablesFailure};
 
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
@@ -153,8 +153,10 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            Correct(pending_payable) => add_pending_payable(acc, pending_payable),
-            Failed(RpcPayablesFailure {
+            ProcessedPayableFallible::Correct(pending_payable) => {
+                add_pending_payable(acc, pending_payable)
+            }
+            ProcessedPayableFallible::Failed(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -446,8 +448,8 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
-    use crate::blockchain::blockchain_interface::{BlockchainError, PayableTransactionError, RpcPayablesFailure};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayablesFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -517,8 +519,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Correct(correct_payment_1.clone()),
-                Correct(correct_payment_2.clone()),
+                ProcessedPayableFallible::Correct(correct_payment_1.clone()),
+                ProcessedPayableFallible::Correct(correct_payment_2.clone()),
             ]),
             response_skeleton_opt: None,
         };
@@ -566,8 +568,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Correct(payable_ok.clone()),
-                Failed(bad_rpc_call.clone()),
+                ProcessedPayableFallible::Correct(payable_ok.clone()),
+                ProcessedPayableFallible::Failed(bad_rpc_call.clone()),
             ]),
             response_skeleton_opt: None,
         };
