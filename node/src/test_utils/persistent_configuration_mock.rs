@@ -61,8 +61,8 @@ pub struct PersistentConfigurationMock {
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     max_block_count_params: Arc<Mutex<Vec<()>>>,
-    max_block_count_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_max_block_count_params: Arc<Mutex<Vec<u64>>>,
+    max_block_count_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
+    set_max_block_count_params: Arc<Mutex<Vec<Option<u64>>>>,
     set_max_block_count_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
     set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
@@ -237,12 +237,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.set_start_block_results)
     }
 
-    fn max_block_count(&self) -> Result<u64, PersistentConfigError> {
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
         self.max_block_count_params.lock().unwrap().push(());
         Self::result_from(&self.max_block_count_results)
     }
 
-    fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
         self.set_max_block_count_params.lock().unwrap().push(value);
         Self::result_from(&self.set_max_block_count_results)
     }
@@ -552,12 +552,15 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn max_block_count_result(self, result: Result<u64, PersistentConfigError>) -> Self {
+    pub fn max_block_count_result(
+        self,
+        result: Result<Option<u64>, PersistentConfigError>,
+    ) -> Self {
         self.max_block_count_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_max_block_count_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+    pub fn set_max_block_count_params(mut self, params: &Arc<Mutex<Vec<Option<u64>>>>) -> Self {
         self.set_max_block_count_params = params.clone();
         self
     }

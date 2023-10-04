@@ -336,7 +336,7 @@ impl BlockchainBridge {
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
         let max_block_count = match self.persistent_config.max_block_count() {
-            Ok(mbc) => mbc,
+            Ok(Some(mbc)) => mbc,
             _ => u64::MAX,
         };
         let end_block = match self.blockchain_interface.get_block_number() {
@@ -393,7 +393,7 @@ impl BlockchainBridge {
                 if let Some(max_block_count) = self.extract_max_block_count(e.clone()) {
                     debug!(self.logger, "Writing max_block_count({})", max_block_count);
                     self.persistent_config
-                        .set_max_block_count(max_block_count)
+                        .set_max_block_count(Some(max_block_count))
                         .map_or_else(
                             |_| {
                                 warning!(self.logger, "{} update max_block_count to {}. Scheduling next scan with that limit.", e, max_block_count);
@@ -1325,7 +1325,7 @@ mod tests {
             )))
             .get_block_number_result(LatestBlockNumber::Ok(U64::from(1234u64)));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(100_000))
+            .max_block_count_result(Ok(Some(100_000)))
             .start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1620,7 +1620,7 @@ mod tests {
             )));
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(10000u64))
+            .max_block_count_result(Ok(Some(10000u64)))
             .start_block_result(Ok(6))
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
@@ -1711,7 +1711,7 @@ mod tests {
             .get_block_number_result(latest_block_number);
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(10000u64))
+            .max_block_count_result(Ok(Some(10000u64)))
             .start_block_result(Ok(6))
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
@@ -1778,7 +1778,7 @@ mod tests {
             .get_block_number_result(Ok(0u64.into()));
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(10000u64))
+            .max_block_count_result(Ok(Some(10000u64)))
             .start_block_result(Ok(6))
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
@@ -1861,7 +1861,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError))
-            .max_block_count_result(Ok(10000u64));
+            .max_block_count_result(Ok(Some(10000u64)));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_block_number_result(Ok(0u64.into()))
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
@@ -2045,8 +2045,6 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_from_pokt_error_response() {
-        // [{"jsonrpc":"2.0","id":4,"result":"0x2400ee1","error":{}},{"jsonrpc":"2.0","id":5,"error":{"code":-32001,"message":"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded"}}]
-        // BlockchainError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })"
         let result = BlockchainError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })".to_string());
         let subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
