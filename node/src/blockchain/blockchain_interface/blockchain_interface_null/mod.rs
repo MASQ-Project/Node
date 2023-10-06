@@ -183,8 +183,9 @@ mod tests {
         let test_name = "blockchain_interface_null_builds_null_agent";
         let wallet = make_wallet("blah");
         let persistent_config = PersistentConfigurationMock::new();
+        let subject = make_subject(test_name);
 
-        let result = make_subject(test_name).build_blockchain_agent(&wallet, &persistent_config);
+        let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
         let err = match result {
             Ok(_) => panic!("we expected an error but got ok"),

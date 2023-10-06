@@ -16,7 +16,7 @@ impl LowerBCI for LowerBCINull {
         Err(self.handle_null_call("transaction fee balance"))
     }
 
-    fn get_masq_balance(&self, _wallet: &Wallet) -> ResultForBalance {
+    fn get_service_fee_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         Err(self.handle_null_call("masq balance"))
     }
 
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn lower_bci_null_gets_no_masq_balance() {
         let test_name = "lower_bci_null_gets_no_masq_balance";
-        let act = |subject: &LowerBCINull, wallet: &Wallet| subject.get_masq_balance(wallet);
+        let act = |subject: &LowerBCINull, wallet: &Wallet| subject.get_service_fee_balance(wallet);
 
         test_null_method(test_name, act, "masq balance");
     }

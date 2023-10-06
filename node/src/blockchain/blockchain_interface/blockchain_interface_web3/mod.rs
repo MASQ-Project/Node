@@ -225,10 +225,13 @@ where
             }
         };
 
-        let masq_token_balance = match self.lower_interface.get_masq_balance(consuming_wallet) {
+        let masq_token_balance = match self
+            .lower_interface
+            .get_service_fee_balance(consuming_wallet)
+        {
             Ok(balance) => balance,
             Err(e) => {
-                return Err(BlockchainAgentBuildError::MasqBalance(
+                return Err(BlockchainAgentBuildError::ServiceFeeBalance(
                     consuming_wallet.clone(),
                     e,
                 ))
@@ -1177,7 +1180,10 @@ mod tests {
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Err(BlockchainError::InvalidResponse));
         let expected_err_factory = |wallet: &Wallet| {
-            BlockchainAgentBuildError::MasqBalance(wallet.clone(), BlockchainError::InvalidResponse)
+            BlockchainAgentBuildError::ServiceFeeBalance(
+                wallet.clone(),
+                BlockchainError::InvalidResponse,
+            )
         };
 
         build_of_the_blockchain_agent_fails_on_blockchain_interface_error(

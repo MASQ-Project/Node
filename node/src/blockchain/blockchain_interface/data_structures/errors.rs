@@ -43,7 +43,7 @@ pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 pub enum PayableTransactionError {
     MissingConsumingWallet,
     GasPriceQueryFailed(String),
-    TransactionCount(BlockchainError),
+    TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),
     Sending { msg: String, hashes: Vec<H256> },
@@ -59,8 +59,8 @@ impl Display for PayableTransactionError {
             Self::GasPriceQueryFailed(msg) => {
                 write!(f, "Unsuccessful gas price query: \"{}\"", msg)
             }
-            Self::TransactionCount(blockchain_err) => {
-                write!(f, "Transaction count fetching failed: {}", blockchain_err)
+            Self::TransactionID(blockchain_err) => {
+                write!(f, "Transaction id fetching failed: {}", blockchain_err)
             }
             Self::UnusableWallet(msg) => write!(
                 f,
@@ -85,7 +85,7 @@ impl Display for PayableTransactionError {
 pub enum BlockchainAgentBuildError {
     GasPrice(PersistentConfigError),
     TransactionFeeBalance(Wallet, BlockchainError),
-    MasqBalance(Wallet, BlockchainError),
+    ServiceFeeBalance(Wallet, BlockchainError),
     TransactionID(Wallet, BlockchainError),
     UninitializedBlockchainInterface,
 }
@@ -101,7 +101,7 @@ impl Display for BlockchainAgentBuildError {
                 "transaction fee balance for our earning wallet {} due to: {}",
                 wallet, blockchain_e
             )),
-            Self::MasqBalance(wallet, blockchain_e) => Either::Left(format!(
+            Self::ServiceFeeBalance(wallet, blockchain_e) => Either::Left(format!(
                 "masq balance for our earning wallet {} due to {}",
                 wallet, blockchain_e
             )),
@@ -183,7 +183,7 @@ mod tests {
             PayableTransactionError::GasPriceQueryFailed(
                 "Gas halves shut, no drop left".to_string(),
             ),
-            PayableTransactionError::TransactionCount(BlockchainError::InvalidResponse),
+            PayableTransactionError::TransactionID(BlockchainError::InvalidResponse),
             PayableTransactionError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
             ),
@@ -209,7 +209,7 @@ mod tests {
             slice_of_strs_to_vec_of_strings(&[
                 "Missing consuming wallet to pay payable from",
                 "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
-                "Transaction count fetching failed: Blockchain error: Invalid response",
+                "Transaction id fetching failed: Blockchain error: Invalid response",
                 "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
                 LEDGER wallet, stupid.\"",
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
@@ -230,7 +230,10 @@ mod tests {
                 wallet.clone(),
                 BlockchainError::InvalidResponse,
             ),
-            BlockchainAgentBuildError::MasqBalance(wallet.clone(), BlockchainError::InvalidAddress),
+            BlockchainAgentBuildError::ServiceFeeBalance(
+                wallet.clone(),
+                BlockchainError::InvalidAddress,
+            ),
             BlockchainAgentBuildError::TransactionID(wallet.clone(), BlockchainError::InvalidUrl),
             BlockchainAgentBuildError::UninitializedBlockchainInterface,
         ];

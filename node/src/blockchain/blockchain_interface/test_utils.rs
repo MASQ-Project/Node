@@ -38,7 +38,7 @@ impl LowerBCI for LowerBCIMock {
             .remove(0)
     }
 
-    fn get_masq_balance(&self, address: &Wallet) -> ResultForBalance {
+    fn get_service_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_masq_balance_params
             .lock()
             .unwrap()
@@ -113,7 +113,7 @@ where
 
     // no assertion for the result, we anticipate an error from a badly formatted response from the server;
     // yet enough to prove we have a proper connection
-    let _ = subject.lower_interface().get_masq_balance(&wallet);
+    let _ = subject.lower_interface().get_service_fee_balance(&wallet);
 
     let requests = test_server.requests_so_far();
     let bodies: Vec<Value> = requests

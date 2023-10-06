@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
-            PayableTransactionError::TransactionCount(BlockchainError::QueryFailed(
+            PayableTransactionError::TransactionID(BlockchainError::QueryFailed(
                 "blah".to_string(),
             )),
             PayableTransactionError::MissingConsumingWallet,

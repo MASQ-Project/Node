@@ -34,7 +34,7 @@ where
             .wait()
     }
 
-    fn get_masq_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.contract
             .query(
                 "balanceOf",
@@ -179,7 +179,7 @@ mod tests {
         let subject = make_subject(transport, chain);
 
         let result = subject
-            .get_masq_balance(
+            .get_service_fee_balance(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -211,14 +211,15 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
-        let result = subject.get_masq_balance(&Wallet::new("0x_invalid_wallet_address"));
+        let result = subject.get_service_fee_balance(&Wallet::new("0x_invalid_wallet_address"));
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
     fn web3_helper_get_masq_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_masq_balance(wallet);
+        let act =
+            |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_service_fee_balance(wallet);
 
         assert_error_from_unintelligible_response(act, "Invalid hex");
     }

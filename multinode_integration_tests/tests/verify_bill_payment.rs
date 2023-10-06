@@ -324,7 +324,7 @@ fn assert_balances(
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
-        .helpers()
+        .lower_interface()
         .get_transaction_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
@@ -335,8 +335,8 @@ fn assert_balances(
         expected_eth_balance
     );
     let token_balance = blockchain_interface
-        .helpers()
-        .get_masq_balance(&wallet)
+        .lower_interface()
+        .get_service_fee_balance(&wallet)
         .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(
         token_balance,
