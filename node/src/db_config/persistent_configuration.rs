@@ -419,7 +419,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         match self.get("max_block_count") {
             Ok(max_block_count) => match decode_u64(max_block_count) {
                 Ok(mbc_opt) => Ok(mbc_opt),
-                Err(TypedConfigLayerError::BadNumberFormat(value)) if value.is_empty() => Ok(None),
                 Err(e) => Err(PersistentConfigError::from(e)),
             },
             Err(e) => Err(PersistentConfigError::from(e)),
@@ -427,13 +426,13 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
-        self.simple_set_method(
-            "max_block_count",
-            match encode_u64(value) {
-                Ok(Some(mbc)) => mbc,
-                _ => "".to_string(),
+        match encode_u64(value) {
+            Ok(mbc_opt) => match self.dao.set("max_block_count", mbc_opt) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(PersistentConfigError::from(e)),
             },
-        )
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
     }
 
     fn set_wallet_info(
@@ -1988,10 +1987,7 @@ mod tests {
 
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(
-            *set_params,
-            vec![("max_block_count".to_string(), Some("".to_string()))]
-        );
+        assert_eq!(*set_params, vec![("max_block_count".to_string(), None)]);
     }
 
     #[test]
