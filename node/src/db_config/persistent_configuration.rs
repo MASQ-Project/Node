@@ -416,23 +416,11 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
-        match self.get("max_block_count") {
-            Ok(max_block_count) => match decode_u64(max_block_count) {
-                Ok(mbc_opt) => Ok(mbc_opt),
-                Err(e) => Err(PersistentConfigError::from(e)),
-            },
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
+        Ok(decode_u64(self.get("max_block_count")?)?)
     }
 
     fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
-        match encode_u64(value) {
-            Ok(mbc_opt) => match self.dao.set("max_block_count", mbc_opt) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(PersistentConfigError::from(e)),
-            },
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
+        Ok(self.dao.set("max_block_count", encode_u64(value)?)?)
     }
 
     fn set_wallet_info(

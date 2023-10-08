@@ -2623,6 +2623,91 @@ mod tests {
     }
 
     #[test]
+    fn configuration_handles_retrieving_all_possible_none_values() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(None))
+            .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(None))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ZeroHop))
+            .mapping_protocol_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(None))
+            .past_neighbors_result(Ok(None))
+            .rate_pack_result(Ok(RatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            }))
+            .scan_intervals_result(Ok(ScanIntervals {
+                pending_payable_scan_interval: Default::default(),
+                payable_scan_interval: Default::default(),
+                receivable_scan_interval: Default::default(),
+            }))
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                debt_threshold_gwei: 0,
+                maturity_threshold_sec: 0,
+                payment_grace_period_sec: 0,
+                permanent_debt_allowed_gwei: 0,
+                threshold_interval_sec: 0,
+                unban_below_gwei: 0,
+            }));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: None,
+                },
+                4321,
+            ))
+            .unwrap();
+
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                blockchain_service_url_opt: None,
+                current_schema_version: "3".to_string(),
+                clandestine_port: 1234,
+                chain_name: "ropsten".to_string(),
+                gas_price: 2345,
+                max_block_count_opt: None,
+                neighborhood_mode: String::from("zero-hop"),
+                consuming_wallet_private_key_opt: None,
+                consuming_wallet_address_opt: None,
+                earning_wallet_address_opt: None,
+                port_mapping_protocol_opt: None,
+                past_neighbors: vec![],
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 0,
+                    debt_threshold_gwei: 0,
+                    maturity_threshold_sec: 0,
+                    payment_grace_period_sec: 0,
+                    permanent_debt_allowed_gwei: 0,
+                    unban_below_gwei: 0
+                },
+                rate_pack: UiRatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0
+                },
+                start_block: 3456,
+                scan_intervals: UiScanIntervals {
+                    pending_payable_sec: 0,
+                    payable_sec: 0,
+                    receivable_sec: 0
+                }
+            }
+        );
+    }
+
+    #[test]
     #[should_panic(
         expected = "Database corruption: Could not read max block count: DatabaseError(\"Corruption\")"
     )]
