@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
 use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
 use itertools::Itertools;
@@ -41,7 +41,7 @@ impl MasqAdjustmentPossibilityVerifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::verifier::MasqAdjustmentPossibilityVerifier;
     use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};

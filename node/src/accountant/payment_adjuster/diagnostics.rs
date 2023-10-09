@@ -42,7 +42,7 @@ where
     }
 }
 
-pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
+pub fn collection_diagnostics<D: Debug>(label: &str, accounts: &[D]) {
     if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
         eprintln!("{}", label);
         accounts
@@ -52,7 +52,7 @@ pub fn diagnostics_for_collections<D: Debug>(label: &str, accounts: &[D]) {
 }
 
 pub mod separately_defined_diagnostic_functions {
-    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::criteria_calculators::CalculatorWithNamedMainParameter;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;

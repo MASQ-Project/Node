@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::test_utils::make_wallet;

@@ -3,7 +3,7 @@
 pub mod age_criterion_calculator;
 pub mod balance_criterion_calculator;
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     compute_progressive_characteristics, DiagnosticsConfig,
     COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,

@@ -33,7 +33,6 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
@@ -105,21 +104,6 @@ impl Handler<BindMessage> for ProxyServer {
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
         };
         self.subs = Some(subs);
-    }
-}
-
-//TODO comes across as basically dead code
-// I think the idea was to supply the wallet if wallets hadn't been generated until recently, without the need to kill the Node
-// I also found out that there is a test for this, but it changes nothing on it's normally unused
-impl Handler<SetConsumingWalletMessage> for ProxyServer {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        _msg: SetConsumingWalletMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.consuming_wallet_balance = Some(0);
     }
 }
 
@@ -247,16 +231,16 @@ impl ProxyServer {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "dns resolve failure") {
+                Some(rri) => rri,
+                None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
+            };
         let exit_public_key = {
             // ugly, ugly
             let self_public_key = self.main_cryptde.public_key();
@@ -342,10 +326,11 @@ impl ProxyServer {
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
             response.stream_key, response.sequenced_packet.sequence_number, response.sequenced_packet.data.len()
         );
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return,
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "client response") {
+                Some(rri) => rri,
+                None => return,
+            };
         self.report_response_services_consumed(
             &return_route_info,
             response.sequenced_packet.data.len(),
@@ -755,7 +740,11 @@ impl ProxyServer {
         }
     }
 
-    fn get_return_route_info(&self, remaining_route: &Route) -> Option<Rc<AddReturnRouteMessage>> {
+    fn get_return_route_info(
+        &self,
+        remaining_route: &Route,
+        source: &str,
+    ) -> Option<Rc<AddReturnRouteMessage>> {
         let mut mut_remaining_route = remaining_route.clone();
         mut_remaining_route
             .shift(self.main_cryptde)
@@ -770,7 +759,7 @@ impl ProxyServer {
         match self.route_ids_to_return_routes.get(&return_route_id) {
             Some(rri) => Some(rri),
             None => {
-                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {}. Ignoring", return_route_id);
+                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                 None
             }
         }
@@ -1987,86 +1976,6 @@ mod tests {
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-            system.run();
-        });
-
-        hopper_awaiter.await_message_count(1);
-        let recording = hopper_log_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record, &expected_pkg);
-    }
-
-    #[test]
-    fn proxy_server_applies_late_wallet_information() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let hopper_mock = Recorder::new();
-        let hopper_log_arc = hopper_mock.get_recording();
-        let hopper_awaiter = hopper_mock.get_awaiter();
-        let destination_key = PublicKey::from(&b"our destination"[..]);
-        let route_query_response = RouteQueryResponse {
-            route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(
-                vec![make_exit_service_from_key(destination_key.clone())],
-                vec![],
-                1234,
-            ),
-        };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let expected_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(0),
-            last_data: true,
-            is_clandestine: false,
-            data: expected_data.clone(),
-        };
-        let expected_http_request = PlainData::new(http_request);
-        let route = route_query_response.route.clone();
-        let expected_payload = ClientRequestPayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: expected_http_request.into(),
-                sequence_number: 0,
-                last_data: true,
-            },
-            target_hostname: Some(String::from("nowhere.com")),
-            target_port: HTTP_PORT,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
-        };
-        let expected_pkg = IncipientCoresPackage::new(
-            main_cryptde,
-            route,
-            expected_payload.into(),
-            &destination_key,
-        )
-        .unwrap();
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
-            let system = System::new("proxy_server_applies_late_wallet_information");
-            let mut subject = ProxyServer::new(main_cryptde, alias_cryptde, true, None, false);
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject
-                .stream_key_routes
-                .insert(stream_key, route_query_response);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            subject_addr
-                .try_send(SetConsumingWalletMessage {
-                    wallet: make_wallet("Consuming wallet"),
-                })
-                .unwrap();
-
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
             system.run();
         });
 
@@ -4286,7 +4195,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
+        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -4405,7 +4314,7 @@ mod tests {
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring", 1000);
     }
 
     #[test]

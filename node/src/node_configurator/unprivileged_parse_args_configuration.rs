@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
@@ -20,8 +20,7 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -174,8 +173,8 @@ pub fn get_wallets(
                     consuming_private_key
                 )
             });
-        let key_pair =
-            Bip32ECKeyProvider::from_raw_secret(key_bytes.as_slice()).unwrap_or_else(|_| {
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(key_bytes.as_slice())
+            .unwrap_or_else(|_| {
                 panic!(
                     "Wallet corruption: consuming wallet private key in invalid format: {:?}",
                     key_bytes
@@ -214,14 +213,16 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_count = value_m!(multi_config, "min-hops", Hops)
-        .expect("Clap schema didn't specify the default value.");
+    let min_hops: Hops = match value_m!(multi_config, "min-hops", Hops) {
+        Some(hops) => hops,
+        None => match persistent_config.min_hops() {
+            Ok(hops) => hops,
+            Err(e) => panic!("Unable to find min_hops value in database: {:?}", e),
+        },
+    };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
-        Ok(mode) => Ok(NeighborhoodConfig {
-            mode,
-            min_hops_count,
-        }),
+        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops }),
         Err(e) => Err(e),
     }
 }
@@ -342,27 +343,28 @@ fn convert_ci_configs(
     match value_m!(multi_config, "neighbors", String) {
         None => Ok(None),
         Some(joined_configs) => {
-            let separate_configs: Vec<String> = joined_configs
-                .split(',')
-                .map(|s| s.to_string())
-                .collect_vec();
+            let separate_configs: Vec<String> =
+                joined_configs.split(',').map(to_string).collect_vec();
             if separate_configs.is_empty() {
                 Ok(None)
             } else {
-                let dummy_cryptde: Box<dyn CryptDE> = {
-                    if value_m!(multi_config, "fake-public-key", String).is_none() {
-                        Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
-                    } else {
-                        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))
-                    }
-                };
                 let desired_chain = Chain::from(
                     value_m!(multi_config, "chain", String)
                         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
                         .as_str(),
                 );
-                let results =
-                    validate_descriptors_from_user(separate_configs, dummy_cryptde, desired_chain);
+                let cryptde_for_key_len: Box<dyn CryptDE> = {
+                    if value_m!(multi_config, "fake-public-key", String).is_none() {
+                        Box::new(CryptDEReal::new(desired_chain))
+                    } else {
+                        Box::new(CryptDENull::new(desired_chain))
+                    }
+                };
+                let results = validate_descriptors_from_user(
+                    separate_configs,
+                    cryptde_for_key_len,
+                    desired_chain,
+                );
                 let (ok, err): (Vec<DescriptorParsingResult>, Vec<DescriptorParsingResult>) =
                     results.into_iter().partition(|result| result.is_ok());
                 let ok = ok
@@ -385,12 +387,12 @@ fn convert_ci_configs(
 
 fn validate_descriptors_from_user(
     descriptors: Vec<String>,
-    dummy_cryptde: Box<dyn CryptDE>,
+    cryptde_for_key_len: Box<dyn CryptDE>,
     desired_native_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
     descriptors.into_iter().map(|node_desc_from_ci| {
         let node_desc_trimmed = node_desc_from_ci.trim();
-        match NodeDescriptor::try_from((dummy_cryptde.as_ref(), node_desc_trimmed)) {
+        match NodeDescriptor::try_from((cryptde_for_key_len.as_ref(), node_desc_trimmed)) {
             Ok(descriptor) => {
                 let competence_from_descriptor = descriptor.blockchain;
                 if desired_native_chain == competence_from_descriptor {
@@ -619,9 +621,9 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -632,6 +634,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
@@ -642,7 +645,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::running_test;
     use std::path::PathBuf;
     use std::str::FromStr;
@@ -714,13 +717,38 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: Hops::OneHop,
+                min_hops: Hops::OneHop,
             })
         );
     }
 
     #[test]
-    fn make_neighborhood_config_standard_missing_min_hops_count() {
+    #[should_panic(expected = "Unable to find min_hops value in database: NotPresent")]
+    fn node_panics_if_min_hops_value_does_not_exist_inside_multi_config_or_db() {
+        running_test();
+        let multi_config = make_new_multi_config(
+            &app_node(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "standard")
+                    .opt("--min-hops")
+                    .into(),
+            ))],
+        )
+        .unwrap();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .min_hops_result(Err(PersistentConfigError::NotPresent));
+
+        let _result = make_neighborhood_config(
+            &UnprivilegedParseArgsConfigurationDaoReal {},
+            &multi_config,
+            &mut persistent_config,
+            &mut BootstrapperConfig::new(),
+        );
+    }
+
+    #[test]
+    fn make_neighborhood_config_standard_missing_min_hops() {
         running_test();
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -744,13 +772,12 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        let min_hops_count = result.unwrap().min_hops_count;
-        assert_eq!(min_hops_count, Hops::ThreeHops);
+        let min_hops = result.unwrap().min_hops;
+        assert_eq!(min_hops, Hops::ThreeHops);
     }
 
     #[test]
-    fn make_neighborhood_config_standard_uses_default_value_when_no_min_hops_count_value_is_provided(
-    ) {
+    fn make_neighborhood_config_standard_uses_default_value_when_no_min_hops_value_is_provided() {
         running_test();
         let args = ArgsBuilder::new()
             .param("--neighborhood-mode", "standard")
@@ -770,13 +797,12 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        let min_hops_count = result.unwrap().min_hops_count;
-        assert_eq!(min_hops_count, Hops::ThreeHops);
+        let min_hops = result.unwrap().min_hops;
+        assert_eq!(min_hops, Hops::ThreeHops);
     }
 
     #[test]
-    fn make_neighborhood_config_standard_throws_err_when_undesirable_min_hops_count_value_is_provided(
-    ) {
+    fn make_neighborhood_config_standard_throws_err_when_undesirable_min_hops_value_is_provided() {
         running_test();
         let args = ArgsBuilder::new()
             .param("--neighborhood-mode", "standard")
@@ -826,7 +852,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                min_hops_count: Hops::ThreeHops,
+                min_hops: Hops::ThreeHops,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
@@ -1530,7 +1556,8 @@ mod tests {
         assert_eq!(
             config.consuming_wallet_opt,
             Some(Wallet::from(
-                Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice())
+                    .unwrap()
             )),
         );
         assert_eq!(
@@ -1632,6 +1659,7 @@ mod tests {
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
                 ),
                 None,
+                None,
             )
             .check_password_result(Ok(false))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
@@ -1681,7 +1709,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration = {
-            let config = make_persistent_config(None, None, None, None, None, None)
+            let config = make_persistent_config(None, None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
             default_persistent_config_just_accountant_config(config)
         };
@@ -2251,7 +2279,8 @@ mod tests {
     ) {
         running_test();
         let multi_config = make_simplified_multi_config([]);
-        let mut persistent_config = make_persistent_config(None, None, None, None, None, None);
+        let mut persistent_config =
+            make_persistent_config(None, None, None, None, None, None, None);
         let mut config = BootstrapperConfig::new();
 
         get_wallets(&multi_config, &mut persistent_config, &mut config).unwrap();
@@ -2292,6 +2321,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
 
@@ -2314,6 +2344,7 @@ mod tests {
             None,
             None,
             Some("0xB00FA567890123456789012345678901234b00fa"),
+            None,
             None,
             None,
             None,
@@ -2342,6 +2373,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
@@ -2365,6 +2397,7 @@ mod tests {
             None,
             Some("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
             Some("0xcafedeadbeefbabefacecafedeadbeefbabeface"),
+            None,
             None,
             None,
             None,
@@ -2597,9 +2630,9 @@ mod tests {
         gas_price_opt: Option<u64>,
         past_neighbors_opt: Option<&str>,
         rate_pack_opt: Option<RatePack>,
+        min_hops_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
-        let consuming_wallet_private_key_opt =
-            consuming_wallet_private_key_opt.map(|x| x.to_string());
+        let consuming_wallet_private_key_opt = consuming_wallet_private_key_opt.map(to_string);
         let earning_wallet_opt = match earning_wallet_address_opt {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
@@ -2615,15 +2648,15 @@ mod tests {
             _ => Ok(None),
         };
         let rate_pack = rate_pack_opt.unwrap_or(DEFAULT_RATE_PACK);
+        let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result(
-                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
-            )
+            .earning_wallet_address_result(Ok(earning_wallet_address_opt.map(to_string)))
             .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .rate_pack_result(Ok(rate_pack))
+            .min_hops_result(Ok(min_hops))
     }
 }

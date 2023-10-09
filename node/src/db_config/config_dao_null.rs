@@ -2,6 +2,7 @@
 
 use crate::database::db_initializer::DbInitializerReal;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
@@ -108,6 +109,10 @@ impl Default for ConfigDaoNull {
         data.insert("blockchain_service_url".to_string(), (None, false));
         data.insert("past_neighbors".to_string(), (None, true));
         data.insert("mapping_protocol".to_string(), (None, false));
+        data.insert(
+            "min_hops".to_string(),
+            (Some(DEFAULT_MIN_HOPS.to_string()), false),
+        );
         data.insert("earning_wallet_address".to_string(), (None, false));
         data.insert(
             "schema_version".to_string(),
@@ -125,6 +130,7 @@ impl Default for ConfigDaoNull {
             "scan_intervals".to_string(),
             (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
         );
+        data.insert("max_block_count".to_string(), (None, false));
         Self { data }
     }
 }
@@ -135,6 +141,7 @@ mod tests {
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
     use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -144,6 +151,7 @@ mod tests {
     fn get_works() {
         let subject = ConfigDaoNull::default();
 
+        assert_eq!(subject.get("booga"), Err(ConfigDaoError::NotPresent));
         assert_eq!(
             subject.get("chain_name").unwrap(),
             ConfigDaoRecord::new(
@@ -161,21 +169,16 @@ mod tests {
             )
         );
         assert_eq!(
+            subject.get("consuming_wallet_private_key").unwrap(),
+            ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
+        );
+        assert_eq!(
             subject.get("gas_price").unwrap(),
             ConfigDaoRecord::new("gas_price", Some("1"), false)
         );
         assert_eq!(
-            subject.get("start_block").unwrap(),
-            ConfigDaoRecord::new(
-                "start_block",
-                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
-                false
-            )
-        );
-        assert_eq!(subject.get("booga"), Err(ConfigDaoError::NotPresent));
-        assert_eq!(
-            subject.get("consuming_wallet_private_key").unwrap(),
-            ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
+            subject.get("min_hops").unwrap(),
+            ConfigDaoRecord::new("min_hops", Some(&DEFAULT_MIN_HOPS.to_string()), false)
         );
         assert_eq!(
             subject.get("payment_thresholds").unwrap(),
@@ -194,6 +197,14 @@ mod tests {
             ConfigDaoRecord::new(
                 "scan_intervals",
                 Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+                false
+            )
+        );
+        assert_eq!(
+            subject.get("start_block").unwrap(),
+            ConfigDaoRecord::new(
+                "start_block",
+                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
                 false
             )
         );
@@ -263,6 +274,7 @@ mod tests {
                 "schema_version",
                 Some(format!("{}", CURRENT_SCHEMA_VERSION).as_str()),
             ),
+            ("max_block_count", None),
         ]
         .into_iter()
         .map(|(k, v_opt)| (k.to_string(), v_opt.map(|v| v.to_string())))

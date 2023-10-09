@@ -15,7 +15,7 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
-use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
@@ -398,7 +398,7 @@ impl BootstrapperConfig {
             consuming_wallet_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops: DEFAULT_MIN_HOPS,
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
@@ -724,9 +724,8 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from_recorder, TestLogOwner};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
@@ -741,7 +740,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
@@ -753,8 +752,8 @@ mod tests {
     };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
-    use actix::Recipient;
     use actix::System;
+    use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
     use futures::Future;
     use lazy_static::lazy_static;
@@ -767,7 +766,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, to_string};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -934,9 +933,9 @@ mod tests {
             sudo_user: Option<&str>,
         ) -> EnvironmentWrapperMock {
             EnvironmentWrapperMock {
-                sudo_uid: sudo_uid.map(|s| s.to_string()),
-                sudo_gid: sudo_gid.map(|s| s.to_string()),
-                sudo_user: sudo_user.map(|s| s.to_string()),
+                sudo_uid: sudo_uid.map(to_string),
+                sudo_gid: sudo_gid.map(to_string),
+                sudo_user: sudo_user.map(to_string),
             }
         }
     }
@@ -1152,6 +1151,8 @@ mod tests {
                 "2.2.2.2",
                 "--real-user",
                 "123:456:/home/booga",
+                "--chain",
+                "polygon-mumbai",
             ]))
             .unwrap();
 
@@ -1234,7 +1235,7 @@ mod tests {
         let clandestine_port_opt = Some(44444);
         let neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::OriginateOnly(vec![], rate_pack(9)),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let earning_wallet = make_wallet("earning wallet");
         let consuming_wallet_opt = Some(make_wallet("consuming wallet"));
@@ -1853,7 +1854,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(port);
@@ -1923,7 +1924,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
@@ -1972,7 +1973,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2009,7 +2010,7 @@ mod tests {
                 Chain::EthRopsten,
                 cryptde,
             ))]),
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2039,7 +2040,7 @@ mod tests {
         config.clandestine_port_opt = None;
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
-            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2070,7 +2071,7 @@ mod tests {
             config.data_directory = data_dir.to_path_buf();
             config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops: MIN_HOPS_FOR_TEST,
             };
             let mut subject = BootstrapperBuilder::new().config(config).build();
             subject.set_up_clandestine_port();
@@ -2227,7 +2228,9 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                        subs: make_stream_handler_pool_subs_from_recorder(
+                            &stream_handler_pool.start(),
+                        ),
                     }
                 };
 

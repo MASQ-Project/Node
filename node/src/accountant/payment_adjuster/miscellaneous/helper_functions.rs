@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
     account_nominated_for_disqualification_diagnostics, exhausting_cw_balance_diagnostics,
@@ -376,7 +376,7 @@ impl From<NonFinalizedAccountAndAdjustmentResolution> for PayableAccount {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
     };

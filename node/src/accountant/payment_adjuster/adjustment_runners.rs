@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_finding_an_account_to_disqualify_in_this_iteration;
@@ -97,7 +97,6 @@ fn adjust_last_one(
     last_account: PayableAccount,
 ) -> Option<AdjustedAccountBeforeFinalization> {
     let cw_balance = payment_adjuster.inner.unallocated_cw_masq_balance_minor();
-    eprintln!("cw balance: {}", cw_balance);
     let proposed_adjusted_balance = if last_account.balance_wei.checked_sub(cw_balance) == None {
         last_account.balance_wei
     } else {
@@ -133,7 +132,7 @@ fn empty_or_single_element(
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
         adjust_last_one, empty_or_single_element, AdjustmentRunner, MasqAndTransactionFeeRunner,
         MasqOnlyRunner,
@@ -141,7 +140,6 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_scan_setup_msgs::FinancialAndTechDetails;
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
@@ -151,17 +149,9 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn prepare_payment_adjuster(cw_balance: u128, now: SystemTime) -> PaymentAdjusterReal {
-        let details = FinancialAndTechDetails {
-            consuming_wallet_balances: ConsumingWalletBalances {
-                transaction_fee_minor: 0,
-                masq_tokens_minor: cw_balance,
-            },
-            agreed_transaction_fee_per_computed_unit_major: 30,
-            estimated_gas_limit_per_transaction: 100,
-        };
         let adjustment = Adjustment::MasqToken;
         let mut payment_adjuster = PaymentAdjusterReal::new();
-        payment_adjuster.initialize_inner(details, adjustment, now);
+        payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
         payment_adjuster
     }
 
@@ -281,15 +271,15 @@ mod tests {
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
         let cw_balance = 9_000_000;
-        let details = FinancialAndTechDetails {
-            consuming_wallet_balances: ConsumingWalletBalances {
-                transaction_fee_minor: 0,
-                masq_tokens_minor: cw_balance,
-            },
-            agreed_transaction_fee_per_computed_unit_major: 30,
-            estimated_gas_limit_per_transaction: 100,
-        };
-        payment_adjuster.initialize_inner(details, adjustment, now);
+        // let details = FinancialAndTechDetails {
+        //     consuming_wallet_balances: ConsumingWalletBalances {
+        //         transaction_fee_minor: 0,
+        //         masq_tokens_minor: cw_balance,
+        //     },
+        //     agreed_transaction_fee_per_computed_unit_major: 30,
+        //     estimated_gas_limit_per_transaction: 100,
+        // };
+        payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = MasqOnlyRunner {};
         let criteria_and_accounts = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
 

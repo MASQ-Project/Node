@@ -1,38 +1,63 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::{comma_joined_stringifiable, gwei_to_wei};
-use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
+mod batch_payable_tools;
+pub mod lower_level_interface_web3;
+mod test_utils;
+
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
+use crate::accountant::{gwei_to_wei};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_common::TRANSACTION_DATA_GAS_MARGIN_MAX;
-use crate::blockchain::blockchain_interface::BlockchainError::{
-    InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_payable_tools::{
+    BatchPayableTools, BatchPayableToolsReal,
 };
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
+use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError, ResultForReceipt, RetrievedBlockchainTransactions};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::masq_lib::utils::ExpectValue;
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Message, Recipient};
-use futures::{future, Future};
-use itertools::Either::{Left, Right};
+use actix::Recipient;
+use futures::Future;
+use indoc::indoc;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
 use serde_json::Value;
-use std::convert::{From, TryFrom, TryInto};
-use std::fmt;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::iter::once;
+use std::rc::Rc;
 use thousands::Separable;
-use web3::contract::{Contract, Options};
+use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H160, H256, U256,
+    H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
 
-pub const REQUESTS_IN_PARALLEL: usize = 1;
-
-pub const CONTRACT_ABI: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
+const CONTRACT_ABI: &str = indoc!(
+    r#"[{
+    "constant":true,
+    "inputs":[{"name":"owner","type":"address"}],
+    "name":"balanceOf",
+    "outputs":[{"name":"","type":"uint256"}],
+    "payable":false,
+    "stateMutability":"view",
+    "type":"function"
+    },{
+    "constant":false,
+    "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
+    "name":"transfer",
+    "outputs":[{"name":"","type":"bool"}],
+    "payable":false,
+    "stateMutability":"nonpayable",
+    "type":"function"
+    }]"#
+);
 
 const TRANSACTION_LITERAL: H256 = H256([
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
@@ -41,227 +66,26 @@ const TRANSACTION_LITERAL: H256 = H256([
 
 const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
-#[derive(Clone, Debug, Eq, Message, PartialEq)]
-pub struct BlockchainTransaction {
-    pub block_number: u64,
-    pub from: Wallet,
-    pub wei_amount: u128,
-}
+pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-impl fmt::Display for BlockchainTransaction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}gw from {} ({})",
-            self.wei_amount, self.from, self.block_number
-        )
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BlockchainError {
-    InvalidUrl,
-    InvalidAddress,
-    InvalidResponse,
-    QueryFailed(String),
-}
-
-impl Display for BlockchainError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let err_spec = match self {
-            InvalidUrl => Left("Invalid url"),
-            InvalidAddress => Left("Invalid address"),
-            InvalidResponse => Left("Invalid response"),
-            QueryFailed(msg) => Right(format!("Query failed: {}", msg)),
-        };
-        write!(f, "Blockchain error: {}", err_spec)
-    }
-}
-
-pub type BlockchainResult<T> = Result<T, BlockchainError>;
-pub type ResultForBalance = BlockchainResult<web3::types::U256>;
-pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::types::U256)>;
-pub type ResultForNonce = BlockchainResult<web3::types::U256>;
-pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PayableTransactionError {
-    MissingConsumingWallet,
-    GasPriceQueryFailed(String),
-    TransactionCount(BlockchainError),
-    UnusableWallet(String),
-    Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
-}
-
-impl Display for PayableTransactionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MissingConsumingWallet => {
-                write!(f, "Missing consuming wallet to pay payable from")
-            }
-            Self::GasPriceQueryFailed(msg) => {
-                write!(f, "Unsuccessful gas price query: \"{}\"", msg)
-            }
-            Self::TransactionCount(blockchain_err) => write!(
-                f,
-                "Transaction count fetching failed for: {}",
-                blockchain_err
-            ),
-            Self::UnusableWallet(msg) => write!(
-                f,
-                "Unusable wallet for signing payable transactions: \"{}\"",
-                msg
-            ),
-            Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending { msg, hashes } => write!(
-                f,
-                "Sending phase: \"{}\". Signed and hashed transactions: {}",
-                msg,
-                comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
-            ),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RetrievedBlockchainTransactions {
-    pub new_start_block: u64,
-    pub transactions: Vec<BlockchainTransaction>,
-}
-
-pub trait BlockchainInterface {
-    fn contract_address(&self) -> Address;
-
-    fn retrieve_transactions(
-        &self,
-        start_block: u64,
-        recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
-
-    fn estimated_gas_limit_per_payable(&self) -> u64;
-
-    fn send_batch_of_payables(
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
-
-    fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance;
-
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
-
-    fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
-
-    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
-}
-
-// TODO: This probably should go away
-pub struct BlockchainInterfaceClandestine {
+pub struct BlockchainInterfaceWeb3<T>
+where
+    T: 'static + BatchTransport + Debug,
+{
     logger: Logger,
     chain: Chain,
-}
-
-impl BlockchainInterfaceClandestine {
-    pub fn new(chain: Chain) -> Self {
-        BlockchainInterfaceClandestine {
-            logger: Logger::new("BlockchainInterface"),
-            chain,
-        }
-    }
-}
-
-impl Default for BlockchainInterfaceClandestine {
-    fn default() -> Self {
-        Self::new(DEFAULT_CHAIN)
-    }
-}
-
-impl BlockchainInterface for BlockchainInterfaceClandestine {
-    fn contract_address(&self) -> Address {
-        self.chain.rec().contract
-    }
-
-    fn retrieve_transactions(
-        &self,
-        _start_block: u64,
-        _recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        let msg = "Can't retrieve transactions clandestinely yet".to_string();
-        error!(self.logger, "{}", &msg);
-        Err(BlockchainError::QueryFailed(msg))
-    }
-
-    fn estimated_gas_limit_per_payable(&self) -> u64 {
-        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
-    }
-
-    fn send_batch_of_payables(
-        &self,
-        _consuming_wallet: &Wallet,
-        _gas_price: u64,
-        _last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        error!(self.logger, "Can't send transactions out clandestinely yet",);
-        Err(PayableTransactionError::Sending {
-            msg: "invalid attempt to send txs clandestinely".to_string(),
-            hashes: vec![],
-        })
-    }
-
-    fn get_gas_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(self.logger, "Can't get gas balance clandestinely yet",);
-        Ok(0.into())
-    }
-
-    fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
-        error!(
-            self.logger,
-            "Can't get masq token balance clandestinely yet",
-        );
-        Ok(0.into())
-    }
-
-    fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
-        error!(self.logger, "Can't get transaction count clandestinely yet",);
-        Ok(0.into())
-    }
-
-    fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
-        error!(
-            self.logger,
-            "Can't get transaction receipt clandestinely yet",
-        );
-        Ok(None)
-    }
-}
-
-pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
-    logger: Logger,
-    chain: Chain,
+    gas_limit_const_part: u64,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
-    web3: Web3<T>,
-    batch_web3: Web3<Batch<T>>,
+    web3: Rc<Web3<T>>,
+    web3_batch: Rc<Web3<Batch<T>>>,
     batch_payable_tools: Box<dyn BatchPayableTools<T>>,
-    contract: Contract<T>,
+    lower_interface: Box<dyn LowerBCI>,
 }
 
-const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
-
-pub fn to_wei(gwub: u64) -> U256 {
-    let subgwei = U256::from(gwub);
-    subgwei.full_mul(GWEI).try_into().expect("Internal Error")
-}
-
-impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
+impl<T> BlockchainInterface for BlockchainInterfaceWeb3<T>
 where
-    T: BatchTransport + Debug + 'static,
+    T: 'static + BatchTransport + Debug,
 {
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
@@ -269,21 +93,23 @@ where
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         debug!(
             self.logger,
-            "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
+            "Retrieving transactions from start block: {:?} to end block: {:?} for: {} chain_id: {} contract: {:#x}",
             start_block,
+            end_block,
             recipient,
             self.chain.rec().num_chain_id,
             self.contract_address()
         );
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address()])
-            .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
-            .to_block(BlockNumber::Latest)
+            .from_block(start_block)
+            .to_block(end_block)
             .topics(
                 Some(vec![TRANSACTION_LITERAL]),
                 None,
@@ -292,13 +118,39 @@ where
             )
             .build();
 
-        let log_request = self.web3.eth().logs(filter);
+        let fallback_start_block_number = match end_block {
+            BlockNumber::Number(eb) => eb.as_u64(),
+            _ => {
+                if let BlockNumber::Number(start_block_number) = start_block {
+                    start_block_number.as_u64() + 1u64
+                } else {
+                    panic!("start_block of Latest, Earliest, and Pending are not supported");
+                }
+            }
+        };
+        let block_request = self.web3_batch.eth().block_number();
+        let log_request = self.web3_batch.eth().logs(filter);
+
         let logger = self.logger.clone();
-        log_request
-            .then(|logs| {
-                debug!(logger, "Transaction retrieval completed: {:?}", logs);
-                future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
+        match self.web3_batch.transport().submit_batch().wait() {
+            Ok(_) => {
+                let response_block_number = match block_request.wait() {
+                    Ok(block_nbr) => {
+                        debug!(logger, "Latest block number: {}", block_nbr.as_u64());
+                        block_nbr.as_u64()
+                    }
+                    Err(_) => {
+                        debug!(
+                            logger,
+                            "Using fallback block number: {}", fallback_start_block_number
+                        );
+                        fallback_start_block_number
+                    }
+                };
+
+                match log_request.wait() {
                     Ok(logs) => {
+                        let logs_len = logs.len();
                         if logs
                             .iter()
                             .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
@@ -310,59 +162,119 @@ where
                             );
                             Err(BlockchainError::InvalidResponse)
                         } else {
-                            let transactions: Vec<BlockchainTransaction> = logs
-                                .iter()
-                                .filter_map(|log: &Log| match log.block_number {
-                                    Some(block_number) => {
-                                        let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let wei_amount_result = u128::try_from(amount);
-                                        wei_amount_result.ok().map(|wei_amount| {
-                                            BlockchainTransaction {
-                                                block_number: u64::try_from(block_number)
-                                                    .expect("Internal Error"),
-                                                from: Wallet::from(log.topics[1]),
-                                                wei_amount,
-                                            }
-                                        })
-                                    }
-                                    None => None,
-                                })
-                                .collect();
+                            let transactions: Vec<BlockchainTransaction> =
+                                self.extract_transactions_from_logs(logs);
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
+                            if transactions.is_empty() && logs_len != transactions.len() {
+                                warning!(
+                                    logger,
+                                    "Retrieving transactions: logs: {}, transactions: {}",
+                                    logs_len,
+                                    transactions.len()
+                                )
+                            }
                             // Get the largest transaction block number, unless there are no
-                            // transactions, in which case use start_block.
-                            let last_transaction_block =
-                                transactions.iter().fold(start_block, |so_far, elem| {
-                                    if elem.block_number > so_far {
-                                        elem.block_number
-                                    } else {
-                                        so_far
-                                    }
-                                });
+                            // transactions, in which case use end_block, unless get_latest_block()
+                            // was not successful.
+                            let transaction_max_block_number = self
+                                .find_largest_transaction_block_number(
+                                    response_block_number,
+                                    &transactions,
+                                );
+                            debug!(
+                                logger,
+                                "Discovered transaction max block nbr: {}",
+                                transaction_max_block_number
+                            );
                             Ok(RetrievedBlockchainTransactions {
-                                new_start_block: last_transaction_block + 1,
+                                new_start_block: 1u64 + transaction_max_block_number,
                                 transactions,
                             })
                         }
                     }
-                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-                })
-            })
-            .wait()
+                    Err(e) => {
+                        error!(self.logger, "Retrieving transactions: {:?}", e);
+                        Err(BlockchainError::QueryFailed(e.to_string()))
+                    }
+                }
+            }
+            Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
+        }
     }
 
-    fn estimated_gas_limit_per_payable(&self) -> u64 {
-        blockchain_interface_common::base_gas_limit(self.chain) + TRANSACTION_DATA_GAS_MARGIN_MAX
+    fn build_blockchain_agent(
+        &self,
+        consuming_wallet: &Wallet,
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
+        let gas_price_gwei = match persistent_config.gas_price() {
+            Ok(price) => price,
+            Err(e) => return Err(BlockchainAgentBuildError::GasPrice(e)),
+        };
+
+        let transaction_fee_balance = match self
+            .lower_interface
+            .get_transaction_fee_balance(consuming_wallet)
+        {
+            Ok(balance) => balance,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionFeeBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let masq_token_balance = match self
+            .lower_interface
+            .get_service_fee_balance(consuming_wallet)
+        {
+            Ok(balance) => balance,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::ServiceFeeBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let pending_transaction_id = match self.lower_interface.get_transaction_id(consuming_wallet)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionID(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: transaction_fee_balance,
+            service_fee_balance_in_minor_units: u128::try_from(masq_token_balance)
+                .expect("larger amount than the official supply"),
+        };
+        let consuming_wallet = consuming_wallet.clone();
+
+        Ok(Box::new(BlockchainAgentWeb3::new(
+            gas_price_gwei,
+            self.gas_limit_const_part,
+            consuming_wallet,
+            consuming_wallet_balances,
+            pending_transaction_id,
+        )))
     }
 
     fn send_batch_of_payables(
         &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
+        agent: Box<dyn BlockchainAgent>,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+        let consuming_wallet = agent.consuming_wallet();
+        let gas_price = agent.agreed_fee_per_computation_unit();
+        let pending_nonce = agent.pending_transaction_id();
+
         debug!(
             self.logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -392,7 +304,7 @@ where
             self.transmission_log(accounts, gas_price)
         );
 
-        match self.batch_payable_tools.submit_batch(&self.batch_web3) {
+        match self.batch_payable_tools.submit_batch(&self.web3_batch) {
             Ok(responses) => Ok(Self::merged_output_data(
                 responses,
                 hashes_and_paid_amounts,
@@ -402,35 +314,6 @@ where
         }
     }
 
-    fn get_gas_balance(&self, wallet: &Wallet) -> ResultForBalance {
-        self.web3
-            .eth()
-            .balance(wallet.address(), None)
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
-    }
-
-    fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
-        self.contract
-            .query(
-                "balanceOf",
-                wallet.address(),
-                None,
-                Options::default(),
-                None,
-            )
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
-        self.web3
-            .eth()
-            .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
-    }
-
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.web3
             .eth()
@@ -438,43 +321,39 @@ where
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
+
+    fn lower_interface(&self) -> &dyn LowerBCI {
+        &*self.lower_interface
+    }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ProcessedPayableFallible {
-    Correct(PendingPayable),
-    Failed(RpcPayableFailure),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct RpcPayableFailure {
-    pub rpc_error: Error,
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
-type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
-
-impl<T> BlockchainInterfaceNonClandestine<T>
+impl<T> BlockchainInterfaceWeb3<T>
 where
-    T: BatchTransport + Debug + 'static,
+    T: 'static + BatchTransport + Debug,
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
-        let web3 = Web3::new(transport.clone());
-        let batch_web3 = Web3::new(Batch::new(transport));
+        let web3 = Rc::new(Web3::new(transport.clone()));
+        let web3_batch = Rc::new(Web3::new(Batch::new(transport)));
         let batch_payable_tools = Box::new(BatchPayableToolsReal::<T>::default());
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
+        let lower_level_blockchain_interface = Box::new(LowerBCIWeb3::new(
+            Rc::clone(&web3),
+            Rc::clone(&web3_batch),
+            contract,
+        ));
+        let gas_limit_const_part = Self::web3_gas_limit_const_part(chain);
 
         Self {
             logger: Logger::new("BlockchainInterface"),
             chain,
+            gas_limit_const_part,
             _event_loop_handle: event_loop_handle,
             web3,
-            batch_web3,
+            web3_batch,
+            lower_interface: lower_level_blockchain_interface,
             batch_payable_tools,
-            contract,
         }
     }
 
@@ -578,11 +457,11 @@ where
             .zip(accounts.iter());
         iterator_with_all_data
             .map(|((rpc_result, (hash, _)), account)| match rpc_result {
-                Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
+                Ok(_) => Ok(PendingPayable {
                     recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
+                Err(rpc_error) => Err(RpcPayablesFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
                     hash,
@@ -616,7 +495,7 @@ where
         let signed_tx =
             self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
         self.batch_payable_tools
-            .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
+            .append_transaction_to_batch(signed_tx.raw_transaction, &self.web3_batch);
         Ok(signed_tx.transaction_hash)
     }
 
@@ -629,7 +508,7 @@ where
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let data = Self::transaction_data(recipient, amount);
-        let gas_limit = Self::compute_gas_limit(data.as_slice(), self.chain);
+        let gas_limit = self.compute_gas_limit(data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
             nonce: Some(nonce),
@@ -647,7 +526,7 @@ where
         };
 
         self.batch_payable_tools
-            .sign_transaction(transaction_parameters, &self.batch_web3, &key)
+            .sign_transaction(transaction_parameters, &self.web3_batch, &key)
             .map_err(|e| PayableTransactionError::Signing(e.to_string()))
     }
 
@@ -691,87 +570,144 @@ where
         data
     }
 
-    fn compute_gas_limit(data: &[u8], chain: Chain) -> U256 {
-        let base_gas_limit = blockchain_interface_common::base_gas_limit(chain);
-        ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+    fn compute_gas_limit(&self, data: &[u8]) -> U256 {
+        ethereum_types::U256::try_from(data.iter().fold(self.gas_limit_const_part, |acc, v| {
             acc + if v == &0u8 { 4 } else { 68 }
         }))
         .expect("Internal error")
     }
 
-    #[cfg(test)]
-    fn web3(&self) -> &Web3<T> {
-        &self.web3
-    }
-}
-
-mod blockchain_interface_common {
-    use masq_lib::blockchains::chains::{Chain, ChainFamily};
-
-    pub const TRANSACTION_DATA_GAS_MARGIN_MAX: u64 = transaction_data_margin();
-
-    pub fn base_gas_limit(chain: Chain) -> u64 {
-        match chain.rec().chain_family {
-            ChainFamily::Polygon => 70_000,
-            ChainFamily::Eth => 55_000,
-            ChainFamily::Dev => 55_000,
+    fn web3_gas_limit_const_part(chain: Chain) -> u64 {
+        match chain {
+            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
         }
     }
 
-    pub const fn transaction_data_margin() -> u64 {
-        // 68 bytes * 68 per non zero byte according to the Ethereum docs,
-        // deliberately maximized
-        68 * 68
+    fn extract_transactions_from_logs(&self, logs: Vec<Log>) -> Vec<BlockchainTransaction> {
+        logs.iter()
+            .filter_map(|log: &Log| match log.block_number {
+                None => None,
+                Some(block_number) => {
+                    let wei_amount = U256::from(log.data.0.as_slice()).as_u128();
+                    Some(BlockchainTransaction {
+                        block_number: block_number.as_u64(),
+                        from: Wallet::from(log.topics[1]),
+                        wei_amount,
+                    })
+                }
+            })
+            .collect()
+    }
+
+    fn find_largest_transaction_block_number(
+        &self,
+        response_block_number: u64,
+        transactions: &[BlockchainTransaction],
+    ) -> u64 {
+        if transactions.is_empty() {
+            response_block_number
+        } else {
+            transactions
+                .iter()
+                .fold(response_block_number, |a, b| a.max(b.block_number))
+        }
     }
 }
 
+type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::accountant::database_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::test_utils::{
-        make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
-        BatchPayableToolsMock, TestTransport,
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
+        TRANSFER_METHOD_ID,
     };
+    use crate::blockchain::blockchain_interface::test_utils::{
+        test_blockchain_interface_is_connected_and_functioning, LowerBCIMock,
+    };
+    use crate::blockchain::blockchain_interface::{
+        BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError,
+        RetrievedBlockchainTransactions,
+    };
+    use crate::blockchain::test_utils::{
+        all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
+    };
+    use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::assert_string_contains;
+    use crate::test_utils::http_test_server::TestServer;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use crate::test_utils::{make_wallet, TestRawTransaction};
+    use crate::test_utils::{make_paying_wallet, make_wallet, TestRawTransaction};
     use actix::{Actor, System};
-    use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
+    use futures::Future;
     use jsonrpc_core::Version::V2;
-    use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
-    use masq_lib::blockchains::chains::ChainFamily;
+    use jsonrpc_core::{Call, Error as RPCError, ErrorCode, Id, MethodCall, Params};
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
+    use masq_lib::utils::find_free_port;
     use serde_derive::Deserialize;
-    use serde_json::json;
-    use serde_json::Value;
-    use simple_server::{Request, Server};
-    use std::io::Write;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
-    use std::ops::Add;
+    use serde_json::{json, Value};
+    use std::net::Ipv4Addr;
+
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
+        make_default_signed_transaction, BatchPayableToolsMock,
+    };
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, RpcPayablesFailure,
+    };
+    use indoc::indoc;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::{Duration, Instant, SystemTime};
-    use web3::transports::Http;
-    use web3::types::H2048;
+    use std::time::SystemTime;
+    use web3::transports::{Batch, Http};
+    use web3::types::{
+        Address, BlockNumber, Bytes, TransactionParameters, TransactionReceipt, H2048, H256, U256,
+    };
     use web3::Error as Web3Error;
+    use web3::Web3;
 
     #[test]
-    fn constants_have_correct_values() {
-        let contract_abi_expected: &str = r#"[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]"#;
+    fn constants_are_correct() {
+        let contract_abi_expected: &str = indoc!(
+            r#"[{
+            "constant":true,
+            "inputs":[{"name":"owner","type":"address"}],
+            "name":"balanceOf",
+            "outputs":[{"name":"","type":"uint256"}],
+            "payable":false,
+            "stateMutability":"view",
+            "type":"function"
+            },{
+            "constant":false,
+            "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
+            "name":"transfer",
+            "outputs":[{"name":"","type":"bool"}],
+            "payable":false,
+            "stateMutability":"nonpayable",
+            "type":"function"
+            }]"#
+        );
         let transaction_literal_expected: H256 = H256 {
             0: [
                 0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37,
@@ -779,128 +715,51 @@ mod tests {
                 0xf5, 0x23, 0xb3, 0xef,
             ],
         };
-        assert_eq!(REQUESTS_IN_PARALLEL, 1);
         assert_eq!(CONTRACT_ABI, contract_abi_expected);
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
-        assert_eq!(GWEI, U256([1_000_000_000u64, 0, 0, 0]));
-    }
-
-    struct TestServer {
-        port: u16,
-        rx: Receiver<Request<Vec<u8>>>,
-    }
-
-    impl Drop for TestServer {
-        fn drop(&mut self) {
-            self.stop();
-        }
-    }
-
-    impl TestServer {
-        fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
-            std::env::set_var("SIMPLESERVER_THREADS", "1");
-            let (tx, rx) = unbounded();
-            let _ = thread::spawn(move || {
-                let bodies_arc = Arc::new(Mutex::new(bodies));
-                Server::new(move |req, mut rsp| {
-                    if req.headers().get("X-Quit").is_some() {
-                        panic!("Server stop requested");
-                    }
-                    tx.send(req).unwrap();
-                    let body = bodies_arc.lock().unwrap().remove(0);
-                    Ok(rsp.body(body)?)
-                })
-                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-            });
-            let deadline = Instant::now().add(Duration::from_secs(5));
-            loop {
-                thread::sleep(Duration::from_millis(10));
-                match TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)) {
-                    Ok(_) => break,
-                    Err(e) => eprintln!("No: {:?}", e),
-                }
-                if Instant::now().gt(&deadline) {
-                    panic!("TestServer still not started after 5sec");
-                }
-            }
-            TestServer { port, rx }
-        }
-
-        fn requests_so_far(&self) -> Vec<Request<Vec<u8>>> {
-            let mut requests = vec![];
-            while let Ok(request) = self.rx.try_recv() {
-                requests.push(request);
-            }
-            return requests;
-        }
-
-        fn stop(&mut self) {
-            let mut stream = match TcpStream::connect(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
-                self.port,
-            )) {
-                Ok(s) => s,
-                Err(_) => return,
-            };
-            stream
-                .write(b"DELETE /irrelevant.htm HTTP/1.1\r\nX-Quit: Yes")
-                .unwrap();
-        }
+        assert_eq!(REQUESTS_IN_PARALLEL, 1);
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_handles_no_retrieved_transactions() {
-        let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
-        let port = find_free_port();
-        let test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":3,"result":[]}"#.to_vec()],
-        );
+    fn blockchain_interface_web3_can_return_contract() {
+        all_chains().iter().for_each(|chain| {
+            let subject = BlockchainInterfaceWeb3::new(
+                TestTransport::default(),
+                make_fake_event_loop_handle(),
+                *chain,
+            );
 
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+            assert_eq!(subject.contract_address(), chain.rec().contract)
+        })
+    }
 
-        let result = subject
-            .retrieve_transactions(
-                42,
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+    #[test]
+    fn blockchain_interface_web3_provides_plain_rp_calls_correctly() {
+        let subject_factory = |port: u16, _chain: Chain| {
+            let chain = Chain::PolyMainnet;
+            let (event_loop_handle, transport) = Http::with_max_parallel(
+                &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+                REQUESTS_IN_PARALLEL,
             )
             .unwrap();
+            Box::new(BlockchainInterfaceWeb3::new(
+                transport,
+                event_loop_handle,
+                chain,
+            )) as Box<dyn BlockchainInterface>
+        };
 
-        let requests = test_server.requests_so_far();
-        let bodies: Vec<Value> = requests
-            .into_iter()
-            .map(|request| serde_json::from_slice(&request.body()).unwrap())
-            .collect();
-        assert_eq!(
-            format!("\"0x000000000000000000000000{}\"", &to[2..]),
-            bodies[0]["params"][0]["topics"][2].to_string(),
-        );
-        assert_eq!(
-            result,
-            RetrievedBlockchainTransactions {
-                new_start_block: 42 + 1,
-                transactions: vec![]
-            }
-        )
+        test_blockchain_interface_is_connected_and_functioning(subject_factory)
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieves_transactions() {
+    fn blockchain_interface_web3_retrieves_transactions() {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         #[rustfmt::skip]
         let test_server = TestServer::start (port, vec![
-            br#"{
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{
                 "jsonrpc":"2.0",
                 "id":3,
                 "result":[
@@ -935,52 +794,56 @@ mod tests {
                         "transactionIndex":"0x0"
                     }
                 ]
-            }"#.to_vec(),
+            }]"#.to_vec(),
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let end_block_nbr = 1024u64;
 
         let result = subject
             .retrieve_transactions(
-                42,
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                BlockNumber::Number(42u64.into()),
+                BlockNumber::Number(end_block_nbr.into()),
+                &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
 
         let requests = test_server.requests_so_far();
-        let bodies: Vec<Value> = requests
+        let bodies: Vec<String> = requests
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        assert_eq!(
-            format!("\"0x000000000000000000000000{}\"", &to[2..]),
-            bodies[0]["params"][0]["topics"][2].to_string(),
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_suffix = r#""]}]}]"#;
+        let expected_body = format!(
+            "{}{}{}",
+            expected_body_prefix,
+            &to[2..],
+            expected_body_suffix
         );
+        assert_eq!(bodies, vec!(expected_body));
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be663 + 1,
+                new_start_block: 0x4be664,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
                         from: Wallet::from_str("0x3ab28ecedea6cdb6feed398e93ae8c7b316b1182")
                             .unwrap(),
-                        wei_amount: 4_503_599_627_370_496,
+                        wei_amount: 4_503_599_627_370_496u128,
                     },
                     BlockchainTransaction {
                         block_number: 0x4be662,
                         from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                             .unwrap(),
-                        wei_amount: 4_503_599_627_370_496,
+                        wei_amount: 4_503_599_627_370_496u128,
                     },
                 ]
             }
@@ -988,23 +851,72 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
-    ) {
-        let port = 8545;
+    fn blockchain_interface_web3_handles_no_retrieved_transactions() {
+        let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
+        let port = find_free_port();
+        let test_server = TestServer::start(
+            port,
+            vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
+        );
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let end_block_nbr = 1024u64;
 
         let result = subject
-            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
+            .retrieve_transactions(
+                BlockNumber::Number(42u64.into()),
+                BlockNumber::Number(end_block_nbr.into()),
+                &Wallet::from_str(&to).unwrap(),
+            )
+            .unwrap();
+
+        let requests = test_server.requests_so_far();
+        let bodies: Vec<String> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .map(|b: Value| serde_json::to_string(&b).unwrap())
+            .collect();
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_suffix = r#""]}]}]"#;
+        let expected_body = format!(
+            "{}{}{}",
+            expected_body_prefix,
+            &to[2..],
+            expected_body_suffix
+        );
+        assert_eq!(bodies, vec!(expected_body));
+        assert_eq!(
+            result,
+            RetrievedBlockchainTransactions {
+                new_start_block: 1 + end_block_nbr,
+                transactions: vec![]
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
+    ) {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+
+        let result = subject.retrieve_transactions(
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Latest,
+            &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"),
+        );
 
         assert_eq!(
             result.expect_err("Expected an Err, got Ok"),
@@ -1013,25 +925,23 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
         let result = subject.retrieve_transactions(
-            42,
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1042,27 +952,23 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start(port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
         let result = subject.retrieve_transactions(
-            42,
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1070,257 +976,246 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
+    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-
+        init_test_logging();
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
 
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let end_block_nbr = 1024u64;
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
         let result = subject.retrieve_transactions(
-            42,
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Number(end_block_nbr.into()),
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 43,
+                new_start_block: 1 + end_block_nbr,
+                transactions: vec![]
+            })
+        );
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.exists_log_containing(
+            "WARN: BlockchainInterface: Retrieving transactions: logs: 1, transactions: 0",
+        );
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    ) {
+        let port = find_free_port();
+        let _test_server = TestServer::start (port, vec![
+            br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+        ]);
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+
+        let start_block = BlockNumber::Number(42u64.into());
+        let result = subject.retrieve_transactions(
+            start_block,
+            BlockNumber::Latest,
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
+
+        let expected_fallback_start_block =
+            if let BlockNumber::Number(start_block_nbr) = start_block {
+                start_block_nbr.as_u64() + 1u64
+            } else {
+                panic!("start_block of Latest, Earliest, and Pending are not supported!")
+            };
+
+        assert_eq!(
+            result,
+            Ok(RetrievedBlockchainTransactions {
+                new_start_block: 1 + expected_fallback_start_block,
                 transactions: vec![]
             })
         );
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_can_retrieve_eth_balance_of_a_wallet() {
-        let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFF"}"#.to_vec()],
+    fn blockchain_interface_web3_can_build_blockchain_agent() {
+        let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_masq_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transactions_id_params_arc = Arc::new(Mutex::new(vec![]));
+        let chain = Chain::PolyMainnet;
+        let wallet = make_wallet("abc");
+        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(50));
+        let mut subject = BlockchainInterfaceWeb3::new(
+            TestTransport::default(),
+            make_fake_event_loop_handle(),
+            chain,
         );
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let transaction_fee_balance = U256::from(123_456_789);
+        let masq_balance = U256::from(444_444_444);
+        let transaction_id = U256::from(23);
+        let blockchain_interface_helper = LowerBCIMock::default()
+            .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
+            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
+            .get_masq_balance_params(&get_masq_balance_params_arc)
+            .get_masq_balance_result(Ok(masq_balance))
+            .get_transaction_id_params(&get_transactions_id_params_arc)
+            .get_transaction_id_result(Ok(transaction_id));
+        subject.lower_interface = Box::new(blockchain_interface_helper);
 
         let result = subject
-            .get_gas_balance(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-            )
+            .build_blockchain_agent(&wallet, &persistent_config)
             .unwrap();
 
-        assert_eq!(result, U256::from(65_535));
-    }
-
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet(
-    ) {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let result =
-            subject.get_gas_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
-
-        assert_eq!(result, Err(BlockchainError::InvalidAddress));
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
-    ) {
-        let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
-        );
-
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let result = subject.get_gas_balance(
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
-
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
-                ()
+        let get_transaction_fee_balance_params =
+            get_transaction_fee_balance_params_arc.lock().unwrap();
+        assert_eq!(*get_transaction_fee_balance_params, vec![wallet.clone()]);
+        let get_masq_balance_params = get_masq_balance_params_arc.lock().unwrap();
+        assert_eq!(*get_masq_balance_params, vec![wallet.clone()]);
+        let get_transaction_id_params = get_transactions_id_params_arc.lock().unwrap();
+        assert_eq!(*get_transaction_id_params, vec![wallet.clone()]);
+        assert_eq!(result.consuming_wallet(), &wallet);
+        assert_eq!(result.pending_transaction_id(), transaction_id);
+        assert_eq!(
+            result.consuming_wallet_balances(),
+            ConsumingWalletBalances {
+                transaction_fee_balance_in_minor_units: transaction_fee_balance,
+                service_fee_balance_in_minor_units: masq_balance.as_u128()
             }
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        };
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_returns_error_for_unintelligible_response_to_gas_balance(
-    ) {
-        let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
-            subject.get_gas_balance(wallet)
-        };
-
-        assert_error_during_requesting_balance(act, "invalid hex character");
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_can_retrieve_token_balance_of_a_wallet() {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
-        ]);
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
+        );
+        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
+        let expected_fee_estimation =
+            ((BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain)
+                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
+                * 50) as u128;
+        assert_eq!(
+            result.estimated_transaction_fee_per_transaction(),
+            expected_fee_estimation
         )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+    }
+
+    #[test]
+    fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
+        let chain = Chain::PolyMumbai;
+        let wallet = make_wallet("abc");
+        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(
+            PersistentConfigError::UninterpretableValue("booga".to_string()),
+        ));
+        let subject = BlockchainInterfaceWeb3::new(
+            TestTransport::default(),
+            make_fake_event_loop_handle(),
+            chain,
         );
 
-        let result = subject
-            .get_token_balance(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-            )
-            .unwrap();
+        let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
-        assert_eq!(result, U256::from(65_535));
-    }
-
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_non_clandestine_returns_an_error_when_requesting_token_balance_of_an_invalid_wallet(
-    ) {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let result =
-            subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
-
-        assert_eq!(result, Err(BlockchainError::InvalidAddress));
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_returns_error_for_unintelligible_response_to_token_balance(
-    ) {
-        let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
-            subject.get_token_balance(wallet)
+        let err = match result {
+            Err(e) => e,
+            _ => panic!("we expected Err() but got Ok()"),
         };
-
-        assert_error_during_requesting_balance(act, "Invalid hex");
+        let expected_err = BlockchainAgentBuildError::GasPrice(
+            PersistentConfigError::UninterpretableValue("booga".to_string()),
+        );
+        assert_eq!(err, expected_err)
     }
 
-    fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str)
-    where
-        F: FnOnce(&BlockchainInterfaceNonClandestine<Http>, &Wallet) -> ResultForBalance,
+    fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
+        blockchain_interface_helper: LowerBCIMock,
+        expected_err_factory: F,
+    ) where
+        F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
     {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
-        ]);
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
+        let chain = Chain::EthMainnet;
+        let wallet = make_wallet("bcd");
+        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(30));
+        let mut subject = BlockchainInterfaceWeb3::new(
+            TestTransport::default(),
+            make_fake_event_loop_handle(),
+            chain,
         );
+        subject.lower_interface = Box::new(blockchain_interface_helper);
 
-        let result = act(
-            &subject,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
-        let err_msg = match result {
-            Err(BlockchainError::QueryFailed(msg)) => msg,
-            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+        let err = match result {
+            Err(e) => e,
+            _ => panic!("we expected Err() but got Ok()"),
         };
-        assert!(
-            err_msg.contains(expected_err_msg_fragment),
-            "Expected this fragment {} in this err msg: {}",
-            expected_err_msg_fragment,
-            err_msg
+        let expected_err = expected_err_factory(&wallet);
+        assert_eq!(err, expected_err)
+    }
+
+    #[test]
+    fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
+        let lower_interface = LowerBCIMock::default()
+            .get_transaction_fee_balance_result(Err(BlockchainError::InvalidAddress));
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::TransactionFeeBalance(
+                wallet.clone(),
+                BlockchainError::InvalidAddress,
+            )
+        };
+
+        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+            lower_interface,
+            expected_err_factory,
         )
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_gives_estimates_for_gas_limits() {
-        let subject = |chain: Chain| {
-            BlockchainInterfaceNonClandestine::new(
-                TestTransport::default(),
-                make_fake_event_loop_handle(),
-                chain,
+    fn build_of_the_blockchain_agent_fails_on_masq_balance() {
+        let transaction_fee_balance = U256::from(123_456_789);
+        let lower_interface = LowerBCIMock::default()
+            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
+            .get_masq_balance_result(Err(BlockchainError::InvalidResponse));
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::ServiceFeeBalance(
+                wallet.clone(),
+                BlockchainError::InvalidResponse,
             )
         };
 
-        [
-            Chain::EthMainnet,
-            Chain::PolyMainnet,
-            Chain::PolyMumbai,
-            Chain::Dev,
-        ]
-        .into_iter()
-        .for_each(|chain| {
-            let subject = subject.clone();
-            assert_eq!(
-                subject(chain).estimated_gas_limit_per_payable(),
-                blockchain_interface_common::base_gas_limit(chain) + (68 * 68) //number of bytes and gas required per non-zero bytes = maximal margin
-            )
-        });
+        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+            lower_interface,
+            expected_err_factory,
+        )
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_can_transfer_tokens_in_batch() {
+    fn build_of_the_blockchain_agent_fails_on_transaction_id() {
+        let transaction_fee_balance = U256::from(123_456_789);
+        let masq_balance = U256::from(500_000_000);
+        let lower_interface = LowerBCIMock::default()
+            .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
+            .get_masq_balance_result(Ok(masq_balance))
+            .get_transaction_id_result(Err(BlockchainError::InvalidResponse));
+        let expected_err_factory = |wallet: &Wallet| {
+            BlockchainAgentBuildError::TransactionID(
+                wallet.clone(),
+                BlockchainError::InvalidResponse,
+            )
+        };
+
+        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+            lower_interface,
+            expected_err_factory,
+        );
+    }
+
+    #[test]
+    fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
         //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1329,7 +1224,7 @@ mod tests {
         //Any eventual rpc errors brought back are processed as well...
         let expected_batch_responses = vec![
             Ok(json!("...unnecessarily important hash...")),
-            Err(web3::Error::Rpc(Error {
+            Err(web3::Error::Rpc(RPCError {
                 code: ErrorCode::ServerError(114),
                 message: "server being busy".to_string(),
                 data: None,
@@ -1343,13 +1238,10 @@ mod tests {
         let actor_addr = accountant.start();
         let fingerprint_recipient = recipient!(actor_addr, PendingPayableFingerprintSeeds);
         let logger = Logger::new("sending_batch_payments");
-        let mut subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let mut subject =
+            BlockchainInterfaceWeb3::new(transport.clone(), make_fake_event_loop_handle(), chain);
         subject.logger = logger;
-        let gas_price = 120;
         let amount_1 = gwei_to_wei(900_000_000_u64);
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w123"),
@@ -1368,19 +1260,13 @@ mod tests {
             amount_3,
             None,
         );
-        let pending_nonce = U256::from(6);
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
+        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6));
         let test_timestamp_before = SystemTime::now();
 
         let result = subject
-            .send_batch_of_payables(
-                &consuming_wallet,
-                gas_price,
-                pending_nonce,
-                &fingerprint_recipient,
-                &accounts_to_process,
-            )
+            .send_batch_of_payables(agent, &fingerprint_recipient, &accounts_to_process)
             .unwrap();
 
         let test_timestamp_after = SystemTime::now();
@@ -1428,10 +1314,10 @@ mod tests {
         );
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
             let pending_payable = match &result[idx]{
-                Correct(pp) => pp,
-                Failed(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
-                "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
-                rpc_error, hash, recipient
+                Ok(pp) => pp,
+                Err(RpcPayablesFailure { rpc_error, recipient_wallet: recipient, hash }) => panic!(
+                    "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
+                    rpc_error, hash, recipient
                 ),
             };
             let hash = pending_payable.hash;
@@ -1445,11 +1331,11 @@ mod tests {
         //failing request
         let pending_payable_fallible_2 = &result[1];
         let (rpc_error, recipient_2, hash_2) = match pending_payable_fallible_2 {
-            Correct(pp) => panic!(
+            Ok(pp) => panic!(
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
-            Failed(RpcPayableFailure {
+            Err(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet: recipient,
                 hash,
@@ -1457,7 +1343,7 @@ mod tests {
         };
         assert_eq!(
             rpc_error,
-            &web3::Error::Rpc(Error {
+            &web3::Error::Rpc(RPCError {
                 code: ErrorCode::ServerError(114),
                 message: "server being busy".to_string(),
                 data: None
@@ -1524,7 +1410,7 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_interface_send_batch_of_payables_components_are_used_together_properly() {
+    fn send_payables_within_batch_components_are_used_together_properly() {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1535,13 +1421,13 @@ mod tests {
         let initiate_fingerprints_recipient = accountant.start().recipient();
         let consuming_wallet_secret = b"consuming_wallet_0123456789abcde";
         let secret_key =
-            (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
+            (&Bip32EncryptionKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
         let chain = Chain::EthMainnet;
         let mut subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
-        let first_tx_parameters = TransactionParameters {
+            BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
+        let first_transaction_params_expected = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
@@ -1557,10 +1443,10 @@ mod tests {
         let first_signed_transaction = subject
             .web3
             .accounts()
-            .sign_transaction(first_tx_parameters.clone(), &secret_key)
+            .sign_transaction(first_transaction_params_expected.clone(), &secret_key)
             .wait()
             .unwrap();
-        let second_tx_parameters = TransactionParameters {
+        let second_transaction_params_expected = TransactionParameters {
             nonce: Some(U256::from(5)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
@@ -1576,12 +1462,11 @@ mod tests {
         let second_signed_transaction = subject
             .web3
             .accounts()
-            .sign_transaction(second_tx_parameters.clone(), &secret_key)
+            .sign_transaction(second_transaction_params_expected.clone(), &secret_key)
             .wait()
             .unwrap();
         let first_hash = first_signed_transaction.transaction_hash;
         let second_hash = second_signed_transaction.transaction_hash;
-        let pending_nonce = U256::from(4);
         //technically, the JSON values in the correct responses don't matter, we only check for errors if any came back
         let rpc_responses = vec![
             Ok(Value::String((&first_hash.to_string()[2..]).to_string())),
@@ -1598,7 +1483,6 @@ mod tests {
             .submit_batch_result(Ok(rpc_responses));
         subject.batch_payable_tools = Box::new(batch_payables_tools);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
-        let gas_price = 123;
         let first_payment_amount = 333_222_111_000;
         let first_creditor_wallet = make_wallet("creditor321");
         let first_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1613,11 +1497,10 @@ mod tests {
             second_payment_amount,
             None,
         );
+        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4));
 
         let result = subject.send_batch_of_payables(
-            &consuming_wallet,
-            gas_price,
-            pending_nonce,
+            agent,
             &initiate_fingerprints_recipient,
             &vec![first_account, second_account],
         );
@@ -1633,13 +1516,16 @@ mod tests {
         assert_eq!(
             result,
             Ok(vec![
-                Correct(first_resulting_pending_payable),
-                Correct(second_resulting_pending_payable)
+                Ok(first_resulting_pending_payable),
+                Ok(second_resulting_pending_payable)
             ])
         );
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
-        let (first_transaction_params, web3, secret) = sign_transaction_params.remove(0);
-        assert_eq!(first_transaction_params, first_tx_parameters);
+        let (first_transaction_params_actual, web3, secret) = sign_transaction_params.remove(0);
+        assert_eq!(
+            first_transaction_params_actual,
+            first_transaction_params_expected
+        );
         let check_web3_origin = |web3: &Web3<Batch<TestTransport>>| {
             let ref_count_before_clone = Arc::strong_count(&reference_counter_arc);
             let _new_ref = web3.clone();
@@ -1649,16 +1535,21 @@ mod tests {
         check_web3_origin(&web3);
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
-        let (second_transaction_params, web3_from_st_call, secret) =
+        let (second_transaction_params_actual, web3_from_st_call, secret) =
             sign_transaction_params.remove(0);
-        assert_eq!(second_transaction_params, second_tx_parameters);
+        assert_eq!(
+            second_transaction_params_actual,
+            second_transaction_params_expected
+        );
         check_web3_origin(&web3_from_st_call);
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256())
+                .unwrap())
                 .into()
         );
         assert!(sign_transaction_params.is_empty());
@@ -1695,7 +1586,8 @@ mod tests {
         assert_eq!(submit_batch_params.len(), 1);
         check_web3_origin(&web3_from_sb_call);
         assert!(accountant_recording_arc.lock().unwrap().is_empty());
-        let system = System::new("non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly");
+        let system =
+            System::new("send_payables_within_batch_components_are_used_together_properly");
         let probe_message = PendingPayableFingerprintSeeds {
             batch_wide_timestamp: SystemTime::now(),
             hashes_and_balances: vec![],
@@ -1708,73 +1600,47 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_base_gas_limit_is_properly_set() {
+    fn web3_gas_limit_const_part_returns_reasonable_values() {
+        type Subject = BlockchainInterfaceWeb3<Http>;
         assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::PolyMainnet),
+            Subject::web3_gas_limit_const_part(Chain::EthMainnet),
+            55_000
+        );
+        assert_eq!(
+            Subject::web3_gas_limit_const_part(Chain::EthRopsten),
+            55_000
+        );
+        assert_eq!(
+            Subject::web3_gas_limit_const_part(Chain::PolyMainnet),
             70_000
         );
         assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::PolyMumbai),
+            Subject::web3_gas_limit_const_part(Chain::PolyMumbai),
             70_000
         );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::EthMainnet),
-            55_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::EthRopsten),
-            55_000
-        );
-        assert_eq!(
-            blockchain_interface_common::base_gas_limit(Chain::Dev),
-            55_000
-        );
+        assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 
     #[test]
-    fn non_clandestine_gas_limit_for_polygon_mainnet_starts_on_70000_as_the_base() {
-        let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::PolyMainnet,
-        );
-
-        assert_gas_limit_is_between(subject, 70000, u64::MAX)
+    fn gas_limit_for_polygon_mainnet_lies_within_limits_for_raw_transaction() {
+        test_gas_limit_is_between_limits(Chain::PolyMainnet);
     }
 
     #[test]
-    fn non_clandestine_gas_limit_for_dev_lies_within_limits() {
-        let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::Dev,
-        );
-
-        assert_gas_limit_is_between(subject, 55000, 65000)
+    fn gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
+        test_gas_limit_is_between_limits(Chain::EthMainnet)
     }
 
-    #[test]
-    fn non_clandestine_gas_limit_for_eth_mainnet_lies_within_limits() {
-        let transport = TestTransport::default();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::EthMainnet,
-        );
-
-        assert_gas_limit_is_between(subject, 55000, 65000)
-    }
-
-    fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static + Default>(
-        mut subject: BlockchainInterfaceNonClandestine<T>,
-        not_under_this_value: u64,
-        not_above_this_value: u64,
-    ) {
+    fn test_gas_limit_is_between_limits(chain: Chain) {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default();
+        let mut subject =
+            BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
+        let not_under_this_value =
+            BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain);
+        let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let batch_payable_tools = BatchPayableToolsMock::<T>::default()
+        let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(make_default_signed_transaction()));
         subject.batch_payable_tools = Box::new(batch_payable_tools);
@@ -1793,39 +1659,47 @@ mod tests {
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (transaction_params, _, secret) = sign_transaction_params.remove(0);
         assert!(sign_transaction_params.is_empty());
-        assert!(transaction_params.gas >= U256::from(not_under_this_value));
-        assert!(transaction_params.gas <= U256::from(not_above_this_value));
+        assert!(
+            transaction_params.gas >= U256::from(not_under_this_value),
+            "actual gas limit {} isn't above or equal {}",
+            transaction_params.gas,
+            not_under_this_value
+        );
+        assert!(
+            transaction_params.gas <= U256::from(not_above_this_value),
+            "actual gas limit {} isn't below or equal {}",
+            transaction_params.gas,
+            not_above_this_value
+        );
         assert_eq!(
             secret,
-            (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret_raw_bytes.keccak256())
-                .unwrap())
+            (&Bip32EncryptionKeyProvider::from_raw_secret(
+                &consuming_wallet_secret_raw_bytes.keccak256()
+            )
+            .unwrap())
                 .into()
         );
     }
 
     #[test]
-    fn signing_error_ends_iteration_over_accounts_after_detecting_first_error_which_is_then_propagated_all_way_up_and_out(
-    ) {
+    fn signing_error_terminates_iteration_over_accounts_and_propagates_it_all_way_up_and_out() {
         let transport = TestTransport::default();
+        let chain = Chain::PolyMumbai;
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
             )))
             //we return after meeting the first result
             .sign_transaction_result(Err(Web3Error::Internal));
-        let mut subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
-        );
+        let mut subject =
+            BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = Recorder::new().start().recipient();
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
-        let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
+        let agent = make_initialized_agent(123, consuming_wallet, U256::from(4));
 
-        let result =
-            subject.send_batch_of_payables(&consuming_wallet, 111, nonce, &recipient, &accounts);
+        let result = subject.send_batch_of_payables(agent, &recipient, &accounts);
 
         assert_eq!(
             result,
@@ -1842,12 +1716,8 @@ mod tests {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
-
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         let system = System::new("test");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
@@ -1856,16 +1726,9 @@ mod tests {
             9000,
             None,
         );
-        let gas_price = 123;
-        let nonce = U256::from(1);
+        let agent = make_initialized_agent(123, incomplete_consuming_wallet, U256::from(1));
 
-        let result = subject.send_batch_of_payables(
-            &incomplete_consuming_wallet,
-            gas_price,
-            nonce,
-            &recipient,
-            &vec![account],
-        );
+        let result = subject.send_batch_of_payables(agent, &recipient, &vec![account]);
 
         System::current().stop();
         system.run();
@@ -1887,11 +1750,9 @@ mod tests {
             .batch_wide_timestamp_result(SystemTime::now())
             .submit_batch_result(Err(Web3Error::Transport("Transaction crashed".to_string())));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let mut subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
-        );
+        let chain = Chain::PolyMumbai;
+        let mut subject =
+            BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let unimportant_recipient = Recorder::new().start().recipient();
         let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1900,16 +1761,9 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let gas_price = 123;
-        let nonce = U256::from(1);
+        let agent = make_initialized_agent(120, consuming_wallet, U256::from(6));
 
-        let result = subject.send_batch_of_payables(
-            &consuming_wallet,
-            gas_price,
-            nonce,
-            &unimportant_recipient,
-            &vec![account],
-        );
+        let result = subject.send_batch_of_payables(agent, &unimportant_recipient, &vec![account]);
 
         assert_eq!(
             result,
@@ -1928,11 +1782,9 @@ mod tests {
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let mut subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            Chain::PolyMumbai,
-        );
+        let chain = Chain::PolyMumbai;
+        let mut subject =
+            BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = make_wallet("unlucky man");
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
@@ -1950,8 +1802,12 @@ mod tests {
         );
     }
 
+    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
+    const TEST_GAS_PRICE_ETH: u64 = 110;
+    const TEST_GAS_PRICE_POLYGON: u64 = 50;
+
     fn test_consuming_wallet_with_secret() -> Wallet {
-        let key_pair = Bip32ECKeyProvider::from_raw_secret(
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
                 .unwrap(),
         )
@@ -1966,25 +1822,19 @@ mod tests {
         Wallet::from(address)
     }
 
-    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
-    const TEST_GAS_PRICE_ETH: u64 = 110;
-    const TEST_GAS_PRICE_POLYGON: u64 = 50;
-
     fn assert_that_signed_transactions_agrees_with_template(
         chain: Chain,
         nonce: u64,
         template: &[u8],
     ) {
         let transport = TestTransport::default();
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         let consuming_wallet = test_consuming_wallet_with_secret();
         let recipient_wallet = test_recipient_wallet();
         let nonce_correct_type = U256::from(nonce);
-        let gas_price = match chain.rec().chain_family {
-            ChainFamily::Eth => TEST_GAS_PRICE_ETH,
-            ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
-            _ => panic!("isn't our interest in this test"),
+        let gas_price = match chain {
+            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => TEST_GAS_PRICE_ETH,
+            Chain::PolyMainnet | Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
@@ -2008,7 +1858,7 @@ mod tests {
 
     //with a real confirmation through a transaction sent with this data to the network
     #[test]
-    fn non_clandestine_signing_a_transaction_works_for_polygon_mumbai() {
+    fn web3_interface_signing_a_transaction_works_for_polygon_mumbai() {
         let chain = Chain::PolyMumbai;
         let nonce = 5;
         // signed_transaction_data changed after we changed the contract address of polygon matic
@@ -2021,7 +1871,7 @@ mod tests {
 
     //with a real confirmation through a transaction sent with this data to the network
     #[test]
-    fn non_clandestine_signing_a_transaction_works_for_eth_ropsten() {
+    fn web3_interface_signing_a_transaction_works_for_eth_ropsten() {
         let chain = Chain::EthRopsten;
         let nonce = 1; //must stay like this!
         let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
@@ -2032,7 +1882,7 @@ mod tests {
 
     //not confirmed on the real network
     #[test]
-    fn non_clandestine_signing_a_transaction_for_polygon_mainnet() {
+    fn web3_interface_signing_a_transaction_for_polygon_mainnet() {
         let chain = Chain::PolyMainnet;
         let nonce = 10;
         //generated locally
@@ -2053,7 +1903,7 @@ mod tests {
 
     //not confirmed on the real network
     #[test]
-    fn non_clandestine_signing_a_transaction_for_eth_mainnet() {
+    fn web3_interface_signing_a_transaction_for_eth_mainnet() {
         let chain = Chain::EthMainnet;
         let nonce = 10;
         //generated locally
@@ -2075,7 +1925,7 @@ mod tests {
     //an adapted test from old times when we had our own signing method
     //I don't have data for the new chains so I omit them in this kind of tests
     #[test]
-    fn signs_various_transaction_for_eth_mainnet() {
+    fn signs_various_transactions_for_eth_mainnet() {
         let signatures = &[
             &[
                 248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
@@ -2147,7 +1997,7 @@ mod tests {
         private_key: H256,
     }
 
-    fn assert_signature(chain: Chain, slice_of_sclices: &[&[u8]]) {
+    fn assert_signature(chain: Chain, slice_of_slices: &[&[u8]]) {
         let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
         let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
         let first_part_tx_3 = r#"[{"nonce": "0x00", "gasPrice": "0x09184e72a000", "gasLimit": "0x2710", "to": null, "value": "0x00", "data": [127,116,101,115,116,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96,0,87]}, {"private_key": "0xe331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109", "signed": "#;
@@ -2159,7 +2009,7 @@ mod tests {
             "[{}]",
             vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
                 .iter()
-                .zip(slice_of_sclices.iter())
+                .zip(slice_of_slices.iter())
                 .zip(0usize..2)
                 .fold(String::new(), |so_far, actual| [
                     so_far,
@@ -2187,8 +2037,7 @@ mod tests {
             ][..],
         ];
         let transport = TestTransport::default();
-        let subject =
-            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
+        let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         let lengths_of_constant_parts: Vec<usize> =
             constant_parts.iter().map(|part| part.len()).collect();
         for (((tx, signed), length), constant_part) in txs
@@ -2197,13 +2046,14 @@ mod tests {
             .zip(constant_parts)
         {
             let secret = Wallet::from(
-                Bip32ECKeyProvider::from_raw_secret(&signed.private_key.0.as_ref()).unwrap(),
+                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
+                    .unwrap(),
             )
             .prepare_secp256k1_secret()
             .unwrap();
             let tx_params = from_raw_transaction_to_transaction_parameters(tx, chain);
             let sign = subject
-                .web3()
+                .web3
                 .accounts()
                 .sign_transaction(tx_params, &secret)
                 .wait()
@@ -2230,66 +2080,19 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_can_fetch_nonce() {
-        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
-        let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let transport = TestTransport::default()
-            .prepare_params(&prepare_params_arc)
-            .send_params(&send_params_arc)
-            .send_result(json!(
-                "0x0000000000000000000000000000000000000000000000000000000000000001"
-            ));
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
-
-        assert_eq!(result, Ok(U256::from(1)));
-        let mut prepare_params = prepare_params_arc.lock().unwrap();
-        let (method_name, actual_arguments) = prepare_params.remove(0);
-        assert!(prepare_params.is_empty());
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
-        assert_eq!(method_name, "eth_getTransactionCount".to_string());
-        assert_eq!(
-            actual_arguments,
-            vec![
-                String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
-                String::from(r#""pending""#),
-            ]
-        );
-        let send_params = send_params_arc.lock().unwrap();
-        let rpc_call_params = vec![
-            Value::String(String::from("0x5c361ba8d82fcf0e5538b2a823e9d457a2296725")),
-            Value::String(String::from("pending")),
-        ];
-        let expected_request =
-            web3::helpers::build_request(1, "eth_getTransactionCount", rpc_call_params);
-        assert_eq!(*send_params, vec![(1, expected_request)])
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_can_fetch_transaction_receipt() {
+    fn blockchain_interface_web3_can_fetch_transaction_receipt() {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#
                 .to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let tx_hash =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
                 .unwrap();
@@ -2316,185 +2119,35 @@ mod tests {
     fn get_transaction_receipt_handles_errors() {
         let port = find_free_port();
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let tx_hash = make_tx_hash(4564546);
 
-        let result = subject.get_transaction_receipt(tx_hash);
-
-        match result {
-            Err(BlockchainError::QueryFailed(err_message)) => assert!(
-                err_message.contains("Transport error: Error(Connect, Os"),
-                "we got this error msg: {}",
-                err_message
-            ),
-            Err(e) => panic!("we expected a different error than: {}", e),
-            Ok(x) => panic!("we expected an error, but got: {:?}", x),
+        let actual_error = subject.get_transaction_receipt(tx_hash).unwrap_err();
+        let error_message = if let BlockchainError::QueryFailed(em) = actual_error {
+            em
+        } else {
+            panic!("Expected BlockchainError::QueryFailed(msg)");
         };
-    }
-
-    #[test]
-    fn to_wei_converts_units_properly_for_max_value() {
-        let converted_wei = to_wei(u64::MAX);
-
-        assert_eq!(
-            converted_wei,
-            U256::from_dec_str(format!("{}000000000", u64::MAX).as_str()).unwrap()
+        assert_string_contains(
+            error_message.as_str(),
+            "Transport error: Error(Connect, Os { code: ",
         );
-    }
-
-    #[test]
-    fn to_wei_converts_units_properly_for_one() {
-        let converted_wei = to_wei(1);
-
-        assert_eq!(converted_wei, U256::from_dec_str("1000000000").unwrap());
-    }
-
-    #[test]
-    fn constant_gwei_matches_calculated_value() {
-        let value = U256::from(1_000_000_000);
-        assert_eq!(value.0[0], 1_000_000_000);
-        assert_eq!(value.0[1], 0);
-        assert_eq!(value.0[2], 0);
-        assert_eq!(value.0[3], 0);
-
-        let gwei = U256([1_000_000_000u64, 0, 0, 0]);
-        assert_eq!(value, gwei);
-        assert_eq!(gwei, GWEI);
-        assert_eq!(value, GWEI);
-    }
-
-    #[test]
-    fn hash_the_smartcontract_transfer_function_signature() {
-        assert_eq!(
-            TRANSFER_METHOD_ID,
-            "transfer(address,uint256)".keccak256()[0..4]
+        assert_string_contains(
+            error_message.as_str(),
+            ", kind: ConnectionRefused, message: ",
         );
-    }
-
-    fn collect_match_displayable_error_variants_in_exhaustive_mode<E, C>(
-        errors_to_assert: &[E],
-        exhaustive_error_matching: C,
-        expected_check_nums: Vec<u8>,
-    ) -> Vec<String>
-    where
-        E: Display,
-        C: Fn(&E) -> (String, u8),
-    {
-        let displayed_errors_with_check_nums = errors_to_assert
-            .iter()
-            .map(exhaustive_error_matching)
-            .collect::<Vec<(String, u8)>>();
-        let check_nums_alone = displayed_errors_with_check_nums
-            .iter()
-            .map(|(_, num_check)| *num_check)
-            .collect::<Vec<u8>>();
-        assert_eq!(check_nums_alone, expected_check_nums);
-        displayed_errors_with_check_nums
-            .into_iter()
-            .map(|(msg, _)| msg)
-            .collect()
-    }
-
-    #[test]
-    fn blockchain_error_implements_display() {
-        //TODO at the time of writing this test 'core::mem::variant_count' was only in nightly,
-        // consider its implementation instead of these match statements here and in the test below
-        let original_errors = [
-            BlockchainError::InvalidUrl,
-            BlockchainError::InvalidAddress,
-            BlockchainError::InvalidResponse,
-            BlockchainError::QueryFailed(
-                "Don't query so often, it gives me a headache".to_string(),
-            ),
-        ];
-        let pretty_print_closure = |err_to_resolve: &BlockchainError| match err_to_resolve {
-            BlockchainError::InvalidUrl => (err_to_resolve.to_string(), 11),
-            BlockchainError::InvalidAddress => (err_to_resolve.to_string(), 22),
-            BlockchainError::InvalidResponse => (err_to_resolve.to_string(), 33),
-            BlockchainError::QueryFailed(..) => (err_to_resolve.to_string(), 44),
-        };
-
-        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
-            original_errors.as_slice(),
-            pretty_print_closure,
-            vec![11, 22, 33, 44],
-        );
-
-        assert_eq!(
-            actual_error_msgs,
-            slice_of_strs_to_vec_of_strings(&[
-                "Blockchain error: Invalid url",
-                "Blockchain error: Invalid address",
-                "Blockchain error: Invalid response",
-                "Blockchain error: Query failed: Don't query so often, it gives me a headache",
-            ])
-        )
-    }
-
-    #[test]
-    fn payable_payment_error_implements_display() {
-        let original_errors = [
-            PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(
-                "Gas halves shut, no drop left".to_string(),
-            ),
-            PayableTransactionError::TransactionCount(BlockchainError::InvalidResponse),
-            PayableTransactionError::UnusableWallet(
-                "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
-            ),
-            PayableTransactionError::Signing(
-                "You cannot sign with just three crosses here, clever boy".to_string(),
-            ),
-            PayableTransactionError::Sending {
-                msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
-            },
-        ];
-        let pretty_print_closure = |err_to_resolve: &PayableTransactionError| match err_to_resolve {
-            PayableTransactionError::MissingConsumingWallet => (err_to_resolve.to_string(), 11),
-            PayableTransactionError::GasPriceQueryFailed(_) => (err_to_resolve.to_string(), 22),
-            PayableTransactionError::TransactionCount(_) => (err_to_resolve.to_string(), 33),
-            PayableTransactionError::UnusableWallet(_) => (err_to_resolve.to_string(), 44),
-            PayableTransactionError::Signing(_) => (err_to_resolve.to_string(), 55),
-            PayableTransactionError::Sending { .. } => (err_to_resolve.to_string(), 66),
-        };
-
-        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
-            original_errors.as_slice(),
-            pretty_print_closure,
-            vec![11, 22, 33, 44, 55, 66],
-        );
-
-        assert_eq!(
-            actual_error_msgs,
-            slice_of_strs_to_vec_of_strings(&[
-                "Missing consuming wallet to pay payable from",
-                "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
-                "Transaction count fetching failed for: Blockchain error: Invalid response",
-                "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
-                LEDGER wallet, stupid.\"",
-                "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
-                "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
-                0x00000000000000000000000000000000000000000000000000000000000000de"
-            ])
-        )
     }
 
     #[test]
     fn advance_used_nonce() {
         let initial_nonce = U256::from(55);
 
-        let result =
-            BlockchainInterfaceNonClandestine::<TestTransport>::advance_used_nonce(initial_nonce);
+        let result = BlockchainInterfaceWeb3::<TestTransport>::advance_used_nonce(initial_nonce);
 
         assert_eq!(result, U256::from(56))
     }
@@ -2521,14 +2174,14 @@ mod tests {
         ];
         let responses = vec![
             Ok(Value::String(String::from("blah"))),
-            Err(web3::Error::Rpc(Error {
+            Err(web3::Error::Rpc(RPCError {
                 code: ErrorCode::ParseError,
                 message: "I guess we've got a problem".to_string(),
                 data: None,
             })),
         ];
 
-        let result = BlockchainInterfaceNonClandestine::<TestTransport>::merged_output_data(
+        let result = BlockchainInterfaceWeb3::<TestTransport>::merged_output_data(
             responses,
             fingerprint_inputs,
             &accounts,
@@ -2537,12 +2190,12 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
-                Failed(RpcPayableFailure {
-                    rpc_error: web3::Error::Rpc(Error {
+                Err(RpcPayablesFailure {
+                    rpc_error: web3::Error::Rpc(RPCError {
                         code: ErrorCode::ParseError,
                         message: "I guess we've got a problem".to_string(),
                         data: None,
@@ -2554,174 +2207,24 @@ mod tests {
         )
     }
 
-    fn make_clandestine_subject(test_name: &str, chain: Chain) -> BlockchainInterfaceClandestine {
-        BlockchainInterfaceClandestine {
-            logger: Logger::new(test_name),
-            chain,
-        }
-    }
-
-    fn all_chains() -> [Chain; 4] {
-        [
-            Chain::EthMainnet,
-            Chain::PolyMainnet,
-            Chain::PolyMumbai,
-            Chain::Dev,
-        ]
+    fn make_initialized_agent(
+        gas_price_gwei: u64,
+        consuming_wallet: Wallet,
+        nonce: U256,
+    ) -> Box<dyn BlockchainAgent> {
+        Box::new(
+            BlockchainAgentMock::default()
+                .consuming_wallet_result(consuming_wallet)
+                .agreed_fee_per_computation_unit_result(gas_price_gwei)
+                .pending_transaction_id_result(nonce),
+        )
     }
 
     #[test]
-    fn blockchain_interface_clandestine_returns_contract_address() {
-        all_chains().into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject("irrelevant", chain).contract_address(),
-                chain.rec().contract
-            )
-        })
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_retrieves_no_transactions() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_retrieves_no_transactions";
-        let expected_msg = "Can't retrieve transactions clandestinely yet";
-        let wallet = make_wallet("blah");
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).retrieve_transactions(0, &wallet),
-                Err(BlockchainError::QueryFailed(expected_msg.to_string()))
-            )
-        });
-
-        let expected_log_msg = format!("ERROR: {test_name}: {}", expected_msg);
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_estimated_gas_limit_per_payable() {
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject("irrelevant", chain).estimated_gas_limit_per_payable(),
-                blockchain_interface_common::base_gas_limit(chain)
-                    + TRANSACTION_DATA_GAS_MARGIN_MAX
-            )
-        });
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_send_batch_of_payables() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_send_batch_of_payables";
-        let wallet = make_wallet("blah");
-        let chains = all_chains();
-        let (recorder, _, _) = make_recorder();
-        let recipient = recorder.start().recipient();
-        let accounts = vec![make_payable_account(111)];
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).send_batch_of_payables(
-                    &wallet,
-                    123,
-                    U256::one(),
-                    &recipient,
-                    &accounts
-                ),
-                Err(PayableTransactionError::Sending {
-                    msg: "invalid attempt to send txs clandestinely".to_string(),
-                    hashes: vec![],
-                })
-            )
-        });
-
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Can't send transactions out clandestinely yet");
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_gas_balance() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_gets_no_gas_balance";
-        let wallet = make_wallet("blah");
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).get_gas_balance(&wallet),
-                Ok(U256::zero())
-            )
-        });
-
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Can't get gas balance clandestinely yet");
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_token_balance() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_gets_no_token_balance";
-        let wallet = make_wallet("blah");
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).get_token_balance(&wallet),
-                Ok(U256::zero())
-            )
-        });
-
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Can't get masq token balance clandestinely yet");
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_transaction_count() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_gets_no_transaction_count";
-        let wallet = make_wallet("blah");
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).get_transaction_count(&wallet),
-                Ok(U256::zero())
-            )
-        });
-
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Can't get transaction count clandestinely yet");
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
-    }
-
-    #[test]
-    fn blockchain_interface_clandestine_gets_no_transaction_receipt() {
-        init_test_logging();
-        let test_name = "blockchain_interface_clandestine_gets_no_transaction_receipt";
-        let tx_hash = make_tx_hash(123);
-        let chains = all_chains();
-
-        chains.into_iter().for_each(|chain| {
-            assert_eq!(
-                make_clandestine_subject(test_name, chain).get_transaction_receipt(tx_hash),
-                Ok(None)
-            )
-        });
-
-        let expected_log_msg =
-            format!("ERROR: {test_name}: Can't get transaction receipt clandestinely yet");
-        TestLogHandler::new()
-            .assert_logs_contain_in_order(vec![expected_log_msg.as_str()].repeat(chains.len()));
+    fn hash_the_smart_contract_transfer_function_signature() {
+        assert_eq!(
+            "transfer(address,uint256)".keccak256()[0..4],
+            TRANSFER_METHOD_ID,
+        );
     }
 }

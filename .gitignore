@@ -65,6 +65,7 @@ Temporary Items
 **/.idea/**/dataSources.ids
 **/.idea/**/dataSources.xml
 **/.idea/**/dataSources.local.xml
+**/.idea/**/dbnavigator.xml
 **/.idea/**/sqlDataSources.xml
 **/.idea/**/dynamic.xml
 **/.idea/**/uiDesigner.xml
@@ -136,3 +137,6 @@ node.log
 lnk*.tmp
 /*/target/
 node_ui/static/binaries/
+
+# VSCode
+.vscode

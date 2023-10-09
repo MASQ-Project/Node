@@ -3,6 +3,7 @@ use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperRe
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::utils::db_connection_launch_panic;
@@ -234,6 +235,13 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
+            "min_hops",
+            Some(&DEFAULT_MIN_HOPS.to_string()),
+            false,
+            "min hops",
+        );
+        Self::set_config_value(
+            conn,
             "payment_thresholds",
             Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
             false,
@@ -253,6 +261,7 @@ impl DbInitializerReal {
             false,
             "scan intervals",
         );
+        Self::set_config_value(conn, "max_block_count", None, false, "maximum block count");
     }
 
     fn create_pending_payable_table(&self, conn: &Connection) {
@@ -735,7 +744,6 @@ mod tests {
     use itertools::Either::{Left, Right};
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
@@ -757,7 +765,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
     }
 
     #[test]
@@ -1032,6 +1040,8 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "max_block_count", None, false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,
             "neighborhood_mode",

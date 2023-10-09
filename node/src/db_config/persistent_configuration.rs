@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
@@ -13,14 +12,12 @@ use crate::db_config::typed_config_layer::{
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{to_string, AutomapProtocol};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -118,6 +115,8 @@ pub trait PersistentConfiguration {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError>;
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError>;
+    fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError>;
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
     fn set_neighborhood_mode(
         &mut self,
@@ -134,6 +133,8 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -147,7 +148,6 @@ pub trait PersistentConfiguration {
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 
-    #[cfg(test)]
     arbitrary_id_stamp_in_trait!();
 }
 
@@ -219,13 +219,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                         "Database corruption {:?}: consuming private key is not hex, but '{}'",
                         e, key
                     ),
-                    Ok(bytes) => match Bip32ECKeyProvider::from_raw_secret(bytes.as_slice()) {
-                        Err(e) => panic!(
-                            "Database corruption {:?}: consuming private key is invalid",
-                            e
-                        ),
-                        Ok(pair) => Wallet::from(pair),
-                    },
+                    Ok(bytes) => {
+                        match Bip32EncryptionKeyProvider::from_raw_secret(bytes.as_slice()) {
+                            Err(e) => panic!(
+                                "Database corruption {:?}: consuming private key is invalid",
+                                e
+                            ),
+                            Ok(pair) => Wallet::from(pair),
+                        }
+                    }
                 })
             })
     }
@@ -330,9 +332,20 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set("mapping_protocol", value.map(|v| v.to_string()))?)
+        Ok(self.dao.set("mapping_protocol", value.map(to_string))?)
+    }
+
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
+        let result = self.get("min_hops")?.map(|val| Hops::from_str(&val));
+        match result {
+            None => Self::missing_value_panic("min_hops"),
+            Some(Ok(hops)) => Ok(hops),
+            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
+        }
+    }
+
+    fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("min_hops", Some(value.to_string()))?)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -394,6 +407,27 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
+    }
+
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
+        match self.get("max_block_count") {
+            Ok(max_block_count) => match decode_u64(max_block_count) {
+                Ok(mbc_opt) => Ok(mbc_opt),
+                Err(TypedConfigLayerError::BadNumberFormat(value)) if value.is_empty() => Ok(None),
+                Err(e) => Err(PersistentConfigError::from(e)),
+            },
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
+    }
+
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        self.simple_set_method(
+            "max_block_count",
+            match encode_u64(value) {
+                Ok(Some(mbc)) => mbc,
+                _ => "".to_string(),
+            },
+        )
     }
 
     fn set_wallet_info(
@@ -1043,7 +1077,7 @@ mod tests {
         let consuming_private_key =
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
         let consuming_wallet = Wallet::from(
-            Bip32ECKeyProvider::from_raw_secret(
+            Bip32EncryptionKeyProvider::from_raw_secret(
                 consuming_private_key
                     .from_hex::<Vec<u8>>()
                     .unwrap()
@@ -1176,7 +1210,7 @@ mod tests {
         let earning_private_key =
             ExtendedPrivKey::derive(seed_bytes.as_slice(), derivation_path.as_str()).unwrap();
         let earning_key_pair =
-            Bip32ECKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(&earning_private_key.secret()).unwrap();
         let earning_wallet = Wallet::from(earning_key_pair);
         let earning_wallet_address = earning_wallet.to_string();
         (
@@ -1686,6 +1720,49 @@ mod tests {
     }
 
     #[test]
+    fn min_hops_works() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "min_hops",
+            Some("3"),
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let min_hops = subject.min_hops().unwrap();
+
+        assert_eq!(min_hops, Hops::ThreeHops);
+    }
+
+    #[test]
+    fn set_min_hops_to_some() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_min_hops(Hops::TwoHops);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("min_hops".to_string(), Some("2".to_string()))]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing: min_hops; database is corrupt!")]
+    fn panics_when_min_hops_value_is_missing() {
+        let config_dao = Box::new(
+            ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new("min_hops", None, false))),
+        );
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let _result = subject.min_hops();
+    }
+
+    #[test]
     fn neighborhood_mode_works() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
@@ -1872,6 +1949,42 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_set_method!(
             "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_some() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(Some(100_000u64));
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some(100_000u64.to_string()))]
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_none() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some("".to_string()))]
         );
     }
 

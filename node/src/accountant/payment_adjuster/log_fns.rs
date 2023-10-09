@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::database_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::iter::once;
 use std::ops::Not;
 use thousands::Separable;
+use web3::types::U256;
 
 const REFILL_RECOMMENDATION: &str = "\
 In order to continue consuming services from other Nodes and avoid delinquency bans it is necessary \
@@ -146,7 +147,7 @@ pub fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: u128, cw_m
 pub fn log_insufficient_transaction_fee_balance(
     logger: &Logger,
     required_transactions_count: u16,
-    transaction_fee_minor: u128,
+    transaction_fee_minor: U256,
     limiting_count: u16,
 ) {
     warning!(
