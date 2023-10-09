@@ -432,12 +432,17 @@ where
             gas_price
         );
 
-        let hashes_and_paid_amounts = self.sign_and_append_multiple_payments(
+        let hashes_and_paid_amounts = match self.sign_and_append_multiple_payments(
             consuming_wallet,
             gas_price,
             pending_nonce,
             accounts,
-        );
+        ) {
+            Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
+            Err(e) => {
+                todo!("TODO: sign_and_append_multiple_payments Error");
+            }
+        };
         let timestamp = self.batch_payable_tools.batch_wide_timestamp();
 
         self.batch_payable_tools
@@ -1445,6 +1450,7 @@ mod tests {
                 &fingerprint_recipient,
                 &accounts_to_process,
             )
+            .wait()
             .unwrap();
 
         let test_timestamp_after = SystemTime::now();
@@ -1678,13 +1684,15 @@ mod tests {
             None,
         );
 
-        let result = subject.send_payables_within_batch(
-            &consuming_wallet,
-            gas_price,
-            pending_nonce,
-            &initiate_fingerprints_recipient,
-            &vec![first_account, second_account],
-        );
+        let result = subject
+            .send_payables_within_batch(
+                &consuming_wallet,
+                gas_price,
+                pending_nonce,
+                &initiate_fingerprints_recipient,
+                &vec![first_account, second_account],
+            )
+            .wait();
 
         let first_resulting_pending_payable = PendingPayable {
             recipient_wallet: first_creditor_wallet.clone(),
@@ -1891,13 +1899,9 @@ mod tests {
         let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
 
-        let result = subject.send_payables_within_batch(
-            &consuming_wallet,
-            111,
-            nonce,
-            &recipient,
-            &accounts,
-        );
+        let result = subject
+            .send_payables_within_batch(&consuming_wallet, 111, nonce, &recipient, &accounts)
+            .wait();
 
         assert_eq!(
             result,
@@ -1931,13 +1935,15 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = subject.send_payables_within_batch(
-            &incomplete_consuming_wallet,
-            gas_price,
-            nonce,
-            &recipient,
-            &vec![account],
-        );
+        let result = subject
+            .send_payables_within_batch(
+                &incomplete_consuming_wallet,
+                gas_price,
+                nonce,
+                &recipient,
+                &vec![account],
+            )
+            .wait();
 
         System::current().stop();
         system.run();
@@ -1975,13 +1981,15 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = subject.send_payables_within_batch(
-            &consuming_wallet,
-            gas_price,
-            nonce,
-            &unimportant_recipient,
-            &vec![account],
-        );
+        let result = subject
+            .send_payables_within_batch(
+                &consuming_wallet,
+                gas_price,
+                nonce,
+                &unimportant_recipient,
+                &vec![account],
+            )
+            .wait();
 
         assert_eq!(
             result,
@@ -2316,7 +2324,9 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
+        let result = subject
+            .get_transaction_count(&make_paying_wallet(b"gdasgsa"))
+            .wait();
 
         assert_eq!(result, Ok(U256::from(1)));
         let mut prepare_params = prepare_params_arc.lock().unwrap();

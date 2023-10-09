@@ -120,10 +120,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
                 new_fingerprints_recipient.clone(),
                 accounts.to_vec(),
             ));
-        Box::new(err(self
-            .send_payables_within_batch_results
-            .borrow_mut()
-            .remove(0)))
+        Box::new(result(
+            self.send_payables_within_batch_results
+                .borrow_mut()
+                .remove(0),
+        ))
     }
 
     fn get_transaction_fee_balance(
@@ -162,10 +163,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .lock()
             .unwrap()
             .push(wallet.clone());
-        Box::new(err(self
-            .get_transaction_count_results
-            .borrow_mut()
-            .remove(0)))
+        Box::new(result(
+            self.get_transaction_count_results.borrow_mut().remove(0),
+        ))
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
@@ -459,7 +459,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         web3: &Web3<Batch<T>>,
     ) -> Box<dyn Future<Item = Vec<web3::transports::Result<rpc::Value>>, Error = Web3Error>> {
         self.submit_batch_params.lock().unwrap().push(web3.clone());
-        Box::new(err(self.submit_batch_results.borrow_mut().remove(0)))
+        Box::new(result(self.submit_batch_results.borrow_mut().remove(0)))
     }
 }
 

@@ -705,7 +705,7 @@ mod tests {
         };
         let system = System::new("test");
 
-        let result = subject.handle_report_accounts_payable(request);
+        let result = subject.handle_report_accounts_payable(request).wait();
 
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -1136,7 +1136,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.process_payments(&request);
+        let result = subject.process_payments(&request).wait();
 
         assert_eq!(
             result,
@@ -1179,7 +1179,7 @@ mod tests {
             .pending_payable_confirmation
             .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
-        let result = subject.process_payments(&request);
+        let result = subject.process_payments(&request).wait();
 
         assert_eq!(
             result,
