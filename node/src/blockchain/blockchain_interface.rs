@@ -304,14 +304,14 @@ impl BlockchainInterfaceNull {
     }
 }
 
-pub struct BlockchainInterfaceWeb3<'batch, T: BatchTransport + Debug> {
+pub struct BlockchainInterfaceWeb3<T: BatchTransport + Debug> {
     logger: Logger,
     chain: Chain,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
     batch_web3: Web3<Batch<T>>,
-    batch_payable_tools: Box<dyn BatchPayableTools<'batch, T>>,
+    batch_payable_tools: Box<dyn BatchPayableTools<T>>,
     contract: Contract<T>,
 }
 
@@ -322,9 +322,9 @@ pub fn to_wei(gwub: u64) -> U256 {
     subgwei.full_mul(GWEI).try_into().expect("Internal Error")
 }
 
-impl<'batch, T> BlockchainInterface for BlockchainInterfaceWeb3<'batch, T>
+impl<T> BlockchainInterface for BlockchainInterfaceWeb3<T>
 where
-    T: BatchTransport + Debug + 'batch,
+    T: BatchTransport + Debug + 'static,
 {
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
@@ -572,9 +572,9 @@ pub struct RpcPayableFailure {
 
 type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 
-impl<'batch, T> BlockchainInterfaceWeb3<'batch, T>
+impl<T> BlockchainInterfaceWeb3<T>
 where
-    T: BatchTransport + Debug + 'batch,
+    T: BatchTransport + Debug + 'static,
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport.clone());
