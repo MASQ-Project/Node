@@ -266,4 +266,16 @@ mod tests {
         let result = subject.get("schema_version").unwrap();
         assert_eq!(result, ConfigDaoRecord::new("schema_version", None, false));
     }
+
+    #[test]
+    fn test_handle_update_execution() {
+        let result = handle_update_execution(Err(rusqlite::Error::ExecuteReturnedResults));
+
+        assert_eq!(
+            result,
+            Err(ConfigDaoError::DatabaseError(
+                "Execute returned results - did you mean to call query?".to_string()
+            ))
+        )
+    }
 }
