@@ -370,11 +370,11 @@ pub fn make_fake_event_loop_handle() -> EventLoopHandle {
 }
 
 #[derive(Default)]
-pub struct BatchPayableToolsFactoryMock<T> {
-    make_results: RefCell<Vec<Box<dyn BatchPayableTools<T>>>>,
+pub struct BatchPayableToolsFactoryMock<'batch, T> {
+    make_results: RefCell<Vec<Box<dyn BatchPayableTools<'batch, T>>>>,
 }
 
-impl<T> BatchPayableToolsFactoryMock<T> {
+impl<'batch, T> BatchPayableToolsFactoryMock<'batch, T> {
     pub fn make_result(self, result: Box<dyn BatchPayableTools<T>>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
@@ -412,7 +412,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
         RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
 }
 
-impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
+impl<'batch, T: BatchTransport + 'batch> BatchPayableTools<'batch, T> for BatchPayableToolsMock<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,

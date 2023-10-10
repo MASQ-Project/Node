@@ -11,9 +11,9 @@ use web3::transports::Batch;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 
-pub trait BatchPayableTools<T>
+pub trait BatchPayableTools<'batch, T>
 where
-    T: BatchTransport,
+    T: BatchTransport + 'batch,
 {
     fn sign_transaction(
         &self,
@@ -48,7 +48,9 @@ impl<T: BatchTransport> Default for BatchPayableToolsReal<T> {
     }
 }
 
-impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T> {
+impl<'batch, T: BatchTransport + Debug + 'batch> BatchPayableTools<'batch, T>
+    for BatchPayableToolsReal<T>
+{
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -89,7 +91,7 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     ) -> Box<dyn Future<Item = Vec<web3::transports::Result<Value>>, Error = Web3Error>> {
         Box::new(web3.transport().submit_batch())
     }
-}
+}:w
 
 #[cfg(test)]
 mod tests {
