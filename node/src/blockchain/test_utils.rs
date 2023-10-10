@@ -212,7 +212,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn helpers_results(mut self, aggregated_results: Box<LowerBCIMock>) -> Self {
+    pub fn lower_interface_results(mut self, aggregated_results: Box<LowerBCIMock>) -> Self {
         self.helpers_result = Some(aggregated_results);
         self
     }
