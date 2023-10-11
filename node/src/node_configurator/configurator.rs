@@ -842,6 +842,12 @@ impl Configurator {
 
     fn send_password_changes(&self, new_password: String) {
         // GH-728
+        // TODO: Replace me with the ConfigurationChangeMessage with the new variant
+        // This message should be sent to 4 actors:
+        // 1. Configurator
+        // 2. Neighborhood
+        // 3. Blockchain Bridge
+        // 4. Accountant
         let msg = NewPasswordMessage { new_password };
         self.new_password_subs
             .as_ref()
