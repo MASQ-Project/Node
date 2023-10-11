@@ -172,6 +172,7 @@ impl<'a> MultiConfig<'a> {
 
 pub trait VclArg: Debug {
     fn name(&self) -> &str;
+    fn value_opt(&self) -> Option<&str>;
     fn to_args(&self) -> Vec<String>;
     fn dup(&self) -> Box<dyn VclArg>;
 }
@@ -197,7 +198,9 @@ impl VclArg for NameValueVclArg {
     fn name(&self) -> &str {
         &self.name
     }
-
+    fn value_opt(&self) -> Option<&str> {
+        Some(self.value.as_str())
+    }
     fn to_args(&self) -> Vec<String> {
         vec![self.name.clone(), self.value.clone()]
     }
@@ -225,7 +228,9 @@ impl VclArg for NameOnlyVclArg {
     fn name(&self) -> &str {
         &self.name
     }
-
+    fn value_opt(&self) -> Option<&str> {
+        None
+    }
     fn to_args(&self) -> Vec<String> {
         vec![self.name.clone()]
     }
@@ -579,6 +584,7 @@ pub mod tests {
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
+    use std::ops::Deref;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {
@@ -1022,6 +1028,42 @@ pub mod tests {
             ]
         );
         assert_eq!(subject.args(), command_line);
+    }
+
+    #[test]
+    fn command_line_vcl_return_value_from_vcl_args_by_name() {
+        let command_line: Vec<String> = vec![
+            "",
+            "--first-value",
+            "/nonexistent/directory",
+            "--takes_no_value",
+            "--other_takes_no_value",
+        ]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let subject = CommandLineVcl::new(command_line.clone());
+        let existing_value = match subject.vcl_args
+            .iter()
+            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--first-value" ) {
+            Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
+            None => None
+        };
+        let non_existing_value = match subject.vcl_args
+            .iter()
+            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--takes_no_value" ) {
+            Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
+            None => None
+        };
+        assert_eq!(
+            existing_value.unwrap(),
+            "/nonexistent/directory"
+        );
+        assert_eq!(
+            non_existing_value,
+            None
+        );
     }
 
     #[test]
