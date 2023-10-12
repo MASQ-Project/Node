@@ -1,15 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::arg_enum;
-
-arg_enum! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    pub enum CrashPoint {
-        Message,
-        Panic,
-        Error,
-        None,
-    }
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum CrashPoint {
+    Message,
+    Panic,
+    Error,
+    None,
 }
 
 const NONE: usize = 0;

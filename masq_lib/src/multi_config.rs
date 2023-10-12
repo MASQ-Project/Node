@@ -2,14 +2,15 @@
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
 #[allow(unused_imports)]
-use clap::{value_t, values_t};
-use clap::{App, ArgMatches};
+use clap::{Command, ArgMatches};
+use clap::builder::{ValueRange};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
+use clap::parser::ValueSource;
 use toml::value::Table;
 use toml::Value;
 
@@ -17,21 +18,21 @@ use toml::Value;
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches_ref();
-        match value_t!(matches, $v, $t) {
-            Ok(v) => Some(v),
-            Err(_) => None,
-        }
+        matches.get_one::<$t>($v).map(|v| v.clone())
     }};
 }
 
 #[macro_export]
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let user_specified = $m.occurrences_of($v) > 0;
         let matches = $m.arg_matches_ref();
-        match value_t!(matches, $v, $t) {
-            Ok(v) => (Some(v), user_specified),
-            Err(_) => (None, user_specified),
+        let user_specified: bool = match matches.value_source($v) {
+            Some(ValueSource::CommandLine) => true,
+            _ => false
+        };
+        match matches.get_one::<$t>($v) {
+            Some(v) => (Some(v.clone()), user_specified),
+            None => (None, user_specified),
         }
     }};
 }
@@ -40,27 +41,27 @@ macro_rules! value_user_specified_m {
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let matches = $m.arg_matches_ref();
-        match values_t!(matches, $v, $t) {
-            Ok(vs) => vs,
-            Err(_) => vec![],
+        match matches.get_many::<$t>($v) {
+            Some(vs) => vs.map(|v| v.clone()).collect::<Vec<$t>>(),
+            None => vec![]
         }
     }};
 }
 
 #[derive(Debug)]
-pub struct MultiConfig<'a> {
-    arg_matches: ArgMatches<'a>,
+pub struct MultiConfig {
+    arg_matches: ArgMatches,
 }
 
-impl<'a> MultiConfig<'a> {
+impl<'a> MultiConfig {
     /// Create a new MultiConfig that can be passed into the value_m! and values_m! macros, containing
     /// several VirtualCommandLine objects in increasing priority order. That is, values found in
     /// VirtualCommandLine objects placed later in the list will override values found in
     /// VirtualCommandLine objects placed earlier.
     pub fn try_new(
-        schema: &App<'a, 'a>,
+        schema: &Command,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
-    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    ) -> Result<MultiConfig, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
         let merged: Box<dyn VirtualCommandLine> = vcls
@@ -68,11 +69,11 @@ impl<'a> MultiConfig<'a> {
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
         let arg_matches = match schema
             .clone()
-            .get_matches_from_safe(merged.args().into_iter())
+            .try_get_matches_from(merged.args().into_iter())
         {
             Ok(matches) => matches,
-            Err(e) => match e.kind {
-                clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
+            Err(e) => match e.kind() {
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
                     unreachable!("The program's entry check failed to catch this.")
                 }
                 _ => return Err(Self::make_configurator_error(e)),
@@ -105,9 +106,10 @@ impl<'a> MultiConfig<'a> {
             ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
             ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
         ];
+        let error_string = e.to_string();
         for (pattern, index_of_name, index_of_value) in invalid_value_patterns {
             if let Some(invalid_value_err) = MultiConfig::check_for_invalid_value_err(
-                &e.message,
+                &error_string,
                 pattern,
                 index_of_name,
                 index_of_value,
@@ -115,12 +117,12 @@ impl<'a> MultiConfig<'a> {
                 return invalid_value_err;
             };
         }
-        if e.message
+        if error_string
             .contains("The following required arguments were not provided:")
         {
-            let mut remaining_message = match e.message.find("USAGE:") {
-                Some(idx) => e.message[0..idx].to_string(),
-                None => e.message.to_string(),
+            let mut remaining_message = match error_string.find("USAGE:") {
+                Some(idx) => error_string[0..idx].to_string(),
+                None => error_string,
             };
             let required_value_regex = Regex::new("--(.*?) ").expect("Bad regex");
             let mut requireds: Vec<ParamError> = vec![];
@@ -136,11 +138,14 @@ impl<'a> MultiConfig<'a> {
             }
             return ConfiguratorError::new(requireds);
         }
-        ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", e.message))
+        ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", error_string))
     }
 
-    pub fn occurrences_of(&self, parameter: &str) -> u64 {
-        self.arg_matches.occurrences_of(parameter)
+    pub fn occurrences_of(&self, parameter: &str) -> usize {
+        match self.arg_matches.get_occurrences::<String>(parameter) {
+            None => 0,
+            Some(collection) => collection.count()
+        }
     }
 
     pub fn arg_matches_ref(&self) -> &ArgMatches {
@@ -325,12 +330,13 @@ impl VirtualCommandLine for EnvironmentVcl {
 }
 
 impl EnvironmentVcl {
-    pub fn new<'a>(schema: &App<'a, 'a>) -> EnvironmentVcl {
-        let opt_names: HashSet<String> = schema
-            .p
-            .opts
-            .iter()
-            .map(|opt| opt.b.name.to_string())
+    pub fn new<'a>(schema: &Command) -> EnvironmentVcl {
+        let arg_names: HashSet<String> = schema
+            .get_arguments()
+            .map(|arg| arg.get_long())
+            // TODO Try filter_map instead
+            .filter(|name_opt| name_opt.is_some())
+            .map(|name_not_opt| name_not_opt.expect("is_some() doesn't work").to_string())
             .collect();
         let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
@@ -338,7 +344,7 @@ impl EnvironmentVcl {
                 continue;
             }
             let lower_name = str::replace(&upper_name[5..].to_lowercase(), "_", "-");
-            if opt_names.contains(&lower_name) {
+            if arg_names.contains(&lower_name) {
                 let name = format!("--{}", lower_name);
                 vcl_args.push(Box::new(NameValueVclArg::new(&name, &value)));
             }
@@ -490,8 +496,8 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
 }
 
 #[cfg(not(feature = "no_test_share"))]
-impl<'a> MultiConfig<'a> {
-    pub fn new_test_only(arg_matches: ArgMatches<'a>) -> Self {
+impl MultiConfig {
+    pub fn new_test_only(arg_matches: ArgMatches) -> Self {
         Self { arg_matches }
     }
 }
@@ -501,9 +507,10 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
-    use clap::Arg;
+    use clap::{Arg, Command, value_parser};
     use std::fs::File;
     use std::io::Write;
+    use websocket::result::StatusCode::MultipleChoices;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {
@@ -574,24 +581,23 @@ pub mod tests {
 
     #[test]
     fn make_configurator_error_handles_unfamiliar_message() {
-        let result = MultiConfig::make_configurator_error(clap::Error {
-            message: "unfamiliar".to_string(),
-            kind: clap::ErrorKind::InvalidValue,
-            info: None,
-        });
+        let error = clap::Error::raw(clap::error::ErrorKind::InvalidValue, "unfamiliar");
+
+        let result = MultiConfig::make_configurator_error(error);
 
         assert_eq!(
             result,
-            ConfiguratorError::required("<unknown>", "Unfamiliar message: unfamiliar")
+            ConfiguratorError::required("<unknown>", "Unfamiliar message: error: unfamiliar")
         )
     }
 
     #[test]
     fn double_provided_optional_single_valued_parameter_with_no_default_produces_second_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -615,10 +621,11 @@ pub mod tests {
 
     #[test]
     fn first_provided_optional_single_valued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -638,10 +645,11 @@ pub mod tests {
 
     #[test]
     fn second_provided_optional_single_valued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(false),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -661,13 +669,13 @@ pub mod tests {
 
     #[test]
     fn double_provided_optional_multivalued_parameter_with_no_default_produces_second_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..))
                 .required(false)
-                .multiple(true)
-                .use_delimiter(true),
+                .value_parser(value_parser!(u64))
+                .value_delimiter(',')
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![
@@ -690,13 +698,13 @@ pub mod tests {
 
     #[test]
     fn first_provided_optional_multivalued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..))
+                .value_parser(value_parser!(u64))
                 .required(false)
-                .multiple(true)
-                .use_delimiter(true),
+                .value_delimiter(','),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![
@@ -715,13 +723,13 @@ pub mod tests {
 
     #[test]
     fn second_provided_optional_multivalued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..))
+                .value_parser(value_parser!(u64))
                 .required(false)
-                .multiple(true)
-                .use_delimiter(true),
+                .value_delimiter(','),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![String::new()])),
@@ -740,10 +748,11 @@ pub mod tests {
 
     #[test]
     fn first_provided_required_single_valued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -763,10 +772,11 @@ pub mod tests {
 
     #[test]
     fn second_provided_required_single_valued_parameter_with_no_default_produces_provided_value() {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -787,10 +797,11 @@ pub mod tests {
     #[test]
     fn first_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
     ) {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -812,10 +823,11 @@ pub mod tests {
     #[test]
     fn second_provided_required_single_valued_parameter_with_no_default_produces_provided_value_with_user_specified_flag(
     ) {
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
                 .required(true),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
@@ -837,18 +849,20 @@ pub mod tests {
     #[test]
     fn optional_single_valued_parameter_with_default_produces_provided_value_with_user_specified_flag(
     ) {
-        let schema = App::new("test")
+        let schema = Command::new("test")
             .arg(
-                Arg::with_name("numeric-arg")
+                Arg::new("numeric-arg")
                     .long("numeric-arg")
-                    .takes_value(true)
+                    .num_args(ValueRange::new(1..=1))
+                    .value_parser(value_parser!(u64))
                     .required(false)
                     .default_value("20"),
             )
             .arg(
-                Arg::with_name("missing-arg")
+                Arg::new("missing-arg")
                     .long("missing-arg")
-                    .takes_value(true)
+                    .num_args(ValueRange::new(1..=1))
+                    .value_parser(value_parser!(u64))
                     .required(false)
                     .default_value("88"),
             );
@@ -868,15 +882,37 @@ pub mod tests {
         assert!(user_specified_numeric);
         assert_eq!(Some(88), missing_arg_result);
         assert!(!user_specified_missing);
-        assert!(subject.arg_matches.is_present("missing-arg"));
+    }
+
+    #[test]
+    fn unspecified_optional_single_valued_parameter_without_default_correctly_shows_as_not_user_specified(
+    ) {
+        let schema = Command::new("test")
+            .arg(
+                Arg::new("missing-arg")
+                    .long("missing-arg")
+                    .num_args(ValueRange::new(1..=1))
+                    .value_parser(value_parser!(u64))
+                    .required(false)
+            );
+        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
+            String::new(),
+        ]))];
+        let subject = MultiConfig::try_new(&schema, vcls).unwrap();
+
+        let (missing_arg_result, user_specified_missing) =
+            value_user_specified_m!(subject, "missing-arg", u64);
+
+        assert_eq!(None, missing_arg_result);
+        assert!(!user_specified_missing);
     }
 
     #[test]
     fn existing_nonvalued_parameter_overrides_nonexistent_nonvalued_parameter() {
-        let schema = App::new("test").arg(
-            Arg::with_name("nonvalued")
+        let schema = Command::new("test").arg(
+            Arg::new("nonvalued")
                 .long("nonvalued")
-                .takes_value(false),
+                .num_args(ValueRange::new(0..=0))
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![String::new()])),
@@ -888,22 +924,22 @@ pub mod tests {
 
         let result = MultiConfig::try_new(&schema, vcls).unwrap();
 
-        assert!(result.arg_matches.is_present("nonvalued"));
+        assert!(result.arg_matches.get_one::<bool>("nonvalued").unwrap());
     }
 
     #[test]
-    fn clap_match_error_produces_panic() {
-        let schema = App::new("test")
+    fn clap_match_error_produces_configurator_error() {
+        let schema = Command::new("test")
             .arg(
-                Arg::with_name("numeric-arg")
+                Arg::new("numeric-arg")
                     .long("numeric-arg")
-                    .takes_value(true)
+                    .num_args(ValueRange::new(1..=1))
                     .required(true),
             )
             .arg(
-                Arg::with_name("another-arg")
+                Arg::new("another-arg")
                     .long("another-arg")
-                    .takes_value(true)
+                    .num_args(ValueRange::new(1..=1))
                     .required(true),
             );
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
@@ -963,10 +999,10 @@ pub mod tests {
     #[test]
     fn environment_vcl_works() {
         let _guard = EnvironmentGuard::new();
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
+        let schema = Command::new("test").arg(
+            Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         );
         std::env::set_var("MASQ_NUMERIC_ARG", "47");
 

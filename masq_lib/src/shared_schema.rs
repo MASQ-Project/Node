@@ -1,11 +1,15 @@
+use std::net::IpAddr;
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
-use clap::{App, Arg};
+use clap::{Arg, Command, value_parser};
+use clap::builder::{IntoResettable, PossibleValuesParser, StyledStr, ValueRange};
 use lazy_static::lazy_static;
+use toml::de::ValueDeserializer;
+use crate::shared_schema::common_validators::InsecurePort;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -202,7 +206,11 @@ lazy_static! {
         you know what you're doing. Must be between {} and {}.",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
-    pub static ref CLANDESTINE_PORT_HELP: String = format!(
+}
+
+#[allow(non_snake_case)]
+fn CLANDESTINE_PORT_HELP() -> String {
+    format!(
         "The port this Node will advertise to other Nodes at which clandestine traffic will be \
          received. If you don't specify a clandestine port, the Node will choose an unused \
          one at random on first startup, then use that one for every subsequent run unless \
@@ -210,44 +218,44 @@ lazy_static! {
          meaningless except in --neighborhood-mode standard. \
          Must be between {} and {} [default: last used port]",
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
-    );
-    pub static ref GAS_PRICE_HELP: String = format!(
-       "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
+    )
+}
+
+#[allow(non_snake_case)]
+fn GAS_PRICE_HELP() -> String {
+    format!(
+        "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
-       DEFAULT_GAS_PRICE);
+        DEFAULT_GAS_PRICE)
 }
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
-pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("config-file")
+pub fn config_file_arg<'a>() -> Arg {
+    Arg::new("config-file")
         .long("config-file")
         .value_name("FILE-PATH")
         .default_value("config.toml")
-        .min_values(0)
-        .max_values(1)
+        .num_args(ValueRange::new(0..1))
         .required(false)
         .help(CONFIG_FILE_HELP)
 }
 
-pub fn data_directory_arg(help: &str) -> Arg {
-    Arg::with_name("data-directory")
+pub fn data_directory_arg(help: String) -> Arg {
+    Arg::new("data-directory")
         .long("data-directory")
         .value_name("DATA-DIRECTORY")
         .required(false)
-        .min_values(0)
-        .max_values(1)
-        .empty_values(false)
+        .num_args(ValueRange::new(0..1))
         .help(help)
 }
 
-pub fn chain_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("chain")
+pub fn chain_arg<'a>() -> Arg {
+    Arg::new("chain")
         .long("chain")
         .value_name("CHAIN")
-        .min_values(0)
-        .max_values(1)
-        .possible_values(official_chain_names())
+        .num_args(ValueRange::new(0..1))
+        .value_parser(PossibleValuesParser::new(official_chain_names()))
         .help(CHAIN_HELP)
 }
 
@@ -261,220 +269,203 @@ pub fn official_chain_names() -> &'static [&'static str] {
     ]
 }
 
-pub fn db_password_arg(help: &str) -> Arg {
-    Arg::with_name("db-password")
+pub fn db_password_arg(help: String) -> Arg {
+    Arg::new("db-password")
         .long("db-password")
         .value_name("DB-PASSWORD")
         .required(false)
-        .min_values(0)
-        .max_values(1)
+        .num_args(ValueRange::new(0..1))
         .help(help)
 }
 
-pub fn earning_wallet_arg<F>(help: &str, validator: F) -> Arg
+pub fn earning_wallet_arg<F>(help: String, validator: F) -> Arg
 where
     F: 'static,
     F: Fn(String) -> Result<(), String>,
 {
-    Arg::with_name("earning-wallet")
+    Arg::new("earning-wallet")
         .long("earning-wallet")
         .value_name("EARNING-WALLET")
         .required(false)
-        .min_values(0)
-        .max_values(1)
-        .validator(validator)
+        .num_args(ValueRange::new(0..1))
+        .value_parser(value_parser!(common_validators::Wallet))
         .help(help)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("real-user")
+pub fn real_user_arg<'a>() -> Arg {
+    Arg::new("real-user")
         .long("real-user")
         .value_name("REAL-USER")
         .required(false)
-        .min_values(0)
-        .max_values(1)
-        .validator(common_validators::validate_real_user)
+        .num_args(ValueRange::new(0..1))
+        .value_parser(value_parser!(common_validators::RealUser))
         .help(REAL_USER_HELP)
 }
 
 #[cfg(target_os = "windows")]
-pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("real-user")
+pub fn real_user_arg<'a>() -> Arg {
+    Arg::new("real-user")
         .long("real-user")
         .value_name("REAL-USER")
         .required(false)
         .takes_value(true)
-        .validator(common_validators::validate_real_user)
+        .value_delimiter(value_parser!(RealUser))
         .hidden(true)
 }
 
-pub fn ui_port_arg(help: &str) -> Arg {
-    Arg::with_name("ui-port")
+pub fn ui_port_arg(help: String) -> Arg {
+    Arg::new("ui-port")
         .long("ui-port")
         .value_name("UI-PORT")
-        .takes_value(true)
-        .default_value(&DEFAULT_UI_PORT_VALUE)
-        .validator(common_validators::validate_ui_port)
+        .default_value(DEFAULT_UI_PORT_VALUE.as_str())
+        .value_parser(value_parser!(common_validators::InsecurePort))
         .help(help)
 }
 
-fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -> Arg<'a, 'a> {
-    Arg::with_name(name)
+fn common_parameter_with_separate_u64_values(name: &'static str, help: String) -> Arg {
+    Arg::new(name)
         .long(name)
-        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
-        .min_values(0)
-        .max_values(1)
-        .validator(common_validators::validate_separate_u64_values)
+        .value_name(name.to_uppercase())
+        .num_args(ValueRange::new(0..1))
+        .value_parser(value_parser!(common_validators::VecU64))
         .help(help)
 }
 
-pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
+pub fn shared_app(head: Command) -> Command {
     head.arg(
-        Arg::with_name("blockchain-service-url")
+        Arg::new("blockchain-service-url")
             .long("blockchain-service-url")
             .value_name("URL")
-            .min_values(0)
-            .max_values(1)
+            .num_args(ValueRange::new(0..1))
             .help(BLOCKCHAIN_SERVICE_HELP),
     )
     .arg(chain_arg())
     .arg(
-        Arg::with_name("clandestine-port")
+        Arg::new("clandestine-port")
             .long("clandestine-port")
             .value_name("CLANDESTINE-PORT")
-            .min_values(0)
-            .validator(common_validators::validate_clandestine_port)
-            .help(&CLANDESTINE_PORT_HELP),
+            .num_args(ValueRange::new(0..))
+            .value_parser(value_parser!(common_validators::InsecurePort))
+            .help(CLANDESTINE_PORT_HELP()),
     )
     .arg(config_file_arg())
     .arg(
-        Arg::with_name("consuming-private-key")
+        Arg::new("consuming-private-key")
             .long("consuming-private-key")
             .value_name("PRIVATE-KEY")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_private_key)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(value_parser!(common_validators::PrivateKey))
             .help(CONSUMING_PRIVATE_KEY_HELP),
     )
     .arg(
-        Arg::with_name("crash-point")
+        Arg::new("crash-point")
             .long("crash-point")
             .value_name("CRASH-POINT")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&CrashPoint::variants())
-            .case_insensitive(true)
-            .hidden(true),
+            .num_args(ValueRange::new(0..1))
+            .value_parser(PossibleValuesParser::new(&["error", "message", "none", "panic"]))
+            .ignore_case(true)
+            .hide(true),
     )
-    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
-    .arg(db_password_arg(DB_PASSWORD_HELP))
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP.to_string()))
+    .arg(db_password_arg(DB_PASSWORD_HELP.to_string()))
     .arg(
-        Arg::with_name("dns-servers")
+        Arg::new("dns-servers")
             .long("dns-servers")
             .value_name("DNS-SERVERS")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_ip_addresses)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(value_parser!(common_validators::IpAddrs))
             .help(DNS_SERVERS_HELP),
     )
     .arg(earning_wallet_arg(
-        EARNING_WALLET_HELP,
+        EARNING_WALLET_HELP.to_string(),
         common_validators::validate_ethereum_address,
     ))
     .arg(
-        Arg::with_name("fake-public-key")
+        Arg::new("fake-public-key")
             .long("fake-public-key")
             .value_name("FAKE-PUBLIC-KEY")
-            .min_values(0)
-            .max_values(1)
-            .hidden(true),
+            .num_args(ValueRange::new(0..1))
+            .hide(true),
     )
     .arg(
-        Arg::with_name("gas-price")
+        Arg::new("gas-price")
             .long("gas-price")
             .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
+            .num_args(ValueRange::new(0..1))
+            .value_parser(value_parser!(u64))
+            .help(GAS_PRICE_HELP()),
     )
     .arg(
-        Arg::with_name("ip")
+        Arg::new("ip")
             .long("ip")
             .value_name("IP")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_ip_address)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(value_parser!(IpAddr))
             .help(IP_ADDRESS_HELP),
     )
     .arg(
-        Arg::with_name("log-level")
+        Arg::new("log-level")
             .long("log-level")
             .value_name("FILTER")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["off", "error", "warn", "info", "debug", "trace"])
-            .case_insensitive(true)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(PossibleValuesParser::new(&["off", "error", "warn", "info", "debug", "trace"]))
+            .ignore_case(true)
             .help(LOG_LEVEL_HELP),
     )
     .arg(
-        Arg::with_name("mapping-protocol")
+        Arg::new("mapping-protocol")
             .long("mapping-protocol")
             .value_name("MAPPING-PROTOCOL")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["pcp", "pmp", "igdp"])
-            .case_insensitive(true)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(PossibleValuesParser::new(&["pcp", "pmp", "igdp"]))
+            .ignore_case(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
     .arg(
-        Arg::with_name("min-hops")
+        Arg::new("min-hops")
             .long("min-hops")
             .value_name("MIN_HOPS")
             .required(false)
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["1", "2", "3", "4", "5", "6"])
+            .num_args(ValueRange::new(0..1))
+            .value_parser(PossibleValuesParser::new(&["1", "2", "3", "4", "5", "6"]))
             .help(MIN_HOPS_HELP),
     )
     .arg(
-        Arg::with_name("neighborhood-mode")
+        Arg::new("neighborhood-mode")
             .long("neighborhood-mode")
             .value_name("NEIGHBORHOOD-MODE")
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["zero-hop", "originate-only", "consume-only", "standard"])
-            .case_insensitive(true)
+            .num_args(ValueRange::new(0..1))
+            .value_parser(PossibleValuesParser::new(&["zero-hop", "originate-only", "consume-only", "standard"]))
+            .ignore_case(true)
             .help(NEIGHBORHOOD_MODE_HELP),
     )
     .arg(
-        Arg::with_name("neighbors")
+        Arg::new("neighbors")
             .long("neighbors")
             .value_name("NODE-DESCRIPTORS")
-            .min_values(0)
+            .num_args(ValueRange::new(0..))
             .help(NEIGHBORS_HELP),
     )
     .arg(real_user_arg())
     .arg(
-        Arg::with_name("scans")
+        Arg::new("scans")
             .long("scans")
             .value_name("SCANS")
-            .takes_value(true)
-            .possible_values(&["on", "off"])
+            .value_parser(PossibleValuesParser::new(&["on", "off"]))
             .help(SCANS_HELP),
     )
     .arg(common_parameter_with_separate_u64_values(
         "scan-intervals",
-        SCAN_INTERVALS_HELP,
+        SCAN_INTERVALS_HELP.to_string(),
     ))
     .arg(common_parameter_with_separate_u64_values(
         "rate-pack",
-        RATE_PACK_HELP,
+        RATE_PACK_HELP.to_string(),
     ))
     .arg(common_parameter_with_separate_u64_values(
         "payment-thresholds",
-        PAYMENT_THRESHOLDS_HELP,
+        PAYMENT_THRESHOLDS_HELP.to_string(),
     ))
 }
 
@@ -482,6 +473,7 @@ pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use std::net::IpAddr;
+    use std::path::PathBuf;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
 
@@ -489,6 +481,25 @@ pub mod common_validators {
         match IpAddr::from_str(&address) {
             Ok(_) => Ok(()),
             Err(_) => Err(address),
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct IpAddrs {
+        ips: Vec<IpAddr>,
+    }
+
+    impl FromStr for IpAddrs {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            todo!()
+        }
+    }
+
+    impl Into<Vec<IpAddr>> for IpAddrs {
+        fn into(self) -> Vec<IpAddr> {
+            todo!()
         }
     }
 
@@ -510,13 +521,34 @@ pub mod common_validators {
     }
 
     pub fn validate_clandestine_port(clandestine_port: String) -> Result<(), String> {
+        todo! ("Use InsecurePort instead");
         match clandestine_port.parse::<u16>() {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
             _ => Err(clandestine_port),
         }
     }
 
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct PrivateKey {
+        pub data: Vec<u8>,
+    }
+
+    impl FromStr for PrivateKey {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            todo!()
+        }
+    }
+
+    impl Into<String> for PrivateKey {
+        fn into(self) -> String {
+            todo!()
+        }
+    }
+
     pub fn validate_private_key(key: String) -> Result<(), String> {
+        todo! ("UsePrivateKey instead");
         if Regex::new("^[0-9a-fA-F]{64}$")
             .expect("Failed to compile regular expression")
             .is_match(&key)
@@ -531,6 +563,19 @@ pub mod common_validators {
         match gas_price.parse::<u64>() {
             Ok(gp) if gp > 0 => Ok(()),
             _ => Err(gas_price),
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct Wallet {
+        pub address: Vec<u8>
+    }
+
+    impl FromStr for Wallet {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            todo!()
         }
     }
 
@@ -576,18 +621,49 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_real_user(triple: String) -> Result<(), String> {
-        if Regex::new("^[0-9]*:[0-9]*:.*$")
-            .expect("Failed to compile regular expression")
-            .is_match(&triple)
-        {
-            Ok(())
-        } else {
-            Err(triple)
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct RealUser {
+        pub uid: usize,
+        pub gid: usize,
+        pub home_dir: PathBuf,
+    }
+
+    impl FromStr for RealUser {
+        type Err = String;
+
+        fn from_str(triple: &str) -> Result<Self, Self::Err> {
+            if let Some(captures) = Regex::new("^([0-9]*):([0-9]*):(.*)$")
+                .expect("Failed to compile regular expression")
+                .captures(&triple)
+            {
+                todo! ()
+            } else {
+                todo! ()
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct InsecurePort {
+        port: u16
+    }
+
+    impl FromStr for InsecurePort {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            todo!()
+        }
+    }
+
+    impl Into<u16> for InsecurePort {
+        fn into(self) -> u16 {
+            todo!()
         }
     }
 
     pub fn validate_ui_port(port: String) -> Result<(), String> {
+        todo! ("Use InsecurePort instead");
         match str::parse::<u16>(&port) {
             Ok(port_number) if port_number < LOWEST_USABLE_INSECURE_PORT => Err(port),
             Ok(_) => Ok(()),
@@ -599,6 +675,19 @@ pub mod common_validators {
         match str::parse::<u16>(&str) {
             Ok(num) if num > 0 => Ok(()),
             _ => Err(str),
+        }
+    }
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct VecU64 {
+        data: Vec<u64>
+    }
+
+    impl FromStr for VecU64 {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            todo!()
         }
     }
 
@@ -666,10 +755,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
+    use std::path::PathBuf;
+    use std::str::FromStr;
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::validate_non_zero_u16;
+    use crate::shared_schema::common_validators::{RealUser, validate_non_zero_u16};
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -840,7 +930,7 @@ mod tests {
             )
         );
         assert_eq!(
-            CLANDESTINE_PORT_HELP.to_string(),
+            CLANDESTINE_PORT_HELP(),
             format!(
                 "The port this Node will advertise to other Nodes at which clandestine traffic will be \
                  received. If you don't specify a clandestine port, the Node will choose an unused \
@@ -852,7 +942,7 @@ mod tests {
             )
         );
         assert_eq!(
-            GAS_PRICE_HELP.to_string(),
+            GAS_PRICE_HELP(),
             format!(
                 "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
                  If left unspecified, MASQ Node will use the previously stored value (Default {}).",
@@ -1055,6 +1145,45 @@ mod tests {
         let result = common_validators::validate_gas_price("0x0".to_string());
 
         assert_eq!(result, Err(String::from("0x0")));
+    }
+
+    #[test]
+    fn validate_real_user_happy_path() {
+        let result = RealUser::from_str ("1234:5678:/home/booga");
+
+        assert_eq! (result, Ok (RealUser {
+            uid: 1234,
+            gid: 5678,
+            home_dir: PathBuf::from_str("/home/booga").unwrap(),
+        }))
+    }
+
+    #[test]
+    fn validate_real_user_complains_about_value_that_doesnt_match_regex() {
+        let result = RealUser::from_str ("not enough colons");
+
+        assert_eq! (result, Err ("--real_user should look like <uid>:<gid>:<home directory>, not 'not enough colons'".to_string()));
+    }
+
+    #[test]
+    fn validate_real_user_cant_handle_uid_too_big() {
+        let result = RealUser::from_str ("5000000000:0:/home/dir");
+
+        assert_eq! (result, Err ("--real_user specified invalid uid: 5000000000".to_string()));
+    }
+
+    #[test]
+    fn validate_real_user_cant_handle_gid_too_big() {
+        let result = RealUser::from_str ("0:5_000_000_000:/home/dir");
+
+        assert_eq! (result, Err ("--real_user specified invalid gid: 5000000000".to_string()));
+    }
+
+    #[test]
+    fn validate_real_user_cant_handle_home_directory_that_isnt_absolute() {
+        let result = RealUser::from_str ("1234:5678:home/dir");
+
+        assert_eq! (result, Err ("--real_user specified non-absolute home directory: 'home/dir'".to_string()));
     }
 
     #[test]

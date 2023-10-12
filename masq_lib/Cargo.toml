@@ -9,7 +9,7 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.13.1"
-clap = "2.33.3"
+clap = {version = "4.4.6", features = [ "string" ]}
 const_format = "0.2.22"
 crossbeam-channel = "0.5.1"
 dirs = "5.0.1"
