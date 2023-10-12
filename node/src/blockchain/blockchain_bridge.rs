@@ -1670,8 +1670,8 @@ mod tests {
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(1234))
-            .set_start_block_result(Err(PersistentConfigError::TransactionError))
-            .max_block_count_result(Ok(Some(10000u64)));
+            .max_block_count_result(Ok(Some(10000u64)))
+            .set_start_block_result(Err(PersistentConfigError::TransactionError));
         let lower_interface = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
