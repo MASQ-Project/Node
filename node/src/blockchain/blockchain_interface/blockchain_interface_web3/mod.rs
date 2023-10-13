@@ -12,8 +12,8 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_payable_tools::{
     BatchPayableTools, BatchPayableToolsReal,
 };
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
-use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError, ResultForReceipt, RetrievedBlockchainTransactions};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::masq_lib::utils::ExpectValue;
@@ -80,7 +80,7 @@ where
     web3: Rc<Web3<T>>,
     web3_batch: Rc<Web3<Batch<T>>>,
     batch_payable_tools: Box<dyn BatchPayableTools<T>>,
-    lower_interface: Box<dyn LowerBCI>,
+    lower_interface: Box<dyn LowBlockchainInt>,
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceWeb3<T>
@@ -321,7 +321,7 @@ where
             .wait()
     }
 
-    fn lower_interface(&self) -> &dyn LowerBCI {
+    fn lower_interface(&self) -> &dyn LowBlockchainInt {
         &*self.lower_interface
     }
 }
@@ -337,7 +337,7 @@ where
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
-        let lower_level_blockchain_interface = Box::new(LowerBCIWeb3::new(
+        let lower_level_blockchain_interface = Box::new(LowBlockchainIntWeb3::new(
             Rc::clone(&web3),
             Rc::clone(&web3_batch),
             contract,
@@ -633,7 +633,7 @@ mod tests {
         TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
-        test_blockchain_interface_is_connected_and_functioning, LowerBCIMock,
+        test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
     };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface, PayableTransactionError,
@@ -1065,14 +1065,14 @@ mod tests {
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(444_444_444);
         let transaction_id = U256::from(23);
-        let blockchain_interface_helper = LowerBCIMock::default()
+        let lower_blockchain_interface = LowBlockchainIntMock::default()
             .get_transaction_fee_balance_params(&get_transaction_fee_balance_params_arc)
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_params(&get_masq_balance_params_arc)
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_params(&get_transactions_id_params_arc)
             .get_transaction_id_result(Ok(transaction_id));
-        subject.lower_interface = Box::new(blockchain_interface_helper);
+        subject.lower_interface = Box::new(lower_blockchain_interface);
 
         let result = subject
             .build_blockchain_agent(&wallet, &persistent_config)
@@ -1131,7 +1131,7 @@ mod tests {
     }
 
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
-        blockchain_interface_helper: LowerBCIMock,
+        lower_blockchain_interface: LowBlockchainIntMock,
         expected_err_factory: F,
     ) where
         F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
@@ -1144,7 +1144,7 @@ mod tests {
             make_fake_event_loop_handle(),
             chain,
         );
-        subject.lower_interface = Box::new(blockchain_interface_helper);
+        subject.lower_interface = Box::new(lower_blockchain_interface);
 
         let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
@@ -1158,7 +1158,7 @@ mod tests {
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
-        let lower_interface = LowerBCIMock::default()
+        let lower_interface = LowBlockchainIntMock::default()
             .get_transaction_fee_balance_result(Err(BlockchainError::InvalidAddress));
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionFeeBalance(
@@ -1176,7 +1176,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let transaction_fee_balance = U256::from(123_456_789);
-        let lower_interface = LowerBCIMock::default()
+        let lower_interface = LowBlockchainIntMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Err(BlockchainError::InvalidResponse));
         let expected_err_factory = |wallet: &Wallet| {
@@ -1196,7 +1196,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_id() {
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(500_000_000);
-        let lower_interface = LowerBCIMock::default()
+        let lower_interface = LowBlockchainIntMock::default()
             .get_transaction_fee_balance_result(Ok(transaction_fee_balance))
             .get_masq_balance_result(Ok(masq_balance))
             .get_transaction_id_result(Err(BlockchainError::InvalidResponse));

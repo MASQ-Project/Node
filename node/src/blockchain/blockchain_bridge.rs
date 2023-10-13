@@ -539,7 +539,7 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
     use crate::blockchain::blockchain_interface::lower_level_interface::LatestBlockNumber;
-    use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
+    use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -1123,7 +1123,7 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(ScanError))
             .start()
             .recipient();
-        let lower_interface = LowerBCIMock::default()
+        let lower_interface = LowBlockchainIntMock::default()
             .get_block_number_result(LatestBlockNumber::Ok(U64::from(1234u64)));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
@@ -1419,7 +1419,7 @@ mod tests {
             ],
         };
         let lower_interface =
-            LowerBCIMock::default().get_block_number_result(LatestBlockNumber::Err(
+            LowBlockchainIntMock::default().get_block_number_result(LatestBlockNumber::Err(
                 BlockchainError::QueryFailed("Failed to read the latest block number".to_string()),
             ));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
@@ -1512,7 +1512,8 @@ mod tests {
             ],
         };
         let latest_block_number = LatestBlockNumber::Ok(1024u64.into());
-        let lower_interface = LowerBCIMock::default().get_block_number_result(latest_block_number);
+        let lower_interface =
+            LowBlockchainIntMock::default().get_block_number_result(latest_block_number);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
@@ -1578,7 +1579,8 @@ mod tests {
     #[test]
     fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
         init_test_logging();
-        let lower_interface = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
+        let lower_interface =
+            LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 7,
@@ -1644,7 +1646,8 @@ mod tests {
         expected = "Cannot retrieve start block from database; payments to you may not be processed: TransactionError"
     )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_read() {
-        let lower_interface = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
+        let lower_interface =
+            LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface =
             BlockchainInterfaceMock::default().lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
@@ -1672,7 +1675,8 @@ mod tests {
             .start_block_result(Ok(1234))
             .max_block_count_result(Ok(Some(10000u64)))
             .set_start_block_result(Err(PersistentConfigError::TransactionError));
-        let lower_interface = LowerBCIMock::default().get_block_number_result(Ok(0u64.into()));
+        let lower_interface =
+            LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 1234,

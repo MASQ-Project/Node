@@ -12,8 +12,8 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RetrievedBlockchainTransactions,
 };
-use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
-use crate::blockchain::blockchain_interface::test_utils::LowerBCIMock;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
+use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
@@ -78,7 +78,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-    helpers_result: Option<Box<LowerBCIMock>>,
+    lower_interface_result: Option<Box<LowBlockchainIntMock>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -134,8 +134,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn lower_interface(&self) -> &dyn LowerBCI {
-        self.helpers_result.as_ref().unwrap().as_ref()
+    fn lower_interface(&self) -> &dyn LowBlockchainInt {
+        self.lower_interface_result.as_ref().unwrap().as_ref()
     }
 }
 
@@ -212,8 +212,11 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn lower_interface_results(mut self, aggregated_results: Box<LowerBCIMock>) -> Self {
-        self.helpers_result = Some(aggregated_results);
+    pub fn lower_interface_results(
+        mut self,
+        aggregated_results: Box<LowBlockchainIntMock>,
+    ) -> Self {
+        self.lower_interface_result = Some(aggregated_results);
         self
     }
 

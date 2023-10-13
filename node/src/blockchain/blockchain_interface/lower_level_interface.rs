@@ -5,7 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U64;
 use web3::types::U256;
 
-pub trait LowerBCI {
+pub trait LowBlockchainInt {
     fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
 
     fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
