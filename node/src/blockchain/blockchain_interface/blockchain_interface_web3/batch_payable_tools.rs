@@ -92,8 +92,10 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::batch_payable_tools::{
+        BatchPayableTools, BatchPayableToolsReal,
+    };
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::test_utils::recorder::make_recorder;
     use actix::{Actor, System};

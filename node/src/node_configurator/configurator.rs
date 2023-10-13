@@ -40,7 +40,7 @@ use masq_lib::constants::{
     UNKNOWN_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::logger::Logger;
-use masq_lib::utils::derivation_path;
+use masq_lib::utils::{derivation_path, to_string};
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -438,11 +438,7 @@ impl Configurator {
         let mnemonic = Bip39::mnemonic(mnemonic_type, language);
         let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
         let seed = Bip39::seed(&mnemonic, &mnemonic_passphrase);
-        let phrase_words: Vec<String> = mnemonic
-            .into_phrase()
-            .split(' ')
-            .map(|w| w.to_string())
-            .collect();
+        let phrase_words: Vec<String> = mnemonic.into_phrase().split(' ').map(to_string).collect();
         Ok((seed, phrase_words))
     }
 
@@ -566,7 +562,7 @@ impl Configurator {
                 .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(|p| p.to_string());
+                .map(to_string);
         let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) =
             match good_password_opt {
                 Some(password) => {

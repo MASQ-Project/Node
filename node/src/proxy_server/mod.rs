@@ -24,7 +24,7 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ExpectedService, UpdateNodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
@@ -60,7 +60,7 @@ struct ProxyServerOutSubs {
     hopper: Recipient<IncipientCoresPackage>,
     accountant: Recipient<ReportServicesConsumedMessage>,
     route_source: Recipient<RouteQueryMessage>,
-    update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
     add_route: Recipient<AddRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -267,7 +267,7 @@ impl ProxyServer {
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
                         .update_node_record_metadata
-                        .try_send(NodeRecordMetadataMessage {
+                        .try_send(UpdateNodeRecordMetadataMessage {
                             public_key: exit_public_key.clone(),
                             metadata_change: NRMetadataChange::AddUnreachableHost {
                                 hostname: server_name,
@@ -1072,7 +1072,7 @@ mod tests {
             hopper: recipient!(addr, IncipientCoresPackage),
             accountant: recipient!(addr, ReportServicesConsumedMessage),
             route_source: recipient!(addr, RouteQueryMessage),
-            update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -3787,10 +3787,10 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
-        let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        let record = neighborhood_recording.get_record::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(
             record,
-            &NodeRecordMetadataMessage {
+            &UpdateNodeRecordMetadataMessage {
                 public_key: exit_public_key,
                 metadata_change: NRMetadataChange::AddUnreachableHost {
                     hostname: "server.com".to_string()
@@ -3851,7 +3851,8 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
+        let record_opt =
+            neighborhood_recording.get_record_opt::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
     }
 

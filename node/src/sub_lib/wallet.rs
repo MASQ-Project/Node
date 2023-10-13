@@ -132,6 +132,12 @@ impl Wallet {
         }
     }
 
+    pub fn null() -> Self {
+        Wallet {
+            kind: WalletKind::Uninitialized,
+        }
+    }
+
     pub fn string_address_from_keypair(&self) -> String {
         format!("{:#x}", self.address())
     }
@@ -503,6 +509,18 @@ mod tests {
         let result = wallet.string_address_from_keypair();
 
         assert_eq!(result, "0x28330c4b886fc83bd6e3409a9eae776c19403c2e")
+    }
+
+    #[test]
+    fn null_wallet() {
+        let result = Wallet::null();
+
+        assert_eq!(
+            result,
+            Wallet {
+                kind: WalletKind::Uninitialized
+            }
+        )
     }
 
     #[test]

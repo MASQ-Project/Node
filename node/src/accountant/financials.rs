@@ -24,7 +24,7 @@ where
 }
 
 pub(in crate::accountant) mod visibility_restricted_module {
-    use crate::accountant::db_access_objects::dao_utils::CustomQuery;
+    use crate::accountant::db_access_objects::utils::CustomQuery;
     use crate::accountant::financials::{fits_in_0_to_i64max_for_u64, OPCODE_FINANCIALS};
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, VALUE_EXCEEDS_ALLOWED_LIMIT,
@@ -111,7 +111,7 @@ pub(in crate::accountant) mod visibility_restricted_module {
 #[cfg(test)]
 mod tests {
     use super::visibility_restricted_module::check_query_is_within_tech_limits;
-    use crate::accountant::db_access_objects::dao_utils::CustomQuery;
+    use crate::accountant::db_access_objects::utils::CustomQuery;
     use crate::accountant::financials::fits_in_0_to_i64max_for_u64;
     use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
     use masq_lib::messages::TopRecordsOrdering::Age;

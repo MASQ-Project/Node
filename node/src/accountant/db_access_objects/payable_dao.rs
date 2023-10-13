@@ -10,8 +10,8 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::db_access_objects::dao_utils;
-use crate::accountant::db_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::utils;
+use crate::accountant::db_access_objects::utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
@@ -46,21 +46,6 @@ pub struct PayableAccount {
     pub balance_wei: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PendingPayable {
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
-impl PendingPayable {
-    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
-        Self {
-            recipient_wallet,
-            hash,
-        }
-    }
 }
 
 pub trait PayableDao: Debug + Send {
@@ -207,7 +192,7 @@ impl PayableDao for PayableDaoReal {
                         balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                             high_b, low_b,
                         )),
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: None,
                     })
                 }
@@ -293,7 +278,7 @@ impl PayableDao for PayableDaoReal {
                         balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                             high_bytes, low_bytes,
                         )),
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: match rowid {
                             Some(rowid) => Some(PendingPayableId::new(
                                 u64::try_from(rowid).unwrap(),
@@ -349,7 +334,7 @@ impl PayableDaoReal {
                 balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                     high_bytes, low_bytes,
                 )),
-                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                 pending_payable_opt: rowid_opt.map(|rowid| {
                     let hash_str =
                         hash_opt.expect("database corrupt; missing hash but existing rowid");
@@ -402,10 +387,10 @@ impl TableNameDAO for PayableDaoReal {
 
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
-    use crate::accountant::db_access_objects::dao_utils::{
+    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
+    use crate::accountant::db_access_objects::utils::{
         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
-    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -552,7 +537,7 @@ mod mark_pending_payable_associated_functions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
     use crate::accountant::test_utils::{
@@ -1585,7 +1570,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = utils::now_time_t();
         insert_payable_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",

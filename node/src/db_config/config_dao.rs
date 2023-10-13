@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::dao_utils::DaoFactoryReal;
+use crate::accountant::db_access_objects::utils::DaoFactoryReal;
 use crate::database::connection_wrapper::ConnectionWrapper;
+use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
 
@@ -22,7 +23,7 @@ impl ConfigDaoRecord {
     pub fn new(name: &str, value: Option<&str>, encrypted: bool) -> Self {
         Self {
             name: name.to_string(),
-            value_opt: value.map(|x| x.to_string()),
+            value_opt: value.map(to_string),
             encrypted,
         }
     }
