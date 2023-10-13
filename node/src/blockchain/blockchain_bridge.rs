@@ -347,37 +347,32 @@ impl BlockchainBridge {
         msg: ReportAccountsPayable,
     ) -> Box<dyn Future<Item = (), Error = String>> {
         let skeleton_opt = msg.response_skeleton_opt;
-        let sent_payable_subs_opt = self
+        let sent_payable_subs = self
             .sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .clone();
 
+        let send_message_if_failure = move |msg: SentPayables| {
+            sent_payable_subs.try_send(msg).expect("Accountant is dead");
+        };
+
+        let send_message_if_successful = send_message_if_failure.clone();
+
         return Box::new(
             self.process_payments(&msg)
-                .map_err(move |e| {
-                    sent_payable_subs_opt
-                        .try_send(SentPayables {
-                            payment_procedure_result: Err(e),
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
+                .map_err(move |e: PayableTransactionError| {
+                    send_message_if_failure(SentPayables {
+                        payment_procedure_result: Err(e.clone()),
+                        response_skeleton_opt: skeleton_opt,
+                    });
                     format!("ReportAccountsPayable: {}", e)
                 })
                 .and_then(move |payment_result| {
-                    // let local_processing_result = match &payment_result {
-                    //     Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
-                    //     Ok(_) => Ok(()),
-                    // };
-
-                    sent_payable_subs_opt
-                        .try_send(SentPayables {
-                            payment_procedure_result: Ok(payment_result),
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
-                    // local_processing_result
+                    send_message_if_successful(SentPayables {
+                        payment_procedure_result: Ok(payment_result),
+                        response_skeleton_opt: skeleton_opt,
+                    });
                     Ok(())
                 }),
         );

@@ -48,7 +48,7 @@ impl<T: BatchTransport> Default for BatchPayableToolsReal<T> {
     }
 }
 
-impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T> {
+impl<T: BatchTransport + Debug + 'static> BatchPayableTools<T> for BatchPayableToolsReal<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
