@@ -3,14 +3,14 @@
 use crate::shared_schema::{ConfiguratorError, ParamError};
 #[allow(unused_imports)]
 use clap::{Command, ArgMatches};
-use clap::builder::{ValueRange};
+use clap::builder::ValueRange;
+use clap::parser::ValueSource;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use clap::parser::ValueSource;
 use toml::value::Table;
 use toml::Value;
 
@@ -53,7 +53,7 @@ pub struct MultiConfig {
     arg_matches: ArgMatches,
 }
 
-impl<'a> MultiConfig {
+impl MultiConfig {
     /// Create a new MultiConfig that can be passed into the value_m! and values_m! macros, containing
     /// several VirtualCommandLine objects in increasing priority order. That is, values found in
     /// VirtualCommandLine objects placed later in the list will override values found in
@@ -118,9 +118,9 @@ impl<'a> MultiConfig {
             };
         }
         if error_string
-            .contains("The following required arguments were not provided:")
+            .contains("error: the following required arguments were not provided:")
         {
-            let mut remaining_message = match error_string.find("USAGE:") {
+            let mut remaining_message = match error_string.find("Usage:") {
                 Some(idx) => error_string[0..idx].to_string(),
                 None => error_string,
             };
@@ -330,7 +330,7 @@ impl VirtualCommandLine for EnvironmentVcl {
 }
 
 impl EnvironmentVcl {
-    pub fn new<'a>(schema: &Command) -> EnvironmentVcl {
+    pub fn new(schema: &Command) -> EnvironmentVcl {
         let arg_names: HashSet<String> = schema
             .get_arguments()
             .map(|arg| arg.get_long())
@@ -510,7 +510,6 @@ pub mod tests {
     use clap::{Arg, Command, value_parser};
     use std::fs::File;
     use std::io::Write;
-    use websocket::result::StatusCode::MultipleChoices;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {
@@ -948,8 +947,8 @@ pub mod tests {
         let result = MultiConfig::try_new(&schema, vcls).err().unwrap();
 
         let expected =
-            ConfiguratorError::required("another-arg", "ParamError parameter not provided")
-                .another_required("numeric-arg", "ParamError parameter not provided");
+            ConfiguratorError::required("numeric-arg", "ParamError parameter not provided")
+                .another_required("another-arg", "ParamError parameter not provided");
         assert_eq!(result, expected);
     }
 
