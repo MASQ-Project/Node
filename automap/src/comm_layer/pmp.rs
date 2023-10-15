@@ -215,7 +215,7 @@ impl Transactor for PmpTransactor {
 impl Default for PmpTransactor {
     fn default() -> Self {
         Self {
-            mapping_adder_arc: Arc::new(Mutex::new(Box::new(MappingAdderReal::default()))),
+            mapping_adder_arc: Arc::new(Mutex::new(Box::<MappingAdderReal>::default())),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
             housekeeper_commander_opt: None,

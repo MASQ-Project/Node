@@ -432,7 +432,7 @@ impl IgdpTransactor {
         mapping_config_opt: &Option<MappingConfig>,
     ) -> bool {
         let inner = inner_arc.lock().expect("IgdpTransactor died");
-        Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
+        Self::remap_if_necessary(change_handler, &inner, last_remapped, mapping_config_opt);
         true
     }
 
