@@ -2,9 +2,7 @@
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
 #[allow(unused_imports)]
-use clap::{Command, ArgMatches};
-use clap::builder::ValueRange;
-use clap::parser::ValueSource;
+use clap::{ArgMatches, Command};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
@@ -28,7 +26,7 @@ macro_rules! value_user_specified_m {
         let matches = $m.arg_matches_ref();
         let user_specified: bool = match matches.value_source($v) {
             Some(ValueSource::CommandLine) => true,
-            _ => false
+            _ => false,
         };
         match matches.get_one::<$t>($v) {
             Some(v) => (Some(v.clone()), user_specified),
@@ -43,7 +41,7 @@ macro_rules! values_m {
         let matches = $m.arg_matches_ref();
         match matches.get_many::<$t>($v) {
             Some(vs) => vs.map(|v| v.clone()).collect::<Vec<$t>>(),
-            None => vec![]
+            None => vec![],
         }
     }};
 }
@@ -117,9 +115,7 @@ impl MultiConfig {
                 return invalid_value_err;
             };
         }
-        if error_string
-            .contains("error: the following required arguments were not provided:")
-        {
+        if error_string.contains("error: the following required arguments were not provided:") {
             let mut remaining_message = match error_string.find("Usage:") {
                 Some(idx) => error_string[0..idx].to_string(),
                 None => error_string,
@@ -138,13 +134,16 @@ impl MultiConfig {
             }
             return ConfiguratorError::new(requireds);
         }
-        ConfiguratorError::required("<unknown>", &format!("Unfamiliar message: {}", error_string))
+        ConfiguratorError::required(
+            "<unknown>",
+            &format!("Unfamiliar message: {}", error_string),
+        )
     }
 
     pub fn occurrences_of(&self, parameter: &str) -> usize {
         match self.arg_matches.get_occurrences::<String>(parameter) {
             None => 0,
-            Some(collection) => collection.count()
+            Some(collection) => collection.count(),
         }
     }
 
@@ -507,9 +506,11 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
-    use clap::{Arg, Command, value_parser};
+    use clap::{value_parser, Arg, Command};
     use std::fs::File;
     use std::io::Write;
+    use clap::builder::ValueRange;
+    use clap::parser::ValueSource;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {
@@ -674,7 +675,7 @@ pub mod tests {
                 .num_args(ValueRange::new(1..))
                 .required(false)
                 .value_parser(value_parser!(u64))
-                .value_delimiter(',')
+                .value_delimiter(','),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![
@@ -886,17 +887,15 @@ pub mod tests {
     #[test]
     fn unspecified_optional_single_valued_parameter_without_default_correctly_shows_as_not_user_specified(
     ) {
-        let schema = Command::new("test")
-            .arg(
-                Arg::new("missing-arg")
-                    .long("missing-arg")
-                    .num_args(ValueRange::new(1..=1))
-                    .value_parser(value_parser!(u64))
-                    .required(false)
-            );
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![Box::new(CommandLineVcl::new(vec![
-            String::new(),
-        ]))];
+        let schema = Command::new("test").arg(
+            Arg::new("missing-arg")
+                .long("missing-arg")
+                .num_args(ValueRange::new(1..=1))
+                .value_parser(value_parser!(u64))
+                .required(false),
+        );
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(vec![String::new()]))];
         let subject = MultiConfig::try_new(&schema, vcls).unwrap();
 
         let (missing_arg_result, user_specified_missing) =
@@ -911,7 +910,7 @@ pub mod tests {
         let schema = Command::new("test").arg(
             Arg::new("nonvalued")
                 .long("nonvalued")
-                .num_args(ValueRange::new(0..=0))
+                .num_args(ValueRange::new(0..=0)),
         );
         let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
             Box::new(CommandLineVcl::new(vec![String::new()])),
@@ -1001,7 +1000,7 @@ pub mod tests {
         let schema = Command::new("test").arg(
             Arg::new("numeric-arg")
                 .long("numeric-arg")
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         );
         std::env::set_var("MASQ_NUMERIC_ARG", "47");
 

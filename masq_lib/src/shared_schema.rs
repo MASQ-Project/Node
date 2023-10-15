@@ -1,12 +1,13 @@
-use std::net::IpAddr;
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
-use clap::{Arg, Command, value_parser};
-use clap::builder::{PossibleValuesParser, ValueRange};
+use clap::builder::{PossibleValuesParser};
+use clap::{value_parser, Arg, Command};
 use lazy_static::lazy_static;
+use std::net::IpAddr;
+use clap::builder::ValueRange;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -223,7 +224,8 @@ fn GAS_PRICE_HELP() -> String {
     format!(
         "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
-        DEFAULT_GAS_PRICE)
+        DEFAULT_GAS_PRICE
+    )
 }
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
@@ -275,10 +277,7 @@ pub fn db_password_arg(help: String) -> Arg {
         .help(help)
 }
 
-pub fn earning_wallet_arg(
-    help: String,
-) -> Arg
-{
+pub fn earning_wallet_arg(help: String) -> Arg {
     Arg::new("earning-wallet")
         .long("earning-wallet")
         .value_name("EARNING-WALLET")
@@ -359,7 +358,9 @@ pub fn shared_app(head: Command) -> Command {
             .long("crash-point")
             .value_name("CRASH-POINT")
             .num_args(ValueRange::new(0..1))
-            .value_parser(PossibleValuesParser::new(["error", "message", "none", "panic"]))
+            .value_parser(PossibleValuesParser::new([
+                "error", "message", "none", "panic",
+            ]))
             .ignore_case(true)
             .hide(true),
     )
@@ -402,7 +403,9 @@ pub fn shared_app(head: Command) -> Command {
             .long("log-level")
             .value_name("FILTER")
             .num_args(ValueRange::new(0..1))
-            .value_parser(PossibleValuesParser::new(["off", "error", "warn", "info", "debug", "trace"]))
+            .value_parser(PossibleValuesParser::new([
+                "off", "error", "warn", "info", "debug", "trace",
+            ]))
             .ignore_case(true)
             .help(LOG_LEVEL_HELP),
     )
@@ -429,7 +432,12 @@ pub fn shared_app(head: Command) -> Command {
             .long("neighborhood-mode")
             .value_name("NEIGHBORHOOD-MODE")
             .num_args(ValueRange::new(0..1))
-            .value_parser(PossibleValuesParser::new(["zero-hop", "originate-only", "consume-only", "standard"]))
+            .value_parser(PossibleValuesParser::new([
+                "zero-hop",
+                "originate-only",
+                "consume-only",
+                "standard",
+            ]))
             .ignore_case(true)
             .help(NEIGHBORHOOD_MODE_HELP),
     )
@@ -464,11 +472,11 @@ pub fn shared_app(head: Command) -> Command {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use crate::utils::{hex_to_u128, partition};
     use regex::Regex;
     use std::net::IpAddr;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use crate::utils::{hex_to_u128, partition};
 
     // pub fn validate_ip_address(address: String) -> Result<(), String> {
     //     match IpAddr::from_str(&address) {
@@ -532,15 +540,19 @@ pub mod common_validators {
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             if Regex::new("^[0-9a-fA-F]{64}$")
                 .expect("Failed to compile regular expression")
-                .is_match(&s) {
+                .is_match(s)
+            {
                 let pairs: Vec<String> = partition(s, 2).expect("64 just became odd");
                 let bytes = pairs
                     .into_iter()
                     .map(|pair| hex_to_u128(pair.as_str()).expect("Regex no longer works") as u8)
                     .collect::<Vec<u8>>();
-                Ok(PrivateKey {data: bytes})
+                Ok(PrivateKey { data: bytes })
             } else {
-                Err(format!("Private key should be 64 hex characters long, not '{}'", s))
+                Err(format!(
+                    "Private key should be 64 hex characters long, not '{}'",
+                    s
+                ))
             }
         }
     }
@@ -565,7 +577,7 @@ pub mod common_validators {
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct GasPrice {
-        pub price: u64
+        pub price: u64,
     }
 
     impl FromStr for GasPrice {
@@ -573,8 +585,11 @@ pub mod common_validators {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             match s.parse::<u64>() {
-                Ok(price) if price > 0 => Ok(GasPrice {price}),
-                _ => Err(format!("Gas price must be a decimal number greater than zero, not '{}'", s))
+                Ok(price) if price > 0 => Ok(GasPrice { price }),
+                _ => Err(format!(
+                    "Gas price must be a decimal number greater than zero, not '{}'",
+                    s
+                )),
             }
         }
     }
@@ -588,7 +603,7 @@ pub mod common_validators {
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct Wallet {
-        pub address: Vec<u8>
+        pub address: Vec<u8>,
     }
 
     impl FromStr for Wallet {
@@ -659,45 +674,59 @@ pub mod common_validators {
                 let uid_str = captures.get(1).expect("Regex failed").as_str();
                 let uid = match uid_str.parse::<u32>() {
                     Ok(uid) => uid,
-                    Err(e) => return Err(format!("--real_user specified invalid uid: {}", uid_str)),
+                    Err(_) => {
+                        return Err(format!("--real_user specified invalid uid: {}", uid_str))
+                    }
                 };
                 let gid_str = captures.get(2).expect("Regex failed").as_str();
                 let gid = match gid_str.parse::<u32>() {
                     Ok(gid) => gid,
-                    Err(e) => return Err(format!("--real_user specified invalid gid: {}", gid_str)),
+                    Err(_) => {
+                        return Err(format!("--real_user specified invalid gid: {}", gid_str))
+                    }
                 };
                 let home_dir_str = captures.get(3).expect("Regex failed").as_str();
-                let home_dir = match PathBuf::from_str (home_dir_str) {
-                    Ok(path_buf) => path_buf,
-                    Err(e) => todo! (),
-                };
+                let home_dir = PathBuf::from(home_dir_str);
                 if !home_dir.is_absolute() {
-                    return Err(format!("--real_user specified non-absolute home directory: '{}'", home_dir_str))
+                    return Err(format!(
+                        "--real_user specified non-absolute home directory: '{}'",
+                        home_dir_str
+                    ));
                 }
                 Ok(RealUser { uid, gid, home_dir })
             } else {
-                Err(format!("--real_user should look like <uid>:<gid>:<home directory>, not '{}'", triple))
+                Err(format!(
+                    "--real_user should look like <uid>:<gid>:<home directory>, not '{}'",
+                    triple
+                ))
             }
         }
     }
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct InsecurePort {
-        pub port: u16
+        pub port: u16,
     }
 
     impl FromStr for InsecurePort {
         type Err = String;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            match str::parse::<u16>(&s) {
-                Ok(port) => if port < LOWEST_USABLE_INSECURE_PORT {
-                    Err (format!("Port number must be between {} and 65535, not '{}'", LOWEST_USABLE_INSECURE_PORT, s))
+            match str::parse::<u16>(s) {
+                Ok(port) => {
+                    if port < LOWEST_USABLE_INSECURE_PORT {
+                        Err(format!(
+                            "Port number must be between {} and 65535, not '{}'",
+                            LOWEST_USABLE_INSECURE_PORT, s
+                        ))
+                    } else {
+                        Ok(InsecurePort { port })
+                    }
                 }
-                else {
-                    Ok (InsecurePort {port})
-                },
-                Err(_) => Err (format!("Port number must be between {} and 65535, not '{}'", LOWEST_USABLE_INSECURE_PORT, s))
+                Err(_) => Err(format!(
+                    "Port number must be between {} and 65535, not '{}'",
+                    LOWEST_USABLE_INSECURE_PORT, s
+                )),
             }
         }
     }
@@ -726,7 +755,7 @@ pub mod common_validators {
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct VecU64 {
-        pub data: Vec<u64>
+        pub data: Vec<u64>,
     }
 
     impl FromStr for VecU64 {
@@ -735,15 +764,17 @@ pub mod common_validators {
         fn from_str(values_with_delimiters: &str) -> Result<Self, Self::Err> {
             let str_values = values_with_delimiters.split('|');
             let init: Vec<u64> = vec![];
-            let result = str_values.into_iter().try_fold(init, |mut so_far, str_value| {
-                match str_value.parse::<u64>() {
-                    Err(e) => Err(e),
-                    Ok(value) => {
-                        so_far.push (value);
-                        Ok(so_far)
+            let result = str_values
+                .into_iter()
+                .try_fold(init, |mut so_far, str_value| {
+                    match str_value.parse::<u64>() {
+                        Err(e) => Err(e),
+                        Ok(value) => {
+                            so_far.push(value);
+                            Ok(so_far)
+                        }
                     }
-                }
-            });
+                });
             result
                 .map(|data| VecU64{data})
                 .map_err (|_| format!("Supply positive numeric values separated by vertical bars like 111|222|333|, not '{}'", values_with_delimiters))
@@ -814,12 +845,12 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::str::FromStr;
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::{RealUser, VecU64};
     use crate::shared_schema::{common_validators, official_chain_names};
+    use std::path::PathBuf;
+    use std::str::FromStr;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1072,7 +1103,7 @@ mod tests {
 
     #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {
-        let result = common_validators::PrivateKey::from_str ("42");
+        let result = common_validators::PrivateKey::from_str("42");
 
         assert_eq!(
             result,
@@ -1082,7 +1113,7 @@ mod tests {
 
     #[test]
     fn validate_private_key_must_contain_only_hex_characters() {
-        let result = common_validators::PrivateKey::from_str (
+        let result = common_validators::PrivateKey::from_str(
             "cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex",
         );
 
@@ -1094,65 +1125,92 @@ mod tests {
 
     #[test]
     fn validate_private_key_handles_happy_path() {
-        let result = common_validators::PrivateKey::from_str (
+        let result = common_validators::PrivateKey::from_str(
             "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
         );
 
-        assert_eq!(result, Ok(common_validators::PrivateKey {data: vec![
-            0xcc, 0x46, 0xbe, 0xfe, 0x8d, 0x16, 0x9b, 0x89,
-            0xdb, 0x44, 0x7b, 0xd7, 0x25, 0xfc, 0x23, 0x68,
-            0xb1, 0x25, 0x42, 0x11, 0x35, 0x55, 0x30, 0x25,
-            0x98, 0x43, 0x0c, 0xb5, 0xd5, 0xc7, 0x4e, 0xa9
-        ]}));
+        assert_eq!(
+            result,
+            Ok(common_validators::PrivateKey {
+                data: vec![
+                    0xcc, 0x46, 0xbe, 0xfe, 0x8d, 0x16, 0x9b, 0x89, 0xdb, 0x44, 0x7b, 0xd7, 0x25,
+                    0xfc, 0x23, 0x68, 0xb1, 0x25, 0x42, 0x11, 0x35, 0x55, 0x30, 0x25, 0x98, 0x43,
+                    0x0c, 0xb5, 0xd5, 0xc7, 0x4e, 0xa9
+                ]
+            })
+        );
     }
 
     #[test]
     fn insecure_port_validation_rejects_badly_formatted_port_number() {
         let result = common_validators::InsecurePort::from_str("booga");
 
-        assert_eq!(result, Err(String::from("Port number must be between 1025 and 65535, not 'booga'".to_string())));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Port number must be between 1025 and 65535, not 'booga'".to_string()
+            ))
+        );
     }
 
     #[test]
     fn insecure_port_validation_rejects_negative_port_number() {
         let result = common_validators::InsecurePort::from_str("-1234");
 
-        assert_eq!(result, Err(String::from("Port number must be between 1025 and 65535, not '-1234'".to_string())));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Port number must be between 1025 and 65535, not '-1234'".to_string()
+            ))
+        );
     }
 
     #[test]
     fn insecure_port_validation_rejects_port_number_too_low() {
         let result = common_validators::InsecurePort::from_str("1024");
 
-        assert_eq!(result, Err(String::from("Port number must be between 1025 and 65535, not '1024'".to_string())));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Port number must be between 1025 and 65535, not '1024'".to_string()
+            ))
+        );
     }
 
     #[test]
     fn insecure_port_validation_rejects_port_number_too_high() {
         let result = common_validators::InsecurePort::from_str("65536");
 
-        assert_eq!(result, Err(String::from("Port number must be between 1025 and 65535, not '65536'".to_string())));
+        assert_eq!(
+            result,
+            Err(String::from(
+                "Port number must be between 1025 and 65535, not '65536'".to_string()
+            ))
+        );
     }
 
     #[test]
     fn insecure_port_validation_accepts_port_if_provided() {
         let result = common_validators::InsecurePort::from_str("4567");
 
-        assert_eq!(result, Ok(common_validators::InsecurePort{port: 4567}));
+        assert_eq!(result, Ok(common_validators::InsecurePort { port: 4567 }));
     }
 
     #[test]
     fn validate_gas_price_zero() {
         let result = common_validators::GasPrice::from_str("0");
 
-        assert_eq!(result, Err("Gas price must be a decimal number greater than zero, not '0'".to_string()));
+        assert_eq!(
+            result,
+            Err("Gas price must be a decimal number greater than zero, not '0'".to_string())
+        );
     }
 
     #[test]
     fn validate_gas_price_normal() {
         let result = common_validators::GasPrice::from_str("2");
 
-        assert_eq!(result, Ok(common_validators::GasPrice {price: 2}));
+        assert_eq!(result, Ok(common_validators::GasPrice { price: 2 }));
     }
 
     #[test]
@@ -1160,69 +1218,92 @@ mod tests {
         let max = 0xFFFFFFFFFFFFFFFFu64;
         let max_string = max.to_string();
 
-        let result = common_validators::GasPrice::from_str (&max_string);
+        let result = common_validators::GasPrice::from_str(&max_string);
 
-        assert_eq!(result, Ok(common_validators::GasPrice {price: max}));
+        assert_eq!(result, Ok(common_validators::GasPrice { price: max }));
     }
 
     #[test]
     fn validate_gas_price_not_digits_fails() {
         let result = common_validators::GasPrice::from_str("not");
 
-        assert_eq!(result, Err("Gas price must be a decimal number greater than zero, not 'not'".to_string()));
+        assert_eq!(
+            result,
+            Err("Gas price must be a decimal number greater than zero, not 'not'".to_string())
+        );
     }
 
     #[test]
     fn validate_gas_price_hex_fails() {
         let result = common_validators::GasPrice::from_str("0x0");
 
-        assert_eq!(result, Err("Gas price must be a decimal number greater than zero, not '0x0'".to_string()));
+        assert_eq!(
+            result,
+            Err("Gas price must be a decimal number greater than zero, not '0x0'".to_string())
+        );
     }
 
     #[test]
     fn validate_real_user_happy_path() {
-        let result = RealUser::from_str ("1234:5678:/home/booga");
+        let result = RealUser::from_str("1234:5678:/home/booga");
 
-        assert_eq! (result, Ok (RealUser {
-            uid: 1234,
-            gid: 5678,
-            home_dir: PathBuf::from_str("/home/booga").unwrap(),
-        }))
+        assert_eq!(
+            result,
+            Ok(RealUser {
+                uid: 1234,
+                gid: 5678,
+                home_dir: PathBuf::from_str("/home/booga").unwrap(),
+            })
+        )
     }
 
     #[test]
     fn validate_real_user_complains_about_value_that_doesnt_match_regex() {
-        let result = RealUser::from_str ("not enough colons");
+        let result = RealUser::from_str("not enough colons");
 
         assert_eq! (result, Err ("--real_user should look like <uid>:<gid>:<home directory>, not 'not enough colons'".to_string()));
     }
 
     #[test]
     fn validate_real_user_cant_handle_uid_too_big() {
-        let result = RealUser::from_str ("5000000000:0:/home/dir");
+        let result = RealUser::from_str("5000000000:0:/home/dir");
 
-        assert_eq! (result, Err ("--real_user specified invalid uid: 5000000000".to_string()));
+        assert_eq!(
+            result,
+            Err("--real_user specified invalid uid: 5000000000".to_string())
+        );
     }
 
     #[test]
     fn validate_real_user_cant_handle_gid_too_big() {
-        let result = RealUser::from_str ("0:5000000000:/home/dir");
+        let result = RealUser::from_str("0:5000000000:/home/dir");
 
-        assert_eq! (result, Err ("--real_user specified invalid gid: 5000000000".to_string()));
+        assert_eq!(
+            result,
+            Err("--real_user specified invalid gid: 5000000000".to_string())
+        );
     }
 
     #[test]
     fn validate_real_user_cant_handle_home_directory_that_isnt_absolute() {
-        let result = RealUser::from_str ("1234:5678:home/dir");
+        let result = RealUser::from_str("1234:5678:home/dir");
 
-        assert_eq! (result, Err ("--real_user specified non-absolute home directory: 'home/dir'".to_string()));
+        assert_eq!(
+            result,
+            Err("--real_user specified non-absolute home directory: 'home/dir'".to_string())
+        );
     }
 
     #[test]
     fn validate_separate_u64_values_happy_path() {
         let result = common_validators::VecU64::from_str("4567|1111|444");
 
-        assert_eq!(result, Ok(VecU64 {data: vec! [4567, 1111, 444]}))
+        assert_eq!(
+            result,
+            Ok(VecU64 {
+                data: vec![4567, 1111, 444]
+            })
+        )
     }
 
     #[test]

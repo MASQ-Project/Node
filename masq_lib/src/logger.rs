@@ -114,43 +114,43 @@ impl Logger {
     }
 
     pub fn trace<F>(&self, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         self.generic_log(Level::Trace, log_function);
     }
 
     pub fn debug<F>(&self, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         self.generic_log(Level::Debug, log_function);
     }
 
     pub fn info<F>(&self, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         self.generic_log(Level::Info, log_function);
     }
 
     pub fn warning<F>(&self, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         self.generic_log(Level::Warn, log_function);
     }
 
     pub fn error<F>(&self, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         self.generic_log(Level::Error, log_function);
     }
 
     pub fn fatal<F>(&self, log_function: F) -> !
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         let msg = log_function();
         self.log(Level::Error, msg.clone());
@@ -178,8 +178,8 @@ impl Logger {
     }
 
     fn generic_log<F>(&self, level: Level, log_function: F)
-        where
-            F: FnOnce() -> String,
+    where
+        F: FnOnce() -> String,
     {
         match (self.level_enabled(level), level.le(&UI_MESSAGE_LOG_LEVEL)) {
             (true, true) => {
@@ -358,7 +358,7 @@ mod tests {
     struct TestUiGateway {
         expected_msg_count: u32,
         received_message_count: Arc<AtomicU32>,
-        seconds_to_live: usize,
+        _seconds_to_live: usize,
     }
 
     impl TestUiGateway {
@@ -366,7 +366,7 @@ mod tests {
             Self {
                 expected_msg_count: msg_count,
                 received_message_count,
-                seconds_to_live: 10,
+                _seconds_to_live: 10,
             }
         }
     }
@@ -376,7 +376,7 @@ mod tests {
 
         fn started(&mut self, ctx: &mut Self::Context) {
             ctx.set_mailbox_capacity(0); //important
-            // ctx.notify_later(Stop {}, Duration::from_secs(self.seconds_to_live as u64));
+                                         // ctx.notify_later(Stop {}, Duration::from_secs(self.seconds_to_live as u64));
         }
     }
 
@@ -458,7 +458,8 @@ mod tests {
             .expect("Unable to unwrap the duration_since for template after");
         let received_message_count_arc = Arc::new(AtomicU32::new(0));
         let received_message_count_arc_inner = received_message_count_arc.clone();
-        let container_for_join_handles_arc: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::new(Mutex::new(vec![]));
+        let container_for_join_handles_arc: Arc<Mutex<Vec<JoinHandle<()>>>> =
+            Arc::new(Mutex::new(vec![]));
         let container_for_join_handles_arc_inner = container_for_join_handles_arc.clone();
         let system = System::new();
         system.block_on(async move {
@@ -481,7 +482,11 @@ mod tests {
                 msgs_per_thread,
             );
 
-            container_for_join_handles_arc_inner.lock().as_mut().unwrap().extend(container_for_join_handles);
+            container_for_join_handles_arc_inner
+                .lock()
+                .as_mut()
+                .unwrap()
+                .extend(container_for_join_handles);
         });
 
         let (actual_start, actual_end) = {
@@ -638,7 +643,6 @@ mod tests {
             logger.debug(log_function);
 
             System::current().stop();
-
         });
         system.run().unwrap();
         assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 0);
@@ -662,7 +666,6 @@ mod tests {
             let log_function = move || "This is an info log.".to_string();
 
             logger.info(log_function);
-
         });
         system.run().unwrap(); //shut down after receiving the expected count of messages
         assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
@@ -677,7 +680,7 @@ mod tests {
         let received_message_count_arc = Arc::new(AtomicU32::new(0));
         let received_message_count_arc_inner = received_message_count_arc.clone();
         let system = System::new();
-        system.block_on (async move {
+        system.block_on(async move {
             let ui_gateway = TestUiGateway::new(1, received_message_count_arc_inner);
             let recipient = ui_gateway.start().recipient();
             {
@@ -686,7 +689,6 @@ mod tests {
             let log_function = move || "This is a warn log.".to_string();
 
             logger.warning(log_function);
-
         });
         system.run().unwrap(); //shut down after receiving the expected count of messages
         assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
@@ -941,7 +943,7 @@ mod tests {
     fn prepare_log_recipient_should_be_called_only_once_panic() {
         let _guard = prepare_test_environment();
         let system = System::new();
-        system.block_on (async move {
+        system.block_on(async move {
             let ui_gateway = TestUiGateway::new(0, Arc::new(AtomicU32::new(0)));
             let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
             prepare_log_recipient(recipient.clone());

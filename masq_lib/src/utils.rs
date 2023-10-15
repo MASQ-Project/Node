@@ -271,51 +271,56 @@ impl FromStr for NeighborhoodModeLight {
 
 pub fn partition(s: &str, partition_size: usize) -> Result<Vec<String>, String> {
     if partition_size == 0 {
-        return Err(String::from ("partition_size must be greater than 0"))
+        return Err(String::from("partition_size must be greater than 0"));
     }
     if s.len() % partition_size != 0 {
-        return Err(format!("5-character string '{}' cannot be partitioned into {}-character substrings", s, partition_size))
+        return Err(format!(
+            "5-character string '{}' cannot be partitioned into {}-character substrings",
+            s, partition_size
+        ));
     }
     let init: (Vec<String>, String) = (vec![], String::new());
-    let vector_and_blank_string = s.chars().into_iter().fold(init, |so_far, c| {
+    let vector_and_blank_string = s.chars().fold(init, |so_far, c| {
         let (mut strings, mut in_progress) = so_far;
         in_progress.push(c);
         if in_progress.len() == partition_size {
-            strings.push (in_progress);
+            strings.push(in_progress);
             (strings, String::new())
-        }
-        else {
+        } else {
             (strings, in_progress)
         }
     });
-    Ok (vector_and_blank_string.0)
+    Ok(vector_and_blank_string.0)
 }
 
-const HEX_DIGITS: [char; 16] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'];
+const HEX_DIGITS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+];
 pub fn hex_to_u128(digits: &str) -> Result<u128, String> {
     if digits.len() > 32 {
-        return Err(format!("Hex string too long to convert to u128: '{}'", digits))
+        return Err(format!(
+            "Hex string too long to convert to u128: '{}'",
+            digits
+        ));
     }
     fn digit_value(c: char) -> Option<u8> {
-        for i in 0..16 {
-            if HEX_DIGITS[i] == c.to_ascii_uppercase() {
-                return Some (i as u8)
+        for (i, digit) in HEX_DIGITS.iter().enumerate() {
+            if digit == &c.to_ascii_uppercase() {
+                return Some(i as u8);
             }
         }
-        return None
+        None
     }
-    let value_opt = digits.chars().into_iter().fold(Some(0u128), |so_far_opt, c| {
-        match so_far_opt {
-            Some (so_far) => match digit_value(c) {
-                Some (dv) => Some ((so_far << 4) + (dv as u128)),
+    let value_opt =
+        digits
+            .chars()
+            .fold(Some(0u128), |so_far_opt, c| match so_far_opt {
+                Some(so_far) => digit_value(c).map(|dv| (so_far << 4) + (dv as u128)),
                 None => None,
-            },
-            None => None,
-        }
-    });
+            });
     match value_opt {
-        Some (v) => Ok(v),
-        None => Err(format!("Illegal hexadecimal number: '{}'", digits))
+        Some(v) => Ok(v),
+        None => Err(format!("Illegal hexadecimal number: '{}'", digits)),
     }
 }
 
@@ -640,14 +645,23 @@ mod tests {
     fn partition_complains_if_partition_size_is_zero() {
         let result = partition("abcde", 0);
 
-        assert_eq! (result, Err("partition_size must be greater than 0".to_string()))
+        assert_eq!(
+            result,
+            Err("partition_size must be greater than 0".to_string())
+        )
     }
 
     #[test]
     fn partition_complains_if_length_is_not_evenly_divisible() {
         let result = partition("abcde", 4);
 
-        assert_eq! (result, Err("5-character string 'abcde' cannot be partitioned into 4-character substrings".to_string()))
+        assert_eq!(
+            result,
+            Err(
+                "5-character string 'abcde' cannot be partitioned into 4-character substrings"
+                    .to_string()
+            )
+        )
     }
 
     #[test]
@@ -655,29 +669,37 @@ mod tests {
         let result = partition("ab12cd34ef56gh78ij90", 2);
 
         let expected = vec!["ab", "12", "cd", "34", "ef", "56", "gh", "78", "ij", "90"]
-            .into_iter().map(|p| p.to_string()).collect::<Vec<String>>();
-        assert_eq! (result, Ok(expected))
+            .into_iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<String>>();
+        assert_eq!(result, Ok(expected))
     }
 
     #[test]
     fn hex_to_u128_complains_about_illegal_hex_digits() {
         let result = hex_to_u128("xy");
 
-        assert_eq! (result, Err("Illegal hexadecimal number: 'xy'".to_string()))
+        assert_eq!(result, Err("Illegal hexadecimal number: 'xy'".to_string()))
     }
 
     #[test]
     fn hex_to_u128_complains_when_number_is_too_long() {
         let result = hex_to_u128("123456782234567832345678423456780");
 
-        assert_eq! (result, Err("Hex string too long to convert to u128: '123456782234567832345678423456780'".to_string()))
+        assert_eq!(
+            result,
+            Err(
+                "Hex string too long to convert to u128: '123456782234567832345678423456780'"
+                    .to_string()
+            )
+        )
     }
 
     #[test]
     fn hex_to_u128_happy_path() {
         let result = hex_to_u128("fedcba9876543210ABCDEF");
 
-        assert_eq! (result, Ok(0xFEDCBA9876543210ABCDEF))
+        assert_eq!(result, Ok(0xFEDCBA9876543210ABCDEF))
     }
 
     #[test]
