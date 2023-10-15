@@ -3,12 +3,13 @@
 use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
     parse_masq_range_to_gwei, parse_time_params,
 };
-use clap::{App, Arg, ArgGroup, SubCommand};
+use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use num::CheckedMul;
 use std::fmt::{Debug, Display};
 use std::num::ParseIntError;
 use std::str::FromStr;
+use clap::builder::ValueRange;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
@@ -25,88 +26,88 @@ const GWEI_HELP: &str =
     "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default.";
 const ORDERED_HELP: &str = "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.";
 
-pub fn financials_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("financials")
+pub fn financials_subcommand() -> ClapCommand {
+    Subcommand::with_name("financials")
         .about(FINANCIALS_SUBCOMMAND_ABOUT)
         .arg(
-            Arg::with_name("top")
+            Arg::new("top")
                 .help(TOP_ARG_HELP)
                 .value_name("TOP")
                 .long("top")
                 .short("t")
                 .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1))
                 .validator(validate_non_zero_u16),
         )
         .arg(
-            Arg::with_name("payable")
+            Arg::new("payable")
                 .help(PAYABLE_ARG_HELP)
                 .value_name("PAYABLE")
                 .long("payable")
                 .short("p")
                 .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1))
                 .validator(validate_two_ranges::<u64>),
         )
         .arg(
-            Arg::with_name("receivable")
+            Arg::new("receivable")
                 .help(RECEIVABLE_ARG_HELP)
                 .value_name("RECEIVABLE")
                 .long("receivable")
                 .short("r")
                 .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1))
                 .validator(validate_two_ranges::<i64>),
         )
         .arg(
-            Arg::with_name("no-stats")
+            Arg::new("no-stats")
                 .help(NO_STATS_ARG_HELP)
                 .value_name("NO-STATS")
                 .long("no-stats")
                 .short("n")
-                .case_insensitive(false)
-                .takes_value(false)
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1))
                 .required(false),
         )
         .arg(
-            Arg::with_name("gwei")
+            Arg::new("gwei")
                 .help(GWEI_HELP)
                 .value_name("GWEI")
                 .long("gwei")
                 .short("g")
-                .case_insensitive(false)
-                .takes_value(false)
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1))
                 .required(false),
         )
         .arg(
-            Arg::with_name("ordered")
+            Arg::new("ordered")
                 .help(ORDERED_HELP)
                 .value_name("ORDERED")
                 .long("ordered")
                 .short("o")
-                .case_insensitive(false)
+                .ignore_case(false)
                 .default_value_if("top", None, "balance")
                 .possible_values(&["balance", "age"])
                 .required(false),
         )
         .groups(&[
-            ArgGroup::with_name("at_least_one_query")
+            ArgGroup::new("at_least_one_query")
                 .args(&["receivable", "payable", "top"])
                 .multiple(true),
-            ArgGroup::with_name("no-stats-requirement-group")
+            ArgGroup::new("no-stats-requirement-group")
                 .arg("no-stats")
                 .requires("at_least_one_query"),
-            ArgGroup::with_name("custom-queries")
+            ArgGroup::new("custom-queries")
                 .args(&["payable", "receivable"])
                 .multiple(true),
-            ArgGroup::with_name("top-records-conflicts")
+            ArgGroup::new("top-records-conflicts")
                 .args(&["top"])
                 .conflicts_with("custom-queries")
                 .requires("ordered"),
-            ArgGroup::with_name("ordered-conflicts")
+            ArgGroup::new("ordered-conflicts")
                 .arg("ordered")
                 .conflicts_with("custom-queries"),
         ])

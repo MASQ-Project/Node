@@ -1,6 +1,6 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{App, Arg, ArgGroup, SubCommand};
+use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
@@ -9,6 +9,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
+use clap::builder::ValueRange;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -63,29 +64,29 @@ const SET_CONFIGURATION_ABOUT: &str =
 const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
-pub fn set_configuration_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("set-configuration")
+pub fn set_configuration_subcommand() -> ClapCommand {
+    Subcommand::with_name("set-configuration")
         .about(SET_CONFIGURATION_ABOUT)
         .arg(
-            Arg::with_name("gas-price")
+            Arg::new("gas-price")
                 .help(&GAS_PRICE_HELP)
                 .long("gas-price")
                 .value_name("GAS-PRICE")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .required(false)
                 .validator(common_validators::validate_gas_price),
         )
         .arg(
-            Arg::with_name("start-block")
+            Arg::new("start-block")
                 .help(START_BLOCK_HELP)
                 .long("start-block")
                 .value_name("START-BLOCK")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .required(false)
                 .validator(validate_start_block),
         )
         .group(
-            ArgGroup::with_name("parameter")
+            ArgGroup::new("parameter")
                 .args(&["gas-price", "start-block"])
                 .required(true),
         )

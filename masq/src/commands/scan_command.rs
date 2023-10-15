@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
@@ -18,8 +18,8 @@ const SCAN_SUBCOMMAND_ABOUT: &str =
     "Orders the Node to perform an immediate scan of the indicated type.";
 const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered.";
 
-pub fn scan_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("scan")
+pub fn scan_subcommand() -> ClapCommand {
+    Subcommand::with_name("scan")
         .about(SCAN_SUBCOMMAND_ABOUT)
         .arg(
             Arg::with_name("name")

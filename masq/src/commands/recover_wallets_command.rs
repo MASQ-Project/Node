@@ -4,13 +4,14 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, ArgGroup, SubCommand};
+use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
 use itertools::{Either, Itertools};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
+use clap::builder::ValueRange;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -36,7 +37,7 @@ impl RecoverWalletsCommand {
 
         let mnemonic_phrase_opt = matches
             .value_of("mnemonic-phrase")
-            .map(|mpv| mpv.split(' ').map(|x| x.to_string()).collect_vec());
+            .map(|mpv| mpv.split(b' ').map(|x| x.to_string()).collect_vec());
         let language = matches
             .value_of("language")
             .expect("language is not properly defaulted by clap")
@@ -157,11 +158,11 @@ const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
 ];
 const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
 
-pub fn recover_wallets_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("recover-wallets")
+pub fn recover_wallets_subcommand() -> ClapCommand {
+    Subcommand::with_name("recover-wallets")
         .about(RECOVER_WALLETS_ABOUT)
         .arg(
-            Arg::with_name("db-password")
+            Arg::new("db-password")
                 .help(DB_PASSWORD_ARG_HELP)
                 .long("db-password")
                 .value_name("DB-PASSWORD")
@@ -170,71 +171,71 @@ pub fn recover_wallets_subcommand() -> App<'static, 'static> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("mnemonic-phrase")
+            Arg::new("mnemonic-phrase")
                 .help(MNEMONIC_PHRASE_ARG_HELP)
                 .long("mnemonic-phrase")
                 .value_name("MNEMONIC-PHRASE")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("passphrase")
+            Arg::new("passphrase")
                 .help(PASSPHRASE_ARG_HELP)
                 .long("passphrase")
                 .value_name("PASSPHRASE")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("language")
+            Arg::new("language")
                 .help(LANGUAGE_ARG_HELP)
                 .long("language")
                 .value_name("LANGUAGE")
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
         .arg(
-            Arg::with_name("consuming-path")
+            Arg::new("consuming-path")
                 .help(CONSUMING_PATH_ARG_HELP)
                 .long("consuming-path")
                 .value_name("CONSUMING-PATH")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("consuming-key")
+            Arg::new("consuming-key")
                 .help(CONSUMING_KEY_ARG_HELP)
                 .long("consuming-key")
                 .value_name("CONSUMING-KEY")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("earning-path")
+            Arg::new("earning-path")
                 .help(EARNING_PATH_ARG_HELP)
                 .long("earning-path")
                 .value_name("EARNING-PATH")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("earning-address")
+            Arg::new("earning-address")
                 .help(EARNING_ADDRESS_ARG_HELP)
                 .long("earning-address")
                 .value_name("EARNING-ADDRESS")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .group(
-            ArgGroup::with_name("consuming")
+            ArgGroup::new("consuming")
                 .arg("consuming-path")
                 .arg("consuming-key")
                 .required(true),
         )
         .group(
-            ArgGroup::with_name("earning")
+            ArgGroup::new("earning")
                 .arg("earning-path")
                 .arg("earning-address")
                 .required(true),

@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{value_t, App, SubCommand};
+use clap::{value_t, Command as ClapCommand, Subcommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
@@ -24,8 +24,8 @@ pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 const SETUP_COMMAND_ABOUT: &str =
     "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
 
-pub fn setup_subcommand() -> App<'static, 'static> {
-    shared_app(SubCommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
+pub fn setup_subcommand() -> ClapCommand {
+    shared_app(Subcommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 

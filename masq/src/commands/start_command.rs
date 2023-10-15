@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{App, SubCommand};
+use clap::{Command as ClapCommand, Subcommand};
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use masq_lib::short_writeln;
 use std::default::Default;
@@ -13,8 +13,8 @@ const START_SUBCOMMAND_ABOUT: &str =
     "Starts a MASQNode with the parameters that have been established by 'setup.' \
      Only valid if Node is not already running.";
 
-pub fn start_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("start").about(START_SUBCOMMAND_ABOUT)
+pub fn start_subcommand() -> ClapCommand {
+    Subcommand::with_name("start").about(START_SUBCOMMAND_ABOUT)
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]

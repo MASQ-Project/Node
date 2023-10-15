@@ -17,7 +17,7 @@ use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
 use crate::commands::wallet_addresses_command::wallet_addresses_subcommand;
-use clap::{App, AppSettings, Arg};
+use clap::{Command as ClapCommand, AppSettings, Arg};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 
@@ -36,8 +36,8 @@ const APP_AUTHOR: &str = "MASQ";
 const APP_ABOUT: &str =
     "masq is a command-line user interface to the MASQ Daemon and the MASQ Node";
 
-pub fn app_head() -> App<'static, 'static> {
-    App::new(APP_NAME)
+pub fn app_head() -> ClapCommand {
+    ClapCommand::new(APP_NAME)
         .global_settings(if cfg!(test) {
             &[AppSettings::ColorNever]
         } else {
@@ -50,7 +50,7 @@ pub fn app_head() -> App<'static, 'static> {
         .about(APP_ABOUT)
 }
 
-pub fn app() -> App<'static, 'static> {
+pub fn app() -> ClapCommand {
     app_head()
         .arg(
             Arg::with_name("ui-port")

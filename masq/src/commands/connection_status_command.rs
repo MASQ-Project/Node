@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, SubCommand};
+use clap::{Command as ClapCommand, Subcommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
@@ -27,8 +27,8 @@ const CONNECTED_TO_NEIGHBOR_MSG: &str =
     "ConnectedToNeighbor: External neighbor(s) are connected to us.";
 const ROUTE_FOUND_MSG: &str = "RouteFound: You can relay data over the network.";
 
-pub fn connection_status_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("connection-status").about(CONNECTION_STATUS_ABOUT)
+pub fn connection_status_subcommand() -> ClapCommand {
+    Subcommand::with_name("connection-status").about(CONNECTION_STATUS_ABOUT)
 }
 
 impl Command for ConnectionStatusCommand {

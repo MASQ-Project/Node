@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send, Command, CommandError};
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
 
@@ -32,11 +32,11 @@ const ACTOR_ARG_POSSIBLE_VALUES: [&str; 5] = [
 const ACTOR_ARG_DEFAULT_VALUE: &str = "BlockchainBridge";
 const MESSAGE_ARG_DEFAULT_VALUE: &str = "Intentional crash";
 
-pub fn crash_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("crash")
+pub fn crash_subcommand() -> ClapCommand {
+    Subcommand::with_name("crash")
         .about(CRASH_COMMAND_ABOUT)
         .arg(
-            Arg::with_name("actor")
+            Arg::new("actor")
                 .help(ACTOR_ARG_HELP)
                 .index(1)
                 .possible_values(&ACTOR_ARG_POSSIBLE_VALUES)
@@ -44,7 +44,7 @@ pub fn crash_subcommand() -> App<'static, 'static> {
                 .default_value(ACTOR_ARG_DEFAULT_VALUE),
         )
         .arg(
-            Arg::with_name("message")
+            Arg::new("message")
                 .help(MESSAGE_ARG_HELP)
                 .index(2)
                 .default_value(MESSAGE_ARG_DEFAULT_VALUE),

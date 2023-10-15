@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
@@ -28,11 +28,11 @@ const CONFIGURATION_ABOUT: &str = "Displays a running Node's current configurati
 const CONFIGURATION_ARG_HELP: &str =
     "Password of the database from which the configuration will be read.";
 
-pub fn configuration_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("configuration")
+pub fn configuration_subcommand() -> ClapCommand {
+    Subcommand::with_name("configuration")
         .about(CONFIGURATION_ABOUT)
         .arg(
-            Arg::with_name("db-password")
+            Arg::new("db-password")
                 .help(CONFIGURATION_ARG_HELP)
                 .index(1)
                 .required(false),

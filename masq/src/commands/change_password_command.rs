@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
@@ -84,11 +84,11 @@ impl Command for ChangePasswordCommand {
     implement_as_any!();
 }
 
-pub fn change_password_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("change-password")
+pub fn change_password_subcommand() -> ClapCommand {
+    Subcommand::with_name("change-password")
         .about(CHANGE_PASSWORD_ABOUT)
         .arg(
-            Arg::with_name("old-db-password")
+            Arg::new("old-db-password")
                 .help(OLD_DB_PASSWORD_HELP)
                 .value_name("OLD-DB-PASSWORD")
                 .index(1)
@@ -96,7 +96,7 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
                 .case_insensitive(false),
         )
         .arg(
-            Arg::with_name("new-db-password")
+            Arg::new("new-db-password")
                 .help(NEW_DB_PASSWORD_HELP)
                 .value_name("NEW-DB-PASSWORD")
                 .index(2)
@@ -105,11 +105,11 @@ pub fn change_password_subcommand() -> App<'static, 'static> {
         )
 }
 
-pub fn set_password_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("set-password")
+pub fn set_password_subcommand() -> ClapCommand {
+    Subcommand::with_name("set-password")
         .about(SET_PASSWORD_ABOUT)
         .arg(
-            Arg::with_name("new-db-password")
+            Arg::new("new-db-password")
                 .help(SET_PASSWORD_HELP)
                 .index(1)
                 .required(true)

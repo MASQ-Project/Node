@@ -7,7 +7,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::builder::ValueRange;
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
@@ -171,11 +172,11 @@ impl Command for GenerateWalletsCommand {
     implement_as_any!();
 }
 
-pub fn generate_wallets_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("generate-wallets")
+pub fn generate_wallets_subcommand() -> ClapCommand {
+    Subcommand::with_name("generate-wallets")
         .about(GENERATE_WALLET_SUBCOMMAND_ABOUT)
         .arg(
-            Arg::with_name("db-password")
+            Arg::new("db-password")
                 .help(DB_PASSWORD_ARG_HELP)
                 .long("db-password")
                 .value_name("DB-PASSWORD")
@@ -184,48 +185,48 @@ pub fn generate_wallets_subcommand() -> App<'static, 'static> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("word-count")
+            Arg::new("word-count")
                 .help(WORD_COUNT_ARG_HELP)
                 .long("word-count")
                 .value_name("WORD-COUNT")
                 .required(false)
                 .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .possible_values(&WORD_COUNT_ARG_POSSIBLE_VALUES),
         )
         .arg(
-            Arg::with_name("language")
+            Arg::new("language")
                 .help(LANGUAGE_ARG_HELP)
                 .long("language")
                 .value_name("LANGUAGE")
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
         )
         .arg(
-            Arg::with_name("passphrase")
+            Arg::new("passphrase")
                 .help(PASSPHRASE_ARG_HELP)
                 .long("passphrase")
                 .value_name("PASSPHRASE")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("consuming-path")
+            Arg::new("consuming-path")
                 .help(CONSUMING_PATH_HELP.as_str())
                 .long("consuming-path")
                 .value_name("CONSUMING-PATH")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
         .arg(
-            Arg::with_name("earning-path")
+            Arg::new("earning-path")
                 .help(EARNING_PATH_HELP.as_str())
                 .long("earning-path")
                 .value_name("EARNING-PATH")
                 .required(false)
-                .takes_value(true),
+                .num_args(ValueRange::new(1..=1))
         )
 }
 

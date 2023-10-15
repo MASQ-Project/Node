@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
@@ -37,8 +37,8 @@ const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str =
 const DB_PASSWORD_ARG_HELP: &str =
     "The current database password (a password must be set to use this command).";
 
-pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("wallet-addresses")
+pub fn wallet_addresses_subcommand() -> ClapCommand {
+    Subcommand::with_name("wallet-addresses")
         .about(WALLET_ADDRESS_SUBCOMMAND_ABOUT)
         .arg(
             Arg::with_name("db-password")

@@ -32,7 +32,7 @@ impl NonInteractiveClap for NonInteractiveClapReal {
     }
 }
 
-fn handle_help_or_version_if_required<'a>(args: &[String]) -> ArgMatches<'a> {
+fn handle_help_or_version_if_required(args: &[String]) -> ArgMatches {
     app().get_matches_from(args)
 }
 

@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{Command as ClapCommand, Arg, Subcommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
@@ -21,11 +21,11 @@ const CHECK_PASSWORD_ABOUT: &str =
 const DB_PASSWORD_ARG_HELP: &str =
     "Password to check--leave it out if you think the database doesn't have a password yet.";
 
-pub fn check_password_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("check-password")
+pub fn check_password_subcommand() -> ClapCommand {
+    Subcommand::with_name("check-password")
         .about(CHECK_PASSWORD_ABOUT)
         .arg(
-            Arg::with_name("db-password")
+            Arg::new("db-password")
                 .help(DB_PASSWORD_ARG_HELP)
                 .index(1)
                 .required(false)

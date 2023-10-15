@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, SubCommand};
+use clap::{Command as ClapCommand, Subcommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
@@ -17,8 +17,8 @@ pub struct DescriptorCommand {}
 const DESCRIPTOR_SUBCOMMAND_ABOUT: &str =
     "Displays the Node descriptor of the running MASQNode. Only valid if Node is already running.";
 
-pub fn descriptor_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("descriptor").about(DESCRIPTOR_SUBCOMMAND_ABOUT)
+pub fn descriptor_subcommand() -> ClapCommand {
+    Subcommand::with_name("descriptor").about(DESCRIPTOR_SUBCOMMAND_ABOUT)
 }
 
 impl Command for DescriptorCommand {
