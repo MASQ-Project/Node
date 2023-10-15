@@ -468,6 +468,7 @@ pub mod common_validators {
     use std::net::IpAddr;
     use std::path::PathBuf;
     use std::str::FromStr;
+    use crate::utils::{hex_to_u128, partition};
 
     // pub fn validate_ip_address(address: String) -> Result<(), String> {
     //     match IpAddr::from_str(&address) {
@@ -529,7 +530,18 @@ pub mod common_validators {
         type Err = String;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Err(format!("Port number must be between 1025 and 65535, not '{}'", s))
+            if Regex::new("^[0-9a-fA-F]{64}$")
+                .expect("Failed to compile regular expression")
+                .is_match(&s) {
+                let pairs: Vec<String> = partition(s, 2).expect("64 just became odd");
+                let bytes = pairs
+                    .into_iter()
+                    .map(|pair| hex_to_u128(pair.as_str()).expect("Regex no longer works") as u8)
+                    .collect::<Vec<u8>>();
+                Ok(PrivateKey {data: bytes})
+            } else {
+                Err(format!("Private key should be 64 hex characters long, not '{}'", s))
+            }
         }
     }
 
@@ -631,8 +643,8 @@ pub mod common_validators {
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct RealUser {
-        pub uid: usize,
-        pub gid: usize,
+        pub uid: u32,
+        pub gid: u32,
         pub home_dir: PathBuf,
     }
 
@@ -640,17 +652,31 @@ pub mod common_validators {
         type Err = String;
 
         fn from_str(triple: &str) -> Result<Self, Self::Err> {
-            if let Some(_captures) = Regex::new("^([0-9]*):([0-9]*):(.*)$")
+            if let Some(captures) = Regex::new("^([0-9]*):([0-9]*):(.*)$")
                 .expect("Failed to compile regular expression")
                 .captures(triple)
             {
-                Ok(RealUser {
-                    uid: 42,
-                    gid: 24,
-                    home_dir: PathBuf::from_str("blah").unwrap(),
-                })
+                let uid_str = captures.get(1).expect("Regex failed").as_str();
+                let uid = match uid_str.parse::<u32>() {
+                    Ok(uid) => uid,
+                    Err(e) => return Err(format!("--real_user specified invalid uid: {}", uid_str)),
+                };
+                let gid_str = captures.get(2).expect("Regex failed").as_str();
+                let gid = match gid_str.parse::<u32>() {
+                    Ok(gid) => gid,
+                    Err(e) => return Err(format!("--real_user specified invalid gid: {}", gid_str)),
+                };
+                let home_dir_str = captures.get(3).expect("Regex failed").as_str();
+                let home_dir = match PathBuf::from_str (home_dir_str) {
+                    Ok(path_buf) => path_buf,
+                    Err(e) => todo! (),
+                };
+                if !home_dir.is_absolute() {
+                    return Err(format!("--real_user specified non-absolute home directory: '{}'", home_dir_str))
+                }
+                Ok(RealUser { uid, gid, home_dir })
             } else {
-                Err("blah".to_string())
+                Err(format!("--real_user should look like <uid>:<gid>:<home directory>, not '{}'", triple))
             }
         }
     }
@@ -706,8 +732,21 @@ pub mod common_validators {
     impl FromStr for VecU64 {
         type Err = String;
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            Err(format!("Supply positive numeric values separated by vertical bars like 111|222|333|, not '{}'", s))
+        fn from_str(values_with_delimiters: &str) -> Result<Self, Self::Err> {
+            let str_values = values_with_delimiters.split('|');
+            let init: Vec<u64> = vec![];
+            let result = str_values.into_iter().try_fold(init, |mut so_far, str_value| {
+                match str_value.parse::<u64>() {
+                    Err(e) => Err(e),
+                    Ok(value) => {
+                        so_far.push (value);
+                        Ok(so_far)
+                    }
+                }
+            });
+            result
+                .map(|data| VecU64{data})
+                .map_err (|_| format!("Supply positive numeric values separated by vertical bars like 111|222|333|, not '{}'", values_with_delimiters))
         }
     }
 
@@ -1167,7 +1206,7 @@ mod tests {
 
     #[test]
     fn validate_real_user_cant_handle_gid_too_big() {
-        let result = RealUser::from_str ("0:5_000_000_000:/home/dir");
+        let result = RealUser::from_str ("0:5000000000:/home/dir");
 
         assert_eq! (result, Err ("--real_user specified invalid gid: 5000000000".to_string()));
     }
@@ -1205,7 +1244,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|, not '4567,555,444'"
             ))
         )
     }
@@ -1217,7 +1256,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|, not '|4567|5555|444'"
             ))
         )
     }
