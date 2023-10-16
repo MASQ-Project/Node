@@ -856,7 +856,8 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             info!(
                 logger,
                 "No new received payments were detected during the scanning process."
-            )
+            );
+            todo!("a serious problem... we forgot to update the start block but we yet need to")
         } else {
             let total_newly_paid_receivable = message
                 .payments

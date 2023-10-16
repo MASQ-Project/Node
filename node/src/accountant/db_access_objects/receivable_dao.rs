@@ -305,38 +305,6 @@ impl ReceivableDaoReal {
         }
     }
 
-    // fn multi_row_update_from_received_payments(
-    //     conn: &mut dyn ConnectionWrapper,
-    //     big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
-    //     logger: &Logger,
-    //     timestamp: SystemTime,
-    //     received_payments: &[BlockchainTransaction],
-    // ) -> Box<dyn TransactionWrapper> {
-    //     match conn
-    //         .transaction()
-    //         .map_err(|e| ReceivableDaoError::from(e))
-    //         .and_then(|txn| {
-    //             Self::run_processing_of_received_payments(
-    //                 big_int_db_processor,
-    //                 txn,
-    //                 received_payments,
-    //                 timestamp,
-    //                 logger,
-    //             )
-    //         }){
-    //         // .and_then(|mut txn| {
-    //         //     txn.commit().map_err(|e| {
-    //         //         ReceivableDaoError::RusqliteError(format!("{:?}", e)))
-    //         //     })
-    //         // }) {
-    //         Ok(txn) => txn,
-    //         Err(e) => {
-    //             Self::more_money_received_roll_back_error_log(logger, received_payments);
-    //             panic!("{:?}", e)
-    //         }
-    //     }
-    // }
-
     fn run_processing_of_received_payments<'txn>(
         big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
         txn: Box<dyn TransactionWrapper + 'txn>,
@@ -395,25 +363,27 @@ impl ReceivableDaoReal {
         suspect: &BlockchainTransaction,
         all_received_payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
-        if Self::check_row_presence(txn, &suspect.from) {
+        let amount = suspect.wei_amount;
+        let address = &suspect.from;
+        let block_number = suspect.block_number;
+
+        if Self::check_row_presence(txn, address) {
             Self::more_money_received_roll_back_error_log(logger, all_received_payments);
             Err(ReceivableDaoError::RusqliteError(format!(
-                "Update for received payment with {} wei ran without producing a data change, \
-                despite a record for the wallet {} exists",
-                suspect.wei_amount, suspect.from
+                "Update for received payment with {amount} wei ran without producing a data change, \
+                despite a record for the wallet {address} exists"
             )))
         } else {
             info!(
                 logger,
-                "Received a transaction with {} wei from address {} that does not belong to any of \
-                the known debtors. Ignoring",
-                suspect.wei_amount,
-                suspect.from
+                "Detected an inward transfer of {amount} wei in the block {block_number}. Address \
+                {address} does not match any of the tracked debtors. Ignoring"
             );
             Ok(())
         }
     }
 
+    // TODO you'd better check if there is a single row or more (meaning obviously terribly wrong)
     fn check_row_presence(conn: &dyn TransactionWrapper, wallet: &Wallet) -> bool {
         conn.prepare("select wallet_address from receivable where wallet_address = ?")
             .expect("internal sqlite error")
@@ -941,9 +911,8 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "INFO: {test_name}: Received a transaction with \
-            2222 wei from address {unknown_wallet} that does not belong to any of the known \
-            debtors. Ignoring"
+            "INFO: {test_name}: Detected an inward transfer of 2222 wei in the block 4446. \
+            Address {unknown_wallet} does not match any of the tracked debtors. Ignoring"
         ));
         log_handler.exists_no_log_containing(&format!("ERROR: {test_name}: "));
     }
