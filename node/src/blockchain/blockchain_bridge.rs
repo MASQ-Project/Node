@@ -515,6 +515,8 @@ impl BlockchainBridge {
         msg: &ReportAccountsPayable,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
+        let msg_clone = msg.clone();
+
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => (consuming_wallet, gas_price),
@@ -528,19 +530,22 @@ impl BlockchainBridge {
             None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
         };
 
+        let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
+
         return Box::new(
             self.blockchain_interface
-                .get_transaction_count(consuming_wallet) //Future here
+                .get_transaction_count(consuming_wallet)
                 .map_err(|e| PayableTransactionError::TransactionCount(e))
                 .and_then(move |pending_nonce| {
-                    let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
+                    // let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
                     self.blockchain_interface.send_payables_within_batch(
+                        // <<<---- ( START HERE )
                         consuming_wallet,
                         gas_price,
                         pending_nonce,
                         new_fingerprints_recipient,
-                        &msg.accounts,
+                        &msg_clone.accounts,
                     )
                 }),
         );
