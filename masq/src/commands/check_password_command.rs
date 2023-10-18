@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
@@ -22,14 +22,14 @@ const DB_PASSWORD_ARG_HELP: &str =
     "Password to check--leave it out if you think the database doesn't have a password yet.";
 
 pub fn check_password_subcommand() -> ClapCommand {
-    Subcommand::with_name("check-password")
+    ClapCommand::new("check-password")
         .about(CHECK_PASSWORD_ABOUT)
         .arg(
             Arg::new("db-password")
                 .help(DB_PASSWORD_ARG_HELP)
                 .index(1)
                 .required(false)
-                .case_insensitive(false),
+                .ignore_case(false),
         )
 }
 
@@ -57,12 +57,12 @@ impl Command for CheckPasswordCommand {
 
 impl CheckPasswordCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match check_password_subcommand().get_matches_from_safe(pieces) {
+        let matches = match check_password_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
-            db_password_opt: matches.value_of("db-password").map(|r| r.to_string()),
+            db_password_opt: matches.get_one::<String>("db-password").map(|r| r.clone()),
         })
     }
 }

@@ -3,8 +3,7 @@
 use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
     parse_masq_range_to_gwei, parse_time_params,
 };
-use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
-use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
+use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand, value_parser};
 use num::CheckedMul;
 use std::fmt::{Debug, Display};
 use std::num::ParseIntError;
@@ -38,7 +37,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .validator(validate_non_zero_u16),
+                .value_parser(value_parser!(NonZeroU16))
         )
         .arg(
             Arg::new("payable")
@@ -49,7 +48,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .validator(validate_two_ranges::<u64>),
+                .value_parser(value_parser!(TwoRanges))
         )
         .arg(
             Arg::new("receivable")
@@ -60,7 +59,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .validator(validate_two_ranges::<i64>),
+                .value_parser(value_parser!(TwoRanges))
         )
         .arg(
             Arg::new("no-stats")
@@ -113,49 +112,75 @@ pub fn financials_subcommand() -> ClapCommand {
         ])
 }
 
-fn validate_two_ranges<N>(two_ranges: String) -> Result<(), String>
-where
-    N: FromStr<Err = ParseIntError>
-        + TryFrom<i64>
-        + TryFrom<u64>
-        + CheckedMul
-        + Display
-        + Copy
-        + PartialOrd,
-    i64: TryFrom<N>,
-    u64: TryFrom<N>,
-    <N as TryFrom<i64>>::Error: Debug,
-    <i64 as TryFrom<N>>::Error: Debug,
-{
-    fn checked_split<'a>(
-        str: &'a str,
-        delim: char,
-        err_msg_formatter: fn(&'a str) -> String,
-    ) -> Result<(&'a str, &'a str), String> {
-        let split_elems = str.split(delim).collect::<Vec<&str>>();
-        if split_elems.len() != 2 {
-            return Err(err_msg_formatter(str));
-        }
-        Ok((split_elems[0], split_elems[1]))
-    }
-    let (aga_range, balance_range) = checked_split(&two_ranges, '|', |wrong_input| {
-        format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
-    })?;
-    let (min_age_str, max_age_str) = checked_split(aga_range, '-', |wrong_input| {
-        format!("Age range '{}' is formatted wrong", wrong_input)
-    })?;
-    let (min_age, max_age) = parse_time_params(min_age_str, max_age_str)?;
-    let (min_amount, max_amount, _, _): (N, N, _, _) = parse_masq_range_to_gwei(balance_range)?;
-    //Reasons why only a range input is allowed:
-    //There is no use trying to check an exact age because of its all time moving nature.
-    //The backend engine does the search always with a wei precision while at this end you cannot
-    //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
-    if min_age >= max_age || min_amount >= max_amount {
-        Err(format!("Both ranges '{}' must be low to high", two_ranges))
-    } else {
-        Ok(())
+#[derive(Debug, PartialEq, Clone)]
+pub struct NonZeroU16 {
+    pub data: u16,
+}
+
+impl FromStr for NonZeroU16 {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        todo!()
     }
 }
+
+pub struct TwoRanges {
+    age_range: (u128, u128),
+    balance_range: (u128, u128)
+}
+
+impl FromStr for TwoRanges {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        todo!()
+    }
+}
+
+// fn validate_two_ranges<N>(two_ranges: String) -> Result<(), String>
+// where
+//     N: FromStr<Err = ParseIntError>
+//         + TryFrom<i64>
+//         + TryFrom<u64>
+//         + CheckedMul
+//         + Display
+//         + Copy
+//         + PartialOrd,
+//     i64: TryFrom<N>,
+//     u64: TryFrom<N>,
+//     <N as TryFrom<i64>>::Error: Debug,
+//     <i64 as TryFrom<N>>::Error: Debug,
+// {
+//     fn checked_split<'a>(
+//         str: &'a str,
+//         delim: char,
+//         err_msg_formatter: fn(&'a str) -> String,
+//     ) -> Result<(&'a str, &'a str), String> {
+//         let split_elems = str.split(delim).collect::<Vec<&str>>();
+//         if split_elems.len() != 2 {
+//             return Err(err_msg_formatter(str));
+//         }
+//         Ok((split_elems[0], split_elems[1]))
+//     }
+//     let (aga_range, balance_range) = checked_split(&two_ranges, '|', |wrong_input| {
+//         format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
+//     })?;
+//     let (min_age_str, max_age_str) = checked_split(aga_range, '-', |wrong_input| {
+//         format!("Age range '{}' is formatted wrong", wrong_input)
+//     })?;
+//     let (min_age, max_age) = parse_time_params(min_age_str, max_age_str)?;
+//     let (min_amount, max_amount, _, _): (N, N, _, _) = parse_masq_range_to_gwei(balance_range)?;
+//     //Reasons why only a range input is allowed:
+//     //There is no use trying to check an exact age because of its all time moving nature.
+//     //The backend engine does the search always with a wei precision while at this end you cannot
+//     //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
+//     if min_age >= max_age || min_amount >= max_amount {
+//         Err(format!("Both ranges '{}' must be low to high", two_ranges))
+//     } else {
+//         Ok(())
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

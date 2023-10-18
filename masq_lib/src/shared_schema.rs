@@ -207,7 +207,7 @@ lazy_static! {
 }
 
 #[allow(non_snake_case)]
-fn CLANDESTINE_PORT_HELP() -> String {
+pub fn CLANDESTINE_PORT_HELP() -> String {
     format!(
         "The port this Node will advertise to other Nodes at which clandestine traffic will be \
          received. If you don't specify a clandestine port, the Node will choose an unused \
@@ -220,7 +220,7 @@ fn CLANDESTINE_PORT_HELP() -> String {
 }
 
 #[allow(non_snake_case)]
-fn GAS_PRICE_HELP() -> String {
+pub fn GAS_PRICE_HELP() -> String {
     format!(
         "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
