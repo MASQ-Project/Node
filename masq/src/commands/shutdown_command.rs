@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand, Subcommand};
+use clap::{Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::short_writeln;
@@ -31,7 +31,7 @@ const SHUTDOWN_SUBCOMMAND_ABOUT: &str =
     "Shuts down the running MASQNode. Only valid if Node is already running.";
 
 pub fn shutdown_subcommand() -> ClapCommand {
-    Subcommand::with_name("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
+    ClapCommand::new("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
 }
 
 impl Command for ShutdownCommand {

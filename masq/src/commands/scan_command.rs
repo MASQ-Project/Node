@@ -2,10 +2,11 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
+use clap::builder::PossibleValuesParser;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -19,15 +20,15 @@ const SCAN_SUBCOMMAND_ABOUT: &str =
 const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered.";
 
 pub fn scan_subcommand() -> ClapCommand {
-    Subcommand::with_name("scan")
+    ClapCommand::new("scan")
         .about(SCAN_SUBCOMMAND_ABOUT)
         .arg(
-            Arg::with_name("name")
+            Arg::new("name")
                 .help(SCAN_SUBCOMMAND_HELP)
                 .index(1)
-                .possible_values(&["payables", "receivables", "pendingpayables"])
+                .value_parser(PossibleValuesParser::new(&["payables", "receivables", "pendingpayables"]))
                 .required(true)
-                .case_insensitive(true),
+                .ignore_case(true),
         )
 }
 
@@ -53,13 +54,13 @@ impl Command for ScanCommand {
 
 impl ScanCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match scan_subcommand().get_matches_from_safe(pieces) {
+        let matches = match scan_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
             name: matches
-                .value_of("name")
+                .get_one::<String>("name")
                 .expect("name parameter is not properly required")
                 .to_string(),
         })

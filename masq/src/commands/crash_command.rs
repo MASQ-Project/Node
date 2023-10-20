@@ -2,9 +2,10 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send, Command, CommandError};
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
+use clap::builder::PossibleValuesParser;
 
 #[derive(Debug)]
 pub struct CrashCommand {
@@ -33,14 +34,14 @@ const ACTOR_ARG_DEFAULT_VALUE: &str = "BlockchainBridge";
 const MESSAGE_ARG_DEFAULT_VALUE: &str = "Intentional crash";
 
 pub fn crash_subcommand() -> ClapCommand {
-    Subcommand::with_name("crash")
+    ClapCommand::new("crash")
         .about(CRASH_COMMAND_ABOUT)
         .arg(
             Arg::new("actor")
                 .help(ACTOR_ARG_HELP)
                 .index(1)
-                .possible_values(&ACTOR_ARG_POSSIBLE_VALUES)
-                .case_insensitive(true)
+                .value_parser(PossibleValuesParser::new(&ACTOR_ARG_POSSIBLE_VALUES))
+                .ignore_case(true)
                 .default_value(ACTOR_ARG_DEFAULT_VALUE),
         )
         .arg(
@@ -67,17 +68,17 @@ impl Command for CrashCommand {
 
 impl CrashCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match crash_subcommand().get_matches_from_safe(pieces) {
+        let matches = match crash_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
             actor: matches
-                .value_of("actor")
+                .get_one::<String>("actor")
                 .expect("actor parameter is not properly defaulted")
                 .to_uppercase(),
             panic_message: matches
-                .value_of("message")
+                .get_one::<String>("message")
                 .expect("message parameter is not properly defaulted")
                 .to_string(),
         })

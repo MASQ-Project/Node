@@ -4,14 +4,14 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
-use itertools::{Either, Itertools};
+use clap::{Command as ClapCommand, Arg, ArgGroup};
+use itertools::{Either};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
-use clap::builder::ValueRange;
+use clap::builder::{PossibleValuesParser, ValueRange};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -30,26 +30,26 @@ pub struct RecoverWalletsCommand {
 
 impl RecoverWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match recover_wallets_subcommand().get_matches_from_safe(pieces) {
+        let matches = match recover_wallets_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
 
         let mnemonic_phrase_opt = matches
-            .value_of("mnemonic-phrase")
-            .map(|mpv| mpv.split(b' ').map(|x| x.to_string()).collect_vec());
+            .get_one::<String>("mnemonic-phrase")
+            .map(|mpv| mpv.split(' ').map(|x| x.to_string()).collect::<Vec<String>>());
         let language = matches
-            .value_of("language")
+            .get_one::<String>("language")
             .expect("language is not properly defaulted by clap")
             .to_string();
-        let passphrase_opt = matches.value_of("passphrase").map(|mp| mp.to_string());
+        let passphrase_opt = matches.get_one::<String>("passphrase").map(|mp| mp.to_string());
         let seed_spec_opt = mnemonic_phrase_opt.map(|mnemonic_phrase| SeedSpec {
             mnemonic_phrase,
             language,
             passphrase_opt,
         });
-        let earning_wallet_derivation_path_opt = matches.value_of("earning-path");
-        let earning_wallet_address_opt = matches.value_of("earning-address");
+        let earning_wallet_derivation_path_opt = matches.get_one::<String>("earning-path");
+        let earning_wallet_address_opt = matches.get_one::<String>("earning-address");
         let earning = match (
             earning_wallet_derivation_path_opt,
             earning_wallet_address_opt,
@@ -61,8 +61,8 @@ impl RecoverWalletsCommand {
                 x
             ),
         };
-        let consuming_wallet_derivation_path_opt = matches.value_of("consuming-path");
-        let consuming_wallet_key_opt = matches.value_of("consuming-key");
+        let consuming_wallet_derivation_path_opt = matches.get_one::<String>("consuming-path");
+        let consuming_wallet_key_opt = matches.get_one::<String>("consuming-key");
         let consuming = match (
             consuming_wallet_derivation_path_opt,
             consuming_wallet_key_opt,
@@ -77,7 +77,7 @@ impl RecoverWalletsCommand {
 
         Ok(RecoverWalletsCommand {
             db_password: matches
-                .value_of("db-password")
+                .get_one::<String>("db-password")
                 .expect("db-password not properly required")
                 .to_string(),
             seed_spec_opt,
@@ -159,7 +159,7 @@ const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
 const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
 
 pub fn recover_wallets_subcommand() -> ClapCommand {
-    Subcommand::with_name("recover-wallets")
+    ClapCommand::new("recover-wallets")
         .about(RECOVER_WALLETS_ABOUT)
         .arg(
             Arg::new("db-password")
@@ -167,8 +167,8 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("db-password")
                 .value_name("DB-PASSWORD")
                 .required(true)
-                .case_insensitive(false)
-                .takes_value(true),
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("mnemonic-phrase")
@@ -194,7 +194,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
+                .value_parser(PossibleValuesParser::new(&LANGUAGE_ARG_POSSIBLE_VALUES)),
         )
         .arg(
             Arg::new("consuming-path")

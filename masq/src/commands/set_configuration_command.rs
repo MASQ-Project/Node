@@ -1,15 +1,15 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand};
+use clap::{Command as ClapCommand, Arg, ArgGroup, value_parser};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
-use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use clap::builder::ValueRange;
+use masq_lib::shared_schema::common_validators::GasPrice;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -20,13 +20,13 @@ pub struct SetConfigurationCommand {
 impl SetConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let parameter_opt = pieces.get(1).map(|s| &s[2..]);
-        match set_configuration_subcommand().get_matches_from_safe(pieces) {
+        match set_configuration_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => {
                 let parameter = parameter_opt.expectv("required param");
                 Ok(SetConfigurationCommand {
                     name: parameter.to_string(),
                     value: matches
-                        .value_of(parameter)
+                        .get_one::<String>(parameter)
                         .expectv("required param")
                         .to_string(),
                 })
@@ -34,13 +34,6 @@ impl SetConfigurationCommand {
 
             Err(e) => Err(format!("{}", e)),
         }
-    }
-}
-
-fn validate_start_block(start_block: String) -> Result<(), String> {
-    match start_block.parse::<u64>() {
-        Ok(_) => Ok(()),
-        _ => Err(start_block),
     }
 }
 
@@ -65,16 +58,16 @@ const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
 pub fn set_configuration_subcommand() -> ClapCommand {
-    Subcommand::with_name("set-configuration")
+    ClapCommand::new("set-configuration")
         .about(SET_CONFIGURATION_ABOUT)
         .arg(
             Arg::new("gas-price")
-                .help(&GAS_PRICE_HELP)
+                .help(GAS_PRICE_HELP())
                 .long("gas-price")
                 .value_name("GAS-PRICE")
                 .num_args(ValueRange::new(1..=1))
                 .required(false)
-                .validator(common_validators::validate_gas_price),
+                .value_parser(value_parser!(GasPrice))
         )
         .arg(
             Arg::new("start-block")
@@ -83,7 +76,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
                 .value_name("START-BLOCK")
                 .num_args(ValueRange::new(1..=1))
                 .required(false)
-                .validator(validate_start_block),
+                .value_parser(value_parser!(u64))
         )
         .group(
             ArgGroup::new("parameter")
@@ -116,7 +109,7 @@ mod tests {
     #[test]
     fn only_one_parameter_at_a_time_is_permitted() {
         let result = set_configuration_subcommand()
-            .get_matches_from_safe(&[
+            .try_get_matches_from(&[
                 "set-configuration",
                 "--gas-price",
                 "70",
@@ -125,13 +118,7 @@ mod tests {
             ])
             .unwrap_err()
             .to_string();
-        assert!(result.contains("cannot be used with one or more of the other specified arguments"));
-    }
-
-    #[test]
-    fn validate_start_block_works() {
-        assert!(validate_start_block("abc".to_string()).is_err());
-        assert!(validate_start_block("1566".to_string()).is_ok());
+        assert!(result.contains("cannot be used with one or more of the other specified arguments"), "{}", result);
     }
 
     #[test]

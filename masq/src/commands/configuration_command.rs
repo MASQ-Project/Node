@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
@@ -29,7 +29,7 @@ const CONFIGURATION_ARG_HELP: &str =
     "Password of the database from which the configuration will be read.";
 
 pub fn configuration_subcommand() -> ClapCommand {
-    Subcommand::with_name("configuration")
+    ClapCommand::new("configuration")
         .about(CONFIGURATION_ABOUT)
         .arg(
             Arg::new("db-password")
@@ -70,13 +70,13 @@ impl Command for ConfigurationCommand {
 
 impl ConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match configuration_subcommand().get_matches_from_safe(pieces) {
+        let matches = match configuration_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.get_one::<String>("db-password").map(|s| s.to_string()),
         })
     }
 

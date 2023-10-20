@@ -97,15 +97,13 @@ fn handle_help_or_version(
     terminal_interface: &TerminalWrapper,
 ) -> InteractiveEvent {
     let _lock = terminal_interface.lock();
-    match arg {
-        "help" => app()
-            .write_help(&mut stdout)
-            .expect("masq help set incorrectly"),
-        "version" => app()
-            .write_version(&mut stdout)
-            .expect("masq version set incorrectly"),
+    let _ = match arg {
+        "help" => writeln!(&mut stdout, "{}", app()
+            .render_help()),
+        "version" => writeln!(&mut stdout, "{}", app()
+            .render_version()),
         _ => unreachable!("should have been treated before"),
-    }
+    };
     short_writeln!(stdout, "");
     InteractiveEvent::Continue
 }

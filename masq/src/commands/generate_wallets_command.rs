@@ -7,8 +7,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, Subcommand};
-use clap::builder::ValueRange;
+use clap::{Command as ClapCommand, Arg};
+use clap::builder::{PossibleValuesParser, ValueRange};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
@@ -81,26 +81,23 @@ const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
 
 impl GenerateWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match generate_wallets_subcommand().get_matches_from_safe(pieces) {
+        let matches = match generate_wallets_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
 
-        let consuming_path_opt = matches.value_of("consuming-path").map(|p| p.to_string());
-        let earning_path_opt = matches.value_of("earning-path").map(|p| p.to_string());
+        let consuming_path_opt = matches.get_one::<String>("consuming-path").map(|p| p.to_string());
+        let earning_path_opt = matches.get_one::<String>("earning-path").map(|p| p.to_string());
         let seed_spec_opt = if consuming_path_opt.is_some() || earning_path_opt.is_some() {
             Some(SeedSpec {
-                word_count: matches
-                    .value_of("word-count")
-                    .expect("word-count not properly defaulted")
-                    .to_string()
-                    .parse::<usize>()
-                    .expect("word-count allowable values are wrong"),
+                word_count: *matches
+                    .get_one::<usize>("word-count")
+                    .expect("word-count not properly defaulted"),
                 language: matches
-                    .value_of("language")
+                    .get_one::<String>("language")
                     .expect("language not properly defaulted")
                     .to_string(),
-                passphrase_opt: matches.value_of("passphrase").map(|s| s.to_string()),
+                passphrase_opt: matches.get_one::<String>("passphrase").map(|s| s.to_string()),
             })
         } else {
             None
@@ -108,7 +105,7 @@ impl GenerateWalletsCommand {
 
         Ok(GenerateWalletsCommand {
             db_password: matches
-                .value_of("db-password")
+                .get_one::<String>("db-password")
                 .expect("db-password not properly required")
                 .to_string(),
             seed_spec_opt,
@@ -173,7 +170,7 @@ impl Command for GenerateWalletsCommand {
 }
 
 pub fn generate_wallets_subcommand() -> ClapCommand {
-    Subcommand::with_name("generate-wallets")
+    ClapCommand::new("generate-wallets")
         .about(GENERATE_WALLET_SUBCOMMAND_ABOUT)
         .arg(
             Arg::new("db-password")
@@ -181,8 +178,8 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .long("db-password")
                 .value_name("DB-PASSWORD")
                 .required(true)
-                .case_insensitive(false)
-                .takes_value(true),
+                .ignore_case(false)
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("word-count")
@@ -192,7 +189,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .possible_values(&WORD_COUNT_ARG_POSSIBLE_VALUES),
+                .value_parser(PossibleValuesParser::new(&WORD_COUNT_ARG_POSSIBLE_VALUES)),
         )
         .arg(
             Arg::new("language")
@@ -202,7 +199,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .possible_values(&LANGUAGE_ARG_POSSIBLE_VALUES),
+                .value_parser(PossibleValuesParser::new(&LANGUAGE_ARG_POSSIBLE_VALUES)),
         )
         .arg(
             Arg::new("passphrase")

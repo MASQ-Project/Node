@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
@@ -17,13 +17,13 @@ pub struct WalletAddressesCommand {
 
 impl WalletAddressesCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match wallet_addresses_subcommand().get_matches_from_safe(pieces) {
+        let matches = match wallet_addresses_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
             db_password: matches
-                .value_of("db-password")
+                .get_one::<String>("db-password")
                 .expect("db-password is not properly required")
                 .to_string(),
         })
@@ -38,14 +38,14 @@ const DB_PASSWORD_ARG_HELP: &str =
     "The current database password (a password must be set to use this command).";
 
 pub fn wallet_addresses_subcommand() -> ClapCommand {
-    Subcommand::with_name("wallet-addresses")
+    ClapCommand::new("wallet-addresses")
         .about(WALLET_ADDRESS_SUBCOMMAND_ABOUT)
         .arg(
-            Arg::with_name("db-password")
+            Arg::new("db-password")
                 .help(DB_PASSWORD_ARG_HELP)
                 .value_name("DB-PASSWORD")
                 .required(true)
-                .case_insensitive(false),
+                .ignore_case(false),
         )
 }
 

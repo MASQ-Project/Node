@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{Command as ClapCommand, Arg, Subcommand};
+use clap::{Command as ClapCommand, Arg};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
@@ -28,11 +28,11 @@ const SET_PASSWORD_HELP: &str = "Password to be set; must not already exist.";
 
 impl ChangePasswordCommand {
     pub fn new_set(pieces: &[String]) -> Result<Self, String> {
-        match set_password_subcommand().get_matches_from_safe(pieces) {
+        match set_password_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => Ok(Self {
                 old_password: None,
                 new_password: matches
-                    .value_of("new-db-password")
+                    .get_one::<String>("new-db-password")
                     .expect("new-db-password is not properly required")
                     .to_string(),
             }),
@@ -41,16 +41,16 @@ impl ChangePasswordCommand {
     }
 
     pub fn new_change(pieces: &[String]) -> Result<Self, String> {
-        match change_password_subcommand().get_matches_from_safe(pieces) {
+        match change_password_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => Ok(Self {
                 old_password: Some(
                     matches
-                        .value_of("old-db-password")
+                        .get_one::<String>("old-db-password")
                         .expect("old-db-password is not properly required")
                         .to_string(),
                 ),
                 new_password: matches
-                    .value_of("new-db-password")
+                    .get_one::<String>("new-db-password")
                     .expect("new-db-password is not properly required")
                     .to_string(),
             }),
@@ -85,7 +85,7 @@ impl Command for ChangePasswordCommand {
 }
 
 pub fn change_password_subcommand() -> ClapCommand {
-    Subcommand::with_name("change-password")
+    ClapCommand::new("change-password")
         .about(CHANGE_PASSWORD_ABOUT)
         .arg(
             Arg::new("old-db-password")
@@ -93,7 +93,7 @@ pub fn change_password_subcommand() -> ClapCommand {
                 .value_name("OLD-DB-PASSWORD")
                 .index(1)
                 .required(true)
-                .case_insensitive(false),
+                .ignore_case(false),
         )
         .arg(
             Arg::new("new-db-password")
@@ -101,19 +101,19 @@ pub fn change_password_subcommand() -> ClapCommand {
                 .value_name("NEW-DB-PASSWORD")
                 .index(2)
                 .required(true)
-                .case_insensitive(false),
+                .ignore_case(false),
         )
 }
 
 pub fn set_password_subcommand() -> ClapCommand {
-    Subcommand::with_name("set-password")
+    ClapCommand::new("set-password")
         .about(SET_PASSWORD_ABOUT)
         .arg(
             Arg::new("new-db-password")
                 .help(SET_PASSWORD_HELP)
                 .index(1)
                 .required(true)
-                .case_insensitive(false),
+                .ignore_case(false),
         )
 }
 

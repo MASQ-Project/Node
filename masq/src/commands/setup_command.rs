@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{value_t, Command as ClapCommand, Subcommand};
+use clap::{Command as ClapCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
@@ -25,8 +25,8 @@ const SETUP_COMMAND_ABOUT: &str =
     "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
 
 pub fn setup_subcommand() -> ClapCommand {
-    shared_app(Subcommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
-        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
+    shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT))
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl Command for SetupCommand {
 
 impl SetupCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match setup_subcommand().get_matches_from_safe(pieces) {
+        let matches = match setup_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
@@ -68,8 +68,8 @@ impl SetupCommand {
             .map(|piece| piece[2..].to_string())
             .map(|key| {
                 if Self::has_value(pieces, &key) {
-                    let value = value_t!(matches, &key, String).expect("Value disappeared!");
-                    UiSetupRequestValue::new(&key, &value)
+                    let value = matches.get_one::<String>(&key).expect("Value disappeared!");
+                    UiSetupRequestValue::new(&key, value)
                 } else {
                     UiSetupRequestValue::clear(&key)
                 }

@@ -11,24 +11,18 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::commands::financials_command::args_validation::financials_subcommand;
+use crate::commands::financials_command::args_validation::{financials_subcommand, TwoRanges};
 use crate::commands::financials_command::data_structures::restricted::{
-    CustomQueryInput, ProcessAccountsMetadata, RangeQueryInput, UserOriginalTypingOfRanges,
-};
-use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
-    parse_masq_range_to_gwei, parse_time_params, split_time_range,
+    ProcessAccountsMetadata,
 };
 use crate::commands::financials_command::pretty_print_utils::restricted::process_gwei_into_requested_format;
 use crate::commands::financials_command::pretty_print_utils::restricted::{
     financial_status_totals_title, main_title_for_tops_opt, no_records_found, prepare_metadata,
-    render_accounts_generic, subtitle_for_tops, title_for_custom_query,
+    render_accounts_generic, subtitle_for_tops,
     triple_or_single_blank_line, StringValuesFormattableAccount,
 };
 use clap::ArgMatches;
-use masq_lib::messages::{
-    CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
-    UiFinancialsRequest, UiFinancialsResponse,
-};
+use masq_lib::messages::{CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse, TopRecordsOrdering};
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::CheckedMul;
@@ -42,7 +36,8 @@ pub struct FinancialsCommand {
     stats_required: bool,
     gwei_precision: bool,
     top_records_opt: Option<TopRecordsConfig>,
-    custom_queries_opt: Option<CustomQueryInput>,
+    custom_queries_opt: Option<CustomQueries>,
+    // custom_queries_opt: Option<CustomQueryInput>,
 }
 
 impl Command for FinancialsCommand {
@@ -50,7 +45,7 @@ impl Command for FinancialsCommand {
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
-            custom_queries_opt: self.custom_queries_opt.as_ref().map(|cq| cq.query.clone()),
+            custom_queries_opt: self.custom_queries_opt.as_ref().map(|cq| cq.clone()),
         };
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
@@ -79,13 +74,13 @@ macro_rules! dump_statistics_lines {
 
 impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match financials_subcommand().get_matches_from_safe(pieces) {
+        let matches = match financials_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(e.to_string()),
         };
-        let stats_required = !matches.is_present("no-stats");
+        let stats_required = !matches.contains_id("no-stats");
         let top_records_opt = Self::parse_top_records_args(&matches);
-        let gwei_precision = matches.is_present("gwei");
+        let gwei_precision = matches.contains_id("gwei");
         let custom_queries_opt = Self::parse_custom_query_args(&matches);
         Ok(Self {
             stats_required,
@@ -144,7 +139,7 @@ impl FinancialsCommand {
         is_first_printed_thing: bool,
         gwei_flag: bool,
     ) {
-        let is_both_sets = self.are_both_sets_to_be_displayed();
+        let is_both_sets = false; //self.are_both_sets_to_be_displayed();
         let (payable_metadata, receivable_metadata) = prepare_metadata(gwei_flag);
 
         triple_or_single_blank_line(stdout, is_first_printed_thing);
@@ -153,7 +148,7 @@ impl FinancialsCommand {
             returned_records.payable_opt,
             stdout,
             payable_metadata,
-            |custom_query_input| &custom_query_input.users_payable_format_opt,
+            // |custom_query_input| &custom_query_input.users_payable_format_opt,
         );
         if is_both_sets {
             triple_or_single_blank_line(stdout, false)
@@ -162,26 +157,26 @@ impl FinancialsCommand {
             returned_records.receivable_opt,
             stdout,
             receivable_metadata,
-            |custom_query_input| &custom_query_input.users_receivable_format_opt,
+            // |custom_query_input| &custom_query_input.users_receivable_format_opt,
         );
     }
 
-    fn are_both_sets_to_be_displayed(&self) -> bool {
-        self.top_records_opt.is_some()
-            || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-                custom_queries.users_payable_format_opt.is_some()
-                    && custom_queries.users_receivable_format_opt.is_some()
-            } else {
-                false
-            })
-    }
+    // fn are_both_sets_to_be_displayed(&self) -> bool {
+    //     self.top_records_opt.is_some()
+    //         || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
+    //             custom_queries.users_payable_format_opt.is_some()
+    //                 && custom_queries.users_receivable_format_opt.is_some()
+    //         } else {
+    //             false
+    //         })
+    // }
 
     fn process_returned_records_in_requested_mode<A>(
         &self,
         returned_records_opt: Option<Vec<A>>,
         stdout: &mut dyn Write,
         metadata: ProcessAccountsMetadata,
-        user_range_format_fetcher: fn(&CustomQueryInput) -> &Option<UserOriginalTypingOfRanges>,
+        // user_range_format_fetcher: fn(&CustomQueries) -> &Option<UserOriginalTypingOfRanges>,
     ) where
         A: StringValuesFormattableAccount,
     {
@@ -194,123 +189,111 @@ impl FinancialsCommand {
                 no_records_found(stdout, metadata.headings.words.as_slice())
             }
         } else if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-            if let Some(user_range_format) = user_range_format_fetcher(custom_queries) {
-                title_for_custom_query(stdout, metadata.table_type, user_range_format);
-                if let Some(accounts) = returned_records_opt {
-                    render_accounts_generic(stdout, accounts, &metadata.headings)
-                } else {
-                    no_records_found(stdout, metadata.headings.words.as_slice())
-                }
-            }
+            // if let Some(user_range_format) = user_range_format_fetcher(custom_queries) {
+            //     title_for_custom_query(stdout, metadata.table_type, user_range_format);
+            //     if let Some(accounts) = returned_records_opt {
+            //         render_accounts_generic(stdout, accounts, &metadata.headings)
+            //     } else {
+            //         no_records_found(stdout, metadata.headings.words.as_slice())
+            //     }
+            // }
         }
     }
 
     fn parse_top_records_args(matches: &ArgMatches) -> Option<TopRecordsConfig> {
-        matches.value_of("top").map(|str| TopRecordsConfig {
-            count: str
-                .parse::<u16>()
-                .expect("top records count not properly validated"),
-            ordered_by: matches
-                .value_of("ordered")
-                .expect("should be required and defaulted")
-                .try_into()
-                .expect("Clap did not catch invalid value"),
+        matches.get_one::<u16>("top").map(|count| TopRecordsConfig {
+            count: *count,
+            ordered_by: *matches
+                .get_one::<TopRecordsOrdering>("ordered")
+                .expect("should be required and defaulted"),
         })
     }
 
-    fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
-        fn decompose_optional_inputs<N>(
-            composed_parameters_opt: Option<RangeQueryInput<N>>,
-        ) -> (Option<RangeQuery<N>>, Option<UserOriginalTypingOfRanges>) {
-            composed_parameters_opt
-                .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
-                .unwrap_or_default()
-        }
-        fn handle_inputs_for_custom_query(
-            payable_range_inputs_opt: Option<RangeQueryInput<u64>>,
-            receivable_range_inputs_opt: Option<RangeQueryInput<i64>>,
-        ) -> Option<CustomQueryInput> {
-            {
-                let (payable_opt, users_payable_format_opt) =
-                    decompose_optional_inputs(payable_range_inputs_opt);
+    // fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
+    //     fn decompose_optional_inputs<N>(
+    //         composed_parameters_opt: Option<RangeQuery<N>>,
+    //     ) -> (Option<RangeQuery<N>>, Option<UserOriginalTypingOfRanges>) {
+    //         composed_parameters_opt
+    //             .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
+    //             .unwrap_or_default()
+    //     }
+    //     fn handle_inputs_for_custom_query(
+    //         payable_range_inputs_opt: Option<RangeQuery<u64>>,
+    //         receivable_range_inputs_opt: Option<RangeQuery<i64>>,
+    //     ) -> Option<CustomQueryInput> {
+    //         {
+    //             let (payable_opt, users_payable_format_opt) =
+    //                 decompose_optional_inputs(payable_range_inputs_opt);
+    //
+    //             let (receivable_opt, users_receivable_format_opt) =
+    //                 decompose_optional_inputs(receivable_range_inputs_opt);
+    //
+    //             Some(CustomQueryInput {
+    //                 query: CustomQueries {
+    //                     payable_opt,
+    //                     receivable_opt,
+    //                 },
+    //                 users_payable_format_opt,
+    //                 users_receivable_format_opt,
+    //             })
+    //         }
+    //     }
+    //
+    //     match (
+    //         Self::parse_range_for_query::<u64>(matches, "payable"),
+    //         Self::parse_range_for_query::<i64>(matches, "receivable"),
+    //     ) {
+    //         (None, None) => None,
+    //         (payable_range_inputs_opt, receivable_range_inputs_opt) => {
+    //             handle_inputs_for_custom_query(
+    //                 payable_range_inputs_opt,
+    //                 receivable_range_inputs_opt,
+    //             )
+    //         }
+    //     }
+    // }
 
-                let (receivable_opt, users_receivable_format_opt) =
-                    decompose_optional_inputs(receivable_range_inputs_opt);
-
-                Some(CustomQueryInput {
-                    query: CustomQueries {
-                        payable_opt,
-                        receivable_opt,
-                    },
-                    users_payable_format_opt,
-                    users_receivable_format_opt,
-                })
-            }
-        }
+    fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueries> {
 
         match (
             Self::parse_range_for_query::<u64>(matches, "payable"),
             Self::parse_range_for_query::<i64>(matches, "receivable"),
         ) {
             (None, None) => None,
-            (payable_range_inputs_opt, receivable_range_inputs_opt) => {
-                handle_inputs_for_custom_query(
-                    payable_range_inputs_opt,
-                    receivable_range_inputs_opt,
-                )
-            }
+            (payable_range_inputs_opt, receivable_range_inputs_opt) => Some(CustomQueries {
+                payable_opt: payable_range_inputs_opt,
+                receivable_opt: receivable_range_inputs_opt
+            })
         }
     }
 
-    fn parse_range_for_query<'a, N>(
-        matches: &'a ArgMatches,
-        parameter_name: &'a str,
-    ) -> Option<RangeQueryInput<N>>
-    where
-        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
-        i64: TryFrom<N>,
-        u64: TryFrom<N>,
-        <N as TryFrom<i64>>::Error: Debug,
-        <i64 as TryFrom<N>>::Error: Debug,
+    fn parse_range_for_query<N: Clone + Send + Sync + 'static>(
+        matches: &ArgMatches,
+        parameter_name: &str,
+    ) -> Option<RangeQuery<N>>
     {
-        let parse_params = |age_min: &str,
-                            age_max: &str,
-                            money_range: &str|
-         -> ((u64, u64), (N, N, String, String)) {
-            (
-                parse_time_params(age_min, age_max).expect("blew up after validation"),
-                parse_masq_range_to_gwei(money_range).expect("blew up after validation"),
-            )
-        };
-
-        matches.value_of(parameter_name).map(|pair_of_ranges| {
-            //already after thoroughfare Clap validation
-            let mut separated_ranges = pair_of_ranges.split('|');
-            let (min_age_str, max_age_str) =
-                split_time_range(separated_ranges.next().expectv("first range"));
-            let (
-                (min_age, max_age),
-                (min_balance_num, max_balance_num, min_balance_str, max_balance_str),
-            ) = parse_params(
-                min_age_str,
-                max_age_str,
-                separated_ranges.next().expectv("second range"),
-            );
-
-            RangeQueryInput {
-                num_values: RangeQuery {
-                    min_age_s: min_age,
-                    max_age_s: max_age,
-                    min_amount_gwei: min_balance_num,
-                    max_amount_gwei: max_balance_num,
-                },
-                captured_literal_input: (
-                    (min_age_str.to_string(), max_age_str.to_string()),
-                    (min_balance_str, max_balance_str),
-                ),
-            }
+        matches
+            .get_one::<TwoRanges<N>>(parameter_name)
+            .map(|two_ranges| {
+            two_ranges.clone().into()
         })
     }
+
+    // fn parse_range_for_query<'a, N: Sync + Send>(
+    //     matches: &'a ArgMatches,
+    //     parameter_name: &'a str,
+    // ) -> Option<RangeQuery<N>>
+    // where
+    //     N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
+    //     i64: TryFrom<N>,
+    //     u64: TryFrom<N>,
+    //     <N as TryFrom<i64>>::Error: Debug,
+    //     <i64 as TryFrom<N>>::Error: Debug,
+    // {
+    //     matches.get_one::<TwoRanges<N>>(parameter_name).map(|two_ranges| {
+    //         two_ranges.clone().into()
+    //     })
+    // }
 }
 
 #[cfg(test)]
@@ -320,7 +303,6 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
-    use crate::commands::financials_command::test_utils::transpose_inputs_to_nested_tuples;
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
     use masq_lib::messages::{
@@ -673,11 +655,11 @@ mod tests {
         ]);
 
         let result = financials_subcommand()
-            .get_matches_from_safe(args)
+            .try_get_matches_from(args)
             .unwrap_err();
 
         assert_on_text_simply_in_ide_and_otherwise_in_terminal(
-            &result.message,
+            &result.to_string(),
             &[
                 ("upside-down", true),
                 ("--ordered <ORDERED>", true),
@@ -686,11 +668,11 @@ mod tests {
             ],
         );
         assert!(
-            result.message.contains("isn't a valid value for"),
+            result.to_string().contains("isn't a valid value for"),
             "{}",
             result
         );
-        assert!(result.message.contains("[possible values: "), "{}", result)
+        assert!(result.to_string().contains("[possible values: "), "{}", result)
     }
 
     #[test]
@@ -819,7 +801,7 @@ mod tests {
     #[test]
     fn parse_top_records_arg_with_ordered_defaulted_to_balance() {
         let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "11"]);
-        let matches = financials_subcommand().get_matches_from_safe(args).unwrap();
+        let matches = financials_subcommand().try_get_matches_from(args).unwrap();
 
         let result = FinancialsCommand::parse_top_records_args(&matches);
 
@@ -847,20 +829,14 @@ mod tests {
             FinancialsCommand {
                 stats_required: true,
                 top_records_opt: None,
-                custom_queries_opt: Some(CustomQueryInput {
-                    query: CustomQueries {
-                        payable_opt: None,
-                        receivable_opt: Some(RangeQuery {
-                            min_age_s: 5000,
-                            max_age_s: 10000,
-                            min_amount_gwei: 40000000000,
-                            max_amount_gwei: 50000000000
-                        })
-                    },
-                    users_payable_format_opt: None,
-                    users_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
-                        "05000", "0010000", "040", "050"
-                    ]))
+                custom_queries_opt: Some(CustomQueries {
+                    payable_opt: None,
+                    receivable_opt: Some(RangeQuery {
+                        min_age_s: 5000,
+                        max_age_s: 10000,
+                        min_amount_gwei: 40000000000,
+                        max_amount_gwei: 50000000000
+                    })
                 }),
                 gwei_precision: false
             }
@@ -882,20 +858,14 @@ mod tests {
             FinancialsCommand {
                 stats_required: true,
                 top_records_opt: None,
-                custom_queries_opt: Some(CustomQueryInput {
-                    query: CustomQueries {
-                        payable_opt: None,
-                        receivable_opt: Some(RangeQuery {
-                            min_age_s: 5000,
-                            max_age_s: 10000,
-                            min_amount_gwei: -50000000000,
-                            max_amount_gwei: -40000000000
-                        })
-                    },
-                    users_payable_format_opt: None,
-                    users_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
-                        "5000", "10000", "-050", "-040"
-                    ]))
+                custom_queries_opt: Some(CustomQueries {
+                    payable_opt: None,
+                    receivable_opt: Some(RangeQuery {
+                        min_age_s: 5000,
+                        max_age_s: 10000,
+                        min_amount_gwei: -50000000000,
+                        max_amount_gwei: -40000000000
+                    })
                 }),
                 gwei_precision: false
             }
@@ -952,64 +922,64 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn are_both_sets_to_be_displayed_works_for_top_records() {
-        //top records always print as a pair so it always consists of both sets
-        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-            "financials",
-            "--top",
-            "20",
-        ]))
-        .unwrap();
+    // #[test]
+    // fn are_both_sets_to_be_displayed_works_for_top_records() {
+    //     //top records always print as a pair so it always consists of both sets
+    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+    //         "financials",
+    //         "--top",
+    //         "20",
+    //     ]))
+    //     .unwrap();
+    //
+    //     let result = subject.are_both_sets_to_be_displayed();
+    //
+    //     assert_eq!(result, true)
+    // }
 
-        let result = subject.are_both_sets_to_be_displayed();
+    // #[test]
+    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
+    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+    //         "financials",
+    //         "--payable",
+    //         "20-40|60-120",
+    //     ]))
+    //     .unwrap();
+    //
+    //     let result = subject.are_both_sets_to_be_displayed();
+    //
+    //     assert_eq!(result, false)
+    // }
 
-        assert_eq!(result, true)
-    }
+    // #[test]
+    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
+    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+    //         "financials",
+    //         "--receivable",
+    //         "20-40|-50-120",
+    //     ]))
+    //     .unwrap();
+    //
+    //     let result = subject.are_both_sets_to_be_displayed();
+    //
+    //     assert_eq!(result, false)
+    // }
 
-    #[test]
-    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
-        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-            "financials",
-            "--payable",
-            "20-40|60-120",
-        ]))
-        .unwrap();
-
-        let result = subject.are_both_sets_to_be_displayed();
-
-        assert_eq!(result, false)
-    }
-
-    #[test]
-    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
-        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-            "financials",
-            "--receivable",
-            "20-40|-50-120",
-        ]))
-        .unwrap();
-
-        let result = subject.are_both_sets_to_be_displayed();
-
-        assert_eq!(result, false)
-    }
-
-    #[test]
-    fn are_both_sets_to_be_displayed_works_for_custom_query_with_both_parts() {
-        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-            "financials",
-            "--receivable",
-            "20-40|-50-120",
-            "--payable",
-            "15-55|667-800",
-        ]))
-        .unwrap();
-
-        let result = subject.are_both_sets_to_be_displayed();
-
-        assert_eq!(result, true)
-    }
+    // #[test]
+    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_both_parts() {
+    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+    //         "financials",
+    //         "--receivable",
+    //         "20-40|-50-120",
+    //         "--payable",
+    //         "15-55|667-800",
+    //     ]))
+    //     .unwrap();
+    //
+    //     let result = subject.are_both_sets_to_be_displayed();
+    //
+    //     assert_eq!(result, true)
+    // }
 
     fn response_with_stats_and_either_top_records_or_top_queries(
         for_top_records: bool,

@@ -17,9 +17,11 @@ use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
 use crate::commands::wallet_addresses_command::wallet_addresses_subcommand;
-use clap::{Command as ClapCommand, AppSettings, Arg};
+use clap::{Command as ClapCommand, Arg, value_parser};
+use clap::builder::ValueRange;
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
+use masq_lib::shared_schema::common_validators::InsecurePort;
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(
@@ -38,11 +40,7 @@ const APP_ABOUT: &str =
 
 pub fn app_head() -> ClapCommand {
     ClapCommand::new(APP_NAME)
-        .global_settings(if cfg!(test) {
-            &[AppSettings::ColorNever]
-        } else {
-            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-        })
+        .disable_colored_help(cfg!(test))
         //.version(crate_version!())
         //.author(crate_authors!("\n")) // TODO: Put this back in when clap is compatible with Rust 1.38.0
         .version(APP_VERSION)
@@ -53,12 +51,12 @@ pub fn app_head() -> ClapCommand {
 pub fn app() -> ClapCommand {
     app_head()
         .arg(
-            Arg::with_name("ui-port")
+            Arg::new("ui-port")
                 .long("ui-port")
                 .value_name("UI-PORT")
-                .takes_value(true)
+                .num_args(ValueRange::new(1..=1))
                 .default_value(DEFAULT_UI_PORT_STRING.as_str())
-                .validator(validate_ui_port)
+                .value_parser(value_parser!(InsecurePort))
                 .help(UI_PORT_HELP.as_str()),
         )
         .subcommand(change_password_subcommand())
@@ -79,13 +77,6 @@ pub fn app() -> ClapCommand {
         .subcommand(wallet_addresses_subcommand())
 }
 
-fn validate_ui_port(port: String) -> Result<(), String> {
-    match str::parse::<u16>(&port) {
-        Ok(p) if p < LOWEST_USABLE_INSECURE_PORT => Err(format!("{}", p)),
-        Ok(_) => Ok(()),
-        Err(_) => Err(port),
-    }
-}
 
 #[cfg(test)]
 mod tests {

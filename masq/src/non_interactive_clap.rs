@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::schema::app;
-use clap::{value_t, ArgMatches};
+use clap::{ArgMatches};
+use masq_lib::shared_schema::common_validators::InsecurePort;
 
 #[allow(clippy::upper_case_acronyms)]
 pub trait NIClapFactory {
@@ -28,7 +29,10 @@ pub struct NonInteractiveClapReal;
 impl NonInteractiveClap for NonInteractiveClapReal {
     fn non_interactive_initial_clap_operations(&self, args: &[String]) -> u16 {
         let matches = handle_help_or_version_if_required(args);
-        value_t!(matches, "ui-port", u16).expect("ui-port is not properly defaulted")
+        let insecure_port = matches
+            .get_one::<InsecurePort>("ui-port")
+            .expect("ui-port is not properly defaulted");
+        insecure_port.port
     }
 }
 

@@ -1,14 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
-    parse_masq_range_to_gwei, parse_time_params,
-};
-use clap::{Command as ClapCommand, Arg, ArgGroup, Subcommand, value_parser};
-use num::CheckedMul;
-use std::fmt::{Debug, Display};
-use std::num::ParseIntError;
+use clap::{Command as ClapCommand, Arg, ArgGroup, value_parser};
+use std::fmt::{Debug};
 use std::str::FromStr;
-use clap::builder::ValueRange;
+use clap::builder::{ArgPredicate, PossibleValuesParser, ValueRange};
+use masq_lib::messages::RangeQuery;
+use crate::commands::financials_command::parsing_and_value_dressing::restricted::{parse_masq_range_to_gwei, parse_time_params};
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
@@ -26,14 +23,14 @@ const GWEI_HELP: &str =
 const ORDERED_HELP: &str = "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.";
 
 pub fn financials_subcommand() -> ClapCommand {
-    Subcommand::with_name("financials")
+    ClapCommand::new("financials")
         .about(FINANCIALS_SUBCOMMAND_ABOUT)
         .arg(
             Arg::new("top")
                 .help(TOP_ARG_HELP)
                 .value_name("TOP")
                 .long("top")
-                .short("t")
+                .short('t')
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
@@ -44,29 +41,29 @@ pub fn financials_subcommand() -> ClapCommand {
                 .help(PAYABLE_ARG_HELP)
                 .value_name("PAYABLE")
                 .long("payable")
-                .short("p")
+                .short('p')
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(TwoRanges))
+                .value_parser(value_parser!(TwoRanges<u128>))
         )
         .arg(
             Arg::new("receivable")
                 .help(RECEIVABLE_ARG_HELP)
                 .value_name("RECEIVABLE")
                 .long("receivable")
-                .short("r")
+                .short('r')
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(TwoRanges))
+                .value_parser(value_parser!(TwoRanges<i128>))
         )
         .arg(
             Arg::new("no-stats")
                 .help(NO_STATS_ARG_HELP)
                 .value_name("NO-STATS")
                 .long("no-stats")
-                .short("n")
+                .short('n')
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
                 .required(false),
@@ -76,7 +73,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .help(GWEI_HELP)
                 .value_name("GWEI")
                 .long("gwei")
-                .short("g")
+                .short('g')
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
                 .required(false),
@@ -86,10 +83,10 @@ pub fn financials_subcommand() -> ClapCommand {
                 .help(ORDERED_HELP)
                 .value_name("ORDERED")
                 .long("ordered")
-                .short("o")
+                .short('o')
                 .ignore_case(false)
-                .default_value_if("top", None, "balance")
-                .possible_values(&["balance", "age"])
+                .default_value_if("top", ArgPredicate::IsPresent, "balance")
+                .value_parser(PossibleValuesParser::new(&["balance", "age"]))
                 .required(false),
         )
         .groups(&[
@@ -118,23 +115,65 @@ pub struct NonZeroU16 {
 }
 
 impl FromStr for NonZeroU16 {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         todo!()
     }
 }
 
-pub struct TwoRanges {
-    age_range: (u128, u128),
-    balance_range: (u128, u128)
+#[derive(Debug, PartialEq, Clone)]
+pub struct TwoRanges<T: Send> {
+    pub age_range: (u64, u64),
+    pub balance_range: (T, T)
 }
 
-impl FromStr for TwoRanges {
-    type Err = ();
+impl<T: Send + PartialOrd> FromStr for TwoRanges<T> {
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        fn checked_split(
+            str: &str,
+            delim: char,
+            err_msg_formatter: fn(&str) -> String,
+        ) -> Result<(&str, &str), String> {
+            let split_elems = str.split(delim).collect::<Vec<&str>>();
+            if split_elems.len() != 2 {
+                return Err(err_msg_formatter(str));
+            }
+            Ok((split_elems[0], split_elems[1]))
+        }
+        let (age_range_str, balance_range_str) = checked_split(&s, '|', |wrong_input| {
+            format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
+        })?;
+        let (min_age_str, max_age_str) = checked_split(age_range_str, '-', |wrong_input| {
+            format!("Age range '{}' is formatted wrong", wrong_input)
+        })?;
+        let (min_age, max_age) = parse_time_params(min_age_str, max_age_str)?;
+        let (min_amount, max_amount, _, _): (T, T, _, _) = parse_masq_range_to_gwei(balance_range_str)?;
+        //Reasons why only a range input is allowed:
+        //There is no use trying to check an exact age because of its all time moving nature.
+        //The backend engine does the search always with a wei precision while at this end you cannot
+        //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
+        if min_age >= max_age || min_amount >= max_amount {
+            Err(format!("Both ranges '{}' must be low to high", s))
+        } else {
+            Ok(TwoRanges {
+                age_range: (min_age, max_age),
+                balance_range: (min_amount, max_amount)
+            })
+        }
+    }
+}
+
+impl<T: Send> Into<RangeQuery<T>> for TwoRanges<T> {
+    fn into(self) -> RangeQuery<T> {
+        RangeQuery {
+            min_age_s: self.age_range.0,
+            max_age_s: self.age_range.1,
+            min_amount_gwei: self.balance_range.0,
+            max_amount_gwei: self.balance_range.1,
+        }
     }
 }
 
@@ -213,42 +252,42 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_also_integers_are_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|2000-30000".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("454-2000|2000-30000");
 
-        assert_eq!(result, Ok(()))
+        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), balance_range: (2000, 30000)}))
     }
 
     #[test]
     fn validate_two_ranges_one_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000-30000".to_string());
+        let result: Result<TwoRanges<i64>, String> = TwoRanges::from_str("454-2000|-2000-30000");
 
-        assert_eq!(result, Ok(()))
+        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), balance_range: (-2000, 30000)}))
     }
 
     #[test]
     fn validate_two_ranges_both_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000--1000".to_string());
+        let result: Result<TwoRanges<i64>, String> = TwoRanges::from_str("454-2000|-2000--1000");
 
-        assert_eq!(result, Ok(()))
+        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), balance_range: (-2000, -1000)}))
     }
 
     #[test]
     fn validate_two_ranges_with_decimal_part_longer_than_the_whole_gwei_range() {
-        let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222333".to_string());
+        let result: Result<TwoRanges<f64>, String> = TwoRanges::from_str("454-2000|100-1000.000111222333");
 
         assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only gwei supported)".to_string()))
     }
 
     #[test]
     fn validate_two_ranges_with_decimal_part_fully_used_up() {
-        let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("454-2000|100-1000.000111222");
 
-        assert_eq!(result, Ok(()))
+        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), balance_range: (100, 1000)}))
     }
 
     #[test]
     fn validate_two_ranges_with_misused_central_delimiter() {
-        let result = validate_two_ranges::<i64>("45-500545-006".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("45-500545-006");
 
         assert_eq!(
             result,
@@ -259,7 +298,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_with_misused_range_delimiter() {
-        let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("45+500|545+006");
 
         assert_eq!(
             result,
@@ -269,7 +308,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_time() {
-        let result = validate_two_ranges::<u64>("4545-2000|20000.0-30000.0".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("4545-2000|20000.0-30000.0");
 
         assert_eq!(
             result,
@@ -279,7 +318,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_both_values_the_same_for_time() {
-        let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("2000-2000|20000.0-30000.0");
 
         assert_eq!(
             result,
@@ -289,7 +328,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_both_values_the_same_for_masqs() {
-        let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
+        let result: Result<TwoRanges<usize>, String> = TwoRanges::from_str("1000-2000|20000.0-20000.0");
 
         assert_eq!(
             result,
@@ -299,7 +338,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
-        let result = validate_two_ranges::<i64>("2000-4545|30.0-27.0".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("2000-4545|30.0-27.0");
 
         assert_eq!(
             result,
@@ -309,7 +348,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
-        let result = validate_two_ranges::<u64>("2000-4545|20.13-20.11".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("2000-4545|20.13-20.11");
 
         assert_eq!(
             result,
@@ -319,7 +358,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_non_numeric_value_for_first_range() {
-        let result = validate_two_ranges::<i64>("blah-1234|899-999".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("blah-1234|899-999");
 
         assert_eq!(
             result,
@@ -329,7 +368,7 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_non_numeric_value_for_second_range() {
-        let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
+        let result: Result<TwoRanges<u64>, String> = TwoRanges::from_str("1000-1234|7878.0-a lot");
 
         assert_eq!(
             result,
