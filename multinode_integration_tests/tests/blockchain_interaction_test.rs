@@ -22,7 +22,7 @@ use multinode_integration_tests_lib::utils::{
     config_dao, node_chain_specific_data_directory, open_all_file_permissions, receivable_dao,
     UrlHolder,
 };
-use node_lib::accountant::db_access_objects::dao_utils::CustomQuery;
+use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
