@@ -28,7 +28,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
-use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, Hops};
+use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage, Hops};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -65,6 +65,9 @@ impl Handler<BindMessage> for Configurator {
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
         // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
+        self.new_password_subs = Some(hashmap!(
+            "configurator".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub.clone()
+        ));
         self.configuration_change_msg_sub_opt =
             Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
     }
@@ -848,7 +851,7 @@ impl Configurator {
         // 2. Neighborhood
         // 3. Blockchain Bridge
         // 4. Accountant
-        todo!("stop");
+        // todo!("stop");
         // let msg = NewPasswordMessage { new_password };
         // self.new_password_subs
         //     .as_ref()
@@ -858,6 +861,18 @@ impl Configurator {
         //         sub.try_send(msg.clone())
         //             .expect("New password recipient is dead")
         //     });
+        let msg = ConfigurationChangeMessage {
+            change: ConfigurationChange::UpdatePassword(new_password),
+        };
+        self.new_password_subs
+            .as_ref()
+            .expect("Configuration is unbound")
+            .values()
+            .for_each(|subscriber| {
+                subscriber
+                    .try_send(msg.clone())
+                    .expect("New password recipient is dead")
+            });
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -1115,14 +1130,12 @@ mod tests {
             }
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        // GH-728
-        todo!("expect ConfigurationChangeMessage instead");
-        // assert_eq!(
-        //     neighborhood_recording.get_record::<NewPasswordMessage>(0),
-        //     &NewPasswordMessage {
-        //         new_password: "new_password".to_string()
-        //     }
-        // );
+        assert_eq!(
+            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
+            &ConfigurationChangeMessage {
+                change: ConfigurationChange::UpdatePassword("new_password".to_string())
+            }
+        );
         assert_eq!(neighborhood_recording.len(), 1);
     }
 
