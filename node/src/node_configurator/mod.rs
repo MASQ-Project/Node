@@ -475,7 +475,7 @@ mod tests {
             r"\tmp\booga.toml",
             &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(user_specific_data.real_user_specified, false);
+        assert_eq!(user_specific_data.real_user_spec, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -498,7 +498,7 @@ mod tests {
             r"c:\tmp\booga.toml",
             &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(user_specific_data.real_user_specified, false);
+        assert_eq!(user_specific_data.real_user_spec, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -521,7 +521,7 @@ mod tests {
             r"\\TMP\booga.toml",
             &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(user_specific_data.real_user_specified, false);
+        assert_eq!(user_specific_data.real_user_spec, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -545,7 +545,7 @@ mod tests {
             r"c:tmp\booga.toml",
             &format!("{}", user_specific_data.config_file.display())
         );
-        assert_eq!(user_specific_data.real_user_specified, false);
+        assert_eq!(user_specific_data.real_user_spec, false);
     }
 
     #[test]
