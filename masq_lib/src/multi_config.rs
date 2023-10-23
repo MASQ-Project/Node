@@ -50,7 +50,7 @@ macro_rules! values_m {
 #[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
-    computed_value_names: HashSet<String>
+    computed_value_names: HashSet<String>,
 }
 
 impl<'a> MultiConfig<'a> {
@@ -69,31 +69,30 @@ impl<'a> MultiConfig<'a> {
             vcl.vcl_args().iter().for_each(|vcl_arg| {
                 match vcl.is_computed() {
                     true => computed_value_names.insert(vcl_arg.name().to_string()),
-                    false => computed_value_names.remove(&vcl_arg.name().to_string())
+                    false => computed_value_names.remove(&vcl_arg.name().to_string()),
                 };
             })
         });
-        let merged = vcls.into_iter().fold(initial, |so_far, vcl | {
-            merge(so_far, vcl)
-        });
+        let merged = vcls
+            .into_iter()
+            .fold(initial, |so_far, vcl| merge(so_far, vcl));
 
         let arg_matches = match schema
             .clone()
             .get_matches_from_safe(merged.args().into_iter())
         {
-            Ok(matches) => {
-                matches
-            },
-            Err(e) => {
-                match e.kind {
-                    clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
-                        unreachable!("The program's entry check failed to catch this.")
-                    }
-                    _ => return Err(Self::make_configurator_error(e)),
+            Ok(matches) => matches,
+            Err(e) => match e.kind {
+                clap::ErrorKind::HelpDisplayed | clap::ErrorKind::VersionDisplayed => {
+                    unreachable!("The program's entry check failed to catch this.")
                 }
+                _ => return Err(Self::make_configurator_error(e)),
             },
         };
-        Ok(MultiConfig { arg_matches, computed_value_names })
+        Ok(MultiConfig {
+            arg_matches,
+            computed_value_names,
+        })
     }
 
     fn check_for_invalid_value_err(
@@ -155,9 +154,9 @@ impl<'a> MultiConfig<'a> {
     }
 
     pub fn is_user_specified(&self, value_name: &str) -> bool {
-        match self.computed_value_names.contains(value_name)  {
+        match self.computed_value_names.contains(value_name) {
             true => false,
-            false => true
+            false => true,
         }
     }
 
@@ -251,7 +250,9 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
-    fn is_computed(&self) -> bool { false }
+    fn is_computed(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -291,7 +292,7 @@ pub fn merge(
     })
 }
 
-pub struct  ComputedVcl {
+pub struct ComputedVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
 
@@ -407,7 +408,7 @@ impl EnvironmentVcl {
             .collect();
         let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
-            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") {
+            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") || (value == *"") {
                 continue;
             }
             let lower_name = str::replace(&upper_name[5..].to_lowercase(), "_", "-");
@@ -567,11 +568,11 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
 impl<'a> MultiConfig<'a> {
     pub fn new_test_only(
         arg_matches: ArgMatches<'a>,
-        computed_value_names: HashSet<String>
+        computed_value_names: HashSet<String>,
     ) -> Self {
         Self {
             arg_matches,
-            computed_value_names
+            computed_value_names,
         }
     }
 }
@@ -1039,31 +1040,29 @@ pub mod tests {
             "--takes_no_value",
             "--other_takes_no_value",
         ]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect();
 
         let subject = CommandLineVcl::new(command_line.clone());
-        let existing_value = match subject.vcl_args
+        let existing_value = match subject
+            .vcl_args
             .iter()
-            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--first-value" ) {
+            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--first-value")
+        {
             Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
-            None => None
+            None => None,
         };
-        let non_existing_value = match subject.vcl_args
+        let non_existing_value = match subject
+            .vcl_args
             .iter()
-            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--takes_no_value" ) {
+            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--takes_no_value")
+        {
             Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
-            None => None
+            None => None,
         };
-        assert_eq!(
-            existing_value.unwrap(),
-            "/nonexistent/directory"
-        );
-        assert_eq!(
-            non_existing_value,
-            None
-        );
+        assert_eq!(existing_value.unwrap(), "/nonexistent/directory");
+        assert_eq!(non_existing_value, None);
     }
 
     #[test]
@@ -1080,12 +1079,19 @@ pub mod tests {
     #[test]
     fn environment_vcl_works() {
         let _guard = EnvironmentGuard::new();
-        let schema = App::new("test").arg(
-            Arg::with_name("numeric-arg")
-                .long("numeric-arg")
-                .takes_value(true),
-        );
+        let schema = App::new("test")
+            .arg(
+                Arg::with_name("numeric-arg")
+                    .long("numeric-arg")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("empty-arg")
+                    .long("empty-arg")
+                    .takes_value(true),
+            );
         std::env::set_var("MASQ_NUMERIC_ARG", "47");
+        std::env::set_var("MASQ_EMPTY_ARG", "");
 
         let subject = EnvironmentVcl::new(&schema);
 

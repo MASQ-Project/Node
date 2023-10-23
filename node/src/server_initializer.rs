@@ -47,18 +47,14 @@ impl ServerInitializer for ServerInitializerReal {
                     .as_mut()
                     .initialize_as_privileged(&params),
             )
-            .combine_results(
-                self.bootstrapper
-                    .as_mut()
-                    .initialize_as_privileged(&params),
-            );
+            .combine_results(self.bootstrapper.as_mut().initialize_as_privileged(&params));
 
         self.privilege_dropper
             .chown(Path::new(data_directory.as_str()), &real_user);
 
         self.privilege_dropper.drop_privileges(&real_user);
 
-            result
+        result
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
