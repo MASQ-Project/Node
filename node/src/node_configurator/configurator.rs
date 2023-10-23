@@ -1,5 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -26,7 +27,6 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
 use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, Hops};
 use crate::sub_lib::peer_actors::BindMessage;
@@ -48,7 +48,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>, // GH-728
+    new_password_subs: Option<HashMap<String, Recipient<ConfigurationChangeMessage>>>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -64,7 +64,7 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
+        // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
         self.configuration_change_msg_sub_opt =
             Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
     }
@@ -113,7 +113,7 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            new_password_subs: None, // GH-728
+            new_password_subs: None,
             node_to_ui_sub_opt: None,
             configuration_change_msg_sub_opt: None,
             crashable,
@@ -848,15 +848,16 @@ impl Configurator {
         // 2. Neighborhood
         // 3. Blockchain Bridge
         // 4. Accountant
-        let msg = NewPasswordMessage { new_password };
-        self.new_password_subs
-            .as_ref()
-            .expect("Configurator is unbound")
-            .iter()
-            .for_each(|sub| {
-                sub.try_send(msg.clone())
-                    .expect("New password recipient is dead")
-            });
+        todo!("stop");
+        // let msg = NewPasswordMessage { new_password };
+        // self.new_password_subs
+        //     .as_ref()
+        //     .expect("Configurator is unbound")
+        //     .iter()
+        //     .for_each(|sub| {
+        //         sub.try_send(msg.clone())
+        //             .expect("New password recipient is dead")
+        //     });
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -910,7 +911,6 @@ mod tests {
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-    use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::{ConfigurationChange, NodeDescriptor, RatePack};
@@ -951,7 +951,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.configuration_change_msg_sub_opt = Some(neighborhood_addr.recipient());
-        subject.new_password_subs = Some(vec![]); // GH-728
+        subject.new_password_subs = Some(hashmap!()); // GH-728
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1116,12 +1116,13 @@ mod tests {
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         // GH-728
-        assert_eq!(
-            neighborhood_recording.get_record::<NewPasswordMessage>(0),
-            &NewPasswordMessage {
-                new_password: "new_password".to_string()
-            }
-        );
+        todo!("expect ConfigurationChangeMessage instead");
+        // assert_eq!(
+        //     neighborhood_recording.get_record::<NewPasswordMessage>(0),
+        //     &NewPasswordMessage {
+        //         new_password: "new_password".to_string()
+        //     }
+        // );
         assert_eq!(neighborhood_recording.len(), 1);
     }
 
@@ -2884,7 +2885,7 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                new_password_subs: None, // GH-728
+                new_password_subs: None,
                 node_to_ui_sub_opt: None,
                 configuration_change_msg_sub_opt: None,
                 crashable: false,

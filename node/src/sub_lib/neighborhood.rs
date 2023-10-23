@@ -4,7 +4,6 @@ use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -425,7 +424,6 @@ pub struct NeighborhoodSubs {
     pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub new_password_sub: Recipient<NewPasswordMessage>, // GH-728
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
@@ -673,7 +671,6 @@ mod tests {
             configuration_change_msg_sub: recipient!(recorder, ConfigurationChangeMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            new_password_sub: recipient!(recorder, NewPasswordMessage), // GH-728
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 

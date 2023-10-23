@@ -40,7 +40,6 @@ use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -165,6 +164,9 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                         );
                 }
                 self.search_for_a_new_route();
+            }
+            ConfigurationChange::UpdatePassword(_new_password) => {
+                todo!("It should replace the use of NewPasswordMessage");
             }
         }
     }
@@ -360,15 +362,6 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
-// GH-728
-impl Handler<NewPasswordMessage> for Neighborhood {
-    type Result = ();
-
-    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_new_password(msg.new_password);
-    }
-}
-
 impl Handler<StreamShutdownMsg> for Neighborhood {
     type Result = ();
 
@@ -508,7 +501,6 @@ impl Neighborhood {
             configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(), // GH-728
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }
@@ -5866,50 +5858,51 @@ mod tests {
 
     #[test]
     fn new_password_message_works() {
-        let system = System::new("test");
-        let mut subject = make_standard_subject();
-        let root_node_record = subject.neighborhood_database.root().clone();
-        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_past_neighbors_params(&set_past_neighbors_params_arc)
-            .set_past_neighbors_result(Ok(()));
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        // GH-728
-        subject_addr
-            .try_send(NewPasswordMessage {
-                new_password: "borkety-bork".to_string(),
-            })
-            .unwrap();
-
-        let mut db = db_from_node(&root_node_record);
-        let new_neighbor = make_node_record(1324, true);
-        db.add_node(new_neighbor.clone()).unwrap();
-        db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
-        db.node_by_key_mut(root_node_record.public_key())
-            .unwrap()
-            .resign();
-        db.node_by_key_mut(new_neighbor.public_key())
-            .unwrap()
-            .resign();
-        let gossip = GossipBuilder::new(&db)
-            .node(new_neighbor.public_key(), true)
-            .build();
-        let cores_package = ExpiredCoresPackage {
-            immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
-            paying_wallet: None,
-            remaining_route: make_meaningless_route(),
-            payload: gossip,
-            payload_len: 0,
-        };
-        subject_addr.try_send(cores_package).unwrap();
-        System::current().stop();
-        system.run();
-        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
-        assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
+        todo!("change this test to use ConfigurationChangeMessage instead");
+        // let system = System::new("test");
+        // let mut subject = make_standard_subject();
+        // let root_node_record = subject.neighborhood_database.root().clone();
+        // let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        // let persistent_config = PersistentConfigurationMock::new()
+        //     .set_past_neighbors_params(&set_past_neighbors_params_arc)
+        //     .set_past_neighbors_result(Ok(()));
+        // subject.persistent_config_opt = Some(Box::new(persistent_config));
+        // let subject_addr = subject.start();
+        // let peer_actors = peer_actors_builder().build();
+        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        //
+        // // GH-728
+        // subject_addr
+        //     .try_send(NewPasswordMessage {
+        //         new_password: "borkety-bork".to_string(),
+        //     })
+        //     .unwrap();
+        //
+        // let mut db = db_from_node(&root_node_record);
+        // let new_neighbor = make_node_record(1324, true);
+        // db.add_node(new_neighbor.clone()).unwrap();
+        // db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
+        // db.node_by_key_mut(root_node_record.public_key())
+        //     .unwrap()
+        //     .resign();
+        // db.node_by_key_mut(new_neighbor.public_key())
+        //     .unwrap()
+        //     .resign();
+        // let gossip = GossipBuilder::new(&db)
+        //     .node(new_neighbor.public_key(), true)
+        //     .build();
+        // let cores_package = ExpiredCoresPackage {
+        //     immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
+        //     paying_wallet: None,
+        //     remaining_route: make_meaningless_route(),
+        //     payload: gossip,
+        //     payload_len: 0,
+        // };
+        // subject_addr.try_send(cores_package).unwrap();
+        // System::current().stop();
+        // system.run();
+        // let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        // assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     #[test]

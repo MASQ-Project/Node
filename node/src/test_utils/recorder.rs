@@ -17,7 +17,6 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
@@ -113,7 +112,6 @@ recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
-recorder_message_handler!(NewPasswordMessage); // GH-728
 recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
@@ -393,7 +391,6 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_password_sub: recipient!(addr, NewPasswordMessage), // GH-728
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
