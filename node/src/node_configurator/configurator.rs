@@ -50,7 +50,7 @@ pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     new_password_subs: Option<HashMap<String, Recipient<ConfigurationChangeMessage>>>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+    update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
     logger: Logger,
 }
@@ -68,7 +68,7 @@ impl Handler<BindMessage> for Configurator {
         self.new_password_subs = Some(hashmap!(
             "configurator".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub.clone()
         ));
-        self.configuration_change_msg_sub_opt =
+        self.update_min_hops_sub_opt =
             Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
     }
 }
@@ -118,7 +118,7 @@ impl Configurator {
             persistent_config,
             new_password_subs: None,
             node_to_ui_sub_opt: None,
-            configuration_change_msg_sub_opt: None,
+            update_min_hops_sub_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -704,7 +704,7 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        let configuration_change_msg_sub_opt = self.configuration_change_msg_sub_opt.clone();
+        let update_min_hops_sub_opt = self.update_min_hops_sub_opt.clone();
         let logger = &self.logger;
         debug!(
             logger,
@@ -714,7 +714,7 @@ impl Configurator {
             msg,
             context_id,
             &mut self.persistent_config,
-            configuration_change_msg_sub_opt,
+            update_min_hops_sub_opt,
             logger,
         ) {
             Ok(message_body) => message_body,
@@ -737,7 +737,7 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
-        configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+        update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
         logger: &Logger,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
@@ -752,7 +752,7 @@ impl Configurator {
                     Self::set_min_hops(
                         msg.value,
                         persistent_config,
-                        configuration_change_msg_sub_opt,
+                        update_min_hops_sub_opt,
                         logger,
                     )?;
                 } else {
@@ -961,7 +961,7 @@ mod tests {
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.configuration_change_msg_sub_opt = Some(neighborhood_addr.recipient());
+        subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
         subject.new_password_subs = Some(hashmap!()); // GH-728
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
@@ -2216,7 +2216,7 @@ mod tests {
         let neighborhood_addr = neighborhood.start();
         let mut subject = make_subject(Some(persistent_config));
         subject.logger = Logger::new(test_name);
-        subject.configuration_change_msg_sub_opt =
+        subject.update_min_hops_sub_opt =
             Some(neighborhood_addr.recipient::<ConfigurationChangeMessage>());
 
         let result = subject.handle_set_configuration(
@@ -2299,7 +2299,7 @@ mod tests {
             .start()
             .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
-        subject.configuration_change_msg_sub_opt = Some(configuration_change_msg_sub);
+        subject.update_min_hops_sub_opt = Some(configuration_change_msg_sub);
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -2896,7 +2896,7 @@ mod tests {
                 persistent_config,
                 new_password_subs: None,
                 node_to_ui_sub_opt: None,
-                configuration_change_msg_sub_opt: None,
+                update_min_hops_sub_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }
