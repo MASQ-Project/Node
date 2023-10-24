@@ -66,7 +66,7 @@ impl Handler<BindMessage> for Configurator {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
         // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
         self.update_password_subs = Some(hashmap!(
-            "configurator".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub.clone()
+            "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub.clone(),
         ));
         self.update_min_hops_sub_opt =
             Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
