@@ -413,54 +413,54 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
 }
 
 impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
-    fn sign_transaction(
-        &self,
-        transaction_params: TransactionParameters,
-        web3: &Web3<Batch<T>>,
-        key: &secp256k1secrets::key::SecretKey,
-    ) -> Result<SignedTransaction, Web3Error> {
-        self.sign_transaction_params.lock().unwrap().push((
-            transaction_params.clone(),
-            web3.clone(),
-            key.clone(),
-        ));
-        self.sign_transaction_results.borrow_mut().remove(0)
-    }
+    // fn sign_transaction(
+    //     &self,
+    //     transaction_params: TransactionParameters,
+    //     web3: &Web3<Batch<T>>,
+    //     key: &secp256k1secrets::key::SecretKey,
+    // ) -> Result<SignedTransaction, Web3Error> {
+    //     self.sign_transaction_params.lock().unwrap().push((
+    //         transaction_params.clone(),
+    //         web3.clone(),
+    //         key.clone(),
+    //     ));
+    //     self.sign_transaction_results.borrow_mut().remove(0)
+    // }
 
-    fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
-        self.append_transaction_to_batch_params
-            .lock()
-            .unwrap()
-            .push((signed_transaction, web3.clone()));
-    }
+    // fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
+    //     self.append_transaction_to_batch_params
+    //         .lock()
+    //         .unwrap()
+    //         .push((signed_transaction, web3.clone()));
+    // }
 
-    fn batch_wide_timestamp(&self) -> SystemTime {
-        self.batch_wide_timestamp_results.borrow_mut().remove(0)
-    }
+    // fn batch_wide_timestamp(&self) -> SystemTime {
+    //     self.batch_wide_timestamp_results.borrow_mut().remove(0)
+    // }
 
-    fn send_new_payable_fingerprints_seeds(
-        &self,
-        batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<PendingPayableFingerprintSeeds>,
-        hashes_and_balances: &[(H256, u128)],
-    ) {
-        self.send_new_payable_fingerprints_seeds_params
-            .lock()
-            .unwrap()
-            .push((
-                batch_wide_timestamp,
-                (*pp_fingerprint_sub).clone(),
-                hashes_and_balances.to_vec(),
-            ));
-    }
+    // fn send_new_payable_fingerprints_seeds(
+    //     &self,
+    //     batch_wide_timestamp: SystemTime,
+    //     pp_fingerprint_sub: &Recipient<PendingPayableFingerprintSeeds>,
+    //     hashes_and_balances: &[(H256, u128)],
+    // ) {
+    //     self.send_new_payable_fingerprints_seeds_params
+    //         .lock()
+    //         .unwrap()
+    //         .push((
+    //             batch_wide_timestamp,
+    //             (*pp_fingerprint_sub).clone(),
+    //             hashes_and_balances.to_vec(),
+    //         ));
+    // }
 
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Box<dyn Future<Item = Vec<web3::transports::Result<rpc::Value>>, Error = Web3Error>> {
-        self.submit_batch_params.lock().unwrap().push(web3.clone());
-        Box::new(result(self.submit_batch_results.borrow_mut().remove(0)))
-    }
+    // fn submit_batch(
+    //     &self,
+    //     web3: &Web3<Batch<T>>,
+    // ) -> Box<dyn Future<Item = Vec<web3::transports::Result<rpc::Value>>, Error = Web3Error>> {
+    //     self.submit_batch_params.lock().unwrap().push(web3.clone());
+    //     Box::new(result(self.submit_batch_results.borrow_mut().remove(0)))
+    // }
 }
 
 impl<T: BatchTransport> BatchPayableToolsMock<T> {

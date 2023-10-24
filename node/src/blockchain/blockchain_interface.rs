@@ -22,6 +22,7 @@ use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
+use std::time::SystemTime;
 use thousands::Separable;
 use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
@@ -30,7 +31,7 @@ use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
     TransactionReceipt, H160, H256, U256,
 };
-use web3::{BatchTransport, Error, Transport, Web3};
+use web3::{BatchTransport, Error as Web3Error, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -164,6 +165,20 @@ pub struct RetrievedBlockchainTransactions {
     pub new_start_block: u64,
     pub transactions: Vec<BlockchainTransaction>,
 }
+
+pub struct BlockchainInterfaceSlim {}
+
+// impl<T: BatchTransport + Debug> BlockchainInterfaceSlim {
+//     fn sign_transaction(
+//         transaction_params: TransactionParameters,
+//         web3: &Web3<Batch<T>>,
+//         key: &secp256k1secrets::key::SecretKey,
+//     ) -> Result<SignedTransaction, Web3Error> {
+//         web3.accounts()
+//             .sign_transaction(transaction_params, key)
+//             .wait() // TODO: Remove this wait.
+//     }
+// }
 
 pub trait BlockchainInterface<T: Transport = Http> {
     fn contract_address(&self) -> Address;
@@ -443,14 +458,23 @@ where
                 todo!("TODO: sign_and_append_multiple_payments Error");
             }
         };
-        let timestamp = self.batch_payable_tools.batch_wide_timestamp();
+        let timestamp = SystemTime::now();
 
-        self.batch_payable_tools
-            .send_new_payable_fingerprints_seeds(
-                timestamp,
-                new_fingerprints_recipient,
-                &hashes_and_paid_amounts,
-            );
+        let hashes_and_paid_amounts_clone = hashes_and_paid_amounts.clone();
+        // self.batch_payable_tools
+        //     .send_new_payable_fingerprints_seeds(
+        //         timestamp,
+        //         new_fingerprints_recipient,
+        //         &hashes_and_paid_amounts,
+        //     );
+
+        new_fingerprints_recipient
+            .try_send(PendingPayableFingerprintSeeds {
+                batch_wide_timestamp: timestamp,
+                hashes_and_balances: hashes_and_paid_amounts,
+            })
+            .expect("Accountant is dead");
+
         info!(
             self.logger,
             "{}",
@@ -458,25 +482,18 @@ where
         );
 
         return Box::new(
-            self.batch_payable_tools
-                .submit_batch(&self.batch_web3)
-                .map_err(|e| Self::error_with_hashes(e, hashes_and_paid_amounts.clone()))
+            self.batch_web3
+                .transport()
+                .submit_batch()
+                .map_err(|e| Self::error_with_hashes(e, hashes_and_paid_amounts_clone))
                 .and_then(move |batch_response| {
-                    Ok(Self::merged_output_data(
-                        batch_response,
-                        hashes_and_paid_amounts,
-                        accounts,
-                    ))
-
-                    // match self.batch_payable_tools.submit_batch(&self.batch_web3) {
-                    //     // Future Here
-                    //     Ok(responses) => Ok(Self::merged_output_data(
-                    //         responses,
-                    //         hashes_and_paid_amounts,
-                    //         accounts,
-                    //     )),
-                    //     Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
-                    // }
+                    // Ok(Self::merged_output_data(
+                    //     batch_response,
+                    //     hashes_and_paid_amounts_clone_2,
+                    //     accounts,
+                    // ))
+                    Ok(vec![])
+                    // TODO: GH-744: Fix this.
                 }),
         );
     }
@@ -565,7 +582,7 @@ pub enum ProcessedPayableFallible {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct RpcPayableFailure {
-    pub rpc_error: Error,
+    pub rpc_error: Web3Error,
     pub recipient_wallet: Wallet,
     pub hash: H256,
 }
@@ -709,7 +726,7 @@ where
     }
 
     fn error_with_hashes(
-        error: Error,
+        error: Web3Error,
         hashes_and_paid_amounts: Vec<(H256, u128)>,
     ) -> PayableTransactionError {
         let hashes = hashes_and_paid_amounts
@@ -732,8 +749,11 @@ where
     ) -> Result<H256, PayableTransactionError> {
         let signed_tx =
             self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
-        self.batch_payable_tools
-            .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
+        // self.batch_payable_tools
+        //     .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
+        self.batch_web3
+            .eth()
+            .send_raw_transaction(signed_tx.raw_transaction);
         Ok(signed_tx.transaction_hash)
     }
 
@@ -781,9 +801,15 @@ where
             Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
         };
 
-        self.batch_payable_tools
-            .sign_transaction(transaction_parameters, &self.batch_web3, &key)
+        self.batch_web3
+            .accounts()
+            .sign_transaction(transaction_parameters, &key)
+            .wait() // TODO: Remove this wait.
             .map_err(|e| PayableTransactionError::Signing(e.to_string()))
+
+        // self.batch_payable_tools
+        //     .sign_transaction(transaction_parameters, &self.batch_web3, &key)
+        //     .map_err(|e| PayableTransactionError::Signing(e.to_string()))
     }
 
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
