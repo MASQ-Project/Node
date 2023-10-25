@@ -73,6 +73,7 @@ impl<'a> MultiConfig<'a> {
                 };
             })
         });
+        // TODO pull this out to function to use in determine_user_specific_data
         let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));

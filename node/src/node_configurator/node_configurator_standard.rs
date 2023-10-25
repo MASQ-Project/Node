@@ -150,7 +150,6 @@ pub fn server_initializer_collected_params<'a>(
         Ok(cfv) => cfv,
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
-    // println!("user_specific_data: {:#?}", user_specific_data);
     let environment_vcl = EnvironmentVcl::new(&app);
     let commandline_vcl = CommandLineVcl::new(args.to_vec());
     let config_file_specified = user_specific_data.config_file_spec;
@@ -1024,7 +1023,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "You need to define data-directory to be able define config file with naked directory 'dirname/config.toml'."
+        expected = "You need to define data-directory to define config file with naked directory 'dirname/config.toml'."
     )]
     fn server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory() {
         running_test();

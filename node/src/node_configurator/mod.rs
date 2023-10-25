@@ -42,7 +42,7 @@ pub struct UserSpecifiedData {
 }
 
 fn get_chain_from_vcl(configs: &[Box<dyn VclArg>]) -> (Chain, bool) {
-    match argument_from_enumerate(configs, "--chain") {
+    match argument_from_vcl(configs, "--chain") {
         Some(chain) => (Chain::from(chain), true),
         None => (DEFAULT_CHAIN, false),
     }
@@ -52,7 +52,7 @@ fn get_real_user_from_vcl(
     configs: &[Box<dyn VclArg>],
     dirs_wrapper: &dyn DirsWrapper,
 ) -> (RealUser, bool) {
-    match argument_from_enumerate(configs, "--real-user") {
+    match argument_from_vcl(configs, "--real-user") {
         Some(user) => {
             let real_user_split: Vec<&str> = user.split(':').collect();
             (
@@ -81,7 +81,7 @@ fn get_data_directory_from_vcl(
     real_user: &RealUser,
     chain: &Chain,
 ) -> (PathBuf, bool) {
-    match argument_from_enumerate(configs, "--data-directory") {
+    match argument_from_vcl(configs, "--data-directory") {
         Some(data_dir) => match PathBuf::from(data_dir).starts_with("~/") {
             true => {
                 let home_dir_from_wrapper = dirs_wrapper
@@ -111,7 +111,7 @@ fn get_config_file_from_vcl(
     data_directory_def: bool,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> (PathBuf, bool) {
-    match argument_from_enumerate(configs, "--config-file") {
+    match argument_from_vcl(configs, "--config-file") {
         Some(config_str) => {
             let path = match PathBuf::from(config_str).is_relative() {
                 true => {
@@ -123,9 +123,9 @@ fn get_config_file_from_vcl(
                                 true => {
                                     let home_dir_from_wrapper = dirs_wrapper
                                         .home_dir()
-                                        .expect("expexted users home dir")
+                                        .expect("expexted users home_dir")
                                         .to_str()
-                                        .expect("expect home dir")
+                                        .expect("expect str home_dir")
                                         .to_string();
                                     let replaced_tilde_dir =
                                         config_str
@@ -135,7 +135,7 @@ fn get_config_file_from_vcl(
                                 }
                                 false => match data_directory_def {
                                     true => PathBuf::from(data_directory).join(PathBuf::from(config_str)),
-                                    false => panic!("You need to define data-directory to be able define config file with naked directory 'dirname/config.toml'.")
+                                    false => panic!("You need to define data-directory to define config file with naked directory 'dirname/config.toml'.")
                                 }
                             }
                         }
@@ -155,11 +155,10 @@ fn get_config_file_from_vcl(
     }
 }
 
-fn config_file_data_dir_real_user_chain_from_enumerate(
+fn config_file_data_dir_real_user_chain_from_vcl(
     dirs_wrapper: &dyn DirsWrapper,
     configs: Vec<Box<dyn VclArg>>,
 ) -> UserSpecifiedData {
-    //TODO break down this function to collection of small one purpose functions
     let mut user_specified_data = UserSpecifiedData {
         chain: Default::default(),
         chain_spec: false,
@@ -197,7 +196,7 @@ fn config_file_data_dir_real_user_chain_from_enumerate(
     user_specified_data
 }
 
-fn argument_from_enumerate<'a>(configs: &'a [Box<dyn VclArg>], needle: &'a str) -> Option<&'a str> {
+fn argument_from_vcl<'a>(configs: &'a [Box<dyn VclArg>], needle: &'a str) -> Option<&'a str> {
     match configs
         .iter()
         .find(|vcl_arg_box| vcl_arg_box.deref().name() == needle)
@@ -226,8 +225,9 @@ pub fn determine_user_specific_data(
     })
     .map(|vcl_arg| vcl_arg.dup())
     .collect();
+    //TODO probably need to implement new merge from config_vcl with orientation_args
     let user_specified_data =
-        config_file_data_dir_real_user_chain_from_enumerate(dirs_wrapper, orientation_args);
+        config_file_data_dir_real_user_chain_from_vcl(dirs_wrapper, orientation_args);
 
     Ok(user_specified_data)
 }
