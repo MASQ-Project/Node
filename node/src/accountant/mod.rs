@@ -43,6 +43,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -160,6 +161,14 @@ impl Handler<BindMessage> for Accountant {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         self.handle_bind_message(msg);
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
+    }
+}
+
+impl Handler<ConfigurationChangeMessage> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!("handler for Accountant");
     }
 }
 
@@ -446,6 +455,7 @@ impl Accountant {
     pub fn make_subs_from(addr: &Addr<Accountant>) -> AccountantSubs {
         AccountantSubs {
             bind: recipient!(addr, BindMessage),
+            configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
             start: recipient!(addr, StartMessage),
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),

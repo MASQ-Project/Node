@@ -23,6 +23,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
+use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -103,6 +104,14 @@ pub struct RetrieveTransactions {
 impl SkeletonOptHolder for RetrieveTransactions {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
+    }
+}
+
+impl Handler<ConfigurationChangeMessage> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!("handler for BlockchainBridge");
     }
 }
 
@@ -232,6 +241,7 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
+            configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
             qualified_payables: recipient!(addr, QualifiedPayablesMessage),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),

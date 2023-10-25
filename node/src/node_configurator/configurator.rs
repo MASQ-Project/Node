@@ -65,11 +65,26 @@ impl Handler<BindMessage> for Configurator {
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
         // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
+        self.update_min_hops_sub_opt = Some(
+            msg.peer_actors
+                .neighborhood
+                .configuration_change_msg_sub
+                .clone(),
+        );
         self.update_password_subs = Some(hashmap!(
-            "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub.clone(),
+            "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub,
+            "configurator".to_string() => msg.peer_actors.configurator.configuration_change_msg_sub,
+            "blockchain_bridge".to_string() => msg.peer_actors.blockchain_bridge.configuration_change_msg_sub,
+            "accountant".to_string() => msg.peer_actors.accountant.configuration_change_msg_sub
         ));
-        self.update_min_hops_sub_opt =
-            Some(msg.peer_actors.neighborhood.configuration_change_msg_sub);
+    }
+}
+
+impl Handler<ConfigurationChangeMessage> for Configurator {
+    type Result = ();
+
+    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!("handler in configurator")
     }
 }
 
@@ -1086,9 +1101,15 @@ mod tests {
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (configurator, _, configurator_recording_arc) = make_recorder();
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder()
             .ui_gateway(ui_gateway)
             .neighborhood(neighborhood)
+            .configurator(configurator)
+            .blockchain_bridge(blockchain_bridge)
+            .accountant(accountant)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -1126,11 +1147,27 @@ mod tests {
             }
         );
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let configurator_recording = configurator_recording_arc.lock().unwrap();
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let expected_configuration_msg = ConfigurationChangeMessage {
+            change: ConfigurationChange::UpdatePassword("new_password".to_string()),
+        };
         assert_eq!(
             neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
-            &ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdatePassword("new_password".to_string())
-            }
+            &expected_configuration_msg
+        );
+        assert_eq!(
+            configurator_recording.get_record::<ConfigurationChangeMessage>(0),
+            &expected_configuration_msg
+        );
+        assert_eq!(
+            blockchain_bridge_recording.get_record::<ConfigurationChangeMessage>(0),
+            &expected_configuration_msg
+        );
+        assert_eq!(
+            accountant_recording.get_record::<ConfigurationChangeMessage>(0),
+            &expected_configuration_msg
         );
         assert_eq!(neighborhood_recording.len(), 1);
     }

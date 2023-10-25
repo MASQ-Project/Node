@@ -455,6 +455,7 @@ pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> Neighborho
 pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: recipient!(addr, BindMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         start: recipient!(addr, StartMessage),
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
@@ -480,6 +481,7 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
 pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
         qualified_payables: recipient!(addr, QualifiedPayablesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
@@ -492,6 +494,7 @@ pub fn make_configurator_subs_from_recorder(addr: &Addr<Recorder>) -> Configurat
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
     }
 }
 

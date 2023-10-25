@@ -24,7 +24,9 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperConfig;
 use crate::sub_lib::hopper::HopperSubs;
-use crate::sub_lib::neighborhood::{NeighborhoodMode, NeighborhoodSubs};
+use crate::sub_lib::neighborhood::{
+    ConfigurationChangeMessage, NeighborhoodMode, NeighborhoodSubs,
+};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::peer_actors::{NewPublicIp, PeerActors};
 use crate::sub_lib::proxy_client::ProxyClientConfig;
@@ -534,6 +536,7 @@ impl ActorFactory for ActorFactoryReal {
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+            configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
         }
     }
 }
