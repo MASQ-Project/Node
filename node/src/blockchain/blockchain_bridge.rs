@@ -538,19 +538,19 @@ impl BlockchainBridge {
                 .and_then(move |pending_nonce| {
                     // let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
-                    err(PayableTransactionError::GasPriceQueryFailed(
-                        "test Error".to_string(),
-                    ))
+                    // err(PayableTransactionError::GasPriceQueryFailed(
+                    //     "test Error".to_string(),
+                    // ))
 
                     // TODO: GH-744: Fix this
-                    // self.blockchain_interface.send_payables_within_batch(
-                    //     // <<<---- ( START HERE )
-                    //     consuming_wallet,
-                    //     gas_price,
-                    //     pending_nonce,
-                    //     new_fingerprints_recipient,
-                    //     &msg_clone.accounts,
-                    // )
+                    self.blockchain_interface.send_payables_within_batch(
+                        // <<<---- ( START HERE )
+                        consuming_wallet,
+                        gas_price,
+                        pending_nonce,
+                        new_fingerprints_recipient,
+                        msg_clone.accounts,
+                    )
                 }),
         );
     }
