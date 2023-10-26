@@ -41,6 +41,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::{Message, System};
 use ethereum_types::H256;
@@ -56,7 +57,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -444,7 +444,7 @@ impl ReceivableDaoFactoryMock {
         self.make_boxed_result(Box::new(result))
     }
 
-    pub fn make_boxed_result(self, result: Box<dyn ReceivableDao>)->Self{
+    pub fn make_boxed_result(self, result: Box<dyn ReceivableDao>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
     }
@@ -1189,7 +1189,7 @@ impl ReceivableScannerBuilder {
         Self {
             receivable_dao: ReceivableDaoMock::new(),
             banned_dao: BannedDaoMock::new(),
-            persistent_configuration:PersistentConfigurationMock::new(),
+            persistent_configuration: PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
@@ -1201,7 +1201,10 @@ impl ReceivableScannerBuilder {
         self
     }
 
-    pub fn persistent_configuration(mut self, persistent_config: PersistentConfigurationMock) -> Self {
+    pub fn persistent_configuration(
+        mut self,
+        persistent_config: PersistentConfigurationMock,
+    ) -> Self {
         self.persistent_configuration = persistent_config;
         self
     }

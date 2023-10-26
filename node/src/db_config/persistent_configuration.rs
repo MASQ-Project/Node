@@ -133,7 +133,11 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
-    fn set_start_block_from_txn(&mut self, value: u64, transaction: &mut dyn TransactionWrapper)->Result<(), PersistentConfigError>;
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut dyn TransactionWrapper,
+    ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -410,8 +414,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("start_block", value)
     }
 
-    fn set_start_block_from_txn(&mut self, value: u64, transaction: &mut dyn TransactionWrapper)->Result<(), PersistentConfigError>{
-        self.simple_set_method_from_provided_txn("start_block",value, transaction)
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut dyn TransactionWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        self.simple_set_method_from_provided_txn("start_block", value, transaction)
     }
 
     fn set_wallet_info(
@@ -546,16 +554,20 @@ impl PersistentConfigurationReal {
         parameter_name: &str,
         value: T,
     ) -> Result<(), PersistentConfigError> {
-         Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
+        Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
     }
 
     fn simple_set_method_from_provided_txn<T: Display>(
         &mut self,
         parameter_name: &str,
         value: T,
-        txn: &mut dyn TransactionWrapper
-        ) -> Result<(),PersistentConfigError> {
-        Ok(self.dao.set_through_provided_transaction(txn, parameter_name, Some(value.to_string()))?)
+        txn: &mut dyn TransactionWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set_through_provided_transaction(
+            txn,
+            parameter_name,
+            Some(value.to_string()),
+        )?)
     }
 
     fn simple_get_method<T>(
@@ -598,10 +610,12 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -612,8 +626,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();

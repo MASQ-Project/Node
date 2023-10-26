@@ -59,7 +59,6 @@ use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::PayableTransactionError;
-use crate::db_config::config_dao::ConfigDao;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
 pub struct Scanners {
@@ -83,7 +82,7 @@ impl Scanners {
             Box::new(PaymentAdjusterReal::new()),
         ));
 
-        let pending_payable =  Box::new(PendingPayableScanner::new(
+        let pending_payable = Box::new(PendingPayableScanner::new(
             dao_factories.payable_dao_factory.make(),
             dao_factories.pending_payable_dao_factory.make(),
             Rc::clone(&payment_thresholds),
@@ -91,9 +90,8 @@ impl Scanners {
             Rc::clone(&financial_statistics),
         ));
 
-        let persistent_configuration = PersistentConfigurationReal::from(
-            dao_factories.config_dao_factory.make()
-        );
+        let persistent_configuration =
+            PersistentConfigurationReal::from(dao_factories.config_dao_factory.make());
         let receivable = Box::new(ReceivableScanner::new(
             dao_factories.receivable_dao_factory.make(),
             dao_factories.banned_dao_factory.make(),
@@ -864,7 +862,10 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
         if message.payments.is_empty() {
-            self.update_start_block_while_no_received_transactions_found(message.new_start_block, logger)
+            self.update_start_block_while_no_received_transactions_found(
+                message.new_start_block,
+                logger,
+            )
         } else {
             self.update_account_balances_start_block_and_stats(&message, logger)
         }
@@ -903,28 +904,42 @@ impl ReceivableScanner {
         }
     }
 
-    fn update_start_block_while_no_received_transactions_found(&mut self, new_start_block: u64, logger: &Logger){
+    fn update_start_block_while_no_received_transactions_found(
+        &mut self,
+        new_start_block: u64,
+        logger: &Logger,
+    ) {
         info!(
-                logger,
-                "No new received payments were detected during the scanning process."
-            );
-        match self.persistent_configuration.set_start_block(new_start_block){
+            logger,
+            "No new received payments were detected during the scanning process."
+        );
+        match self
+            .persistent_configuration
+            .set_start_block(new_start_block)
+        {
             Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
-            Err(e) => todo!()
+            Err(e) => panic!(
+                "Attempt to set new start block to {} failed due to: {:?}",
+                new_start_block, e
+            ),
         }
     }
 
-    fn update_account_balances_start_block_and_stats(&mut self, msg: &ReceivedPayments, logger: &Logger){
+    fn update_account_balances_start_block_and_stats(
+        &mut self,
+        msg: &ReceivedPayments,
+        logger: &Logger,
+    ) {
         let mut txn = self
             .receivable_dao
             .as_mut()
             .more_money_received(msg.timestamp, &msg.payments);
 
         let new_start_block = msg.new_start_block;
-        match self.persistent_configuration.set_start_block_from_txn(
-            new_start_block,
-            txn.as_mut()
-        ) {
+        match self
+            .persistent_configuration
+            .set_start_block_from_txn(new_start_block, txn.as_mut())
+        {
             Ok(()) => (),
             Err(e) => panic!(
                 "Attempt to set new start block to {} failed due to: {:?}",
@@ -1118,6 +1133,7 @@ mod tests {
         PayableAccount, PayableDaoError, PendingPayable,
     };
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoReal;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableTriple;
@@ -1146,13 +1162,15 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
-    use crate::db_config::config_dao::ConfigDaoError;
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use actix::{Message, System};
     use ethereum_types::U64;
@@ -1169,12 +1187,6 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoReal;
-    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
-    use crate::database::test_utils::ConnectionWrapperMock;
-    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal};
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -1189,7 +1201,9 @@ mod tests {
             ReceivableDaoFactoryMock::new().make_boxed_result(Box::new(receivable_dao));
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao_mock = ConfigDaoMock::new().set_params(&set_params_arc).set_result(Ok(()));
+        let config_dao_mock = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
         let config_dao_factory = ConfigDaoFactoryMock::new().make_result(config_dao_mock);
         let when_pending_too_long_sec = 1234;
         let financial_statistics = FinancialStatistics {
@@ -1264,9 +1278,15 @@ mod tests {
             &payment_thresholds
         );
         assert_eq!(receivable_scanner.common.initiated_at_opt.is_some(), false);
-        receivable_scanner.persistent_configuration.set_start_block(136890).unwrap();
+        receivable_scanner
+            .persistent_configuration
+            .set_start_block(136890)
+            .unwrap();
         let set_params = set_params_arc.lock().unwrap();
-        assert_eq!(*set_params, vec![("start_block".to_string(), Some("136890".to_string()))]);
+        assert_eq!(
+            *set_params,
+            vec![("start_block".to_string(), Some("136890".to_string()))]
+        );
         assert_eq!(
             Rc::strong_count(&payment_thresholds_rc),
             initial_rc_count + 3
@@ -2982,8 +3002,12 @@ mod tests {
         let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let new_start_block = 4321;
-        let persistent_config = PersistentConfigurationMock::new().set_start_block_params(&set_start_block_params_arc).set_start_block_result(Ok(()));
-        let mut subject = ReceivableScannerBuilder::new().persistent_configuration(persistent_config).build();
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
+        let mut subject = ReceivableScannerBuilder::new()
+            .persistent_configuration(persistent_config)
+            .build();
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
@@ -2999,6 +3023,31 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: No new received payments were detected during the scanning process."
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempt to set new start block to 6709 failed due to: \
+    UninterpretableValue(\"Illiterate database manager\")")]
+    fn no_transactions_received_but_start_block_setting_fails() {
+        init_test_logging();
+        let test_name = "no_transactions_received_but_start_block_setting_fails";
+        let now = SystemTime::now();
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_result(Err(
+            PersistentConfigError::UninterpretableValue("Illiterate database manager".to_string()),
+        ));
+        let mut subject = ReceivableScannerBuilder::new()
+            .persistent_configuration(persistent_config)
+            .build();
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: vec![],
+            new_start_block: 6709,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
     }
 
     #[test]
@@ -3064,10 +3113,7 @@ mod tests {
             set_start_block_from_txn_params_arc.lock().unwrap();
         assert_eq!(
             *set_through_provided_transaction_params,
-            vec![(
-                7890123,
-                transaction_id
-            )]
+            vec![(7890123, transaction_id)]
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
@@ -3077,18 +3123,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Attempt to set new start block to 7890123 failed due to: \
-    DatabaseError(\"Fatigue\")"
-    )]
-    fn updated_accounts_by_received_transactions_but_start_block_setting_fails() {
+    #[should_panic(expected = "Attempt to set new start block to 7890123 failed due to: \
+    DatabaseError(\"Fatigue\")")]
+    fn received_transactions_processed_but_start_block_setting_fails() {
         init_test_logging();
-        let test_name = "updated_accounts_by_received_transactions_but_start_block_setting_fails";
+        let test_name = "received_transactions_processed_but_start_block_setting_fails";
         let now = SystemTime::now();
         let transaction = Box::new(TransactionWrapperMock::new());
-        let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(Err(
-            PersistentConfigError::DatabaseError("Fatigue".to_string()),
-        ));
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
+            Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
+        );
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
@@ -3129,7 +3173,8 @@ mod tests {
                 Some("blah".to_string()),
             ),
         )));
-        let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
+        let persistent_config =
+            PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)

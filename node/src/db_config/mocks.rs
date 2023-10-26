@@ -98,7 +98,10 @@ impl ConfigDaoMock {
         self
     }
 
-    pub fn set_through_provided_transaction_result(self, result: Result<(), ConfigDaoError>) -> Self {
+    pub fn set_through_provided_transaction_result(
+        self,
+        result: Result<(), ConfigDaoError>,
+    ) -> Self {
         self.set_through_provided_transaction_results
             .borrow_mut()
             .push(result);
