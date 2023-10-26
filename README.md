@@ -448,4 +448,4 @@ We do plan to release binaries that will run on 32-bit Windows, but they will li
 
 Copyright (c) 2019-2022, MASQ Network
 
-Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved.
+Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved..
