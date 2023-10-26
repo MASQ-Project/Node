@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
-use masq_lib::as_any_in_trait_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
@@ -51,7 +51,7 @@ impl Command for SetupCommand {
             Err(e) => Err(e),
         }
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl SetupCommand {

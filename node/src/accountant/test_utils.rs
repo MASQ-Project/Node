@@ -56,6 +56,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -440,7 +441,11 @@ impl ReceivableDaoFactoryMock {
     }
 
     pub fn make_result(self, result: ReceivableDaoMock) -> Self {
-        self.make_results.borrow_mut().push(Box::new(result));
+        self.make_boxed_result(Box::new(result))
+    }
+
+    pub fn make_boxed_result(self, result: Box<dyn ReceivableDao>)->Self{
+        self.make_results.borrow_mut().push(result);
         self
     }
 }
@@ -1173,7 +1178,7 @@ impl PendingPayableScannerBuilder {
 pub struct ReceivableScannerBuilder {
     receivable_dao: ReceivableDaoMock,
     banned_dao: BannedDaoMock,
-    config_dao: ConfigDaoMock,
+    persistent_configuration: PersistentConfigurationMock,
     payment_thresholds: PaymentThresholds,
     earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
@@ -1184,7 +1189,7 @@ impl ReceivableScannerBuilder {
         Self {
             receivable_dao: ReceivableDaoMock::new(),
             banned_dao: BannedDaoMock::new(),
-            config_dao: ConfigDaoMock::new(),
+            persistent_configuration:PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
@@ -1196,8 +1201,8 @@ impl ReceivableScannerBuilder {
         self
     }
 
-    pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao = config_dao;
+    pub fn persistent_configuration(mut self, persistent_config: PersistentConfigurationMock) -> Self {
+        self.persistent_configuration = persistent_config;
         self
     }
 
@@ -1220,7 +1225,7 @@ impl ReceivableScannerBuilder {
         ReceivableScanner::new(
             Box::new(self.receivable_dao),
             Box::new(self.banned_dao),
-            Box::new(self.config_dao),
+            Box::new(self.persistent_configuration),
             Rc::new(self.payment_thresholds),
             Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),
@@ -1557,7 +1562,7 @@ where
         panic!("Called mark_as_ended() from NullScanner");
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);

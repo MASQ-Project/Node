@@ -40,7 +40,7 @@ pub trait ConfigDao {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn set_from_started_transaction(
+    fn set_through_provided_transaction(
         &self,
         txn: &mut dyn TransactionWrapper,
         name: &str,
@@ -70,18 +70,18 @@ impl ConfigDao for ConfigDaoReal {
     }
 
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
-        let stm_preparer = |stm: &str| self.conn.prepare(stm);
-        Self::set(stm_preparer, name, value)
+        let prepare_stm = |stm: &str| self.conn.prepare(stm);
+        Self::set(prepare_stm, name, value)
     }
 
-    fn set_from_started_transaction(
+    fn set_through_provided_transaction(
         &self,
         txn: &mut dyn TransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
-        let stm_preparer = |stm: &str| txn.prepare(stm);
-        Self::set(stm_preparer, name, value)
+        let prepare_stm = |stm: &str| txn.prepare(stm);
+        Self::set(prepare_stm, name, value)
     }
 }
 
@@ -283,7 +283,7 @@ mod tests {
         let mut txn = conn.transaction().unwrap();
 
         subject
-            .set_from_started_transaction(&mut *txn, "schema_version", Some("3".to_string()))
+            .set_through_provided_transaction(&mut *txn, "schema_version", Some("3".to_string()))
             .unwrap();
 
         let assert_dao = make_subject(&home_dir);

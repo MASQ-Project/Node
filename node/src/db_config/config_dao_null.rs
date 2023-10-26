@@ -73,7 +73,7 @@ impl ConfigDao for ConfigDaoNull {
         Ok(())
     }
 
-    fn set_from_started_transaction(
+    fn set_through_provided_transaction(
         &self,
         _txn: &mut dyn TransactionWrapper,
         _name: &str,
@@ -310,18 +310,18 @@ mod tests {
     }
 
     #[test]
-    fn set_from_started_transaction_works_simple() {
+    fn set_through_provided_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let mut txn = TransactionWrapperMock::new();
 
         subject
-            .set_from_started_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .set_through_provided_transaction(&mut txn, "param1", Some("value1".to_string()))
             .unwrap();
         subject
-            .set_from_started_transaction(&mut txn, "schema_version", None)
+            .set_through_provided_transaction(&mut txn, "schema_version", None)
             .unwrap();
         subject
-            .set_from_started_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .set_through_provided_transaction(&mut txn, "schema_version", Some("456".to_string()))
             .unwrap();
 
         let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();

@@ -50,7 +50,7 @@ pub trait BlockchainInterface {
 
     fn helpers(&self) -> &dyn RPCHelpers;
 
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

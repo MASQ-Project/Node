@@ -1263,6 +1263,7 @@ mod tests {
         config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .config_dao(ConfigDaoMock::new().set_result(Ok(())))
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1508,11 +1509,12 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
-        let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![
-                unadjusted_account_1.clone(),
-                unadjusted_account_2.clone(),
-            ]),
+        let initial_unadjusted_accounts = protect_payables_in_test(vec![
+            unadjusted_account_1.clone(),
+            unadjusted_account_2.clone(),
+        ]);
+        let msg = BlockchainAgentWithContextMessage {
+            protected_qualified_payables: initial_unadjusted_accounts.clone(),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1540,7 +1542,7 @@ mod tests {
         let subject_addr = subject.start();
         let system = System::new("test");
 
-        subject_addr.try_send(payable_payments_setup_msg).unwrap();
+        subject_addr.try_send(msg).unwrap();
 
         let before = SystemTime::now();
         assert_eq!(system.run(), 0);
@@ -1553,7 +1555,7 @@ mod tests {
             actual_prepared_adjustment
                 .original_setup_msg
                 .protected_qualified_payables,
-            protect_payables_in_test(affordable_accounts.clone())
+            initial_unadjusted_accounts
         );
         assert_eq!(
             actual_prepared_adjustment
@@ -1865,7 +1867,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_from_started_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_through_provided_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1887,8 +1889,8 @@ mod tests {
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(Box::new(transaction));
         let config_dao = ConfigDaoMock::new()
-            .set_from_started_transaction_params(&set_from_started_transaction_params_arc)
-            .set_from_started_transaction_result(Ok(()));
+            .set_through_provided_transaction_params(&set_through_provided_transaction_params_arc)
+            .set_through_provided_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
@@ -1915,10 +1917,10 @@ mod tests {
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
-        let set_from_started_transaction_params =
-            set_from_started_transaction_params_arc.lock().unwrap();
+        let set_through_provided_transaction_params =
+            set_through_provided_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *set_from_started_transaction_params,
+            *set_through_provided_transaction_params,
             vec![(
                 transaction_id,
                 "start_block".to_string(),

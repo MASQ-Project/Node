@@ -11,7 +11,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{as_any_in_trait, as_any_in_trait_impl, short_writeln};
+use masq_lib::{as_any_ref_in_trait, as_any_ref_in_trait_impl, short_writeln};
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
@@ -20,7 +20,7 @@ use crate::notifications::connection_change_notification::ConnectionChangeNotifi
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 pub struct BroadcastHandleInactive;
@@ -28,7 +28,7 @@ pub struct BroadcastHandleInactive;
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub struct BroadcastHandleGeneric {

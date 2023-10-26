@@ -3,7 +3,7 @@
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
@@ -133,6 +133,7 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn set_start_block_from_txn(&mut self, value: u64, transaction: &mut dyn TransactionWrapper)->Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -409,6 +410,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("start_block", value)
     }
 
+    fn set_start_block_from_txn(&mut self, value: u64, transaction: &mut dyn TransactionWrapper)->Result<(), PersistentConfigError>{
+        self.simple_set_method_from_provided_txn("start_block",value, transaction)
+    }
+
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -541,7 +546,16 @@ impl PersistentConfigurationReal {
         parameter_name: &str,
         value: T,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
+         Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
+    }
+
+    fn simple_set_method_from_provided_txn<T: Display>(
+        &mut self,
+        parameter_name: &str,
+        value: T,
+        txn: &mut dyn TransactionWrapper
+        ) -> Result<(),PersistentConfigError> {
+        Ok(self.dao.set_through_provided_transaction(txn, parameter_name, Some(value.to_string()))?)
     }
 
     fn simple_get_method<T>(
@@ -598,6 +612,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -1490,7 +1506,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("start_block", Some("1234"), false)))
                 .set_params(&set_params_arc)
                 .set_result(Ok(())),
         );
@@ -1503,6 +1518,28 @@ mod tests {
         assert_eq!(
             *set_params,
             vec![("start_block".to_string(), Some("1234".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_start_block_from_txn_success() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .set_through_provided_transaction_params(&set_params_arc)
+                .set_through_provided_transaction_result(Ok(())),
+        );
+        let txn_id = ArbitraryIdStamp::new();
+        let mut txn = TransactionWrapperMock::new().set_arbitrary_id_stamp(txn_id);
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_start_block_from_txn(1234, &mut txn);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![(txn_id, "start_block".to_string(), Some("1234".to_string()))]
         )
     }
 
@@ -1538,7 +1575,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("gas_price", Some("1234"), false)))
                 .set_params(&set_params_arc)
                 .set_result(Ok(())),
         );
