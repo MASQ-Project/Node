@@ -4,8 +4,8 @@ pub mod mid_scan_msg_handling;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PendingPayable};
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
+use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
@@ -15,7 +15,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
     investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
     separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableTriple,
+    PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata,
     VecOfRowidOptAndHash,
 };
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{
@@ -46,8 +46,6 @@ use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -58,7 +56,7 @@ use web3::types::{TransactionReceipt, H256};
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::blockchain::blockchain_interface::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
 pub struct Scanners {
@@ -377,14 +375,14 @@ impl PayableScanner {
         }
     }
 
-    fn separate_id_triples_by_existent_and_nonexistent_fingerprints<'a>(
+    fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
         sent_payables: &'a [&'a PendingPayable],
-    ) -> (Vec<PendingPayableTriple>, Vec<PendingPayableTriple>) {
-        fn make_triples(
+    ) -> (Vec<PendingPayableMetadata>, Vec<PendingPayableMetadata>) {
+        fn sew_metadata(
             ((rowid_opt, hash), pending_payable): ((Option<u64>, H256), &PendingPayable),
-        ) -> PendingPayableTriple {
-            PendingPayableTriple::new(&pending_payable.recipient_wallet, hash, rowid_opt)
+        ) -> PendingPayableMetadata {
+            PendingPayableMetadata::new(&pending_payable.recipient_wallet, hash, rowid_opt)
         }
 
         let hashes = sent_payables
@@ -405,43 +403,43 @@ impl PayableScanner {
             .sorted_by(|(_, hash_a), (_, hash_b)| Ord::cmp(&hash_a, &hash_b))
             .collect::<Vec<(Option<u64>, H256)>>();
 
-        Self::symmetry_check(
+        if !Self::is_symmetrical(
             &sent_payables_sorted_by_hashes,
             &rowid_pairs_sorted_by_hashes,
-        );
+        ) {
+            panic!(
+                "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
+                sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
+                sent_payables_sorted_by_hashes, rowid_pairs_sorted_by_hashes
+            )
+        }
 
         rowid_pairs_sorted_by_hashes
             .into_iter()
             .zip(sent_payables_sorted_by_hashes.into_iter())
-            .map(make_triples)
+            .map(sew_metadata)
             .partition(|pp_triple| pp_triple.rowid_opt.is_some())
     }
 
-    fn symmetry_check(
+    fn is_symmetrical(
         sent_payables_sorted_by_hashes: &[&PendingPayable],
         rowid_pairs_sorted_by_hashes: &[(Option<u64>, H256)],
-    ) {
-        let set_a = sent_payables_sorted_by_hashes
+    ) -> bool {
+        let map_a = sent_payables_sorted_by_hashes
             .iter()
             .map(|pp| pp.hash)
             .sorted()
             .collect::<Vec<H256>>();
-        let set_b = rowid_pairs_sorted_by_hashes
+        let map_b = rowid_pairs_sorted_by_hashes
             .iter()
             .map(|(_, hash)| *hash)
             .sorted()
             .collect::<Vec<H256>>();
-        if set_a != set_b {
-            panic!(
-                "Inconsistency in two data sets, they cannot be matched by hashes. Set A: {:?}, \
-            set B: {:?}",
-                sent_payables_sorted_by_hashes, rowid_pairs_sorted_by_hashes
-            )
-        }
+        map_a == map_b
     }
 
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
-        fn missing_fingerprints_msg(nonexistent: &[PendingPayableTriple]) -> String {
+        fn missing_fingerprints_msg(nonexistent: &[PendingPayableMetadata]) -> String {
             format!(
                 "Expected pending payable fingerprints for {} were not found; system unreliable",
                 comma_joined_stringifiable(nonexistent, |pp_triple| format!(
@@ -451,7 +449,7 @@ impl PayableScanner {
             )
         }
         fn ready_data_for_supply<'a>(
-            existent: &'a [PendingPayableTriple],
+            existent: &'a [PendingPayableMetadata],
         ) -> Vec<(&'a Wallet, u64)> {
             existent
                 .iter()
@@ -460,7 +458,7 @@ impl PayableScanner {
         }
 
         let (existent, nonexistent) =
-            self.separate_id_triples_by_existent_and_nonexistent_fingerprints(sent_payments);
+            self.separate_existent_and_nonexistent_fingerprints(sent_payments);
         let mark_pp_input_data = ready_data_for_supply(&existent);
         if !mark_pp_input_data.is_empty() {
             if let Err(e) = self
@@ -1104,9 +1102,7 @@ pub trait ScanScheduler {
     }
 
     as_any_ref_in_trait!();
-
-    #[cfg(test)]
-    fn as_any_mut(&mut self) -> &mut dyn Any;
+    as_any_mut_in_trait!();
 }
 
 impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
@@ -1120,23 +1116,19 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
     }
 
     as_any_ref_in_trait_impl!();
-
-    #[cfg(test)]
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_mut_in_trait_impl!();
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::{
-        PayableAccount, PayableDaoError, PendingPayable,
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::db_access_objects::pending_payable_dao::{
+        PendingPayable, PendingPayableDaoError,
     };
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoReal;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableTriple;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::{
@@ -1156,9 +1148,9 @@ mod tests {
         RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        BlockchainTransaction, PayableTransactionError, RpcPayablesFailure,
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
@@ -1429,9 +1421,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Correct(correct_pending_payable_1),
-                Failed(failure_payable_2),
-                Correct(correct_pending_payable_3),
+                Ok(correct_pending_payable_1),
+                Err(failure_payable_2),
+                Ok(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -1486,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    fn keeping_entries_consistent_and_aligned_is_so_important() {
+    fn entries_must_be_kept_consistent_and_aligned() {
         let wallet_1 = make_wallet("abc");
         let hash_1 = make_tx_hash(123);
         let wallet_2 = make_wallet("def");
@@ -1514,19 +1506,77 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let (existent, nonexistent) = subject
-            .separate_id_triples_by_existent_and_nonexistent_fingerprints(&pending_payables_ref);
+        let (existent, nonexistent) =
+            subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
 
         assert_eq!(
             existent,
             vec![
-                PendingPayableTriple::new(&wallet_1, hash_1, Some(1)),
-                PendingPayableTriple::new(&wallet_2, hash_2, Some(2)),
-                PendingPayableTriple::new(&wallet_3, hash_3, Some(3)),
-                PendingPayableTriple::new(&wallet_4, hash_4, Some(4))
+                PendingPayableMetadata::new(&wallet_1, hash_1, Some(1)),
+                PendingPayableMetadata::new(&wallet_2, hash_2, Some(2)),
+                PendingPayableMetadata::new(&wallet_3, hash_3, Some(3)),
+                PendingPayableMetadata::new(&wallet_4, hash_4, Some(4))
             ]
         );
         assert!(nonexistent.is_empty())
+    }
+
+    struct TestingMismatchedDataAboutPendingPayables {
+        pending_payables: Vec<PendingPayable>,
+        common_hash_1: H256,
+        common_hash_3: H256,
+        intruder_for_hash_2: H256,
+    }
+
+    fn prepare_values_for_mismatched_setting() -> TestingMismatchedDataAboutPendingPayables {
+        let hash_1 = make_tx_hash(123);
+        let hash_2 = make_tx_hash(456);
+        let hash_3 = make_tx_hash(789);
+        let intruder = make_tx_hash(567);
+        let pending_payables = vec![
+            PendingPayable::new(make_wallet("abc"), hash_1),
+            PendingPayable::new(make_wallet("def"), hash_2),
+            PendingPayable::new(make_wallet("ghi"), hash_3),
+        ];
+        TestingMismatchedDataAboutPendingPayables {
+            pending_payables,
+            common_hash_1: hash_1,
+            common_hash_3: hash_3,
+            intruder_for_hash_2: intruder,
+        }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Inconsistency in two maps, they cannot be matched by hashes. \
+    Data set directly sent from BlockchainBridge: \
+    [PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000616263) }, \
+    hash: 0x000000000000000000000000000000000000000000000000000000000000007b }, \
+    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000646566) }, \
+    hash: 0x00000000000000000000000000000000000000000000000000000000000001c8 }, \
+    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000676869) }, \
+    hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }], \
+    set derived from the DB: \
+    [(Some(4), 0x000000000000000000000000000000000000000000000000000000000000007b), \
+    (Some(1), 0x0000000000000000000000000000000000000000000000000000000000000237), \
+    (Some(3), 0x0000000000000000000000000000000000000000000000000000000000000315)]"
+    )]
+    fn two_sourced_information_of_new_pending_payables_and_their_fingerprints_is_not_symmetrical() {
+        let vals = prepare_values_for_mismatched_setting();
+        let pending_payables_ref = vals
+            .pending_payables
+            .iter()
+            .collect::<Vec<&PendingPayable>>();
+        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(vec![
+            (Some(4), vals.common_hash_1),
+            (Some(1), vals.intruder_for_hash_2),
+            (Some(3), vals.common_hash_3),
+        ]);
+        let subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+
+        subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
     }
 
     #[test]
@@ -1534,59 +1584,44 @@ mod tests {
         let hash_1 = make_tx_hash(123);
         let hash_2 = make_tx_hash(456);
         let hash_3 = make_tx_hash(789);
-        let blockchain_bridge_returned_pending_payables = vec![
+        let pending_payables_sent_from_blockchain_bridge = vec![
             PendingPayable::new(make_wallet("abc"), hash_1),
             PendingPayable::new(make_wallet("def"), hash_2),
             PendingPayable::new(make_wallet("ghi"), hash_3),
         ];
-        let bb_returned_p_payables_ref = blockchain_bridge_returned_pending_payables
+        let pending_payables_ref = pending_payables_sent_from_blockchain_bridge
             .iter()
             .collect::<Vec<&PendingPayable>>();
         let rowids_and_hashes_from_fingerprints =
             vec![(Some(3), hash_1), (Some(5), hash_2), (Some(6), hash_3)];
 
-        PayableScanner::symmetry_check(
-            &bb_returned_p_payables_ref,
+        let result = PayableScanner::is_symmetrical(
+            &pending_payables_ref,
             &rowids_and_hashes_from_fingerprints,
-        )
-        // No panic, test passed
+        );
+
+        assert_eq!(result, true)
     }
 
     #[test]
-    #[should_panic(
-        expected = "Inconsistency in two data sets, they cannot be matched by hashes. \
-    Set A: \
-    [PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000616263) }, \
-    hash: 0x000000000000000000000000000000000000000000000000000000000000007b }, \
-    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000646566) }, \
-    hash: 0x00000000000000000000000000000000000000000000000000000000000001c8 }, \
-    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000676869) }, \
-    hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }], \
-    set B: \
-    [(Some(3), 0x000000000000000000000000000000000000000000000000000000000000007b), \
-    (Some(5), 0x0000000000000000000000000000000000000000000000000000000000000237), \
-    (Some(6), 0x0000000000000000000000000000000000000000000000000000000000000315)]"
-    )]
     fn symmetry_check_sad_path_for_intruder() {
-        let hash_1 = make_tx_hash(123);
-        let hash_2 = make_tx_hash(456);
-        let hash_3 = make_tx_hash(789);
-        let intruder = make_tx_hash(567);
-        let blockchain_bridge_returned_pending_payables = vec![
-            PendingPayable::new(make_wallet("abc"), hash_1),
-            PendingPayable::new(make_wallet("def"), hash_2),
-            PendingPayable::new(make_wallet("ghi"), hash_3),
-        ];
-        let bb_returned_p_payables_ref = blockchain_bridge_returned_pending_payables
+        let vals = prepare_values_for_mismatched_setting();
+        let pending_payables_ref_from_blockchain_bridge = vals
+            .pending_payables
             .iter()
             .collect::<Vec<&PendingPayable>>();
-        let rowids_and_hashes_from_fingerprints =
-            vec![(Some(3), hash_1), (Some(5), intruder), (Some(6), hash_3)];
+        let rowids_and_hashes_from_fingerprints = vec![
+            (Some(3), vals.common_hash_1),
+            (Some(5), vals.intruder_for_hash_2),
+            (Some(6), vals.common_hash_3),
+        ];
 
-        PayableScanner::symmetry_check(
-            &bb_returned_p_payables_ref,
+        let result = PayableScanner::is_symmetrical(
+            &pending_payables_ref_from_blockchain_bridge,
             &rowids_and_hashes_from_fingerprints,
-        )
+        );
+
+        assert_eq!(result, false)
     }
 
     #[test]
@@ -1594,23 +1629,24 @@ mod tests {
         let hash_1 = make_tx_hash(123);
         let hash_2 = make_tx_hash(456);
         let hash_3 = make_tx_hash(789);
-        let blockchain_bridge_returned_pending_payables = vec![
+        let pending_payables_sent_from_blockchain_bridge = vec![
             PendingPayable::new(make_wallet("abc"), hash_1),
             PendingPayable::new(make_wallet("def"), hash_2),
             PendingPayable::new(make_wallet("ghi"), hash_3),
         ];
-        let bb_returned_p_payables_ref = blockchain_bridge_returned_pending_payables
+        let bb_returned_p_payables_ref = pending_payables_sent_from_blockchain_bridge
             .iter()
             .collect::<Vec<&PendingPayable>>();
         // Not in an ascending order
         let rowids_and_hashes_from_fingerprints =
             vec![(Some(3), hash_1), (Some(5), hash_3), (Some(6), hash_2)];
 
-        PayableScanner::symmetry_check(
+        let result = PayableScanner::is_symmetrical(
             &bb_returned_p_payables_ref,
             &rowids_and_hashes_from_fingerprints,
-        )
-        // No panic, test passed
+        );
+
+        assert_eq!(result, true)
     }
 
     #[test]
@@ -1632,7 +1668,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
+            payment_procedure_result: Ok(vec![Ok(payment_1), Ok(payment_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1655,7 +1691,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
+            payment_procedure_result: Ok(vec![Ok(payable_1), Ok(payable_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1905,12 +1941,12 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Failed(RpcPayablesFailure {
+        let failed_payment_1 = Err(RpcPayablesFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = Failed(RpcPayablesFailure {
+        let failed_payment_2 = Err(RpcPayablesFailure {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,

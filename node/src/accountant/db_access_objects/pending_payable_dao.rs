@@ -7,6 +7,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::Row;
@@ -209,13 +210,18 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 }
 
-pub trait PendingPayableDaoFactory {
-    fn make(&self) -> Box<dyn PendingPayableDao>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPayable {
+    pub recipient_wallet: Wallet,
+    pub hash: H256,
 }
 
-impl PendingPayableDaoFactory for DaoFactoryReal {
-    fn make(&self) -> Box<dyn PendingPayableDao> {
-        Box::new(PendingPayableDaoReal::new(self.make_connection()))
+impl PendingPayable {
+    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
+        Self {
+            recipient_wallet,
+            hash,
+        }
     }
 }
 
@@ -235,6 +241,16 @@ impl<'a> PendingPayableDaoReal<'a> {
 
     fn serialize_ids(ids: &[u64]) -> String {
         comma_joined_stringifiable(ids, |id| id.to_string())
+    }
+}
+
+pub trait PendingPayableDaoFactory {
+    fn make(&self) -> Box<dyn PendingPayableDao>;
+}
+
+impl PendingPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn PendingPayableDao> {
+        Box::new(PendingPayableDaoReal::new(self.make_connection()))
     }
 }
 
@@ -418,18 +434,16 @@ mod tests {
         let hash_2 = make_tx_hash(22229);
         let hash_3 = make_tx_hash(33339);
         let hash_4 = make_tx_hash(44449);
-        {
-            // For more illustrative results with the hash_3 linking to rowid 2 instead of the ambiguous 1
-            subject
-                .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
-                .unwrap();
-            {
-                subject
-                    .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
-                    .unwrap()
-            }
-            subject.delete_fingerprints(&[1]).unwrap()
-        }
+        // For more illustrative results, I use the official tooling but also generate one extra record before the chief one for
+        // this test, and in the end, I delete the first one. It leaves a single record still in but with the rowid 2 instead of
+        // just an ambiguous 1
+        subject
+            .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
+            .unwrap();
+        subject
+            .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
+            .unwrap();
+        subject.delete_fingerprints(&[1]).unwrap();
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 

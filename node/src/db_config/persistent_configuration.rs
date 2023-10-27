@@ -16,8 +16,8 @@ use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{to_string, AutomapProtocol};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -133,6 +133,8 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
@@ -335,9 +337,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set("mapping_protocol", value.map(|v| v.to_string()))?)
+        Ok(self.dao.set("mapping_protocol", value.map(to_string))?)
     }
 
     fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
@@ -412,6 +412,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
+    }
+
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
+        Ok(decode_u64(self.get("max_block_count")?)?)
+    }
+
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("max_block_count", encode_u64(value)?)?)
     }
 
     fn set_start_block_from_txn(
@@ -1977,6 +1985,39 @@ mod tests {
             "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
         );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_some() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(Some(100_000u64));
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some(100_000u64.to_string()))]
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_none() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("max_block_count".to_string(), None)]);
     }
 
     #[test]

@@ -85,7 +85,7 @@ mod tests {
     use masq_lib::messages::UiShutdownRequest;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use masq_lib::utils::{find_free_port, running_test};
+    use masq_lib::utils::{find_free_port, running_test, to_string};
     use std::thread;
     use std::time::Duration;
 
@@ -210,7 +210,7 @@ mod tests {
         fn whole_message() -> String {
             TameCommand::MESSAGE_IN_PIECES
                 .iter()
-                .map(|str| str.to_string())
+                .map(to_string)
                 .collect()
         }
     }

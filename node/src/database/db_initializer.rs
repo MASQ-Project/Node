@@ -261,6 +261,7 @@ impl DbInitializerReal {
             false,
             "scan intervals",
         );
+        Self::set_config_value(conn, "max_block_count", None, false, "maximum block count");
     }
 
     pub fn create_pending_payable_table(conn: &Connection) {
@@ -657,7 +658,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
     }
 
     #[test]
@@ -932,6 +933,7 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "max_block_count", None, false);
         verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,

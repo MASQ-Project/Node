@@ -236,10 +236,11 @@ impl ProxyServer {
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "dns resolve failure") {
+                Some(rri) => rri,
+                None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
+            };
         let exit_public_key = {
             // ugly, ugly
             let self_public_key = self.main_cryptde.public_key();
@@ -325,10 +326,11 @@ impl ProxyServer {
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
             response.stream_key, response.sequenced_packet.sequence_number, response.sequenced_packet.data.len()
         );
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return,
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "client response") {
+                Some(rri) => rri,
+                None => return,
+            };
         self.report_response_services_consumed(
             &return_route_info,
             response.sequenced_packet.data.len(),
@@ -738,7 +740,11 @@ impl ProxyServer {
         }
     }
 
-    fn get_return_route_info(&self, remaining_route: &Route) -> Option<Rc<AddReturnRouteMessage>> {
+    fn get_return_route_info(
+        &self,
+        remaining_route: &Route,
+        source: &str,
+    ) -> Option<Rc<AddReturnRouteMessage>> {
         let mut mut_remaining_route = remaining_route.clone();
         mut_remaining_route
             .shift(self.main_cryptde)
@@ -753,7 +759,7 @@ impl ProxyServer {
         match self.route_ids_to_return_routes.get(&return_route_id) {
             Some(rri) => Some(rri),
             None => {
-                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {}. Ignoring", return_route_id);
+                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                 None
             }
         }
@@ -4189,7 +4195,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
+        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -4308,7 +4314,7 @@ mod tests {
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring", 1000);
     }
 
     #[test]

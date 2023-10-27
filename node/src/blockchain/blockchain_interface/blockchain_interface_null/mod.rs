@@ -1,26 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod rpc_helpers_null;
+pub mod lower_level_interface_null;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
-use crate::blockchain::blockchain_interface::rpc_helpers::RPCHelpers;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, PayableTransactionError, ProcessedPayableFallible,
-    ResultForReceipt, RetrievedBlockchainTransactions,
-};
+use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use web3::types::{Address, H160, H256};
+use web3::types::{Address, BlockNumber, H160, H256};
+use crate::blockchain::blockchain_interface::BlockchainInterface;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
-    helper: Box<dyn RPCHelpers>,
+    lower_level_interface: Box<dyn LowBlockchainInt>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceNull {
@@ -31,8 +29,9 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn retrieve_transactions(
         &self,
-        _start_block: u64,
-        _recipient: &Wallet,
+        _start_block: BlockNumber,
+        _end_block: BlockNumber,
+        _wallet: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         self.handle_uninitialized_interface("retrieve transactions")
     }
@@ -41,9 +40,8 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         &self,
         _consuming_wallet: &Wallet,
         _persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, String> {
-        error!(self.logger, "Builds a null blockchain agent only");
-        Ok(Box::new(BlockchainAgentNull::new()))
+    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
+        self.handle_uninitialized_interface("build blockchain agent")
     }
 
     fn send_batch_of_payables(
@@ -59,9 +57,12 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("get transaction receipt")
     }
 
-    fn helpers(&self) -> &dyn RPCHelpers {
-        error!(self.logger, "Provides null RPC helpers only");
-        &*self.helper
+    fn lower_interface(&self) -> &dyn LowBlockchainInt {
+        error!(
+            self.logger,
+            "Provides the null version of lower blockchain interface only"
+        );
+        &*self.lower_level_interface
     }
 
     as_any_ref_in_trait_impl!();
@@ -77,23 +78,32 @@ trait BlockchainInterfaceUninitializedError {
     fn error() -> Self;
 }
 
-impl BlockchainInterfaceUninitializedError for PayableTransactionError {
-    fn error() -> Self {
-        Self::UninitializedBlockchainInterface
+macro_rules! impl_bci_uninitialized {
+    ($($error_type: ty),+) => {
+        $(
+            impl BlockchainInterfaceUninitializedError for $error_type {
+                fn error() -> Self {
+                    Self::UninitializedBlockchainInterface
+                }
+            }
+        )+
     }
 }
 
-impl BlockchainInterfaceUninitializedError for BlockchainError {
-    fn error() -> Self {
-        Self::UninitializedBlockchainInterface
-    }
-}
+impl_bci_uninitialized!(
+    PayableTransactionError,
+    BlockchainError,
+    BlockchainAgentBuildError
+);
 
 impl BlockchainInterfaceNull {
     pub fn new() -> Self {
         let logger = Logger::new("BlockchainInterface");
-        let helper = Box::new(RPCHelpersNull::new(&logger));
-        BlockchainInterfaceNull { logger, helper }
+        let lower_level_interface = Box::new(LowBlockChainIntNull::new(&logger));
+        BlockchainInterfaceNull {
+            logger,
+            lower_level_interface,
+        }
     }
 
     fn handle_uninitialized_interface<Irrelevant, E>(
@@ -122,26 +132,29 @@ impl BlockchainInterfaceNull {
 mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::rpc_helpers_null::RPCHelpersNull;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::{
         BlockchainInterfaceNull, BlockchainInterfaceUninitializedError,
-    };
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainInterface, PayableTransactionError,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
+    use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use web3::types::H160;
+    use web3::types::{BlockNumber, H160};
+    use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
-        let helper = Box::new(RPCHelpersNull::new(&logger));
-        BlockchainInterfaceNull { logger, helper }
+        let lower_level_interface = Box::new(LowBlockChainIntNull::new(&logger));
+        BlockchainInterfaceNull {
+            logger,
+            lower_level_interface,
+        }
     }
 
     #[test]
@@ -157,7 +170,11 @@ mod tests {
         let test_name = "blockchain_interface_null_retrieves_no_transactions";
         let wallet = make_wallet("blah");
 
-        let result = make_subject(test_name).retrieve_transactions(0, &wallet);
+        let result = make_subject(test_name).retrieve_transactions(
+            BlockNumber::Number(U64::zero()),
+            BlockNumber::Latest,
+            &wallet,
+        );
 
         assert_eq!(
             result,
@@ -175,16 +192,22 @@ mod tests {
         let test_name = "blockchain_interface_null_builds_null_agent";
         let wallet = make_wallet("blah");
         let persistent_config = PersistentConfigurationMock::new();
+        let subject = make_subject(test_name);
 
-        let result = make_subject(test_name)
-            .build_blockchain_agent(&wallet, &persistent_config)
-            .unwrap();
+        let result = subject.build_blockchain_agent(&wallet, &persistent_config);
 
-        result
-            .as_any()
-            .downcast_ref::<BlockchainAgentNull>()
-            .unwrap();
-        let expected_log_msg = format!("ERROR: {test_name}: Builds a null blockchain agent only");
+        let err = match result {
+            Ok(_) => panic!("we expected an error but got ok"),
+            Err(e) => e,
+        };
+        assert_eq!(
+            err,
+            BlockchainAgentBuildError::UninitializedBlockchainInterface
+        );
+        let expected_log_msg = format!(
+            "ERROR: {test_name}: Failed to build blockchain agent with uninitialized blockchain \
+            interface. Parameter blockchain-service-url is missing."
+        );
         TestLogHandler::new().exists_log_containing(expected_log_msg.as_str());
     }
 
@@ -230,21 +253,22 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_null_gives_null_helper() {
+    fn blockchain_interface_null_gives_null_lower_interface() {
         init_test_logging();
-        let test_name = "blockchain_interface_null_gives_null_helper";
+        let test_name = "blockchain_interface_null_gives_null_lower_interface";
         let wallet = make_wallet("abc");
 
         let _ = make_subject(test_name)
-            .helpers()
+            .lower_interface()
             .get_transaction_id(&wallet);
 
-        let expected_log_msg_from_helpers_call =
-            format!("ERROR: {test_name}: Provides null RPC helpers only");
+        let expected_log_msg_from_low_level_interface_call = format!(
+            "ERROR: {test_name}: Provides the null version of lower blockchain interface only"
+        );
         let expected_log_msg_from_rcp_call =
             format!("ERROR: {test_name}: Null version can't fetch transaction id");
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            expected_log_msg_from_helpers_call.as_str(),
+            expected_log_msg_from_low_level_interface_call.as_str(),
             expected_log_msg_from_rcp_call.as_str(),
         ]);
     }

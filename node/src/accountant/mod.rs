@@ -29,8 +29,9 @@ use crate::accountant::scanners::{ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::{
-    BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible,
+use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::{
+    BlockchainTransaction, ProcessedPayableFallible,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -985,9 +986,11 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::{
-        PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
+        PayableAccount, PayableDaoError, PayableDaoFactory,
     };
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::db_access_objects::pending_payable_dao::{
+        PendingPayable, PendingPayableDaoError,
+    };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
@@ -1007,7 +1010,6 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
@@ -1360,7 +1362,7 @@ mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(PendingPayable {
+            payment_procedure_result: Ok(vec![Ok(PendingPayable {
                 recipient_wallet: make_wallet("blah"),
                 hash: make_tx_hash(123),
             })]),
@@ -1760,7 +1762,7 @@ mod tests {
             .build();
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(expected_payable.clone())]),
+            payment_procedure_result: Ok(vec![Ok(expected_payable.clone())]),
             response_skeleton_opt: None,
         };
         let subject = accountant.start();
@@ -3212,11 +3214,11 @@ mod tests {
             // there is one component missing in this wholesome test - the part where we send a request for
             // a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
             .send_batch_of_payables_result(Ok(vec![
-                Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
                     hash: pending_tx_hash_1,
                 }),
-                Correct(PendingPayable {
+                Ok(PendingPayable {
                     recipient_wallet: wallet_account_2.clone(),
                     hash: pending_tx_hash_2,
                 }),

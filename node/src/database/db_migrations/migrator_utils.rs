@@ -5,7 +5,7 @@ use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorR
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{to_string, ExpectValue};
 use rusqlite::{Error, ToSql};
 use std::fmt::{Display, Formatter};
 
@@ -74,7 +74,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .take()
             .expectv("owned root transaction")
             .commit()
-            .map_err(|e| e.to_string())
+            .map_err(to_string)
     }
 
     fn make_mig_declarator<'b>(

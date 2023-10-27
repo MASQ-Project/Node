@@ -10,6 +10,7 @@ use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
+use masq_lib::utils::to_string;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
@@ -74,7 +75,7 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.value_of("db-password").map(to_string),
         })
     }
 
@@ -109,6 +110,14 @@ impl ConfigurationCommand {
             &Self::interpret_option(&configuration.earning_wallet_address_opt),
         );
         dump_parameter_line(stream, "Gas price:", &configuration.gas_price.to_string());
+        dump_parameter_line(
+            stream,
+            "Max block count:",
+            &configuration
+                .max_block_count_opt
+                .map(|m| m.separate_with_commas())
+                .unwrap_or_else(|| "[Unlimited]".to_string()),
+        );
         dump_parameter_line(
             stream,
             "Neighborhood mode:",
@@ -304,6 +313,7 @@ mod tests {
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
             neighborhood_mode: "standard".to_string(),
+            max_block_count_opt: None,
             consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
             consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
@@ -365,6 +375,7 @@ mod tests {
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
+|Max block count:                  [Unlimited]\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\
@@ -401,6 +412,7 @@ mod tests {
             clandestine_port: 1234,
             chain_name: "mumbai".to_string(),
             gas_price: 2345,
+            max_block_count_opt: Some(100_000),
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_address_opt: None,
             consuming_wallet_private_key_opt: None,
@@ -461,6 +473,7 @@ mod tests {
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning wallet\n\
 |Gas price:                        2345\n\
+|Max block count:                  100,000\n\
 |Neighborhood mode:                zero-hop\n\
 |Port mapping protocol:            PCP\n\
 |Start block:                      3456\n\

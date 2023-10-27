@@ -2,10 +2,9 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::rpc_helpers::{
-    RPCHelpers, ResultForBalance, ResultForNonce,
+use crate::blockchain::blockchain_interface::lower_level_interface::{
+    LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
-
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::http_test_server::TestServer;
@@ -17,16 +16,17 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-pub struct RPCHelpersMock {
+pub struct LowBlockchainIntMock {
     get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_masq_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
     get_transaction_id_params: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
 }
 
-impl RPCHelpers for RPCHelpersMock {
+impl LowBlockchainInt for LowBlockchainIntMock {
     fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_transaction_fee_balance_params
             .lock()
@@ -37,12 +37,16 @@ impl RPCHelpers for RPCHelpersMock {
             .remove(0)
     }
 
-    fn get_masq_balance(&self, address: &Wallet) -> ResultForBalance {
+    fn get_service_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_masq_balance_params
             .lock()
             .unwrap()
             .push(address.clone());
         self.get_masq_balance_results.borrow_mut().remove(0)
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
     }
 
     fn get_transaction_id(&self, address: &Wallet) -> ResultForNonce {
@@ -54,7 +58,7 @@ impl RPCHelpers for RPCHelpersMock {
     }
 }
 
-impl RPCHelpersMock {
+impl LowBlockchainIntMock {
     pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_transaction_fee_balance_params = params.clone();
         self
@@ -74,6 +78,11 @@ impl RPCHelpersMock {
 
     pub fn get_masq_balance_result(self, result: ResultForBalance) -> Self {
         self.get_masq_balance_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
         self
     }
 
@@ -103,7 +112,7 @@ where
 
     // no assertion for the result, we anticipate an error from a badly formatted response from the server;
     // yet enough to prove we have a proper connection
-    let _ = subject.helpers().get_masq_balance(&wallet);
+    let _ = subject.lower_interface().get_service_fee_balance(&wallet);
 
     let requests = test_server.requests_so_far();
     let bodies: Vec<Value> = requests

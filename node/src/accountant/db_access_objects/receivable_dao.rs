@@ -15,7 +15,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -493,7 +493,6 @@ mod tests {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account, trick_rusqlite_with_read_only_conn,
     };
-    use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
