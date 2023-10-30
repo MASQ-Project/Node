@@ -12,6 +12,7 @@ use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::sync::Mutex;
 use std::time::SystemTime;
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::characteristics_config::AGE_DIAGNOSTICS_CONFIG_OPT;
+use crate::standard_impls_for_calculator;
 
 const AGE_MAIN_EXPONENT: u32 = 3;
 const AGE_MULTIPLIER: u128 = 150;
@@ -21,12 +22,26 @@ const AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER: u128 = 1_000;
 const AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER: u128 = 10;
 const AGE_DESC_MULTIPLIER_DIVISOR_EXP: u32 = 3;
 
-pub struct AgeCriterionCalculator {
+pub struct AgeCriterionCalculator<I>
+where
+    I: Iterator<Item = (u128, PayableAccount)>,
+{
+    iter: I,
     formula: Box<dyn Fn(AgeInput) -> u128>,
 }
 
-impl AgeCriterionCalculator {
-    pub fn new(payment_adjuster: &PaymentAdjusterReal) -> Self {
+standard_impls_for_calculator!(
+    AgeCriterionCalculator,
+    AgeInput,
+    "AGE",
+    AGE_DIAGNOSTICS_CONFIG_OPT
+);
+
+impl<I> AgeCriterionCalculator<I>
+where
+    I: Iterator<Item = (u128, PayableAccount)>,
+{
+    pub fn new(iter: I, payment_adjuster: &PaymentAdjusterReal) -> Self {
         let now = payment_adjuster.inner.now();
 
         let formula = Box::new(move |wrapped_last_paid_timestamp: AgeInput| {
@@ -45,7 +60,7 @@ impl AgeCriterionCalculator {
                 .checked_mul(log_multiplier)
                 .expect("mul overflow")
         });
-        Self { formula }
+        Self { iter, formula }
     }
 
     fn nonzero_elapsed(now: SystemTime, previous_timestamp: SystemTime) -> u64 {
@@ -95,25 +110,6 @@ impl AgeCriterionCalculator {
             (log_stressed / divisor_stressed).pow(AGE_DESC_MULTIPLIER_DIVISOR_EXP);
 
         x_or_1(final_log_multiplier)
-    }
-}
-
-impl CriterionCalculator for AgeCriterionCalculator {
-    type Input = AgeInput;
-
-    fn formula(&self) -> &dyn Fn(Self::Input) -> u128 {
-        self.formula.as_ref()
-    }
-
-    #[cfg(test)]
-    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>> {
-        &AGE_DIAGNOSTICS_CONFIG_OPT
-    }
-}
-
-impl ParameterCriterionCalculator for AgeCriterionCalculator {
-    fn parameter_name(&self) -> &'static str {
-        "AGE"
     }
 }
 
@@ -192,9 +188,10 @@ mod tests {
         AGE_MAIN_EXPONENT, AGE_MULTIPLIER,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
-        ParameterCriterionCalculator, CriterionCalculator,
+        CriterionCalculator, ParameterCriterionCalculator,
     };
-    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
+    use crate::accountant::payment_adjuster::test_utils::{make_initialized_subject, Sentinel};
+    use std::iter::empty;
     use std::time::{Duration, SystemTime};
 
     #[test]
@@ -212,7 +209,7 @@ mod tests {
     fn nonzero_compute_divisor_works() {
         let result: Vec<_> = [1, 100, 81, 82, 80]
             .into_iter()
-            .map(|secs| AgeCriterionCalculator::nonzero_compute_divisor(secs))
+            .map(|secs| AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(secs))
             .collect();
 
         assert_eq!(result, vec![1, 10, 9, 10, 9])
@@ -228,7 +225,7 @@ mod tests {
             now.checked_sub(Duration::from_secs(2)).unwrap(),
         ]
         .into_iter()
-        .map(|timestamp| AgeCriterionCalculator::nonzero_elapsed(now, timestamp))
+        .map(|timestamp| AgeCriterionCalculator::<Sentinel>::nonzero_elapsed(now, timestamp))
         .collect();
 
         assert_eq!(result, vec![1, 1, 2])
@@ -241,8 +238,12 @@ mod tests {
             .take(12)
             .map(|exp| 10_u64.pow(exp))
             .map(|seconds_elapsed| {
-                let divisor = AgeCriterionCalculator::nonzero_compute_divisor(seconds_elapsed);
-                AgeCriterionCalculator::compute_descending_multiplier(seconds_elapsed, divisor)
+                let divisor =
+                    AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(seconds_elapsed);
+                AgeCriterionCalculator::<Sentinel>::compute_descending_multiplier(
+                    seconds_elapsed,
+                    divisor,
+                )
             })
             .collect();
 
@@ -259,7 +260,7 @@ mod tests {
     fn nonzero_log_works() {
         let result = vec![0.0, 0.6, 1.3, 1.99999, 2.0, 2.1, 5.0, 9.0]
             .into_iter()
-            .map(|num| AgeCriterionCalculator::nonzero_log_value(num))
+            .map(|num| AgeCriterionCalculator::<Sentinel>::nonzero_log_value(num))
             .collect::<Vec<u128>>();
 
         assert_eq!(result, vec![1, 1, 1, 1, 1, 1, 2, 3])
@@ -268,7 +269,7 @@ mod tests {
     #[test]
     fn calculator_returns_the_right_main_param_name() {
         let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
-        let subject = AgeCriterionCalculator::new(&payment_adjuster);
+        let subject = AgeCriterionCalculator::new(empty(), &payment_adjuster);
 
         let result = subject.parameter_name();
 
@@ -279,7 +280,7 @@ mod tests {
     fn age_criteria_calculation_works() {
         let now = SystemTime::now();
         let payment_adjuster = make_initialized_subject(now, None, None);
-        let subject = AgeCriterionCalculator::new(&payment_adjuster);
+        let subject = AgeCriterionCalculator::new(empty(), &payment_adjuster);
         let last_paid_timestamp_wrapped = AgeInput(
             SystemTime::now()
                 .checked_sub(Duration::from_secs(1500))
@@ -293,9 +294,11 @@ mod tests {
                 .duration_since(last_paid_timestamp_wrapped.0)
                 .unwrap()
                 .as_secs();
-            let divisor = AgeCriterionCalculator::nonzero_compute_divisor(elapsed_secs);
-            let log_multiplier =
-                AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);
+            let divisor = AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(elapsed_secs);
+            let log_multiplier = AgeCriterionCalculator::<Sentinel>::compute_descending_multiplier(
+                elapsed_secs,
+                divisor,
+            );
             (elapsed_secs as u128)
                 .checked_pow(AGE_MAIN_EXPONENT)
                 .unwrap()

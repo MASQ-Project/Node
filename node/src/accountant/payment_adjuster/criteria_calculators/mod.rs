@@ -4,16 +4,21 @@ pub mod age_criterion_calculator;
 pub mod balance_criterion_calculator;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     compute_progressive_characteristics, DiagnosticsConfig,
     COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
 };
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::calculator_local_diagnostics;
+use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
 use std::sync::Mutex;
 
 // Caution: always remember to use checked math operations in the criteria formulas!
-pub trait CriterionCalculator: ParameterCriterionCalculator {
+pub trait CriterionCalculator:
+    ParameterCriterionCalculator + Iterator<Item = (u128, PayableAccount)>
+{
     // The additional trait constrain comes from efforts to write the API more Rust-like.
     // This implementation has its own pros and cons; the little cons are we must learn to
     // understand the need to have a special wrapper, for the input of any additional calculator.
@@ -68,44 +73,80 @@ pub trait CriterionCalculator: ParameterCriterionCalculator {
     }
 }
 
-pub(in crate::accountant::payment_adjuster) struct CriteriaIterator<I, C> {
-    iter: I,
-    calculator: C,
+pub trait CriteriaCalculators {
+    fn calculate_age_criteria(
+        self,
+        payment_adjuster: &PaymentAdjusterReal,
+    ) -> AgeCriterionCalculator<Self>
+    where
+        Self: Iterator<Item = (u128, PayableAccount)> + Sized;
+
+    fn calculate_balance_criteria(self) -> BalanceCriterionCalculator<Self>
+    where
+        Self: Iterator<Item = (u128, PayableAccount)> + Sized;
 }
 
-impl<I, C> CriteriaIterator<I, C> {
-    fn new(iter: I, calculator: C) -> Self {
-        Self { iter, calculator }
-    }
-}
-
-impl<I, Calculator> Iterator for CriteriaIterator<I, Calculator>
+impl<I> CriteriaCalculators for I
 where
     I: Iterator<Item = (u128, PayableAccount)>,
-    Calculator: CriterionCalculator,
-    <Calculator as CriterionCalculator>::Input: Debug,
 {
-    type Item = (u128, PayableAccount);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter
-            .next()
-            .map(|item| self.calculator.calculate_and_add_to_criteria_sum(item))
+    fn calculate_age_criteria(
+        self,
+        payment_adjuster: &PaymentAdjusterReal,
+    ) -> AgeCriterionCalculator<Self> {
+        AgeCriterionCalculator::new(self, payment_adjuster)
     }
-}
 
-pub(in crate::accountant::payment_adjuster) trait CriteriaIteratorAdaptor<C: CriterionCalculator> {
-    fn iterate_through_payables(self, calculator: C) -> CriteriaIterator<Self, C>
-    where
-        Self: Sized;
-}
-
-impl<C: CriterionCalculator, I: Iterator> CriteriaIteratorAdaptor<C> for I {
-    fn iterate_through_payables(self, calculator: C) -> CriteriaIterator<Self, C> {
-        CriteriaIterator::new(self, calculator)
+    fn calculate_balance_criteria(self) -> BalanceCriterionCalculator<Self> {
+        BalanceCriterionCalculator::new(self)
     }
 }
 
 pub trait ParameterCriterionCalculator {
     fn parameter_name(&self) -> &'static str;
+}
+
+#[macro_export]
+macro_rules! standard_impls_for_calculator {
+    ($calculator: tt, $input_type: tt, $param_name: literal, $diagnostics_config_opt: expr) => {
+        impl<I> Iterator for $calculator<I>
+        where
+            I: Iterator<Item = (u128, PayableAccount)>,
+        {
+            type Item = (u128, PayableAccount);
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.iter.next().map(|criteria_sum_and_account| {
+                    self.calculate_and_add_to_criteria_sum(criteria_sum_and_account.into())
+                })
+            }
+        }
+
+        impl<I> CriterionCalculator for $calculator<I>
+        where
+            I: Iterator<Item = (u128, PayableAccount)>,
+        {
+            type Input = $input_type;
+
+            fn formula(&self) -> &dyn Fn(Self::Input) -> u128 {
+                self.formula.as_ref()
+            }
+
+            #[cfg(test)]
+            fn diagnostics_config_location(
+                &self,
+            ) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>> {
+                &$diagnostics_config_opt
+            }
+        }
+
+        impl<I> ParameterCriterionCalculator for $calculator<I>
+        where
+            I: Iterator<Item = (u128, PayableAccount)>,
+        {
+            fn parameter_name(&self) -> &'static str {
+                $param_name
+            }
+        }
+    };
 }

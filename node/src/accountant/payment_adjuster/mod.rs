@@ -14,9 +14,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
 };
-use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::CriteriaIteratorAdaptor;
+use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculators};
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::print_formulas_characteristics_for_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::non_finalized_adjusted_accounts_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
@@ -431,8 +429,8 @@ impl PaymentAdjusterReal {
         accounts_with_zero_criteria: impl Iterator<Item = (u128, PayableAccount)>,
     ) -> Vec<(u128, PayableAccount)> {
         let criteria_and_accounts = accounts_with_zero_criteria
-            .iterate_through_payables(AgeCriterionCalculator::new(self))
-            .iterate_through_payables(BalanceCriterionCalculator::new());
+            .calculate_age_criteria(self)
+            .calculate_balance_criteria();
 
         let collected_accounts_with_criteria =
             sort_in_descendant_order_by_criteria_sums(criteria_and_accounts);

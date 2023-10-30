@@ -144,8 +144,8 @@ fn empty_or_single_element(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one, empty_or_single_element, AdjustmentRunner, TransactionAndServiceFeeRunner,
-        ServiceFeeOnlyRunner,
+        adjust_last_one, empty_or_single_element, AdjustmentRunner, ServiceFeeOnlyRunner,
+        TransactionAndServiceFeeRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
@@ -280,14 +280,6 @@ mod tests {
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
         let cw_balance = 9_000_000;
-        // let details = FinancialAndTechDetails {
-        //     consuming_wallet_balances: ConsumingWalletBalances {
-        //         transaction_fee_minor: 0,
-        //         masq_tokens_minor: cw_balance,
-        //     },
-        //     agreed_transaction_fee_per_computed_unit_major: 30,
-        //     estimated_gas_limit_per_transaction: 100,
-        // };
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = ServiceFeeOnlyRunner {};
         let criteria_and_accounts = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
