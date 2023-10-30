@@ -4,6 +4,7 @@
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
 use masq_lib::logger::Logger;
+use masq_lib::utils::to_string;
 use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -53,7 +54,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.execute_upon_transaction_params.lock().unwrap().push(
             sql_statements
                 .iter()
-                .map(|stm_obj| stm_obj.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>(),
         );
         self.execute_upon_transaction_results.borrow_mut().remove(0)

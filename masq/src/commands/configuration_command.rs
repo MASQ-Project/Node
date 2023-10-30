@@ -6,12 +6,11 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::as_any_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::utils::to_string;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
@@ -65,7 +64,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl ConfigurationCommand {
@@ -76,7 +75,7 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.value_of("db-password").map(to_string),
         })
     }
 

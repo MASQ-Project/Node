@@ -46,11 +46,11 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
-use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
@@ -336,10 +336,14 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
     }
 }
 
-impl Handler<NodeRecordMetadataMessage> for Neighborhood {
+impl Handler<UpdateNodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: UpdateNodeRecordMetadataMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         match msg.metadata_change {
             NRMetadataChange::AddUnreachableHost { hostname } => {
                 let public_key = msg.public_key;
@@ -498,7 +502,9 @@ impl Neighborhood {
             start: addr.clone().recipient::<StartMessage>(),
             new_public_ip: addr.clone().recipient::<NewPublicIp>(),
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
-            update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
+            update_node_record_metadata: addr
+                .clone()
+                .recipient::<UpdateNodeRecordMetadataMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
             gossip_failure: addr
                 .clone()
@@ -5560,7 +5566,7 @@ mod tests {
         let addr = subject.start();
         let system = System::new("test");
 
-        let _ = addr.try_send(NodeRecordMetadataMessage {
+        let _ = addr.try_send(UpdateNodeRecordMetadataMessage {
             public_key: public_key.clone(),
             metadata_change: NRMetadataChange::AddUnreachableHost {
                 hostname: unreachable_host.clone(),
