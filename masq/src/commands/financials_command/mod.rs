@@ -25,11 +25,7 @@ use clap::ArgMatches;
 use masq_lib::messages::{CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse, TopRecordsOrdering};
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-use num::CheckedMul;
-use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::num::ParseIntError;
-use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -81,7 +77,7 @@ impl FinancialsCommand {
         let stats_required = !matches.contains_id("no-stats");
         let top_records_opt = Self::parse_top_records_args(&matches);
         let gwei_precision = matches.contains_id("gwei");
-        let custom_queries_opt = Self::parse_custom_query_args(&matches);
+        let custom_queries_opt = Self::parse_custom_query_args(&matches)?;
         Ok(Self {
             stats_required,
             top_records_opt,
@@ -253,30 +249,39 @@ impl FinancialsCommand {
     //     }
     // }
 
-    fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueries> {
-
+    fn parse_custom_query_args(matches: &ArgMatches) -> Result<Option<CustomQueries>, String> {
         match (
             Self::parse_range_for_query::<u64>(matches, "payable"),
             Self::parse_range_for_query::<i64>(matches, "receivable"),
         ) {
-            (None, None) => None,
-            (payable_range_inputs_opt, receivable_range_inputs_opt) => Some(CustomQueries {
-                payable_opt: payable_range_inputs_opt,
-                receivable_opt: receivable_range_inputs_opt
-            })
+            (None, None) => Ok(None),
+            (Some(Ok(payable)), Some(Ok(receivable))) => Ok(Some(CustomQueries {
+                payable_opt: Some(payable),
+                receivable_opt: Some(receivable),
+            })),
+            (Some(Ok(payable)), None) => Ok(Some(CustomQueries {
+                payable_opt: Some(payable),
+                receivable_opt: None,
+            })),
+            (None, Some(Ok(receivable))) => Ok(Some(CustomQueries {
+                payable_opt: None,
+                receivable_opt: Some(receivable),
+            })),
+            (Some(Err(p)), Some(Err(r))) => Err(format!("Payable: {}; Receivable: {}", p, r)),
+            (Some(Err(p)), _) => Err(format!("Payable: {}", p)),
+            (_, Some(Err(r))) => Err(format!("Receivable: {}", r)),
         }
     }
 
-    fn parse_range_for_query<N: Clone + Send + Sync + 'static>(
+    fn parse_range_for_query<N>(
         matches: &ArgMatches,
         parameter_name: &str,
-    ) -> Option<RangeQuery<N>>
+    ) -> Option<Result<RangeQuery<N>, String>>
     {
-        matches
-            .get_one::<TwoRanges<N>>(parameter_name)
-            .map(|two_ranges| {
-            two_ranges.clone().into()
-        })
+        match matches.get_one::<TwoRanges>(parameter_name) {
+            None => None,
+            Some(two_ranges) => Some(two_ranges.try_convert_with_limit(i64::MAX as i128)),
+        }
     }
 
     // fn parse_range_for_query<'a, N: Sync + Send>(

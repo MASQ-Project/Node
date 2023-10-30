@@ -2,10 +2,10 @@
 
 pub(in crate::commands::financials_command) mod restricted {
     use crate::commands::financials_command::data_structures::restricted::{
-        HeadingsHolder, ProcessAccountsMetadata, UserOriginalTypingOfRanges,
+        HeadingsHolder, ProcessAccountsMetadata,
     };
     use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
-        convert_masq_from_gwei_and_dress_well, neaten_users_writing_if_possible,
+        convert_masq_from_gwei_and_dress_well,
     };
     use crate::commands::financials_command::FinancialsCommand;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
@@ -69,21 +69,6 @@ pub(in crate::commands::financials_command) mod restricted {
             first.to_uppercase().chain(letter_iterator).collect()
         }
         short_writeln!(stdout, "{}\n", capitalize(account_type))
-    }
-
-    pub fn title_for_custom_query(
-        stdout: &mut dyn Write,
-        table_type: &str,
-        user_written_ranges: &UserOriginalTypingOfRanges,
-    ) {
-        let (age_range, balance_range) = neaten_users_writing_if_possible(user_written_ranges);
-        short_writeln!(
-            stdout,
-            "Specific {} query: {} sec {} MASQ\n",
-            table_type,
-            age_range,
-            balance_range
-        )
     }
 
     pub fn render_accounts_generic<A: StringValuesFormattableAccount>(

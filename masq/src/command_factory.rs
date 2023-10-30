@@ -153,7 +153,7 @@ mod tests {
             x => panic!("Expected CommandSyntax error; got {:?}", x),
         };
         assert_eq!(
-            err.contains("The following required arguments were not provided"),
+            err.contains("the following required arguments were not provided"),
             true,
             "{}",
             err
@@ -188,10 +188,10 @@ mod tests {
         ]);
 
         match result {
-            Err(CommandFactoryError::CommandSyntax(msg)) => {
+            Err(CommandSyntax(msg)) => {
                 // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
                 assert_eq!(
-                    msg.contains("which wasn't expected, or isn't valid in this context"),
+                    msg.contains("unexpected argument"),
                     true,
                     "{}",
                     msg
@@ -272,7 +272,7 @@ mod tests {
             x => panic!("Expected syntax error, got {:?}", x),
         };
         assert!(
-            msg.contains("The following required arguments were not provided:"),
+            msg.contains("the following required arguments were not provided:"),
             "{}",
             msg
         );
@@ -318,10 +318,9 @@ mod tests {
             CommandSyntax(msg) => msg,
             x => panic!("Expected syntax error, got {:?}", x),
         };
-        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
         assert_eq!(msg.contains("--invalid"), true, "{}", msg);
         assert_eq!(
-            msg.contains("which wasn't expected, or isn't valid in this context"),
+            msg.contains("unexpected argument"),
             true,
             "{}",
             msg
@@ -360,10 +359,9 @@ mod tests {
             CommandSyntax(msg) => msg,
             x => panic!("Expected syntax error, got {:?}", x),
         };
-        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
         assert_eq!(msg.contains("--invalid"), true, "{}", msg);
         assert_eq!(
-            msg.contains("which wasn't expected, or isn't valid in this context"),
+            msg.contains("unexpected argument"),
             true,
             "{}",
             msg
@@ -387,10 +385,9 @@ mod tests {
             CommandSyntax(msg) => msg,
             x => panic!("Expected syntax error, got {:?}", x),
         };
-        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
         assert_eq!(msg.contains("--make-me-rich"), true, "{}", msg);
         assert_eq!(
-            msg.contains("which wasn't expected, or isn't valid in this context"),
+            msg.contains("unexpected argument"),
             true,
             "{}",
             msg
@@ -425,7 +422,7 @@ mod tests {
             Err(CommandFactoryError::CommandSyntax(msg)) => {
                 // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
                 assert_eq!(
-                    msg.contains("The following required arguments were not provided:"),
+                    msg.contains("the following required arguments were not provided:"),
                     true,
                     "{}",
                     msg

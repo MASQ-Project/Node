@@ -2,13 +2,15 @@
 
 #[cfg(test)]
 use std::any::Any;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg};
-use clap::builder::{PossibleValuesParser, ValueRange};
+use clap::{Command as ClapCommand, Arg, value_parser};
+use clap::builder::{OsStr, PossibleValuesParser, Str, ValueRange};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
@@ -36,8 +38,8 @@ lazy_static! {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
-    word_count: usize,
-    language: String,
+    word_count: WordCount,
+    language: Language,
     passphrase_opt: Option<String>,
 }
 
@@ -65,19 +67,139 @@ const PASSPHRASE_ARG_HELP: &str =
              process should require at the end of the mnemonic phrase, if you're supplying a \
              derivation path.";
 
-const WORD_COUNT_ARG_POSSIBLE_VALUES: [&str; 5] = ["12", "15", "18", "21", "24"];
-const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
-    "English",
-    "Chinese",
-    "Traditional Chinese",
-    "French",
-    "Italian",
-    "Japanese",
-    "Korean",
-    "Spanish",
+const WORD_COUNT_ARG_POSSIBLE_VALUES: [WordCount; 5] = [
+    WordCount::Twelve,
+    WordCount::Fifteen,
+    WordCount::Eighteen,
+    WordCount::TwentyOne,
+    WordCount::TwentyFour,
 ];
-const WORD_COUNT_ARG_DEFAULT_VALUE: &str = "12";
-const LANGUAGE_ARG_DEFAULT_VALUE: &str = "English";
+
+const WORD_COUNT_ARG_DEFAULT_VALUE: WordCount = WordCount::Twelve;
+
+const LANGUAGE_ARG_POSSIBLE_VALUES: [Language; 8] = [
+    Language::English,
+    Language::Chinese,
+    Language::TraditionalChinese,
+    Language::French,
+    Language::Italian,
+    Language::Japanese,
+    Language::Korean,
+    Language::Spanish,
+];
+
+const LANGUAGE_ARG_DEFAULT_VALUE: Language = Language::English;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WordCount {
+    Twelve,
+    Fifteen,
+    Eighteen,
+    TwentyOne,
+    TwentyFour
+}
+
+impl FromStr for WordCount {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "12" => Ok(WordCount::Twelve),
+            "15" => Ok(WordCount::Fifteen),
+            "18" => Ok(WordCount::Eighteen),
+            "21" => Ok(WordCount::TwentyOne),
+            "24" => Ok(WordCount::TwentyFour),
+            x => Err(format!("Can't parse WordCount from '{}'", x)),
+        }
+    }
+}
+
+impl From<WordCount> for usize {
+    fn from(value: WordCount) -> Self {
+        match value {
+            WordCount::Twelve => 12,
+            WordCount::Fifteen => 15,
+            WordCount::Eighteen => 18,
+            WordCount::TwentyOne => 21,
+            WordCount::TwentyFour => 24,
+        }
+    }
+}
+
+impl From<WordCount> for OsStr {
+    fn from(value: WordCount) -> Self {
+        OsStr::from(Str::from(&value))
+    }
+}
+
+impl From<&WordCount> for Str {
+    fn from(value: &WordCount) -> Self {
+        Str::from(usize::from(*value).to_string())
+    }
+}
+
+impl Display for WordCount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", usize::from(*self))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Language {
+    English,
+    Chinese,
+    TraditionalChinese,
+    French,
+    Italian,
+    Japanese,
+    Korean,
+    Spanish,
+}
+
+impl Display for Language {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Language::English => write!(f, "English"),
+            Language::Chinese => write!(f, "Chinese"),
+            Language::TraditionalChinese => write!(f, "Traditional Chinese"),
+            Language::French => write!(f, "French"),
+            Language::Italian => write!(f, "Italian"),
+            Language::Japanese => write!(f, "Japanese"),
+            Language::Korean => write!(f, "Korean"),
+            Language::Spanish => write!(f, "Spanish"),
+        }
+    }
+}
+
+impl FromStr for Language {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "English" => Ok(Language::English),
+            "Chinese" => Ok(Language::Chinese),
+            "Traditional Chinese" => Ok(Language::TraditionalChinese),
+            "French" => Ok(Language::French),
+            "Italian" => Ok(Language::Italian),
+            "Japanese" => Ok(Language::Japanese),
+            "Korean" => Ok(Language::Korean),
+            "Spanish" => Ok(Language::Spanish),
+            x => Err(format!("Can't parse Language from '{}'", x)),
+        }
+    }
+}
+
+impl From<&Language> for Str {
+    fn from(value: &Language) -> Self {
+        Str::from(value.to_string())
+    }
+}
+
+impl From<Language> for OsStr {
+    fn from(value: Language) -> Self {
+        OsStr::from(Str::from(&value))
+    }
+}
 
 impl GenerateWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
@@ -91,12 +213,11 @@ impl GenerateWalletsCommand {
         let seed_spec_opt = if consuming_path_opt.is_some() || earning_path_opt.is_some() {
             Some(SeedSpec {
                 word_count: *matches
-                    .get_one::<usize>("word-count")
+                    .get_one::<WordCount>("word-count")
                     .expect("word-count not properly defaulted"),
-                language: matches
-                    .get_one::<String>("language")
-                    .expect("language not properly defaulted")
-                    .to_string(),
+                language: *matches
+                    .get_one::<Language>("language")
+                    .expect("language not properly defaulted"),
                 passphrase_opt: matches.get_one::<String>("passphrase").map(|s| s.to_string()),
             })
         } else {
@@ -153,8 +274,8 @@ impl Command for GenerateWalletsCommand {
                 .seed_spec_opt
                 .as_ref()
                 .map(|seed_spec| UiGenerateSeedSpec {
-                    mnemonic_phrase_size_opt: Some(seed_spec.word_count),
-                    mnemonic_phrase_language_opt: Some(seed_spec.language.clone()),
+                    mnemonic_phrase_size_opt: Some(seed_spec.word_count.into()),
+                    mnemonic_phrase_language_opt: Some(seed_spec.language.to_string()),
                     mnemonic_passphrase_opt: seed_spec.passphrase_opt.clone(),
                 }),
             consuming_derivation_path_opt: self.consuming_path_opt.as_ref().cloned(),
@@ -189,7 +310,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(PossibleValuesParser::new(&WORD_COUNT_ARG_POSSIBLE_VALUES)),
+                .value_parser(value_parser!(WordCount))
         )
         .arg(
             Arg::new("language")
@@ -199,7 +320,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(PossibleValuesParser::new(&LANGUAGE_ARG_POSSIBLE_VALUES)),
+                .value_parser(value_parser!(Language))
         )
         .arg(
             Arg::new("passphrase")
@@ -292,23 +413,117 @@ mod tests {
 
         assert_eq!(
             WORD_COUNT_ARG_POSSIBLE_VALUES,
-            ["12", "15", "18", "21", "24"]
+            [WordCount::Twelve, WordCount::Fifteen, WordCount::Eighteen, WordCount::TwentyOne, WordCount::TwentyFour]
         );
         assert_eq!(
             LANGUAGE_ARG_POSSIBLE_VALUES,
             [
-                "English",
-                "Chinese",
-                "Traditional Chinese",
-                "French",
-                "Italian",
-                "Japanese",
-                "Korean",
-                "Spanish",
+                Language::English,
+                Language::Chinese,
+                Language::TraditionalChinese,
+                Language::French,
+                Language::Italian,
+                Language::Japanese,
+                Language::Korean,
+                Language::Spanish,
             ]
         );
-        assert_eq!(WORD_COUNT_ARG_DEFAULT_VALUE, "12");
-        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, "English");
+        assert_eq!(WORD_COUNT_ARG_DEFAULT_VALUE, WordCount::Twelve);
+        assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, Language::English);
+    }
+
+    #[test]
+    fn from_str_for_word_count_happy_path() {
+        let actual = vec!["12", "15", "18", "21", "24"].into_iter().map(|s| {
+            WordCount::from_str(s).unwrap()
+        }).collect::<Vec<WordCount>>();
+
+        assert_eq!(actual, WORD_COUNT_ARG_POSSIBLE_VALUES.to_vec())
+    }
+
+    #[test]
+    fn from_str_for_word_count_sad_path() {
+        let result = WordCount::from_str("booga");
+
+        assert_eq!(result, Err("Can't parse WordCount from 'booga'".to_string()))
+    }
+
+    #[test]
+    fn from_word_count_for_os_str_happy_path() {
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| OsStr::from (*wc))
+            .collect::<Vec<OsStr>>();
+
+        assert_eq! (actual, vec![OsStr::from("12"), OsStr::from("15"),
+            OsStr::from("18"), OsStr::from("21"), OsStr::from("24")])
+    }
+
+    #[test]
+    fn from_word_count_ref_for_str_happy_path() {
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| Str::from(wc))
+            .collect::<Vec<Str>>();
+
+        assert_eq! (actual, vec!["12", "15", "18", "21", "24"])
+    }
+
+    #[test]
+    fn display_for_word_count_happy_path() {
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| wc.to_string())
+            .collect::<Vec<String>>();
+
+        assert_eq! (actual, vec!["12".to_string(), "15".to_string(), "18".to_string(),
+            "21".to_string(), "24".to_string()])
+    }
+
+    #[test]
+    fn from_language_ref_for_str_happy_path() {
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| Str::from(wc))
+            .collect::<Vec<Str>>();
+
+        assert_eq! (actual, vec!["English", "Chinese", "Traditional Chinese", "French",
+            "Italian", "Japanese", "Korean", "Spanish"])
+    }
+
+    #[test]
+    fn from_language_for_os_str_happy_path() {
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| OsStr::from(*wc))
+            .collect::<Vec<OsStr>>();
+
+        assert_eq! (actual, vec![OsStr::from("English"), OsStr::from("Chinese"),
+            OsStr::from("Traditional Chinese"), OsStr::from("French"),
+            OsStr::from("Italian"), OsStr::from("Japanese"),
+            OsStr::from("Korean"), OsStr::from("Spanish")])
+    }
+
+    #[test]
+    fn display_for_language_works() {
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+            .map(|wc| wc.to_string())
+            .collect::<Vec<String>>();
+
+        assert_eq! (actual.iter().map(|s| s.as_str()).collect::<Vec<&str>>(), vec!["English",
+            "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", "Spanish"])
+    }
+
+    #[test]
+    fn from_str_for_language_happy_path() {
+        let actual = vec!["English", "Chinese", "Traditional Chinese", "French",
+            "Italian", "Japanese", "Korean", "Spanish"].into_iter().map(|s| {
+            Language::from_str(s).unwrap()
+        }).collect::<Vec<Language>>();
+
+        assert_eq!(actual, LANGUAGE_ARG_POSSIBLE_VALUES.to_vec())
+    }
+
+    #[test]
+    fn from_str_for_language_sad_path() {
+        let result = Language::from_str("booga");
+
+        assert_eq!(result, Err("Can't parse Language from 'booga'".to_string()))
     }
 
     #[test]
@@ -340,8 +555,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 21,
-                    language: "Korean".to_string(),
+                    word_count: WordCount::TwentyOne,
+                    language: Language::Korean,
                     passphrase_opt: Some("booga".to_string()),
                 }),
                 consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -373,8 +588,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 12,
-                    language: "English".to_string(),
+                    word_count: WordCount::Twelve,
+                    language: Language::English,
                     passphrase_opt: None,
                 }),
                 consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -410,8 +625,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 21,
-                    language: "Korean".to_string(),
+                    word_count: WordCount::TwentyOne,
+                    language: Language::Korean,
                     passphrase_opt: Some("booga".to_string()),
                 }),
                 consuming_path_opt: None,
@@ -441,8 +656,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 12,
-                    language: "English".to_string(),
+                    word_count: WordCount::Twelve,
+                    language: Language::English,
                     passphrase_opt: None,
                 }),
                 consuming_path_opt: None,
@@ -478,8 +693,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 21,
-                    language: "Korean".to_string(),
+                    word_count: WordCount::TwentyOne,
+                    language: Language::Korean,
                     passphrase_opt: Some("booga".to_string()),
                 }),
                 consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -509,8 +724,8 @@ mod tests {
             &GenerateWalletsCommand {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some(SeedSpec {
-                    word_count: 12,
-                    language: "English".to_string(),
+                    word_count: WordCount::Twelve,
+                    language: Language::English,
                     passphrase_opt: None,
                 }),
                 consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -554,7 +769,7 @@ mod tests {
 
         let msg = result.err().unwrap();
         assert_eq!(
-            msg.contains("or isn't valid in this context"),
+            msg.contains("unexpected argument"),
             true,
             "{}",
             msg
@@ -570,8 +785,8 @@ mod tests {
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
-                word_count: 21,
-                language: "Korean".to_string(),
+                word_count: WordCount::TwentyOne,
+                language: Language::Korean,
                 passphrase_opt: Some("booga".to_string()),
             }),
             consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
@@ -717,8 +932,8 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
-                word_count: 21,
-                language: "Korean".to_string(),
+                word_count: WordCount::TwentyOne,
+                language: Language::Korean,
                 passphrase_opt: Some("booga".to_string()),
             }),
             consuming_path_opt: Some("m/44'/60'/0'/100/0/200".to_string()),
