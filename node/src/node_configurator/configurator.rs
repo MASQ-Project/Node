@@ -48,7 +48,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    update_password_subs: Option<HashMap<String, Recipient<ConfigurationChangeMessage>>>,
+    update_password_subs_opt: Option<HashMap<String, Recipient<ConfigurationChangeMessage>>>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -72,7 +72,7 @@ impl Handler<BindMessage> for Configurator {
                 .clone(),
         );
         // TODO: Find a better way to store subs instead of using HashMap
-        self.update_password_subs = Some(hashmap!(
+        self.update_password_subs_opt = Some(hashmap!(
             "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub,
             "configurator".to_string() => msg.peer_actors.configurator.configuration_change_msg_sub,
             "blockchain_bridge".to_string() => msg.peer_actors.blockchain_bridge.configuration_change_msg_sub,
@@ -132,7 +132,7 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            update_password_subs: None,
+            update_password_subs_opt: None,
             node_to_ui_sub_opt: None,
             update_min_hops_sub_opt: None,
             crashable,
@@ -876,7 +876,7 @@ impl Configurator {
         let msg = ConfigurationChangeMessage {
             change: ConfigurationChange::UpdatePassword(new_password),
         };
-        self.update_password_subs
+        self.update_password_subs_opt
             .as_ref()
             .expect("Configuration is unbound")
             .values()
@@ -978,7 +978,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
-        subject.update_password_subs = Some(hashmap!());
+        subject.update_password_subs_opt = Some(hashmap!());
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -2932,7 +2932,7 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                update_password_subs: None,
+                update_password_subs_opt: None,
                 node_to_ui_sub_opt: None,
                 update_min_hops_sub_opt: None,
                 crashable: false,
