@@ -2,7 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, CalculatorWithNamedMainParameter,
+    CriterionCalculator, ParameterCriterionCalculator,
 };
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     DiagnosticsConfig,
@@ -57,8 +57,8 @@ impl CriterionCalculator for BalanceCriterionCalculator {
     }
 }
 
-impl CalculatorWithNamedMainParameter for BalanceCriterionCalculator {
-    fn main_parameter_name(&self) -> &'static str {
+impl ParameterCriterionCalculator for BalanceCriterionCalculator {
+    fn parameter_name(&self) -> &'static str {
         "BALANCE"
     }
 }
@@ -101,7 +101,7 @@ mod tests {
         BalanceCriterionCalculator, BalanceInput, BALANCE_LOG_2_ARG_DIVISOR,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
-        CalculatorWithNamedMainParameter, CriterionCalculator,
+        ParameterCriterionCalculator, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
 
@@ -151,7 +151,7 @@ mod tests {
     fn calculator_returns_the_right_main_param_name() {
         let subject = BalanceCriterionCalculator::new();
 
-        let result = subject.main_parameter_name();
+        let result = subject.parameter_name();
 
         assert_eq!(result, "BALANCE")
     }

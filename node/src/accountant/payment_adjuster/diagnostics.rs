@@ -53,7 +53,7 @@ pub fn collection_diagnostics<D: Debug>(label: &str, accounts: &[D]) {
 
 pub mod separately_defined_diagnostic_functions {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::criteria_calculators::CalculatorWithNamedMainParameter;
+    use crate::accountant::payment_adjuster::criteria_calculators::ParameterCriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::sub_lib::wallet::Wallet;
@@ -139,7 +139,7 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn calculator_local_diagnostics<N: CalculatorWithNamedMainParameter + ?Sized>(
+    pub fn calculator_local_diagnostics<N: ParameterCriterionCalculator + ?Sized>(
         wallet_ref: &Wallet,
         calculator: &N,
         criterion: u128,
@@ -150,7 +150,7 @@ pub mod separately_defined_diagnostic_functions {
             wallet_ref,
             "PARTIAL CRITERION CALCULATED",
             "{:<width$} {} and summed up as {}",
-            calculator.main_parameter_name(),
+            calculator.parameter_name(),
             criterion.separate_with_commas(),
             added_in_the_sum.separate_with_commas(),
             width = FIRST_COLUMN_WIDTH

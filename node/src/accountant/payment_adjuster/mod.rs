@@ -12,7 +12,7 @@ mod verifier;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
-    AdjustmentRunner, MasqAndTransactionFeeRunner, MasqOnlyRunner,
+    AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
 };
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
@@ -260,7 +260,7 @@ impl PaymentAdjusterReal {
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
         let accounts = self.calculate_criteria_and_propose_adjustments_recursively(
             qualified_accounts,
-            MasqAndTransactionFeeRunner {},
+            TransactionAndServiceFeeRunner {},
         )?;
         match accounts {
             Either::Left(non_exhausted_accounts) => {
@@ -404,7 +404,7 @@ impl PaymentAdjusterReal {
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustments_recursively(
                         remaining,
-                        MasqOnlyRunner {},
+                        ServiceFeeOnlyRunner {},
                     );
 
                 (here_decided_accounts, down_stream_decided_accounts)
@@ -431,8 +431,8 @@ impl PaymentAdjusterReal {
         accounts_with_zero_criteria: impl Iterator<Item = (u128, PayableAccount)>,
     ) -> Vec<(u128, PayableAccount)> {
         let criteria_and_accounts = accounts_with_zero_criteria
-            .iterate_for_criteria(AgeCriterionCalculator::new(self))
-            .iterate_for_criteria(BalanceCriterionCalculator::new());
+            .iterate_through_payables(AgeCriterionCalculator::new(self))
+            .iterate_through_payables(BalanceCriterionCalculator::new());
 
         let collected_accounts_with_criteria =
             sort_in_descendant_order_by_criteria_sums(criteria_and_accounts);
@@ -677,7 +677,7 @@ impl Display for PaymentAdjusterError {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::adjustment_runners::MasqAndTransactionFeeRunner;
+    use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::criteria_total;
@@ -1072,7 +1072,7 @@ mod tests {
         let mut result = subject
             .calculate_criteria_and_propose_adjustments_recursively(
                 qualified_payables.clone(),
-                MasqAndTransactionFeeRunner {},
+                TransactionAndServiceFeeRunner {},
             )
             .unwrap()
             .left()

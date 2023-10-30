@@ -8,13 +8,23 @@ use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterR
 use itertools::Either;
 use std::vec;
 
+// There are just two runners. Different by the required adjustment,
+// either capable of adjusting by the transaction fee and also the service fee,
+// or only by the transaction fee. The idea is that only in the initial iteration
+// of the possible recursion the adjustment by the transaction fee could be performed.
+// In any of those next iterations this feature becomes useless.
+// The more featured one also allows to short-circuit for an adjustment with no need
+// to adjust accounts by the service fee, therefore each runner can return slightly
+// different data types, even though the resulting type of the service fee adjustment
+// is always the same.
 pub trait AdjustmentRunner {
     type ReturnType;
 
-    // This method:
-    // a) helps with writing tests aimed at edge cases
-    // b) avoids performing an unnecessary computation for an obvious result
-    // c) makes the condition in the initial check for adjustment possibility achievable in its pureness
+    // This special method:
+    // a) helps with writing tests aimed at edge cases,
+    // b) avoids performing an unnecessary computation for an obvious result,
+    // c) makes the condition in the initial check for adjustment possibility achievable
+    // in its pureness
     fn adjust_last_one(
         &self,
         payment_adjuster: &PaymentAdjusterReal,
@@ -28,9 +38,9 @@ pub trait AdjustmentRunner {
     ) -> Self::ReturnType;
 }
 
-pub struct MasqAndTransactionFeeRunner {}
+pub struct TransactionAndServiceFeeRunner {}
 
-impl AdjustmentRunner for MasqAndTransactionFeeRunner {
+impl AdjustmentRunner for TransactionAndServiceFeeRunner {
     type ReturnType = Result<
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
@@ -69,9 +79,9 @@ impl AdjustmentRunner for MasqAndTransactionFeeRunner {
     }
 }
 
-pub struct MasqOnlyRunner {}
+pub struct ServiceFeeOnlyRunner {}
 
-impl AdjustmentRunner for MasqOnlyRunner {
+impl AdjustmentRunner for ServiceFeeOnlyRunner {
     type ReturnType = Vec<AdjustedAccountBeforeFinalization>;
 
     fn adjust_last_one(
@@ -134,8 +144,8 @@ fn empty_or_single_element(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one, empty_or_single_element, AdjustmentRunner, MasqAndTransactionFeeRunner,
-        MasqOnlyRunner,
+        adjust_last_one, empty_or_single_element, AdjustmentRunner, TransactionAndServiceFeeRunner,
+        ServiceFeeOnlyRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
@@ -185,14 +195,14 @@ mod tests {
 
     #[test]
     fn masq_and_transaction_fee_adjust_single_works() {
-        test_adjust_last_one(MasqAndTransactionFeeRunner {}, |expected_vec| {
+        test_adjust_last_one(TransactionAndServiceFeeRunner {}, |expected_vec| {
             Ok(Either::Left(expected_vec))
         })
     }
 
     #[test]
     fn masq_only_adjust_single_works() {
-        test_adjust_last_one(MasqOnlyRunner {}, |expected_vec| expected_vec)
+        test_adjust_last_one(ServiceFeeOnlyRunner {}, |expected_vec| expected_vec)
     }
 
     #[test]
@@ -279,7 +289,7 @@ mod tests {
         //     estimated_gas_limit_per_transaction: 100,
         // };
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
-        let subject = MasqOnlyRunner {};
+        let subject = ServiceFeeOnlyRunner {};
         let criteria_and_accounts = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
 
         let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);

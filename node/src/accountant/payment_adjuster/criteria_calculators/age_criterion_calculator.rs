@@ -2,7 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, CalculatorWithNamedMainParameter,
+    CriterionCalculator, ParameterCriterionCalculator,
 };
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     DiagnosticsConfig,
@@ -111,8 +111,8 @@ impl CriterionCalculator for AgeCriterionCalculator {
     }
 }
 
-impl CalculatorWithNamedMainParameter for AgeCriterionCalculator {
-    fn main_parameter_name(&self) -> &'static str {
+impl ParameterCriterionCalculator for AgeCriterionCalculator {
+    fn parameter_name(&self) -> &'static str {
         "AGE"
     }
 }
@@ -192,7 +192,7 @@ mod tests {
         AGE_MAIN_EXPONENT, AGE_MULTIPLIER,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
-        CalculatorWithNamedMainParameter, CriterionCalculator,
+        ParameterCriterionCalculator, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use std::time::{Duration, SystemTime};
@@ -270,7 +270,7 @@ mod tests {
         let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
         let subject = AgeCriterionCalculator::new(&payment_adjuster);
 
-        let result = subject.main_parameter_name();
+        let result = subject.parameter_name();
 
         assert_eq!(result, "AGE")
     }
