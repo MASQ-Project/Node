@@ -71,6 +71,7 @@ impl Handler<BindMessage> for Configurator {
                 .configuration_change_msg_sub
                 .clone(),
         );
+        // TODO: Find a better way to store subs instead of using HashMap
         self.update_password_subs = Some(hashmap!(
             "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub,
             "configurator".to_string() => msg.peer_actors.configurator.configuration_change_msg_sub,
