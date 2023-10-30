@@ -54,14 +54,15 @@ pub const CONTRACT_ABI: &str = indoc!(
     }]"#
 );
 
-const TRANSACTION_LITERAL: H256 = H256([
+pub const TRANSACTION_LITERAL: H256 = H256([
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
     0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 ]);
 
-const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
+pub const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
-const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "To avoid being delinquency-banned, you should \
+pub const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str =
+    "To avoid being delinquency-banned, you should \
 restart the Node with a value for blockchain-service-url";
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
@@ -165,20 +166,6 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub struct BlockchainInterfaceSlim {}
-
-// impl<T: BatchTransport + Debug> BlockchainInterfaceSlim {
-//     fn sign_transaction(
-//         transaction_params: TransactionParameters,
-//         web3: &Web3<Batch<T>>,
-//         key: &secp256k1secrets::key::SecretKey,
-//     ) -> Result<SignedTransaction, Web3Error> {
-//         web3.accounts()
-//             .sign_transaction(transaction_params, key)
-//             .wait() // TODO: Remove this wait.
-//     }
-// }
-
 pub trait BlockchainInterface<T: Transport = Http> {
     fn contract_address(&self) -> Address;
 
@@ -189,6 +176,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
     fn send_payables_within_batch(
+        // *
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -319,8 +307,8 @@ impl BlockchainInterfaceNull {
 }
 
 pub struct BlockchainInterfaceWeb3<T: BatchTransport + Debug> {
-    logger: Logger,
-    chain: Chain,
+    logger: Logger, // *
+    chain: Chain,   // *
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
@@ -328,7 +316,7 @@ pub struct BlockchainInterfaceWeb3<T: BatchTransport + Debug> {
     contract: Contract<T>,
 }
 
-const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
+pub const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
 pub fn to_wei(gwub: u64) -> U256 {
     let subgwei = U256::from(gwub);
@@ -453,19 +441,13 @@ where
         ) {
             Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
             Err(e) => {
-                todo!("TODO: sign_and_append_multiple_payments Error");
+                todo!("TODO: GH-744 sign_and_append_multiple_payments Error");
             }
         };
         let timestamp = SystemTime::now();
 
         let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
         let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-        // self.batch_payable_tools
-        //     .send_new_payable_fingerprints_seeds(
-        //         timestamp,
-        //         new_fingerprints_recipient,
-        //         &hashes_and_paid_amounts,
-        //     );
 
         new_fingerprints_recipient
             .try_send(PendingPayableFingerprintSeeds {
@@ -608,6 +590,7 @@ where
     }
 
     fn sign_and_append_multiple_payments(
+        // *
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -637,6 +620,7 @@ where
     }
 
     fn handle_payable_account(
+        // *
         &self,
         pending_nonce_opt: Option<U256>,
         hashes_and_amounts: Vec<(H256, u128)>,
@@ -660,6 +644,7 @@ where
     }
 
     fn sign_and_append_payment(
+        // *
         &self,
         mut hashes_and_amounts: Vec<(H256, u128)>,
         consuming_wallet: &Wallet,
@@ -735,6 +720,7 @@ where
     }
 
     fn handle_new_transaction<'a>(
+        // *
         &self,
         recipient: &'a Wallet,
         consuming_wallet: &'a Wallet,
@@ -753,6 +739,7 @@ where
     }
 
     fn sign_transaction<'a>(
+        // *
         &self,
         recipient: &'a Wallet,
         consuming_wallet: &'a Wallet,
