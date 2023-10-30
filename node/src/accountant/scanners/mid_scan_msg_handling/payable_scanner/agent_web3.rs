@@ -24,8 +24,14 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         gas_price * max_gas_limit
     }
 
-    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
+    fn transaction_fee_balance(&self) -> U256 {
         self.consuming_wallet_balances
+            .transaction_fee_balance_in_minor_units
+    }
+
+    fn service_fee_balance(&self) -> u128 {
+        self.consuming_wallet_balances
+            .service_fee_balance_in_minor_units
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
@@ -103,8 +109,12 @@ mod tests {
         assert_eq!(subject.agreed_fee_per_computation_unit(), gas_price_gwei);
         assert_eq!(subject.consuming_wallet(), &consuming_wallet);
         assert_eq!(
-            subject.consuming_wallet_balances(),
-            consuming_wallet_balances
+            subject.transaction_fee_balance(),
+            consuming_wallet_balances.transaction_fee_balance_in_minor_units
+        );
+        assert_eq!(
+            subject.service_fee_balance(),
+            consuming_wallet_balances.service_fee_balance_in_minor_units
         );
         assert_eq!(subject.pending_transaction_id(), pending_transaction_id)
     }

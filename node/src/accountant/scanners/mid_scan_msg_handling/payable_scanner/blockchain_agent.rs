@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::arbitrary_id_stamp_in_trait;
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use web3::types::U256;
 
@@ -23,7 +22,8 @@ use web3::types::U256;
 
 pub trait BlockchainAgent: Send {
     fn estimated_transaction_fee_per_transaction(&self) -> u128;
-    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
+    fn transaction_fee_balance(&self) -> U256;
+    fn service_fee_balance(&self) -> u128;
     fn agreed_fee_per_computation_unit(&self) -> u64;
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;

@@ -94,9 +94,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Err(e) => return Err(e),
         };
 
-        let service_fee_balance_minor = agent
-            .consuming_wallet_balances()
-            .service_fee_balance_in_minor_units;
+        let service_fee_balance_minor = agent.service_fee_balance();
         match Self::check_need_of_masq_adjustment(
             &self.logger,
             Either::Left(qualified_payables),
@@ -116,9 +114,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let qualified_payables = setup.qualified_payables;
         let response_skeleton_opt = setup.response_skeleton_opt;
         let agent = setup.agent;
-        let initial_service_fee_balance_minor = agent
-            .consuming_wallet_balances()
-            .service_fee_balance_in_minor_units;
+        let initial_service_fee_balance_minor = agent.service_fee_balance();
         let required_adjustment = setup.adjustment;
 
         self.initialize_inner(initial_service_fee_balance_minor, required_adjustment, now);
@@ -164,9 +160,7 @@ impl PaymentAdjusterReal {
     ) -> Result<Option<u16>, PaymentAdjusterError> {
         let per_transaction_requirement_minor = agent.estimated_transaction_fee_per_transaction();
 
-        let cw_transaction_fee_balance_minor = agent
-            .consuming_wallet_balances()
-            .transaction_fee_balance_in_minor_units;
+        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance();
 
         let max_doable_tx_count = u128::try_from(
             cw_transaction_fee_balance_minor / U256::from(per_transaction_requirement_minor),
@@ -695,7 +689,6 @@ mod tests {
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::{gwei_to_wei, ResponseSkeleton};
-    use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
@@ -1214,13 +1207,8 @@ mod tests {
         subject.logger = Logger::new(test_name);
         // for change extremely small cw balance
         let cw_masq_balance = 1_000;
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::MAX,
-            service_fee_balance_in_minor_units: cw_masq_balance,
-        };
         let agent = {
-            let mock = BlockchainAgentMock::default()
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+            let mock = BlockchainAgentMock::default().service_fee_balance_result(cw_masq_balance);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1291,14 +1279,10 @@ mod tests {
         let accounts_sum: u128 =
             4_444_444_444_444_444_444 + 6_000_000_000_000_000_000 + 6_666_666_666_000_000_000;
         let service_fee_balance_in_minor_units = accounts_sum - 2_000_000_000_000_000_000;
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::MAX,
-            service_fee_balance_in_minor_units,
-        };
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1376,16 +1360,10 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let transaction_fee_balance_in_minor_units = U256::from(5_544_000_000_000_000_u128 - 1);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units: 10_u128.pow(22),
-        };
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(10_u128.pow(22));
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1447,17 +1425,10 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         let service_fee_balance_in_minor_units = 111_000_000_000_000_u128 + 333_000_000_000_000;
         let agent_id_stamp = ArbitraryIdStamp::new();
-        //TODO this has no effect!!!!!
-        let transaction_fee_balance_in_minor_units = U256::from(5_544_000_000_000_000_u128 - 1);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units,
-        };
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -1522,20 +1493,12 @@ mod tests {
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        //TODO no effect!!!!
-        let transaction_fee_balance_in_minor_units =
-            U256::from(5_000_000_000_000_000_000_000_000_u128);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = .... wei
         let service_fee_balance_in_minor_units = 333_000_000_000 + 50_000_000_000;
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units,
-        };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -1619,15 +1582,11 @@ mod tests {
         };
         let qualified_payables = vec![account_1, account_2];
         let mut subject = PaymentAdjusterReal::new();
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::from(u128::MAX),
-            service_fee_balance_in_minor_units,
-        };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1756,18 +1715,11 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let service_fee_balance_in_minor_units = 300_000_000_000_000_u128;
-        //TODO this is not affecting anything!!!
-        let transaction_fee_balance_in_minor_units = U256::from(5_544_000_000_000_000_u128 - 1);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units,
-        };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1840,16 +1792,9 @@ mod tests {
         // This is exactly the amount which will provoke an error
         subject.logger = Logger::new(test_name);
         let service_fee_balance_in_minor_units = (111_000_000_000_000 / 2) - 1;
-        //TODO this is not affecting anything!!!
-        let transaction_fee_balance_in_minor_units = U256::from(5_544_000_000_000_000_u128 - 1);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units,
-        };
         let agent = {
             let mock = BlockchainAgentMock::default()
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1923,18 +1868,11 @@ mod tests {
         // As a result, we can forecast the chances if the adjustment would succeed, not having to
         // move forward beyond the entry check.
         let service_fee_balance_in_minor_units = (balance_3 / 2) + 1;
-        //TODO this is not affecting anything!!!
-        let transaction_fee_balance_in_minor_units = U256::from(u128::MAX);
-        //gas amount to spent = 3 * 77_000 * 24 [gwei] = 5_544_000_000_000_000 wei
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units,
-            service_fee_balance_in_minor_units,
-        };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .consuming_wallet_balances_result(consuming_wallet_balances);
+                .service_fee_balance_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -2027,16 +1965,12 @@ mod tests {
                 .collect()
         };
         let cw_transaction_fee_minor = gwei_to_wei(cw_balance_transaction_fee_major);
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: cw_transaction_fee_minor,
-            service_fee_balance_in_minor_units: cw_service_fee_minor,
-        };
         let estimated_transaction_fee_per_transaction_minor = gwei_to_wei(
             estimated_transaction_fee_unit_limit_per_transaction * desired_transaction_fee_price,
         );
         let blockchain_agent = BlockchainAgentMock::default()
-            .consuming_wallet_balances_result(consuming_wallet_balances)
-            .consuming_wallet_balances_result(consuming_wallet_balances)
+            .transaction_fee_balance_result(cw_transaction_fee_minor)
+            .service_fee_balance_result(cw_service_fee_minor)
             .estimated_transaction_fee_per_transaction_result(
                 estimated_transaction_fee_per_transaction_minor,
             );

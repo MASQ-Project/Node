@@ -644,7 +644,6 @@ mod tests {
         all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::http_test_server::TestServer;
@@ -1088,13 +1087,8 @@ mod tests {
         assert_eq!(*get_transaction_id_params, vec![wallet.clone()]);
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), transaction_id);
-        assert_eq!(
-            result.consuming_wallet_balances(),
-            ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: transaction_fee_balance,
-                service_fee_balance_in_minor_units: masq_balance.as_u128()
-            }
-        );
+        assert_eq!(result.transaction_fee_balance(), transaction_fee_balance);
+        assert_eq!(result.service_fee_balance(), masq_balance.as_u128());
         assert_eq!(result.agreed_fee_per_computation_unit(), 50);
         let expected_fee_estimation =
             ((BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain)
