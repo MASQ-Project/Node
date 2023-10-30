@@ -5,12 +5,9 @@ use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U64;
 use web3::types::U256;
 
-pub trait LowerBCI {
+pub trait LowBlockchainInt {
     fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
 
-    // This is currently exclusive to the MASQ token but a more general naming might
-    // be needed for an architecture including also widely established public chains
-    // without a project-specific application layer on top of it
     fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
 
     fn get_block_number(&self) -> LatestBlockNumber;

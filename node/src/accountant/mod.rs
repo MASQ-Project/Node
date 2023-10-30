@@ -57,12 +57,13 @@ use itertools::Either;
 use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse, UiScanResponse,
+};
 use masq_lib::messages::{
     QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
     UiScanRequest,
 };
-use masq_lib::messages::{UiFinancialsResponse, UiScanResponse};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -1043,9 +1044,7 @@ mod tests {
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::{
-        ConsumingWalletBalances, OutboundPaymentsInstructions,
-    };
+    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1476,14 +1475,6 @@ mod tests {
         assert_eq!(blockchain_bridge_recording.len(), 1);
     }
 
-    fn test_use_of_the_same_logger(logger_clone: &Logger, test_name: &str) {
-        let experiment_msg = format!("DEBUG: {test_name}: hello world");
-        let log_handler = TestLogHandler::default();
-        log_handler.exists_no_log_containing(&experiment_msg);
-        debug!(logger_clone, "hello world");
-        log_handler.exists_log_containing(&experiment_msg);
-    }
-
     #[test]
     fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
@@ -1591,7 +1582,6 @@ mod tests {
     fn test_handling_payment_adjuster_error(
         test_name: &str,
         payment_adjuster: PaymentAdjusterMock,
-        cw_transaction_fee_balance_major_opt: Option<u64>,
     ) {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_recipient = blockchain_bridge.start().recipient();
@@ -1626,7 +1616,7 @@ mod tests {
         );
         let assertion_message = AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
-                assert_eq!(accountant.scanners.payable.scan_started_at(), None) // meaning the scan wa called off
+                assert_eq!(accountant.scanners.payable.scan_started_at(), None) // meaning the scan was called off
             }),
         };
 
@@ -1644,7 +1634,7 @@ mod tests {
                 target: MessageTarget::ClientId(12),
                 body: UiScanResponse {}.tmb(55)
             }
-        );
+        )
     }
 
     #[test]
@@ -1660,7 +1650,7 @@ mod tests {
                 },
             )));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster, Some(123));
+        test_handling_payment_adjuster_error(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: The current balances do not \
@@ -1686,7 +1676,7 @@ mod tests {
             .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsUnexpectedlyEliminated));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster, None);
+        test_handling_payment_adjuster_error(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: Payment adjustment did not \

@@ -5,8 +5,8 @@ pub mod lower_level_interface_null;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
-use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
+use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
+use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -18,7 +18,7 @@ use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableF
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
-    helper: Box<dyn LowerBCI>,
+    lower_level_interface: Box<dyn LowBlockchainInt>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceNull {
@@ -57,9 +57,12 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("get transaction receipt")
     }
 
-    fn lower_interface(&self) -> &dyn LowerBCI {
-        error!(self.logger, "Provides null RPC helpers only");
-        &*self.helper
+    fn lower_interface(&self) -> &dyn LowBlockchainInt {
+        error!(
+            self.logger,
+            "Provides the null version of lower blockchain interface only"
+        );
+        &*self.lower_level_interface
     }
 
     as_any_in_trait_impl!();
@@ -96,8 +99,11 @@ impl_bci_uninitialized!(
 impl BlockchainInterfaceNull {
     pub fn new() -> Self {
         let logger = Logger::new("BlockchainInterface");
-        let helper = Box::new(LowerBCINull::new(&logger));
-        BlockchainInterfaceNull { logger, helper }
+        let lower_level_interface = Box::new(LowBlockChainIntNull::new(&logger));
+        BlockchainInterfaceNull {
+            logger,
+            lower_level_interface,
+        }
     }
 
     fn handle_uninitialized_interface<Irrelevant, E>(
@@ -126,7 +132,7 @@ impl BlockchainInterfaceNull {
 mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::{
         BlockchainInterfaceNull, BlockchainInterfaceUninitializedError,
     };
@@ -144,8 +150,11 @@ mod tests {
 
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
-        let helper = Box::new(LowerBCINull::new(&logger));
-        BlockchainInterfaceNull { logger, helper }
+        let lower_level_interface = Box::new(LowBlockChainIntNull::new(&logger));
+        BlockchainInterfaceNull {
+            logger,
+            lower_level_interface,
+        }
     }
 
     #[test]
@@ -244,21 +253,22 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_null_gives_null_helper() {
+    fn blockchain_interface_null_gives_null_lower_interface() {
         init_test_logging();
-        let test_name = "blockchain_interface_null_gives_null_helper";
+        let test_name = "blockchain_interface_null_gives_null_lower_interface";
         let wallet = make_wallet("abc");
 
         let _ = make_subject(test_name)
             .lower_interface()
             .get_transaction_id(&wallet);
 
-        let expected_log_msg_from_helpers_call =
-            format!("ERROR: {test_name}: Provides null RPC helpers only");
+        let expected_log_msg_from_low_level_interface_call = format!(
+            "ERROR: {test_name}: Provides the null version of lower blockchain interface only"
+        );
         let expected_log_msg_from_rcp_call =
             format!("ERROR: {test_name}: Null version can't fetch transaction id");
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            expected_log_msg_from_helpers_call.as_str(),
+            expected_log_msg_from_low_level_interface_call.as_str(),
             expected_log_msg_from_rcp_call.as_str(),
         ]);
     }

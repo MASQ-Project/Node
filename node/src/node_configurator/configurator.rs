@@ -2551,7 +2551,7 @@ mod tests {
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
-            .max_block_count_result(Ok(Some(100000)))
+            .max_block_count_result(Ok(None))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -2579,7 +2579,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
-                max_block_count_opt: Some(100000),
+                max_block_count_opt: None,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
@@ -2619,9 +2619,8 @@ mod tests {
     }
 
     #[test]
-    fn configuration_handles_retrieving_max_block_count_none() {
+    fn configuration_handles_retrieving_all_possible_none_values() {
         let persistent_config = PersistentConfigurationMock::new()
-            .check_password_result(Ok(true))
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
@@ -2658,7 +2657,7 @@ mod tests {
         let (configuration, context_id) =
             UiConfigurationResponse::fmb(subject.handle_configuration(
                 UiConfigurationRequest {
-                    db_password_opt: Some("password".to_string()),
+                    db_password_opt: None,
                 },
                 4321,
             ))

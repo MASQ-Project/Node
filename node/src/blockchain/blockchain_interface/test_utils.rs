@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_interface::lower_level_interface::{
-    LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
+    LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
 
 use crate::blockchain::blockchain_interface::BlockchainInterface;
@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-pub struct LowerBCIMock {
+pub struct LowBlockchainIntMock {
     get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
@@ -27,7 +27,7 @@ pub struct LowerBCIMock {
     get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
 }
 
-impl LowerBCI for LowerBCIMock {
+impl LowBlockchainInt for LowBlockchainIntMock {
     fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_transaction_fee_balance_params
             .lock()
@@ -59,7 +59,7 @@ impl LowerBCI for LowerBCIMock {
     }
 }
 
-impl LowerBCIMock {
+impl LowBlockchainIntMock {
     pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_transaction_fee_balance_params = params.clone();
         self

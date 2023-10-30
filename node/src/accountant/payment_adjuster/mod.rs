@@ -11,7 +11,6 @@ mod test_utils;
 mod verifier;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::gwei_to_wei;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, MasqAndTransactionFeeRunner, MasqOnlyRunner,
 };
@@ -43,8 +42,6 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use masq_lib::logger::Logger;
-#[cfg(test)]
-use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::iter::once;
@@ -52,7 +49,6 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 
 pub trait PaymentAdjuster {
@@ -699,7 +695,7 @@ mod tests {
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::{gwei_to_wei, ResponseSkeleton};
-    use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
+    use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
@@ -709,9 +705,7 @@ mod tests {
     use std::{usize, vec};
     use thousands::Separable;
     use web3::types::U256;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;

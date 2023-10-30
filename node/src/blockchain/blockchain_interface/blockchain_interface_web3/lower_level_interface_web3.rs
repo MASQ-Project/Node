@@ -2,7 +2,7 @@
 
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
-    LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
+    LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
@@ -12,7 +12,7 @@ use web3::transports::Batch;
 use web3::types::BlockNumber;
 use web3::{BatchTransport, Web3};
 
-pub struct LowerBCIWeb3<T>
+pub struct LowBlockchainIntWeb3<T>
 where
     T: BatchTransport,
 {
@@ -22,7 +22,7 @@ where
     contract: Contract<T>,
 }
 
-impl<T> LowerBCI for LowerBCIWeb3<T>
+impl<T> LowBlockchainInt for LowBlockchainIntWeb3<T>
 where
     T: BatchTransport,
 {
@@ -64,7 +64,7 @@ where
     }
 }
 
-impl<T> LowerBCIWeb3<T>
+impl<T> LowBlockchainIntWeb3<T>
 where
     T: BatchTransport,
 {
@@ -79,11 +79,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowerBCIWeb3;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         CONTRACT_ABI, REQUESTS_IN_PARALLEL,
     };
-    use crate::blockchain::blockchain_interface::lower_level_interface::{LowerBCI, ResultForBalance};
+    use crate::blockchain::blockchain_interface::lower_level_interface::{LowBlockchainInt, ResultForBalance};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
@@ -104,7 +104,7 @@ mod tests {
     use crate::blockchain::test_utils::TestTransport;
 
     #[test]
-    fn web3_helper_transaction_fee_balance_works() {
+    fn low_interface_web3_transaction_fee_balance_works() {
         let port = find_free_port();
         let test_server = TestServer::start(
             port,
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn web3_helper_get_transaction_fee_balance_returns_err_for_an_invalid_wallet() {
+    fn low_interface_web3_get_transaction_fee_balance_returns_err_for_an_invalid_wallet() {
         let port = 8545;
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -156,8 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_get_transaction_fee_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| {
+    fn low_interface_web3_get_transaction_fee_balance_returns_err_for_unintelligible_response() {
+        let act = |subject: &LowBlockchainIntWeb3<Http>, wallet: &Wallet| {
             subject.get_transaction_fee_balance(wallet)
         };
 
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_get_masq_balance_works() {
+    fn low_interface_web3_get_masq_balance_works() {
         let port = find_free_port();
         let test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"}"#.to_vec()
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn web3_helper_get_masq_balance_returns_err_for_an_invalid_wallet() {
+    fn low_interface_web3_get_masq_balance_returns_err_for_an_invalid_wallet() {
         let port = 8545;
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -217,15 +217,16 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_get_masq_balance_returns_err_for_unintelligible_response() {
-        let act =
-            |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_service_fee_balance(wallet);
+    fn low_interface_web3_get_masq_balance_returns_err_for_unintelligible_response() {
+        let act = |subject: &LowBlockchainIntWeb3<Http>, wallet: &Wallet| {
+            subject.get_service_fee_balance(wallet)
+        };
 
         assert_error_from_unintelligible_response(act, "Invalid hex");
     }
 
     #[test]
-    fn web3_helper_can_fetch_latest_block_number_successfully() {
+    fn low_interface_web3_can_fetch_latest_block_number_successfully() {
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
@@ -244,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_handles_latest_null_block_number_error() {
+    fn low_interface_web3_handles_latest_null_block_number_error() {
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
@@ -270,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_can_handle_latest_string_block_number_error() {
+    fn low_interface_web3_can_handle_latest_string_block_number_error() {
         let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
             Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
@@ -295,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_get_transaction_id_works() {
+    fn low_interface_web3_get_transaction_id_works() {
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
@@ -336,16 +337,17 @@ mod tests {
     }
 
     #[test]
-    fn web3_helper_get_transaction_id_handles_err() {
-        let act =
-            |subject: &LowerBCIWeb3<Http>, wallet: &Wallet| subject.get_transaction_id(wallet);
+    fn low_interface_web3_get_transaction_id_handles_err() {
+        let act = |subject: &LowBlockchainIntWeb3<Http>, wallet: &Wallet| {
+            subject.get_transaction_id(wallet)
+        };
 
         assert_error_from_unintelligible_response(act, "invalid hex character")
     }
 
     fn assert_error_from_unintelligible_response<F>(act: F, expected_err_fragment: &str)
     where
-        F: FnOnce(&LowerBCIWeb3<Http>, &Wallet) -> ResultForBalance,
+        F: FnOnce(&LowBlockchainIntWeb3<Http>, &Wallet) -> ResultForBalance,
     {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -379,7 +381,7 @@ mod tests {
         )
     }
 
-    fn make_subject<T>(transport: T, chain: Chain) -> LowerBCIWeb3<T>
+    fn make_subject<T>(transport: T, chain: Chain) -> LowBlockchainIntWeb3<T>
     where
         T: BatchTransport,
     {
@@ -388,6 +390,6 @@ mod tests {
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
-        LowerBCIWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
+        LowBlockchainIntWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
     }
 }

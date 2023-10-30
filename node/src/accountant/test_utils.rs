@@ -13,9 +13,7 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payment_adjuster::{
-    Adjustment, AnalysisError, PaymentAdjuster, PaymentAdjusterError,
-};
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
@@ -55,7 +53,6 @@ use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -306,25 +303,12 @@ impl AccountantBuilder {
                 existing_factory
             }
             None => {
-                let mut new_factory = dao_factory_mock;
+                let new_factory = dao_factory_mock;
                 new_factory.replace_make_results(finished_make_queue);
                 new_factory
             }
         };
         factory_field_in_builder.replace(ready_factory);
-    }
-
-    //TODO this method seems to be never used?
-    pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-        match self.banned_dao_factory {
-            None => {
-                self.banned_dao_factory = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
-            }
-            Some(banned_dao_factory) => {
-                self.banned_dao_factory = Some(banned_dao_factory.make_result(banned_dao))
-            }
-        }
-        self
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {

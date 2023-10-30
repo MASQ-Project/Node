@@ -221,19 +221,19 @@ pub mod payable_scanner_utils {
     }
 
     #[derive(Debug, PartialEq, Eq)]
-    pub struct PendingPayableTriple<'a> {
+    pub struct PendingPayableMetadata<'a> {
         pub recipient: &'a Wallet,
         pub hash: H256,
         pub rowid_opt: Option<u64>,
     }
 
-    impl<'a> PendingPayableTriple<'a> {
+    impl<'a> PendingPayableMetadata<'a> {
         pub fn new(
             recipient: &'a Wallet,
             hash: H256,
             rowid_opt: Option<u64>,
-        ) -> PendingPayableTriple<'a> {
-            PendingPayableTriple {
+        ) -> PendingPayableMetadata<'a> {
+            PendingPayableMetadata {
                 recipient,
                 hash,
                 rowid_opt,
@@ -243,9 +243,9 @@ pub mod payable_scanner_utils {
 
     pub fn mark_pending_payable_fatal_error(
         sent_payments: &[&PendingPayable],
-        nonexistent: &[PendingPayableTriple],
+        nonexistent: &[PendingPayableMetadata],
         error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[PendingPayableTriple]) -> String,
+        missing_fingerprints_msg_maker: fn(&[PendingPayableMetadata]) -> String,
         logger: &Logger,
     ) {
         if !nonexistent.is_empty() {

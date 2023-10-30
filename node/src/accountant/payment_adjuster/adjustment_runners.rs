@@ -141,7 +141,6 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::make_payable_account;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;

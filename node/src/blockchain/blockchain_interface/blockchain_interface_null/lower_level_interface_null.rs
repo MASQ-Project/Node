@@ -2,16 +2,16 @@
 
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
-    LatestBlockNumber, LowerBCI, ResultForBalance, ResultForNonce,
+    LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 
-pub struct LowerBCINull {
+pub struct LowBlockChainIntNull {
     logger: Logger,
 }
 
-impl LowerBCI for LowerBCINull {
+impl LowBlockchainInt for LowBlockChainIntNull {
     fn get_transaction_fee_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         Err(self.handle_null_call("transaction fee balance"))
     }
@@ -29,7 +29,7 @@ impl LowerBCI for LowerBCINull {
     }
 }
 
-impl LowerBCINull {
+impl LowBlockChainIntNull {
     pub fn new(logger: &Logger) -> Self {
         Self {
             logger: logger.clone(),
@@ -45,8 +45,8 @@ impl LowerBCINull {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowerBCINull;
-    use crate::blockchain::blockchain_interface::lower_level_interface::LowerBCI;
+    use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
+    use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
@@ -54,46 +54,50 @@ mod tests {
     use std::fmt::Debug;
 
     #[test]
-    fn lower_bci_null_gets_no_transaction_fee_balance() {
-        let test_name = "lower_bci_null_gets_no_transaction_fee_balance";
-        let act =
-            |subject: &LowerBCINull, wallet: &Wallet| subject.get_transaction_fee_balance(wallet);
+    fn low_bci_null_gets_no_transaction_fee_balance() {
+        let test_name = "low_bci_null_gets_no_transaction_fee_balance";
+        let act = |subject: &LowBlockChainIntNull, wallet: &Wallet| {
+            subject.get_transaction_fee_balance(wallet)
+        };
 
         test_null_method(test_name, act, "transaction fee balance");
     }
 
     #[test]
-    fn lower_bci_null_gets_no_masq_balance() {
-        let test_name = "lower_bci_null_gets_no_masq_balance";
-        let act = |subject: &LowerBCINull, wallet: &Wallet| subject.get_service_fee_balance(wallet);
+    fn low_bci_null_gets_no_masq_balance() {
+        let test_name = "low_bci_null_gets_no_masq_balance";
+        let act = |subject: &LowBlockChainIntNull, wallet: &Wallet| {
+            subject.get_service_fee_balance(wallet)
+        };
 
         test_null_method(test_name, act, "masq balance");
     }
 
     #[test]
-    fn lower_bci_null_gets_no_block_number() {
-        let test_name = "lower_bci_null_gets_no_block_number";
-        let act = |subject: &LowerBCINull, _wallet: &Wallet| subject.get_block_number();
+    fn low_bci_null_gets_no_block_number() {
+        let test_name = "low_bci_null_gets_no_block_number";
+        let act = |subject: &LowBlockChainIntNull, _wallet: &Wallet| subject.get_block_number();
 
         test_null_method(test_name, act, "block number");
     }
 
     #[test]
-    fn lower_bci_null_gets_no_transaction_id() {
-        let test_name = "lower_bci_null_gets_no_transaction_id";
-        let act = |subject: &LowerBCINull, wallet: &Wallet| subject.get_transaction_id(wallet);
+    fn low_bci_null_gets_no_transaction_id() {
+        let test_name = "low_bci_null_gets_no_transaction_id";
+        let act =
+            |subject: &LowBlockChainIntNull, wallet: &Wallet| subject.get_transaction_id(wallet);
 
         test_null_method(test_name, act, "transaction id");
     }
 
     fn test_null_method<T: Debug + PartialEq>(
         test_name: &str,
-        act: fn(&LowerBCINull, &Wallet) -> Result<T, BlockchainError>,
+        act: fn(&LowBlockChainIntNull, &Wallet) -> Result<T, BlockchainError>,
         expected_method_name: &str,
     ) {
         init_test_logging();
         let wallet = make_wallet("blah");
-        let subject = LowerBCINull::new(&Logger::new(test_name));
+        let subject = LowBlockChainIntNull::new(&Logger::new(test_name));
 
         let result = act(&subject, &wallet);
 

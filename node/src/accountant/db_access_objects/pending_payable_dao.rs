@@ -434,18 +434,16 @@ mod tests {
         let hash_2 = make_tx_hash(22229);
         let hash_3 = make_tx_hash(33339);
         let hash_4 = make_tx_hash(44449);
-        {
-            // For more illustrative results with the hash_3 linking to rowid 2 instead of the ambiguous 1
-            subject
-                .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
-                .unwrap();
-            {
-                subject
-                    .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
-                    .unwrap()
-            }
-            subject.delete_fingerprints(&[1]).unwrap()
-        }
+        // For more illustrative results, I use the official tooling but also generate one extra record before the chief one for
+        // this test, and in the end, I delete the first one. It leaves a single record still in but with the rowid 2 instead of
+        // just an ambiguous 1
+        subject
+            .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
+            .unwrap();
+        subject
+            .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
+            .unwrap();
+        subject.delete_fingerprints(&[1]).unwrap();
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
