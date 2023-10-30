@@ -165,8 +165,8 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 }
                 self.search_for_a_new_route();
             }
-            ConfigurationChange::UpdatePassword(_new_password) => {
-                todo!("It should replace the use of NewPasswordMessage");
+            ConfigurationChange::UpdatePassword(new_password) => {
+                self.handle_new_password(new_password);
             }
         }
     }
@@ -1705,6 +1705,7 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::sub_lib::neighborhood::ConfigurationChange::UpdatePassword;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -5860,6 +5861,32 @@ mod tests {
                 .tmb(context_id),
             })
         )
+    }
+
+    #[test]
+    fn password_can_be_updated_using_configuration_change_msg() {
+        let system = System::new("password_can_be_updated_using_configuration_change_msg");
+        let mut subject = make_standard_subject();
+        subject.db_password_opt = Some("old_password".to_string());
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdatePassword("new_password".to_string()),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(|subject: &mut Neighborhood| {
+                    assert_eq!(subject.db_password_opt, Some("new_password".to_string()))
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
