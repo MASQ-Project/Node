@@ -33,7 +33,7 @@ pub trait SolvencySensitivePaymentInstructor {
     ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>>;
 
     fn perform_payment_adjustment(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions>;

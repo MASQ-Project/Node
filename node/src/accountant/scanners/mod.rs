@@ -179,7 +179,7 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
-    pub payment_adjuster: Box<dyn PaymentAdjuster>,
+    pub payment_adjuster: RefCell<Box<dyn PaymentAdjuster>>,
 }
 
 impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
@@ -263,6 +263,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
 
         match self
             .payment_adjuster
+            .borrow()
             .search_for_indispensable_adjustment(&unprotected, &*msg.agent)
         {
             Ok(adjustment_opt) => match adjustment_opt {
@@ -293,13 +294,12 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
     }
 
     fn perform_payment_adjustment(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions> {
         let now = SystemTime::now();
-        //TODO should be PaymentAdjuster behind RefCell?
-        match self.payment_adjuster.adjust_payments(setup, now) {
+        match self.payment_adjuster.borrow_mut().adjust_payments(setup, now) {
             Ok(instructions) => Some(instructions),
             Err(e) => {
                 warning!(
@@ -331,7 +331,7 @@ impl PayableScanner {
             payable_dao,
             pending_payable_dao,
             payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
-            payment_adjuster,
+            payment_adjuster: RefCell::new(payment_adjuster),
         }
     }
 

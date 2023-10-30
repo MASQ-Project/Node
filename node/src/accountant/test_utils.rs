@@ -1488,7 +1488,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
             }
 
             fn perform_payment_adjustment(
-                &mut self,
+                &self,
                 _setup: PreparedAdjustment,
                 _logger: &Logger,
             ) -> Option<OutboundPaymentsInstructions> {
