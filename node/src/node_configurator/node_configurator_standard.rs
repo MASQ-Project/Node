@@ -10,6 +10,7 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
+#[cfg(not(target_os = "windows"))]
 use std::ops::Deref;
 
 use clap::value_t;
@@ -31,6 +32,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+#[cfg(not(target_os = "windows"))]
 use itertools::Itertools;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
@@ -154,6 +156,7 @@ pub fn server_initializer_collected_params<'a>(
     let commandline_vcl = CommandLineVcl::new(args.to_vec());
     let config_file_specified = user_specific_data.config_file_spec;
     let config_file_path = user_specific_data.config_file;
+    #[cfg(not(target_os = "windows"))]
     let extract_value_from_vcl =
         |vcl: &dyn VirtualCommandLine, name: &str, var: &str, spec: bool| {
             let args = vcl.args();
@@ -170,18 +173,21 @@ pub fn server_initializer_collected_params<'a>(
                 true => (var.to_string(), spec),
             }
         };
+    #[cfg(not(target_os = "windows"))]
     let (cf_real_user, cf_real_user_specified) = extract_value_from_vcl(
         &config_file_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
+    #[cfg(not(target_os = "windows"))]
     let (env_real_user, env_real_user_specified) = extract_value_from_vcl(
         &environment_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
+    #[cfg(not(target_os = "windows"))]
     let (cmd_real_user, cmd_real_user_specified) = extract_value_from_vcl(
         &commandline_vcl,
         "--real-user",
@@ -944,7 +950,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/multi_config_vcl_is_computed_do_right_job/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_dot/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
         );
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
