@@ -76,11 +76,11 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         qualified_payables: &[PayableAccount],
         agent: &dyn BlockchainAgent,
     ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
-        let required_tx_count = qualified_payables.len();
+        let number_of_counts = qualified_payables.len();
 
         match Self::determine_transaction_count_limit_by_transaction_fee(
             agent,
-            required_tx_count,
+            number_of_counts,
             &self.logger,
         ) {
             Ok(None) => (),
@@ -153,7 +153,7 @@ impl PaymentAdjusterReal {
 
     fn determine_transaction_count_limit_by_transaction_fee(
         agent: &dyn BlockchainAgent,
-        required_tx_count: usize,
+        number_of_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, PaymentAdjusterError> {
         let per_transaction_requirement_minor = agent.estimated_transaction_fee_per_transaction();
@@ -168,17 +168,17 @@ impl PaymentAdjusterReal {
         let (max_doable_tx_count_u16, required_tx_count_u16) =
             Self::put_bigger_unsigned_integers_under_u16_ceiling(
                 max_doable_tx_count,
-                required_tx_count,
+                number_of_accounts,
             );
 
         if max_doable_tx_count_u16 == 0 {
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts: required_tx_count,
+            Err(
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                    number_of_accounts,
                     per_transaction_requirement_minor,
                     cw_transaction_fee_balance_minor,
                 },
-            ))
+            )
         } else if max_doable_tx_count_u16 >= required_tx_count_u16 {
             Ok(None)
         } else {
@@ -194,11 +194,11 @@ impl PaymentAdjusterReal {
 
     fn put_bigger_unsigned_integers_under_u16_ceiling(
         max_doable_tx_count: u128,
-        required_tx_count: usize,
+        number_of_accounts: usize,
     ) -> (u16, u16) {
         (
             u16::try_from(max_doable_tx_count).unwrap_or(u16::MAX),
-            u16::try_from(required_tx_count).unwrap_or(u16::MAX),
+            u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
         )
     }
 
@@ -615,12 +615,6 @@ pub enum Adjustment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentAdjusterError {
-    AnalysisError(AnalysisError),
-    AllAccountsUnexpectedlyEliminated,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum AnalysisError {
     NotEnoughTransactionFeeBalanceForSingleTx {
         number_of_accounts: usize,
         per_transaction_requirement_minor: u128,
@@ -630,38 +624,50 @@ pub enum AnalysisError {
         number_of_accounts: usize,
         cw_masq_balance_minor: u128,
     },
+    AllAccountsUnexpectedlyEliminated,
 }
+//
+// #[derive(Debug, PartialEq, Eq)]
+// pub enum AnalysisError {
+//     NotEnoughTransactionFeeBalanceForSingleTx {
+//         number_of_accounts: usize,
+//         per_transaction_requirement_minor: u128,
+//         cw_transaction_fee_balance_minor: U256,
+//     },
+//     RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+//         number_of_accounts: usize,
+//         cw_masq_balance_minor: u128,
+//     },
+// }
 
 impl Display for PaymentAdjusterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PaymentAdjusterError::AnalysisError(analysis_error) => match analysis_error {
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts,
-                    per_transaction_requirement_minor,
-                    cw_transaction_fee_balance_minor,
-                } => write!(
-                    f,
-                    "Found smaller transaction fee balance than does for a single payment. \
+            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                number_of_accounts,
+                per_transaction_requirement_minor,
+                cw_transaction_fee_balance_minor,
+            } => write!(
+                f,
+                "Found smaller transaction fee balance than does for a single payment. \
                     Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
                     Current consuming wallet balance: {} wei",
-                    number_of_accounts,
-                    per_transaction_requirement_minor.separate_with_commas(),
-                    cw_transaction_fee_balance_minor.separate_with_commas()
-                ),
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
-                    number_of_accounts,
-                    cw_masq_balance_minor,
-                } => write!(
-                    f,
-                    "Analysis has projected a likely unacceptable adjustment leaving each \
+                number_of_accounts,
+                per_transaction_requirement_minor.separate_with_commas(),
+                cw_transaction_fee_balance_minor.separate_with_commas()
+            ),
+            PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                number_of_accounts,
+                cw_masq_balance_minor,
+            } => write!(
+                f,
+                "Analysis has projected a likely unacceptable adjustment leaving each \
                     of the payable accounts with too a low adjusted amount to pay. Please, proceed \
                     by sending funds to your wallet. Number of canceled payments: {}. Current \
                     consuming wallet balance: {} wei of MASQ",
-                    number_of_accounts.separate_with_commas(),
-                    cw_masq_balance_minor.separate_with_commas()
-                ),
-            },
+                number_of_accounts.separate_with_commas(),
+                cw_masq_balance_minor.separate_with_commas()
+            ),
             PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
                 f,
                 "Despite the positive preliminary analysis, no executable adjusted payments \
@@ -682,7 +688,7 @@ mod tests {
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AnalysisError, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+        Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::{gwei_to_wei, ResponseSkeleton};
@@ -869,12 +875,12 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+            Err(
+                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
                     cw_masq_balance_minor: gwei_to_wei(masq_too_low_major)
                 }
-            ))
+            )
         );
     }
 
@@ -900,14 +906,14 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+            Err(
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts,
                     per_transaction_requirement_minor: 55_000 * gwei_to_wei::<u128, u64>(100),
                     cw_transaction_fee_balance_minor: U256::from(54_000)
                         * gwei_to_wei::<U256, u64>(100)
                 }
-            ))
+            )
         );
     }
 
@@ -915,25 +921,21 @@ mod tests {
     fn payment_adjuster_error_implements_display() {
         vec![
             (
-                PaymentAdjusterError::AnalysisError(
-                    AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                         number_of_accounts: 5,
                         cw_masq_balance_minor: 333_000_000,
                     },
-                ),
                 "Analysis has projected a likely unacceptable adjustment leaving each of the payable \
                 accounts with too a low adjusted amount to pay. Please, proceed by sending funds to \
                 your wallet. Number of canceled payments: 5. Current consuming wallet balance: \
                 333,000,000 wei of MASQ",
             ),
             (
-                PaymentAdjusterError::AnalysisError(
-                    AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                         number_of_accounts: 4,
                         per_transaction_requirement_minor: 70_000_000_000_000,
                         cw_transaction_fee_balance_minor: U256::from(90_000),
                     },
-                ),
                 "Found smaller transaction fee balance than does for a single payment. \
                 Number of canceled payments: 4. Transaction fee for a single account: \
                 70,000,000,000,000 wei. Current consuming wallet balance: 90,000 wei",
@@ -1811,12 +1813,10 @@ mod tests {
         };
         assert_eq!(
             err,
-            PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
-                    number_of_accounts: 2,
-                    cw_masq_balance_minor: service_fee_balance_in_minor_units
-                }
-            )
+            PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                number_of_accounts: 2,
+                cw_masq_balance_minor: service_fee_balance_in_minor_units
+            }
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Passing successful payment adjustment by the transaction fee, but \

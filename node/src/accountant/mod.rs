@@ -1020,7 +1020,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-    use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjusterError};
+    use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterError};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
@@ -1640,13 +1640,13 @@ mod tests {
         init_test_logging();
         let test_name = "payment_adjuster_throws_out_an_error_from_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+            .search_for_indispensable_adjustment_result(Err(
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts: 1,
                     per_transaction_requirement_minor: 60 * 55_000,
                     cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
                 },
-            )));
+            ));
 
         test_handling_payment_adjuster_error(test_name, payment_adjuster);
 
@@ -1702,13 +1702,13 @@ mod tests {
         let test_name = "error_from_payment_adjuster_is_not_sent_by_an_exclusive_message_to_ui_if_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::NotEnoughTransactionFeeBalanceForSingleTx {
+            .search_for_indispensable_adjustment_result(Err(
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts: 20,
                     per_transaction_requirement_minor: 40_000_000_000,
                     cw_transaction_fee_balance_minor: U256::from(123),
                 },
-            )));
+            ));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();

@@ -2,7 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
-use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
+use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use itertools::Itertools;
 
 pub struct MasqAdjustmentPossibilityVerifier {}
@@ -29,12 +29,12 @@ impl MasqAdjustmentPossibilityVerifier {
             Ok(())
         } else {
             let number_of_accounts = accounts.len();
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+            Err(
+                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts,
                     cw_masq_balance_minor,
                 },
-            ))
+            )
         }
     }
 }
@@ -44,7 +44,7 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::verifier::MasqAdjustmentPossibilityVerifier;
-    use crate::accountant::payment_adjuster::{AnalysisError, PaymentAdjusterError};
+    use crate::accountant::payment_adjuster::PaymentAdjusterError;
     use crate::accountant::test_utils::make_payable_account;
 
     fn test_body_for_adjustment_possibility_nearly_rejected(
@@ -105,12 +105,12 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PaymentAdjusterError::AnalysisError(
-                AnalysisError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+            Err(
+                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
                     cw_masq_balance_minor: cw_masq_balance
                 }
-            ))
+            )
         )
     }
 }
