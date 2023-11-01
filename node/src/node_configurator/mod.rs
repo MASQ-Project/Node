@@ -68,17 +68,16 @@ fn get_real_user_from_vcl(
                 true,
             )
         }
-        None => (
+        None => {
             #[cfg(target_os = "windows")]
             {
-                RealUser::new(Some(999999), Some(999999), None).populate(dirs_wrapper)
-            },
+                (RealUser::new(Some(999999), Some(999999), None).populate(dirs_wrapper), false)
+            }
             #[cfg(not(target_os = "windows"))]
             {
-                RealUser::new(None, None, None).populate(dirs_wrapper)
-            },
-            false,
-        ),
+                (RealUser::new(None, None, None).populate(dirs_wrapper), false)
+            }
+        },
     }
 }
 

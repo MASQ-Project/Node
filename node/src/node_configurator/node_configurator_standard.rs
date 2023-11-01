@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::DirsWrapperReal;
+use crate::node_configurator::{DirsWrapperReal, UserSpecifiedData};
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -137,24 +137,16 @@ fn collect_externals_from_multi_config(
     )
 }
 
-pub fn server_initializer_collected_params<'a>(
-    dirs_wrapper: &dyn DirsWrapper,
-    args: &[String],
-) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    let app = app_node();
-    let user_specific_data = determine_user_specific_data(dirs_wrapper, &app, args)?;
-    let config_file_vcl = match ConfigFileVcl::new(
-        &user_specific_data.config_file,
-        user_specific_data.config_file_spec,
-    ) {
-        Ok(cfv) => cfv,
-        Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
-    };
-    let environment_vcl = EnvironmentVcl::new(&app);
-    let commandline_vcl = CommandLineVcl::new(args.to_vec());
+fn extract_values_and_fill_boxes(
+    config_file_vcl: Box<dyn VirtualCommandLine>,
+    environment_vcl: Box<dyn VirtualCommandLine>,
+    commandline_vcl: Box<dyn VirtualCommandLine>,
+    user_specific_data: UserSpecifiedData
+) -> (Vec<String>, Vec<String>) {
+    let mut unspecified_vec: Vec<String> = vec!["".to_string()];
+    let mut specified_vec: Vec<String> = vec!["".to_string()];
     let config_file_specified = user_specific_data.config_file_spec;
     let config_file_path = user_specific_data.config_file;
-
     let extract_value_from_vcl =
         |vcl: &dyn VirtualCommandLine, name: &str, var: &str, spec: bool| {
             let args = vcl.args();
@@ -171,51 +163,42 @@ pub fn server_initializer_collected_params<'a>(
                 true => (var.to_string(), spec),
             }
         };
-
     let (cf_real_user, cf_real_user_specified) = extract_value_from_vcl(
-        &config_file_vcl,
+        &*config_file_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
 
     let (env_real_user, env_real_user_specified) = extract_value_from_vcl(
-        &environment_vcl,
+        &*environment_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
 
     let (cmd_real_user, cmd_real_user_specified) = extract_value_from_vcl(
-        &commandline_vcl,
+        &*commandline_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
-    let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
-        Box::new(config_file_vcl),
-        Box::new(environment_vcl),
-        Box::new(commandline_vcl),
-    ];
-    //TODO write test for MultiConfig "try_new" merge line 76
-    // TODO use vector from line 206 and push into it and then construct the CommandLineVcl same with ComputedVcl
+
     let mut fill_specified_or_unspecified_box = |key: &str, value: &str, specified: bool| {
         match specified {
             true => match value.is_empty() {
                 true => (),
-                false => full_multi_config_vec.push(Box::new(CommandLineVcl::new(vec![
-                    "".to_string(),
-                    key.to_string(),
-                    value.to_string(),
-                ]))),
+                false => {
+                    unspecified_vec.push(key.to_string());
+                    unspecified_vec.push(value.to_string());
+                }
             },
             false => match value.is_empty() {
                 true => (),
-                false => full_multi_config_vec.push(Box::new(ComputedVcl::new(vec![
-                    "".to_string(),
-                    key.to_string(),
-                    value.to_string(),
-                ]))),
+                false => {
+                    specified_vec.push(key.to_string());
+                    specified_vec.push(value.to_string());
+                }
             },
         };
     };
@@ -243,6 +226,51 @@ pub fn server_initializer_collected_params<'a>(
         cmd_real_user.as_str(),
         cmd_real_user_specified,
     );
+    (unspecified_vec, specified_vec)
+}
+
+pub fn server_initializer_collected_params<'a>(
+    dirs_wrapper: &dyn DirsWrapper,
+    args: &[String],
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    let app = app_node();
+    let user_specific_data = determine_user_specific_data(dirs_wrapper, &app, args)?;
+    let config_file_vcl = match ConfigFileVcl::new(
+        &user_specific_data.config_file,
+        user_specific_data.config_file_spec,
+    ) {
+        Ok(cfv) => cfv,
+        Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
+    };
+    //TODO get rid of this second construction of ConfigFileVcl
+    let config_file_vcl_next = match ConfigFileVcl::new(
+        &user_specific_data.config_file,
+        user_specific_data.config_file_spec,
+    ) {
+        Ok(cfv) => cfv,
+        Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
+    };
+    let environment_vcl = EnvironmentVcl::new(&app);
+    let commandline_vcl = CommandLineVcl::new(args.to_vec());
+    let (unspecified_vec, specified_vec) = extract_values_and_fill_boxes(
+        Box::new(config_file_vcl),
+        Box::new(EnvironmentVcl::new(&app)),
+        Box::new(CommandLineVcl::new(commandline_vcl.args())),
+        user_specific_data
+    );
+    let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
+        Box::new(config_file_vcl_next),
+        Box::new(environment_vcl),
+        Box::new(commandline_vcl),
+    ];
+
+    //TODO write test for MultiConfig "try_new" merge line 76
+    if unspecified_vec.len() > 1 {
+        full_multi_config_vec.push(Box::new(ComputedVcl::new(unspecified_vec)));
+    }
+    if specified_vec.len() > 1 {
+        full_multi_config_vec.push(Box::new(CommandLineVcl::new(specified_vec)));
+    }
 
     //println!("full_multi_config_vec: {:#?}", full_multi_config_vec);
     let full_multi_config = make_new_multi_config(&app, full_multi_config_vec)?;
