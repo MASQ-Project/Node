@@ -658,20 +658,18 @@ impl Accountant {
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
-            Some(result) => match result {
-                Either::Left(complete_msg) => Some(complete_msg),
-                Either::Right(unaccepted_msg) => {
-                    //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                    match self
-                        .scanners
-                        .payable
-                        .perform_payment_adjustment(unaccepted_msg, &self.logger)
-                    {
-                        Some(instructions) => Some(instructions),
-                        None => None,
-                    }
+            Some(Either::Left(complete_msg)) => Some(complete_msg),
+            Some(Either::Right(unaccepted_msg)) => {
+                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
+                match self
+                    .scanners
+                    .payable
+                    .perform_payment_adjustment(unaccepted_msg, &self.logger)
+                {
+                    Some(instructions) => Some(instructions),
+                    None => None,
                 }
-            },
+            }
             None => None,
         };
 
@@ -685,8 +683,8 @@ impl Accountant {
             None => {
                 error!(
                     self.logger,
-                    "Payable scanner could not finish. Preventing to settle already mature \
-                    payables could have serious consequences"
+                    "Payable scanner could not finish. If matured payables stay untreated long, your \
+                    creditors may impose a ban on you"
                 );
                 self.scanners.payable.mark_as_ended(&self.logger);
                 if let Some(response_skeleton) = response_skeleton_opt {
@@ -1653,17 +1651,21 @@ mod tests {
         test_handling_payment_adjuster_error(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: The current balances do not \
-        suffice for a payment for any of the recently qualified payables by the larger part of each. \
-        Please fund your consuming wallet in order to avoid being banned from your creditors. Failure \
-        reason: Found smaller transaction fee balance than does for a single payment. Number of canceled \
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Payment adjustment was \
+        considered due to detected insolvency but the current balances are likely to suffice for \
+        none of the recently qualified payables, not even by at least a half of any of them, which \
+        would still lead to a launch of a payment. Please fund your consuming wallet in order to \
+        avoid bans from your creditors. Failure reason: Found smaller transaction fee balance than \
+        does for a single payment. Number of canceled \
         payments: 1. Transaction fee for a single account: 3,300,000 wei. Current consuming wallet \
-        balance: 123,000,000,000 wei."));
+        balance: 123,000,000,000 wei."
+        ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
-            Preventing to settle already mature payables could have serious consequences"
+            If matured payables stay untreated long, your creditors may impose a ban on you"
         ));
     }
 
@@ -1679,16 +1681,17 @@ mod tests {
         test_handling_payment_adjuster_error(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: Payment adjustment did not \
-        succeed arranging executable payments burdened by balance insufficiency. Please fund your \
-        consuming wallet in order to avoid being banned from your creditors. Failure reason: Despite \
-        the preliminary analysis had expected a possibility to compute some executable adjusted \
-        payments, the algorithm eventually rejected them all"));
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Payment adjustment has not \
+        produced any executable payments. Please fund your consuming wallet in order to avoid bans \
+        from your creditors. Failure reason: Despite the positive preliminary analysis, \
+        no executable adjusted payments could be arranged, the algorithm rejected each payable"
+        ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
-            Preventing to settle already mature payables could have serious consequences"
+            If matured payables stay untreated long, your creditors may impose a ban on you"
         ));
     }
 
@@ -1726,7 +1729,7 @@ mod tests {
         // therefore we didn't attempt to send the NodeUiMessage
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
-            Preventing to settle already mature payables could have serious consequences"
+            If matured payables stay untreated long, your creditors may impose a ban on you"
         ));
     }
 

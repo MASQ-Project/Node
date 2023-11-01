@@ -7,7 +7,7 @@ pub mod test_utils;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
@@ -57,6 +57,7 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 
@@ -266,28 +267,22 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .borrow()
             .search_for_indispensable_adjustment(&unprotected, &*msg.agent)
         {
-            Ok(adjustment_opt) => match adjustment_opt {
-                None => Some(Either::Left(OutboundPaymentsInstructions::new(
-                    unprotected,
-                    msg.agent,
-                    msg.response_skeleton_opt,
-                ))),
-                Some(adjustment) => {
-                    let prepared_adjustment = PreparedAdjustment::new(
-                        unprotected,
-                        msg.agent,
-                        msg.response_skeleton_opt,
-                        adjustment,
-                    );
-                    Some(Either::Right(prepared_adjustment))
-                }
-            },
+            Ok(adjustment_opt) => Some(Self::handle_adjustment_opt(
+                adjustment_opt,
+                msg.agent,
+                msg.response_skeleton_opt,
+                unprotected,
+            )),
             Err(e) => {
-                warning!(logger,
-                "The current balances do not suffice for a payment for any of the recently qualified \
-                payables by the larger part of each. Please fund your consuming wallet in order \
-                to avoid being banned from your creditors. Failure reason: {}.", e);
-
+                warning!(
+                    logger,
+                    "Payment adjustment was considered due to detected insolvency but the current \
+                    balances are likely to suffice for none of the recently qualified payables, \
+                    not even by at least a half of any of them, which would still lead to a launch \
+                    of a payment. Please fund your consuming wallet in order to avoid bans from \
+                    your creditors. Failure reason: {}.",
+                    e
+                );
                 None
             }
         }
@@ -308,13 +303,11 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             Err(e) => {
                 warning!(
                     logger,
-                    "Payment adjustment did not succeed \
-                arranging executable payments burdened by balance insufficiency. \
-                Please fund your consuming wallet in order to avoid being banned \
-                from your creditors. Failure reason: {}",
+                    "Payment adjustment has not produced any executable payments. Please \
+                    fund your consuming wallet in order to avoid bans from your creditors. \
+                    Failure reason: {}",
                     e
                 );
-
                 None
             }
         }
@@ -582,6 +575,26 @@ impl PayableScanner {
     fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<PayableAccount> {
         obfuscated.expose_vector()
     }
+
+    fn handle_adjustment_opt(
+        adjustment_opt: Option<Adjustment>,
+        agent: Box<dyn BlockchainAgent>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        unprotected: Vec<PayableAccount>,
+    ) -> Either<OutboundPaymentsInstructions, PreparedAdjustment> {
+        match adjustment_opt {
+            None => Either::Left(OutboundPaymentsInstructions::new(
+                unprotected,
+                agent,
+                response_skeleton_opt,
+            )),
+            Some(adjustment) => {
+                let prepared_adjustment =
+                    PreparedAdjustment::new(unprotected, agent, response_skeleton_opt, adjustment);
+                Either::Right(prepared_adjustment)
+            }
+        }
+    }
 }
 
 pub struct PendingPayableScanner {
@@ -780,8 +793,8 @@ impl PendingPayableScanner {
                 Ok(_) => warning!(
                     logger,
                     "Broken transactions {} marked as an error. You should take over the care \
-                 of those to make sure your debts are going to be settled properly. At the moment, \
-                 there is no automated process fixing that without your assistance",
+                    of those to make sure your debts are going to be settled properly. At the \
+                    moment, there is no automated process fixing that without your assistance",
                     PendingPayableId::serialize_hashes_to_string(&ids)
                 ),
                 Err(e) => panic!(

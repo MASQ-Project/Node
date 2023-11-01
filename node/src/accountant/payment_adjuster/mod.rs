@@ -643,8 +643,8 @@ impl Display for PaymentAdjusterError {
                 } => write!(
                     f,
                     "Found smaller transaction fee balance than does for a single payment. \
-                 Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
-                 Current consuming wallet balance: {} wei",
+                    Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
+                    Current consuming wallet balance: {} wei",
                     number_of_accounts,
                     per_transaction_requirement_minor.separate_with_commas(),
                     cw_transaction_fee_balance_minor.separate_with_commas()
@@ -655,18 +655,17 @@ impl Display for PaymentAdjusterError {
                 } => write!(
                     f,
                     "Analysis has projected a likely unacceptable adjustment leaving each \
-                of the payable accounts with too a low adjusted amount to pay. Please, proceed by \
-                sending funds to your wallet. Number of canceled payments: {}. Current consuming \
-                wallet balance: {} wei of MASQ",
+                    of the payable accounts with too a low adjusted amount to pay. Please, proceed \
+                    by sending funds to your wallet. Number of canceled payments: {}. Current \
+                    consuming wallet balance: {} wei of MASQ",
                     number_of_accounts.separate_with_commas(),
                     cw_masq_balance_minor.separate_with_commas()
                 ),
             },
             PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
                 f,
-                "Despite \
-            the preliminary analysis had expected a possibility to compute some executable \
-            adjusted payments, the algorithm eventually rejected them all"
+                "Despite the positive preliminary analysis, no executable adjusted payments \
+                could be arranged, the algorithm rejected each payable"
             ),
         }
     }
@@ -941,8 +940,8 @@ mod tests {
             ),
             (
                 PaymentAdjusterError::AllAccountsUnexpectedlyEliminated,
-                "Despite the preliminary analysis had expected a possibility to compute some \
-                executable adjusted payments, the algorithm eventually rejected them all",
+                "Despite the positive preliminary analysis, no executable adjusted payments \
+                could be arranged, the algorithm rejected each payable",
             ),
         ]
         .into_iter()
