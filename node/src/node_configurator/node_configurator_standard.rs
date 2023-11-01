@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::{DirsWrapperReal, UserSpecifiedData};
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
+use crate::node_configurator::{DirsWrapperReal, UserSpecifiedData};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::{ComputedVcl, MultiConfig, VirtualCommandLine};
@@ -141,7 +141,7 @@ fn extract_values_and_fill_boxes(
     config_file_vcl: Box<dyn VirtualCommandLine>,
     environment_vcl: Box<dyn VirtualCommandLine>,
     commandline_vcl: Box<dyn VirtualCommandLine>,
-    user_specific_data: UserSpecifiedData
+    user_specific_data: UserSpecifiedData,
 ) -> (Vec<String>, Vec<String>) {
     let mut unspecified_vec: Vec<String> = vec!["".to_string()];
     let mut specified_vec: Vec<String> = vec!["".to_string()];
@@ -256,7 +256,7 @@ pub fn server_initializer_collected_params<'a>(
         Box::new(config_file_vcl),
         Box::new(EnvironmentVcl::new(&app)),
         Box::new(CommandLineVcl::new(commandline_vcl.args())),
-        user_specific_data
+        user_specific_data,
     );
     let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(config_file_vcl_next),
