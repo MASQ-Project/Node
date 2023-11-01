@@ -7,6 +7,10 @@ use crate::blockchain::blockchain_interface;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed, UninitializedBlockchainInterface,
 };
+use crate::blockchain::blockchain_interface_utils::{
+    handle_new_transaction, handle_payable_account, sign_and_append_multiple_payments,
+    sign_and_append_payment, sign_transaction,
+};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::future::err;
@@ -166,8 +170,12 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub trait BlockchainInterface<T: Transport = Http> {
+pub trait BlockchainInterface<T: BatchTransport = Http> {
     fn contract_address(&self) -> Address;
+
+    fn get_chain(&self) -> Chain;
+
+    fn get_batch_web3(&self) -> Web3<Batch<T>>;
 
     fn retrieve_transactions(
         &self,
@@ -213,10 +221,19 @@ impl Default for BlockchainInterfaceNull {
     }
 }
 
-impl BlockchainInterface for BlockchainInterfaceNull {
+impl BlockchainInterface<Http> for BlockchainInterfaceNull {
     fn contract_address(&self) -> Address {
         self.log_uninitialized_for_operation("get contract address");
         H160::zero()
+    }
+
+    fn get_chain(&self) -> Chain {
+        todo!("FIX ME GH-744")
+    }
+
+    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+        // self.
+        todo!("FIX ME GH-744")
     }
 
     fn retrieve_transactions(
@@ -331,6 +348,15 @@ where
         self.chain.rec().contract
     }
 
+    fn get_chain(&self) -> Chain {
+        self.chain
+    }
+
+    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+        // self.
+        todo!("FIX ME GH-744")
+    }
+
     fn retrieve_transactions(
         &self,
         start_block: u64,
@@ -433,7 +459,10 @@ where
             gas_price
         );
 
-        let hashes_and_paid_amounts = match self.sign_and_append_multiple_payments(
+        let hashes_and_paid_amounts = match sign_and_append_multiple_payments(
+            &self.logger,
+            self.chain,
+            self.batch_web3.clone(),
             consuming_wallet,
             gas_price,
             pending_nonce,
@@ -566,7 +595,7 @@ pub struct RpcPayableFailure {
     pub hash: H256,
 }
 
-type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
+pub type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 
 impl<T> BlockchainInterfaceWeb3<T>
 where
@@ -597,6 +626,7 @@ where
         pending_nonce: U256,
         accounts: &[PayableAccount],
     ) -> HashAndAmountResult {
+        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
         let init: (HashAndAmountResult, Option<U256>) =
             (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
 
@@ -604,7 +634,10 @@ where
             init,
             |(processed_outputs_res, pending_nonce_opt), account| {
                 if let Ok(hashes_and_amounts) = processed_outputs_res {
-                    self.handle_payable_account(
+                    handle_payable_account(
+                        &self.logger,
+                        self.chain,
+                        self.batch_web3.clone(),
                         pending_nonce_opt,
                         hashes_and_amounts,
                         consuming_wallet,
@@ -628,10 +661,14 @@ where
         gas_price: u64,
         account: &PayableAccount,
     ) -> (HashAndAmountResult, Option<U256>) {
+        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
         let nonce = pending_nonce_opt.expectv("pending nonce");
-        let updated_collected_attributes_of_processed_payments = self.sign_and_append_payment(
+        let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
+            &self.logger,
+            self.chain.clone(),
+            self.batch_web3.clone(),
             hashes_and_amounts,
-            consuming_wallet,
+            consuming_wallet.clone(),
             nonce,
             gas_price,
             account,
@@ -652,6 +689,7 @@ where
         gas_price: u64,
         account: &PayableAccount,
     ) -> HashAndAmountResult {
+        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
         debug!(
             self.logger,
             "Preparing payment of {} wei to {} with nonce {}",
@@ -660,9 +698,11 @@ where
             nonce
         );
 
-        match self.handle_new_transaction(
-            &account.wallet,
-            consuming_wallet,
+        match handle_new_transaction(
+            self.chain,
+            self.batch_web3.clone(),
+            account.wallet.clone(),
+            consuming_wallet.clone(),
             account.balance_wei,
             nonce,
             gas_price,
@@ -676,6 +716,7 @@ where
     }
 
     fn advance_used_nonce(current_nonce: U256) -> U256 {
+        todo!("This function has been moved to blockchain_interface_utils");
         current_nonce
             .checked_add(U256::one())
             .expect("unexpected limits")
@@ -686,6 +727,7 @@ where
         hashes_and_paid_amounts: Vec<(H256, u128)>,
         accounts: Vec<PayableAccount>,
     ) -> Vec<ProcessedPayableFallible> {
+        todo!("This function has been moved to blockchain_interface_utils");
         let iterator_with_all_data = responses
             .into_iter()
             .zip(hashes_and_paid_amounts.into_iter())
@@ -709,6 +751,7 @@ where
         error: Web3Error,
         hashes_and_paid_amounts: Vec<(H256, u128)>,
     ) -> PayableTransactionError {
+        todo!("error_with_hashes - This function has moved, Ignore test relating to this for now");
         let hashes = hashes_and_paid_amounts
             .into_iter()
             .map(|(hash, _)| hash)
@@ -728,8 +771,17 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<H256, PayableTransactionError> {
-        let signed_tx =
-            self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
+        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
+        let signed_tx = sign_transaction(
+            self.chain,
+            self.batch_web3.clone(),
+            recipient.clone(),
+            consuming_wallet.clone(),
+            amount,
+            nonce,
+            gas_price,
+        )?;
+
         // self.batch_payable_tools
         //     .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
         self.batch_web3
@@ -747,6 +799,7 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
+        todo!("sign_transaction - This function has moved, Ignore test relating to this for now");
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
@@ -786,7 +839,7 @@ where
         self.batch_web3
             .accounts()
             .sign_transaction(transaction_parameters, &key)
-            .wait() // TODO: Remove this wait.
+            .wait() // TODO: GH-744 Remove this wait.
             .map_err(|e| PayableTransactionError::Signing(e.to_string()))
 
         // self.batch_payable_tools
@@ -795,6 +848,7 @@ where
     }
 
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
+        todo!("This function has moved");
         let chain_name = self
             .chain
             .rec()

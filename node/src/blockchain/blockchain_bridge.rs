@@ -9,6 +9,7 @@ use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceNull, BlockchainInterfaceWeb3,
     PayableTransactionError, ProcessedPayableFallible,
 };
+use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -534,6 +535,10 @@ impl BlockchainBridge {
 
         // self.chain
 
+        let logger = self.logger.clone();
+        let chain = self.blockchain_interface.get_chain();
+        let batch_web3 = self.blockchain_interface.get_batch_web3();
+
         return Box::new(
             self.blockchain_interface
                 .get_transaction_count(consuming_wallet)
@@ -541,9 +546,21 @@ impl BlockchainBridge {
                 .and_then(move |pending_nonce| {
                     // let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
-                    err(PayableTransactionError::GasPriceQueryFailed(
-                        "test Error".to_string(),
-                    ))
+                    // err(PayableTransactionError::GasPriceQueryFailed(
+                    //     "test Error".to_string(),
+                    // ))
+
+                    send_payables_within_batch(
+                        &logger,
+                        chain,
+                        batch_web3,
+                        // <<<---- ( START HERE )
+                        consuming_wallet,
+                        gas_price,
+                        pending_nonce,
+                        new_fingerprints_recipient,
+                        msg_clone.accounts,
+                    )
 
                     // TODO: GH-744: Fix this
                     // self.blockchain_interface.send_payables_within_batch(

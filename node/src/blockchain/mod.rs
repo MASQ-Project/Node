@@ -7,5 +7,6 @@ mod blockchain_interface_slim;
 pub mod payer;
 pub mod signature;
 
+mod blockchain_interface_utils;
 #[cfg(test)]
 pub mod test_utils;

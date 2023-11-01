@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -86,6 +87,14 @@ pub struct BlockchainInterfaceMock {
 impl BlockchainInterface for BlockchainInterfaceMock {
     fn contract_address(&self) -> Address {
         self.contract_address_results.borrow_mut().remove(0)
+    }
+
+    fn get_chain(&self) -> Chain {
+        todo!("Fix me GH-744");
+    }
+
+    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+        todo!("Fix me GH-744");
     }
 
     fn retrieve_transactions(
