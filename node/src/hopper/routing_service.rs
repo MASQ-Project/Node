@@ -521,9 +521,9 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
-        make_meaningless_stream_key, make_paying_wallet, make_request_payload,
-        make_response_payload, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client,
-        route_to_proxy_client, route_to_proxy_server,
+        make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing,
+        rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
+        route_to_proxy_server,
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
@@ -537,7 +537,7 @@ mod tests {
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
         let cryptdes = make_cryptde_pair();
         let route = route_to_proxy_server(&cryptdes.main.public_key(), cryptdes.main);
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let lcp = LiveCoresPackage::new(
             route,
@@ -873,7 +873,7 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
-        let payload = make_response_payload(0, alias_cryptde);
+        let payload = make_response_payload(0);
         let lcp = LiveCoresPackage::new(
             route,
             encodex::<MessageType>(
@@ -1903,10 +1903,7 @@ mod tests {
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
-                        stream_key: StreamKey::new(
-                            PublicKey::new(b"1234"),
-                            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                        ),
+                        stream_key: StreamKey::make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                         target_hostname: Some("hostname".to_string()),
                         target_port: 1234,
@@ -1932,10 +1929,7 @@ mod tests {
                 &MessageType::DnsResolveFailed(VersionedData::new(
                     &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
                     &DnsResolveFailure_0v1 {
-                        stream_key: StreamKey::new(
-                            PublicKey::new(b"1234"),
-                            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                        ),
+                        stream_key: StreamKey::make_meaningless_stream_key(),
                     },
                 )),
             )
@@ -1975,10 +1969,7 @@ mod tests {
                 &MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {
-                        stream_key: StreamKey::new(
-                            PublicKey::new(b"1234"),
-                            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                        ),
+                        stream_key: StreamKey::make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
                     },
                 )),
