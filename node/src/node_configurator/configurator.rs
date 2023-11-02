@@ -48,7 +48,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    update_password_subs_opt: Option<HashMap<String, Recipient<ConfigurationChangeMessage>>>,
+    update_password_subs_opt: Option<UpdatePasswordSubs>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -64,20 +64,39 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        // self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub]); // GH-728
         self.update_min_hops_sub_opt = Some(
             msg.peer_actors
                 .neighborhood
                 .configuration_change_msg_sub
                 .clone(),
         );
-        // TODO: Find a better way to store subs instead of using HashMap
-        self.update_password_subs_opt = Some(hashmap!(
-            "neighborhood".to_string() => msg.peer_actors.neighborhood.configuration_change_msg_sub,
-            "configurator".to_string() => msg.peer_actors.configurator.configuration_change_msg_sub,
-            "blockchain_bridge".to_string() => msg.peer_actors.blockchain_bridge.configuration_change_msg_sub,
-            "accountant".to_string() => msg.peer_actors.accountant.configuration_change_msg_sub
-        ));
+        self.update_password_subs_opt = Some(UpdatePasswordSubs {
+            accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
+            blockchain_bridge: msg
+                .peer_actors
+                .blockchain_bridge
+                .configuration_change_msg_sub,
+            configurator: msg.peer_actors.configurator.configuration_change_msg_sub,
+            neighborhood: msg.peer_actors.neighborhood.configuration_change_msg_sub,
+        });
+    }
+}
+
+struct UpdatePasswordSubs {
+    accountant: Recipient<ConfigurationChangeMessage>,
+    blockchain_bridge: Recipient<ConfigurationChangeMessage>,
+    configurator: Recipient<ConfigurationChangeMessage>,
+    neighborhood: Recipient<ConfigurationChangeMessage>,
+}
+
+impl UpdatePasswordSubs {
+    fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 4] {
+        [
+            &self.accountant,
+            &self.blockchain_bridge,
+            &self.configurator,
+            &self.neighborhood,
+        ]
     }
 }
 
@@ -856,32 +875,16 @@ impl Configurator {
     }
 
     fn send_password_changes(&self, new_password: String) {
-        // GH-728
-        // TODO: Replace me with the ConfigurationChangeMessage with the new variant
-        // This message should be sent to 4 actors:
-        // 1. Configurator
-        // 2. Neighborhood
-        // 3. Blockchain Bridge
-        // 4. Accountant
-        // todo!("stop");
-        // let msg = NewPasswordMessage { new_password };
-        // self.new_password_subs
-        //     .as_ref()
-        //     .expect("Configurator is unbound")
-        //     .iter()
-        //     .for_each(|sub| {
-        //         sub.try_send(msg.clone())
-        //             .expect("New password recipient is dead")
-        //     });
         let msg = ConfigurationChangeMessage {
             change: ConfigurationChange::UpdatePassword(new_password),
         };
         self.update_password_subs_opt
             .as_ref()
             .expect("Configuration is unbound")
-            .values()
-            .for_each(|subscriber| {
-                subscriber
+            .recipients()
+            .iter()
+            .for_each(|recipient| {
+                recipient
                     .try_send(msg.clone())
                     .expect("New password recipient is dead")
             });
@@ -978,7 +981,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
-        subject.update_password_subs_opt = Some(hashmap!());
+        subject.update_password_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1170,7 +1173,6 @@ mod tests {
             accountant_recording.get_record::<ConfigurationChangeMessage>(0),
             &expected_configuration_msg
         );
-        assert_eq!(neighborhood_recording.len(), 1);
     }
 
     #[test]
