@@ -38,8 +38,10 @@ pub struct ServerInitializerReal {
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
-        let real_user = value_m!(params, "real-user", RealUser).unwrap();
-        let data_directory = value_m!(params, "data-directory", String).unwrap();
+        let real_user = value_m!(params, "real-user", RealUser)
+            .expect("ServerInitializer: Real user not present in Multi Config");
+        let data_directory = value_m!(params, "data-directory", String)
+            .expect("ServerInitializer: Data directory not present in Multi Config");
 
         let result: RunModeResult = Ok(())
             .combine_results(

@@ -10,7 +10,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
-#[cfg(not(target_os = "windows"))]
 use std::ops::Deref;
 
 use clap::value_t;
@@ -32,7 +31,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-#[cfg(not(target_os = "windows"))]
 use itertools::Itertools;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
@@ -156,7 +154,7 @@ pub fn server_initializer_collected_params<'a>(
     let commandline_vcl = CommandLineVcl::new(args.to_vec());
     let config_file_specified = user_specific_data.config_file_spec;
     let config_file_path = user_specific_data.config_file;
-    #[cfg(not(target_os = "windows"))]
+
     let extract_value_from_vcl =
         |vcl: &dyn VirtualCommandLine, name: &str, var: &str, spec: bool| {
             let args = vcl.args();
@@ -173,21 +171,21 @@ pub fn server_initializer_collected_params<'a>(
                 true => (var.to_string(), spec),
             }
         };
-    #[cfg(not(target_os = "windows"))]
+
     let (cf_real_user, cf_real_user_specified) = extract_value_from_vcl(
         &config_file_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
-    #[cfg(not(target_os = "windows"))]
+
     let (env_real_user, env_real_user_specified) = extract_value_from_vcl(
         &environment_vcl,
         "--real-user",
         user_specific_data.real_user.to_string().as_str(),
         user_specific_data.real_user_spec,
     );
-    #[cfg(not(target_os = "windows"))]
+
     let (cmd_real_user, cmd_real_user_specified) = extract_value_from_vcl(
         &commandline_vcl,
         "--real-user",
@@ -200,6 +198,7 @@ pub fn server_initializer_collected_params<'a>(
         Box::new(commandline_vcl),
     ];
     //TODO write test for MultiConfig "try_new" merge line 76
+    // TODO use vector from line 206 and push into it and then construct the CommandLineVcl same with ComputedVcl
     let mut fill_specified_or_unspecified_box = |key: &str, value: &str, specified: bool| {
         match specified {
             true => match value.is_empty() {
@@ -230,24 +229,24 @@ pub fn server_initializer_collected_params<'a>(
         user_specific_data.data_directory.to_string_lossy().as_ref(),
         user_specific_data.data_directory_spec,
     );
-    #[cfg(not(target_os = "windows"))]
+
     fill_specified_or_unspecified_box("--real-user", cf_real_user.as_str(), cf_real_user_specified);
-    #[cfg(not(target_os = "windows"))]
+
     fill_specified_or_unspecified_box(
         "--real-user",
         env_real_user.as_str(),
         env_real_user_specified,
     );
-    #[cfg(not(target_os = "windows"))]
+
     fill_specified_or_unspecified_box(
         "--real-user",
         cmd_real_user.as_str(),
         cmd_real_user_specified,
     );
 
-    // println!("full_multi_config_vec: {:#?}", full_multi_config_vec);
+    //println!("full_multi_config_vec: {:#?}", full_multi_config_vec);
     let full_multi_config = make_new_multi_config(&app, full_multi_config_vec)?;
-    // println!("full_multi_config: {:#?}", full_multi_config);
+    //println!("full_multi_config: {:#?}", full_multi_config);
     Ok(full_multi_config)
 }
 
