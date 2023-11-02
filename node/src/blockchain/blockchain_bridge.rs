@@ -112,6 +112,7 @@ impl Handler<ConfigurationChangeMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
         todo!("handler for BlockchainBridge");
+        // TODO: GH-728 - what should we do once the message is received
     }
 }
 
@@ -554,6 +555,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
+    use crate::sub_lib::neighborhood::ConfigurationChange::UpdatePassword;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
@@ -661,6 +663,31 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
         );
+    }
+
+    #[test]
+    fn blockchain_bridge_updates_password_when_it_receives_configuration_change_msg() {
+        let system = System::new(
+            "blockchain_bridge_updates_password_when_it_receives_configuration_change_msg",
+        );
+        let subject = BlockchainBridge::new(
+            stub_bi(),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
+        );
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdatePassword("new_password".to_string()),
+            })
+            .unwrap();
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
