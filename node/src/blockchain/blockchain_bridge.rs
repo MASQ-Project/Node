@@ -531,13 +531,14 @@ impl BlockchainBridge {
             None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
         };
 
-        let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
+        let new_fingerprints_recipient = self.get_new_fingerprints_recipient().clone();
 
         // self.chain
 
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
         let batch_web3 = self.blockchain_interface.get_batch_web3();
+        let consuming_wallet_clone = consuming_wallet.clone();
 
         return Box::new(
             self.blockchain_interface
@@ -554,11 +555,10 @@ impl BlockchainBridge {
                         &logger,
                         chain,
                         batch_web3,
-                        // <<<---- ( START HERE )
-                        consuming_wallet,
+                        consuming_wallet_clone,
                         gas_price,
                         pending_nonce,
-                        new_fingerprints_recipient,
+                        new_fingerprints_recipient.clone(),
                         msg_clone.accounts,
                     )
 

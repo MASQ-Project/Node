@@ -7,6 +7,7 @@ use crate::blockchain::blockchain_interface::{
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
+use futures::future::err;
 use futures::Future;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
@@ -275,14 +276,15 @@ pub fn sign_and_append_multiple_payments<T: BatchTransport>(
     result
 }
 
+// pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 pub fn send_payables_within_batch<T: BatchTransport + 'static>(
     logger: &Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    consuming_wallet: &Wallet,
+    consuming_wallet: Wallet,
     gas_price: u64,
     pending_nonce: U256,
-    new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
+    new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
     debug!(
@@ -298,7 +300,7 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
         logger,
         chain,
         batch_web3.clone(),
-        consuming_wallet,
+        &consuming_wallet,
         gas_price,
         pending_nonce,
         &accounts,
@@ -335,4 +337,8 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
                 ))
             }),
     );
+
+    // return Box::new(err(PayableTransactionError::GasPriceQueryFailed(
+    //     "test Error".to_string(),
+    // )));
 }
