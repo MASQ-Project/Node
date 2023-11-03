@@ -23,6 +23,7 @@ pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
 pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
+pub const GWEIS_IN_MASQ: i128 = 1_000_000_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
@@ -117,6 +118,7 @@ mod tests {
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
+        assert_eq!(GWEIS_IN_MASQ, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
         assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);

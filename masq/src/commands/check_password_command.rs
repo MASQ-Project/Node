@@ -120,7 +120,7 @@ mod tests {
             Err(CommandFactoryError::CommandSyntax(msg)) => {
                 // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
                 assert_eq!(
-                    msg.contains("which wasn't expected, or isn't valid in this context"),
+                    msg.contains("unexpected argument"),
                     true,
                     "{}",
                     msg

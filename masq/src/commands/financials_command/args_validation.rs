@@ -6,9 +6,10 @@ use std::fmt::{Debug};
 use std::io::Write;
 use std::str::FromStr;
 use clap::builder::{ArgPredicate, PossibleValuesParser, ValueRange};
+use num::ToPrimitive;
 use regex::{Captures, Regex};
 use masq_lib::constants::{GWEIS_IN_MASQ, MASQ_TOTAL_SUPPLY};
-use masq_lib::messages::RangeQuery;
+use masq_lib::messages::{CustomQueries, RangeQuery};
 use masq_lib::short_writeln;
 use crate::commands::financials_command::data_structures::restricted::UserOriginalTypingOfRanges;
 use masq_lib::utils::ExpectValue;
@@ -71,7 +72,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .long("no-stats")
                 .short('n')
                 .ignore_case(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(0..=0))
                 .required(false),
         )
         .arg(
@@ -81,7 +82,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .long("gwei")
                 .short('g')
                 .ignore_case(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(0..=0))
                 .required(false),
         )
         .arg(
@@ -124,7 +125,10 @@ impl FromStr for NonZeroU16 {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        match u16::from_str(s) {
+            Ok(value) if value != 0 => Ok(NonZeroU16{data: value}),
+            _ => Err(format!("Can't parse NonZeroU16 from '{}'", s))
+        }
     }
 }
 
@@ -157,8 +161,41 @@ impl FromStr for TwoRanges {
 
 impl TwoRanges {
 
-    pub fn try_convert_with_limit<T>(&self, limit: i128) -> Result<RangeQuery<T>, String> {
-        todo! ("Test-drive me")
+    pub fn try_convert_with_limit_u(&self, limit: i128) -> Result<RangeQuery<u64>, String> {
+        let (age_low, age_high, amount_low, amount_high) = self.try_convert_with_limit(limit)?;
+        Ok(RangeQuery {
+            min_age_s: age_low,
+            max_age_s: age_high,
+            min_amount_gwei: amount_low as u64,
+            max_amount_gwei: amount_high as u64,
+        })
+    }
+
+    pub fn try_convert_with_limit_i(&self, limit: i128) -> Result<RangeQuery<i64>, String> {
+        let (age_low, age_high, amount_low, amount_high) = self.try_convert_with_limit(limit)?;
+        Ok(RangeQuery {
+            min_age_s: age_low,
+            max_age_s: age_high,
+            min_amount_gwei: amount_low as i64,
+            max_amount_gwei: amount_high as i64,
+        })
+    }
+
+    fn try_convert_with_limit(&self, limit: i128) -> Result<(u64, u64, i128, i128), String> {
+        let apply_limit = |candidate: i128| -> Result<i128, String> {
+            if candidate <= limit {
+                Ok(candidate)
+            }
+            else {
+                Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", candidate))
+            }
+        };
+        let amount_low = apply_limit(self.gwei_range.0)?;
+        let amount_high = match self.gwei_range.1 {
+            Some(ah) => apply_limit(ah)?,
+            None => limit,
+        };
+        Ok((self.age_range.0, self.age_range.1, amount_low, amount_high))
     }
 
     fn checked_split(
@@ -270,8 +307,10 @@ impl TwoRanges {
                 DIGITS_IN_BILLION - decimal_digits_count,
             )
         } else {
-            let integer_parsed = Self::parse_integer_as_i128(num)?;
-            decimal_shift_to_gwei(integer_parsed, DIGITS_IN_BILLION)
+            decimal_shift_to_gwei(
+                Self::parse_integer_as_i128(num)?,
+                DIGITS_IN_BILLION
+            )
         }
     }
 
@@ -384,19 +423,28 @@ impl TwoRanges {
         assemble_age_and_balance_string_ranges(vec_of_possibly_corrected_values)
     }
 
-    fn title_for_custom_query(
+    pub fn title_for_custom_query<R>(
         stdout: &mut dyn Write,
         table_type: &str,
-        user_written_ranges: &UserOriginalTypingOfRanges,
-    ) {
-        let (age_range, balance_range) = Self::neaten_users_writing_if_possible(user_written_ranges);
+        range_query: RangeQuery<R>,
+    ) where R: ToPrimitive
+    {
         short_writeln!(
             stdout,
-            "Specific {} query: {} sec {} MASQ\n",
+            "Specific {} query: {} - {} sec old, {} - {} MASQ\n",
             table_type,
-            age_range,
-            balance_range
+            range_query.min_age_s,
+            range_query.max_age_s,
+            Self::gwei_as_masq(range_query.min_amount_gwei),
+            Self::gwei_as_masq(range_query.max_amount_gwei)
         )
+    }
+
+    fn gwei_as_masq<R>(gwei: R) -> String
+        where R: ToPrimitive
+    {
+        let gwei_f = gwei.to_f64().expect("Can't convert integer to float");
+        format!("{}", gwei_f / (GWEIS_IN_MASQ as f64))
     }
 }
 
@@ -472,6 +520,34 @@ mod tests {
             "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default."
         );
         assert_eq!(ORDERED_HELP, "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.");
+    }
+
+    #[test]
+    fn from_str_for_nonzerou16_doesnt_like_bad_syntax() {
+        let result = NonZeroU16::from_str("booga");
+
+        assert_eq! (result, Err("Can't parse NonZeroU16 from 'booga'".to_string()))
+    }
+
+    #[test]
+    fn from_str_for_nonzerou16_doesnt_like_zero() {
+        let result = NonZeroU16::from_str("0");
+
+        assert_eq! (result, Err("Can't parse NonZeroU16 from '0'".to_string()))
+    }
+
+    #[test]
+    fn from_str_for_nonzerou16_doesnt_like_big_numbers() {
+        let result = NonZeroU16::from_str("65536");
+
+        assert_eq! (result, Err("Can't parse NonZeroU16 from '65536'".to_string()))
+    }
+
+    #[test]
+    fn from_str_for_nonzerou16_happy_path() {
+        let result = NonZeroU16::from_str("1024");
+
+        assert_eq! (result, Ok(NonZeroU16{data: 1024}))
     }
 
     #[test]

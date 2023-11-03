@@ -361,7 +361,7 @@ pub fn shared_app(head: Command) -> Command {
             .value_parser(PossibleValuesParser::new([
                 "error", "message", "none", "panic",
             ]))
-            .ignore_case(true)
+            .ignore_case(false)
             .hide(true),
     )
     .arg(data_directory_arg(DATA_DIRECTORY_HELP.to_string()))

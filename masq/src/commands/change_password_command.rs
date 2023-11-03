@@ -228,7 +228,7 @@ mod tests {
             x => panic!("Expected CommandSyntax error, found {:?}", x),
         };
         assert_eq!(
-            msg.contains("The following required arguments were not provided"),
+            msg.contains("the following required arguments were not provided"),
             true,
             "{}",
             msg
@@ -244,7 +244,7 @@ mod tests {
             x => panic!("Expected string, found {:?}", x),
         };
         assert_eq!(
-            msg.contains("The following required arguments were not provided"),
+            msg.contains("the following required arguments were not provided"),
             true,
             "{}",
             msg
@@ -260,7 +260,7 @@ mod tests {
             x => panic!("Expected string, found {:?}", x),
         };
         assert_eq!(
-            msg.contains("The following required arguments were not provided"),
+            msg.contains("the following required arguments were not provided"),
             true,
             "{}",
             msg

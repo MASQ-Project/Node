@@ -392,7 +392,7 @@ mod tests {
 
         let msg = result.err().unwrap();
         assert_eq!(
-            msg.contains("or isn't valid in this context"),
+            msg.contains("unexpected argument"),
             true,
             "{}",
             msg
@@ -456,7 +456,7 @@ mod tests {
             x => panic!("Expected CommandSyntax, but got {:?}", x),
         };
         assert_eq!(
-            msg.contains("The following required arguments were not provided:"),
+            msg.contains("the following required arguments were not provided:"),
             true,
             "{}",
             msg
@@ -489,7 +489,7 @@ mod tests {
             x => panic!("Expected CommandSyntax, but got {:?}", x),
         };
         assert_eq!(
-            msg.contains("cannot be used with one or more of the other specified arguments"),
+            msg.contains("cannot be used with"),
             true,
             "{}",
             msg

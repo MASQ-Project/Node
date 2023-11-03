@@ -118,7 +118,7 @@ mod tests {
             ])
             .unwrap_err()
             .to_string();
-        assert!(result.contains("cannot be used with one or more of the other specified arguments"), "{}", result);
+        assert!(result.contains("cannot be used with"), "{}", result);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{Command as ClapCommand, Arg, value_parser};
-use clap::builder::{OsStr, PossibleValuesParser, Str, ValueRange};
+use clap::builder::{OsStr, Str, ValueRange};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
