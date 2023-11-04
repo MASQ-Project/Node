@@ -138,7 +138,7 @@ impl FinancialsCommand {
         is_first_printed_thing: bool,
         gwei_flag: bool,
     ) {
-        let is_both_sets = false; //self.are_both_sets_to_be_displayed();
+        let is_both_sets = self.are_both_sets_to_be_displayed();
         let (payable_metadata, receivable_metadata) = prepare_metadata(gwei_flag);
 
         triple_or_single_blank_line(stdout, is_first_printed_thing);
@@ -169,15 +169,16 @@ impl FinancialsCommand {
         }
     }
 
-    // fn are_both_sets_to_be_displayed(&self) -> bool {
-    //     self.top_records_opt.is_some()
-    //         || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-    //             custom_queries.users_payable_format_opt.is_some()
-    //                 && custom_queries.users_receivable_format_opt.is_some()
-    //         } else {
-    //             false
-    //         })
-    // }
+    fn are_both_sets_to_be_displayed(&self) -> bool {
+        self.top_records_opt.is_some() || (
+            if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
+                custom_queries.payable_opt.is_some()
+                    && custom_queries.receivable_opt.is_some()
+            } else {
+                false
+            }
+        )
+    }
 
     fn process_returned_records_in_requested_mode<A, R>(
         &self,
@@ -197,14 +198,13 @@ impl FinancialsCommand {
             } else {
                 no_records_found(stdout, metadata.headings.words.as_slice())
             }
-        } else if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-            if let Some(range_query) = range_query_opt {
-                TwoRanges::title_for_custom_query(stdout, metadata.table_type, range_query);
-                if let Some(accounts) = returned_records_opt {
-                    render_accounts_generic(stdout, accounts, &metadata.headings)
-                } else {
-                    no_records_found(stdout, metadata.headings.words.as_slice())
-                }
+        }
+        else if let Some(range_query) = range_query_opt {
+            TwoRanges::title_for_custom_query(stdout, metadata.table_type, range_query);
+            if let Some(accounts) = returned_records_opt {
+                render_accounts_generic(stdout, accounts, &metadata.headings)
+            } else {
+                no_records_found(stdout, metadata.headings.words.as_slice())
             }
         }
     }
@@ -1186,14 +1186,14 @@ mod tests {
                 \n\
                 \n\
                 \n\
-                Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
+                Specific payable query: 0 - 350000 sec old, 0.005 - 9 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
                 1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   < 0.01           0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
-                Specific receivable query: 5000-10000 sec 0.003-5.60007 MASQ\n\
+                Specific receivable query: 5000 - 10000 sec old, 0.003 - 5.60007 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]   Balance [MASQ]\n\
                 \n\
@@ -1323,14 +1323,14 @@ mod tests {
                 \n\
                 \n\
                 \n\
-                Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
+                Specific payable query: 0 - 350000 sec old, 0.005 - 9 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]   Balance [gwei]   Pending tx                                                        \n\
                 1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
-                Specific receivable query: 5000-10000 sec 0.000004-0.455 MASQ\n\
+                Specific receivable query: 5000 - 10000 sec old, 0.000004 - 0.455 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]   Balance [gwei]\n\
                 \n\
@@ -1405,14 +1405,14 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
                    "\n\
-            Specific payable query: 0-350000 sec 5-UNLIMITED MASQ\n\
+            Specific payable query: 0 - 350000 sec old, 5 - ∞ MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
             1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   1,200.00         0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
             \n\
             \n\
             \n\
-            Specific receivable query: 5000-10000 sec 0.8-UNLIMITED MASQ\n\
+            Specific receivable query: 5000 - 10000 sec old, 0.8 - ∞ MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]\n\
             1   0x8bA50675e590b545D2128905b89039256Eaa24F6   45,700    5.05          \n"
@@ -1568,7 +1568,7 @@ mod tests {
 |
 |
 |
-|Specific payable query: 0-400000 sec 355-6000 MASQ
+|Specific payable query: 0 - 400000 sec old, 355 - 6000 MASQ
 |
 |#   Wallet                                       Age [s]   Balance [MASQ]   Pending tx
 |
@@ -1576,7 +1576,7 @@ mod tests {
 |
 |
 |
-|Specific receivable query: 40000-80000 sec 111-10000 MASQ
+|Specific receivable query: 40000 - 80000 sec old, 111 - 10000 MASQ
 |
 |#   Wallet                                       Age [s]   Balance [MASQ]
 |
@@ -1746,7 +1746,7 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\n\
-                Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
+                Specific payable query: 3000 - 40000 sec old, 88 - 1000 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       3,862,654.85     0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581\n\
@@ -1823,7 +1823,7 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\n\
-                Specific receivable query: 3000-40000 sec 66-980 MASQ\n\
+                Specific receivable query: 3000 - 40000 sec old, 66 - 980 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [gwei]\n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9,898,999,888 \n\

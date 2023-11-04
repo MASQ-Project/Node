@@ -8,7 +8,7 @@ use std::str::FromStr;
 use clap::builder::{ArgPredicate, PossibleValuesParser, ValueRange};
 use num::ToPrimitive;
 use regex::{Captures, Regex};
-use masq_lib::constants::{GWEIS_IN_MASQ, MASQ_TOTAL_SUPPLY};
+use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
 use masq_lib::messages::{CustomQueries, RangeQuery};
 use masq_lib::short_writeln;
 use crate::commands::financials_command::data_structures::restricted::UserOriginalTypingOfRanges;
@@ -282,7 +282,7 @@ impl TwoRanges {
             match gwei_result {
                 Err(e) => Err(e),
                 Ok(gwei) => {
-                    if gwei > (MASQ_TOTAL_SUPPLY as i128 * GWEIS_IN_MASQ) {
+                    if gwei > (MASQ_TOTAL_SUPPLY as i128 * GWEI_IN_MASQ) {
                         Err(format!(
                             "Amount bigger than the MASQ total supply: {}, total supply: {}",
                             num, MASQ_TOTAL_SUPPLY
@@ -443,8 +443,12 @@ impl TwoRanges {
     fn gwei_as_masq<R>(gwei: R) -> String
         where R: ToPrimitive
     {
+        if gwei.to_i64().expect("Can't convert integer to i64") == i64::MAX {
+            return "∞".to_string()
+        }
         let gwei_f = gwei.to_f64().expect("Can't convert integer to float");
-        format!("{}", gwei_f / (GWEIS_IN_MASQ as f64))
+        let masq_f = gwei_f / (GWEI_IN_MASQ as f64);
+        format!("{}", masq_f)
     }
 }
 
