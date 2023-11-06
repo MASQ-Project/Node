@@ -427,6 +427,14 @@ pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
 }
 
+impl Clone for ConfigFileVcl {
+    fn clone(&self) -> Self {
+        ConfigFileVcl {
+            vcl_args: self.vcl_args.iter().map(|arg| arg.dup()).collect(),
+        }
+    }
+}
+
 impl VirtualCommandLine for ConfigFileVcl {
     fn vcl_args(&self) -> Vec<&dyn VclArg> {
         vcl_args_to_vcl_args(&self.vcl_args)

@@ -184,24 +184,40 @@ fn extract_values_and_fill_boxes(
         user_specific_data.real_user_spec,
     );
 
-    let mut fill_specified_or_unspecified_box = |key: &str, value: &str, specified: bool| {
-        match specified {
-            true => match value.is_empty() {
-                true => (),
-                false => {
-                    unspecified_vec.push(key.to_string());
-                    unspecified_vec.push(value.to_string());
-                }
-            },
-            false => match value.is_empty() {
-                true => (),
-                false => {
-                    specified_vec.push(key.to_string());
-                    specified_vec.push(value.to_string());
-                }
+    let mut fill_specified_or_unspecified_box =
+        |key: &str, value: &str, specified: bool| match value.is_empty() {
+            true => (),
+            false => match specified {
+                true => match specified_vec.contains(&key.to_string()) {
+                    true => {
+                        let index = specified_vec
+                            .iter()
+                            .position(|r| r == key)
+                            .expect("expected index of vcl name")
+                            + 1;
+                        specified_vec[index] = value.to_string();
+                    }
+                    false => {
+                        specified_vec.push(key.to_string());
+                        specified_vec.push(value.to_string());
+                    }
+                },
+                false => match unspecified_vec.contains(&key.to_string()) {
+                    true => {
+                        let index = unspecified_vec
+                            .iter()
+                            .position(|r| r == key)
+                            .expect("expected index of vcl name")
+                            + 1;
+                        unspecified_vec[index] = value.to_string();
+                    }
+                    false => {
+                        unspecified_vec.push(key.to_string());
+                        unspecified_vec.push(value.to_string());
+                    }
+                },
             },
         };
-    };
     fill_specified_or_unspecified_box(
         "--config-file",
         config_file_path.as_path().to_string_lossy().as_ref(),
@@ -242,28 +258,20 @@ pub fn server_initializer_collected_params<'a>(
         Ok(cfv) => cfv,
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
-    //TODO get rid of this second construction of ConfigFileVcl
-    let config_file_vcl_next = match ConfigFileVcl::new(
-        &user_specific_data.config_file,
-        user_specific_data.config_file_spec,
-    ) {
-        Ok(cfv) => cfv,
-        Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
-    };
+
     let environment_vcl = EnvironmentVcl::new(&app);
     let commandline_vcl = CommandLineVcl::new(args.to_vec());
     let (unspecified_vec, specified_vec) = extract_values_and_fill_boxes(
-        Box::new(config_file_vcl),
+        Box::new(config_file_vcl.clone()),
         Box::new(EnvironmentVcl::new(&app)),
         Box::new(CommandLineVcl::new(commandline_vcl.args())),
         user_specific_data,
     );
     let mut full_multi_config_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
-        Box::new(config_file_vcl_next),
+        Box::new(config_file_vcl),
         Box::new(environment_vcl),
         Box::new(commandline_vcl),
     ];
-
     //TODO write test for MultiConfig "try_new" merge line 76
     if unspecified_vec.len() > 1 {
         full_multi_config_vec.push(Box::new(ComputedVcl::new(unspecified_vec)));
@@ -987,19 +995,19 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_dir_started_by_tilde(
+    fn server_initializer_collected_params_handle_config_file_from_commandline_and_real_user_from_config_file_with_data_dir_started_by_tilde(
     ) {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_dir_started_by_tilde");
-        let data_dir = &home_dir.join("data_dir");
+        let data_dir = &home_dir.join("masqhome");
         let _create_data_dir = create_dir_all(data_dir);
-        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
+        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
-            ("MASQ_DATA_DIRECTORY", "~/data_dir"),
-            ("MASQ_CONFIGFILE", "~/config.toml"),
+            ("MASQ_IP", "9.8.7.6"),
+            ("MASQ_BLOCKCHAIN-SERVICE-URL", "https://www.mainnet2.com"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ];
@@ -1007,27 +1015,41 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
-        let args = ArgsBuilder::new();
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet1.com")
+            .param("--config-file", "~/masqhome/config.toml")
+            .param("--data-directory", "~/masqhome");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(current_dir().expect("expect current directory").join("generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_tilde")))
+            .home_dir_result(Some(current_dir().expect("expect current directory").join("generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_dir_started_by_tilde/home")))
             .data_dir_result(Some(data_dir.to_path_buf()));
-        let result_data_dir = current_dir().expect("expect current directory").join("generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_tilde/data_dir");
+        let result_data_dir = current_dir().expect("expect current directory").join("generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_dir_started_by_tilde/home/masqhome");
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
-        let env_multiconfig = result.unwrap();
+        let multiconfig = result.unwrap();
 
-        assert_eq!(env_multiconfig.is_user_specified("--data-directory"), true);
+        assert_eq!(multiconfig.is_user_specified("--data-directory"), true);
         assert_eq!(
-            value_m!(env_multiconfig, "data-directory", String).unwrap(),
+            value_m!(multiconfig, "data-directory", String).unwrap(),
             result_data_dir.to_string_lossy().to_string()
         );
+        assert_eq!(multiconfig.is_user_specified("--real-user"), true);
         assert_eq!(
-            value_m!(env_multiconfig, "config-file", String).unwrap(),
+            value_m!(multiconfig, "real-user", String).unwrap(),
+            "9999:9999:booga"
+        );
+        assert_eq!(multiconfig.is_user_specified("--config-file"), true);
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
             result_data_dir
                 .join(PathBuf::from("config.toml"))
                 .to_string_lossy()
                 .to_string()
+        );
+        assert_eq!(value_m!(multiconfig, "ip", String).unwrap(), "9.8.7.6");
+        assert_eq!(
+            value_m!(multiconfig, "blockchain-service-url", String).unwrap(),
+            "https://www.mainnet1.com"
         );
     }
 
