@@ -101,6 +101,21 @@ pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price: u6
     introduction.chain(body).collect()
 }
 
+pub fn sign_transaction_data(amount: U256, recipient: Wallet) -> [u8; 68] {
+    let mut data = [0u8; 4 + 32 + 32];
+    data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
+    data[16..36].copy_from_slice(&recipient.address().0[..]);
+    amount.to_big_endian(&mut data[36..68]);
+    return data;
+}
+pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
+    let base_gas_limit = base_gas_limit(chain);
+    let gas_limit = ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+        acc + if v == &0u8 { 4 } else { 68 }
+    }))
+    .expect("Internal error");
+    return gas_limit;
+}
 pub fn sign_transaction<T: BatchTransport>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
@@ -110,17 +125,10 @@ pub fn sign_transaction<T: BatchTransport>(
     nonce: U256,
     gas_price: u64,
 ) -> Result<SignedTransaction, PayableTransactionError> {
-    let mut data = [0u8; 4 + 32 + 32];
-    data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-    data[16..36].copy_from_slice(&recipient.address().0[..]);
-    U256::try_from(amount)
-        .expect("shouldn't overflow")
-        .to_big_endian(&mut data[36..68]);
-    let base_gas_limit = base_gas_limit(chain);
-    let gas_limit = ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
-        acc + if v == &0u8 { 4 } else { 68 }
-    }))
-    .expect("Internal error");
+    let amount_u256 = U256::try_from(amount).expect("shouldn't overflow");
+    let data = sign_transaction_data(amount_u256, recipient);
+    let gas_limit = gas_limit(data, chain);
+
     let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
         serde_json::to_value(nonce).expect("Internal error"),
     )
@@ -1124,55 +1132,28 @@ mod tests {
     }
 
     fn test_gas_limit_is_between_limits(chain: Chain) {
-        todo!("TODO Fix this Later");
-        //
-        // let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        // let transport = TestTransport::default();
-        // let mut subject =
-        //     BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
-        // let not_under_this_value =
-        //     BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain);
-        //
-        // let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-        // let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        // let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
-        //     .sign_transaction_params(&sign_transaction_params_arc)
-        //     .sign_transaction_result(Ok(make_default_signed_transaction()));
-        // subject.batch_payable_tools = Box::new(batch_payable_tools);
-        // let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        // let gas_price = 123;
-        // let nonce = U256::from(5);
-        //
-        // let _ = subject.sign_transaction(
-        //     &make_wallet("wallet1"),
-        //     &consuming_wallet,
-        //     1_000_000_000,
-        //     nonce,
-        //     gas_price,
-        // );
-        //
-        // let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
-        // let (transaction_params, _, secret) = sign_transaction_params.remove(0);
-        // assert!(sign_transaction_params.is_empty());
-        // assert!(
-        //     transaction_params.gas >= U256::from(not_under_this_value),
-        //     "actual gas limit {} isn't above or equal {}",
-        //     transaction_params.gas,
-        //     not_under_this_value
-        // );
-        // assert!(
-        //     transaction_params.gas <= U256::from(not_above_this_value),
-        //     "actual gas limit {} isn't below or equal {}",
-        //     transaction_params.gas,
-        //     not_above_this_value
-        // );
-        // assert_eq!(
-        //     secret,
-        //     (&Bip32EncryptionKeyProvider::from_raw_secret(
-        //         &consuming_wallet_secret_raw_bytes.keccak256()
-        //     )
-        //     .unwrap())
-        //         .into()
-        // );
+        let not_under_this_value = match chain {
+            // TODO: GH-744 this could be use by web3_gas_limit_const_part - once Merged with Master
+            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+        };
+        let not_above_this_value = not_under_this_value + 3328; // TODO: GH-744: this number can be replace by const WEB3_MAXIMAL_GAS_LIMIT_MARGIN. - once Merged with Master
+        let amount_u256 = U256::from(1_000_000_000);
+        let data = sign_transaction_data(amount_u256, make_wallet("wallet1"));
+
+        let gas_limit = gas_limit(data, chain);
+
+        assert!(
+            gas_limit >= U256::from(not_under_this_value),
+            "actual gas limit {} isn't above or equal {}",
+            gas_limit,
+            not_under_this_value
+        );
+        assert!(
+            gas_limit <= U256::from(not_above_this_value),
+            "actual gas limit {} isn't below or equal {}",
+            gas_limit,
+            not_above_this_value
+        );
     }
 }
