@@ -2029,7 +2029,7 @@ pub mod exportable_test_parts {
         }
         fn launch_prepared_test_server() -> (TestServer, String) {
             let port = find_free_port();
-            let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
+            let server_url = format!("http://{}:{}", Ipv4Addr::LOCALHOST, port);
             (
                 TestServer::start(
                     port,

@@ -795,11 +795,8 @@ mod tests {
                 ]
             }]"#.to_vec(),
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let end_block_nbr = 1024u64;
@@ -857,11 +854,8 @@ mod tests {
             port,
             vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
         );
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let end_block_nbr = 1024u64;
@@ -927,14 +921,11 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -954,14 +945,11 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start(port, vec![
+        let test_server = TestServer::start(port, vec![
             br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -978,15 +966,12 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
         init_test_logging();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -1015,14 +1000,11 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -2076,15 +2058,12 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_fetch_transaction_receipt() {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#
                 .to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let tx_hash =
