@@ -101,11 +101,11 @@ pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price: u6
     introduction.chain(body).collect()
 }
 
-pub fn sign_transaction_data(amount: U256, recipient: Wallet) -> [u8; 68] {
+pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68] {
     let mut data = [0u8; 4 + 32 + 32];
     data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-    data[16..36].copy_from_slice(&recipient.address().0[..]);
-    amount.to_big_endian(&mut data[36..68]);
+    data[16..36].copy_from_slice(&recipient_wallet.address().0[..]);
+    U256::from(amount).to_big_endian(&mut data[36..68]);
     return data;
 }
 pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
@@ -119,14 +119,13 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
 pub fn sign_transaction<T: BatchTransport>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    recipient: Wallet,
+    recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
     gas_price: u64,
 ) -> Result<SignedTransaction, PayableTransactionError> {
-    let amount_u256 = U256::try_from(amount).expect("shouldn't overflow");
-    let data = sign_transaction_data(amount_u256, recipient);
+    let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
 
     let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
@@ -163,7 +162,7 @@ pub fn sign_transaction<T: BatchTransport>(
 pub fn handle_new_transaction<T: BatchTransport>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    recipient: Wallet,
+    recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
@@ -172,7 +171,7 @@ pub fn handle_new_transaction<T: BatchTransport>(
     let signed_tx = sign_transaction(
         chain,
         batch_web3.clone(),
-        recipient.clone(),
+        recipient_wallet.clone(),
         consuming_wallet.clone(),
         amount,
         nonce,
@@ -692,11 +691,7 @@ mod tests {
     fn send_payables_within_batch_fails_on_sending() {
         let hash = make_tx_hash(123);
         let transport =
-            TestTransport::default().send_batch_result(vec![Err(Web3Error::Transport {
-                0: "Transaction crashed".to_string(),
-                // msg: "Transport error: Transaction crashed".to_string(),
-                // hashes: vec![hash]
-            })]);
+            TestTransport::default().send_batch_result(vec![Err(Web3Error::Unreachable)]);
 
         let mut signed_transaction = make_default_signed_transaction();
         signed_transaction.transaction_hash = hash;
@@ -755,7 +750,7 @@ mod tests {
         //     make_fake_event_loop_handle(),
         //     Chain::PolyMumbai,
         // );
-        let recipient = make_wallet("unlucky man");
+        let recipient_wallet = make_wallet("unlucky man");
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
         let gas_price = 123;
         let nonce = U256::from(1);
@@ -763,7 +758,7 @@ mod tests {
         let result = sign_transaction(
             Chain::PolyMumbai,
             Web3::new(Batch::new(transport)),
-            recipient,
+            recipient_wallet,
             consuming_wallet,
             444444,
             nonce,
@@ -1138,8 +1133,7 @@ mod tests {
             Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
         };
         let not_above_this_value = not_under_this_value + 3328; // TODO: GH-744: this number can be replace by const WEB3_MAXIMAL_GAS_LIMIT_MARGIN. - once Merged with Master
-        let amount_u256 = U256::from(1_000_000_000);
-        let data = sign_transaction_data(amount_u256, make_wallet("wallet1"));
+        let data = sign_transaction_data(1_000_000_000, make_wallet("wallet1"));
 
         let gas_limit = gas_limit(data, chain);
 
