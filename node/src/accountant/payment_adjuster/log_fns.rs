@@ -14,11 +14,11 @@ use thousands::Separable;
 use web3::types::U256;
 
 const REFILL_RECOMMENDATION: &str = "\
-In order to continue consuming services from other Nodes and avoid delinquency bans it is necessary \
-to allocate more funds in your consuming wallet.";
-const LATER_DETECTED_MASQ_SEVERE_SCARCITY: &str = "\
-Passing successful payment adjustment by the transaction fee, but facing critical scarcity of MASQ \
-balance. Operation will abort.";
+Please be aware that ignoring your debts might result in delinquency bans. In order to consume \
+services without limitations, you will need to put more funds into your consuming wallet.";
+const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
+Passed successfully adjustment by transaction fee but noticing critical scarcity of MASQ balance. \
+Operation will abort.";
 
 const BLANK_SPACE: &str = "";
 
@@ -124,20 +124,24 @@ pub fn info_log_for_disqualified_account(
 ) {
     info!(
         logger,
-        "Dealing with the consuming wallet being short of MASQ. \
-            Seems unavoidable to disregard payable {} at the moment. Reason is the computed \
-            possible payment of {} wei would not be at least half of the original debt {}.",
+        "Shortage of MASQ in your consuming wallet impacts on payable {}, ruled out from this \
+        round of payments. The proposed adjustment {} wei was less than half of the recorded \
+        debt, {} wei",
         account.original_account.wallet,
         account.proposed_adjusted_balance.separate_with_commas(),
         account.original_account.balance_wei.separate_with_commas()
     )
 }
 
-pub fn log_adjustment_by_masq_required(logger: &Logger, payables_sum: u128, cw_masq_balance: u128) {
+pub fn log_adjustment_by_service_fee_is_required(
+    logger: &Logger,
+    payables_sum: u128,
+    cw_masq_balance: u128,
+) {
     warning!(
         logger,
         "Total of {} wei in MASQ was ordered while the consuming wallet held only {} wei of \
-            the MASQ token. Adjustment in their count or the amounts is required.",
+        the MASQ token. Adjustment in their count or the amounts is required.",
         payables_sum.separate_with_commas(),
         cw_masq_balance.separate_with_commas()
     );
@@ -152,9 +156,9 @@ pub fn log_insufficient_transaction_fee_balance(
 ) {
     warning!(
         logger,
-        "Gas amount {} wei cannot cover anticipated fees from sending {} \
-            transactions. Maximum is {}. The payments need to be adjusted in \
-            their count.",
+        "Transaction fee amount {} wei from your wallet will not cover anticipated \
+        fees to send {} transactions. Maximum is {}. The payments count needs to be \
+        adjusted.",
         transaction_fee_minor.separate_with_commas(),
         required_transactions_count,
         limiting_count
@@ -162,27 +166,28 @@ pub fn log_insufficient_transaction_fee_balance(
     info!(logger, "{}", REFILL_RECOMMENDATION)
 }
 
-pub fn log_transaction_fee_adjustment_ok_but_masq_balance_undoable(logger: &Logger) {
-    error!(logger, "{}", LATER_DETECTED_MASQ_SEVERE_SCARCITY)
+pub fn log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(logger: &Logger) {
+    error!(logger, "{}", LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::log_fns::{
-        LATER_DETECTED_MASQ_SEVERE_SCARCITY, REFILL_RECOMMENDATION,
+        LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY, REFILL_RECOMMENDATION,
     };
 
     #[test]
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "In order to continue consuming services from other Nodes and avoid delinquency bans it \
-            is necessary to allocate more funds in your consuming wallet."
+            "Please be aware that ignoring your debts might result in delinquency bans. In order to \
+            consume services without limitations, you will need to put more funds into your \
+            consuming wallet."
         );
         assert_eq!(
-            LATER_DETECTED_MASQ_SEVERE_SCARCITY,
-            "Passing successful payment adjustment by the \
-        transaction fee, but facing critical scarcity of MASQ balance. Operation will abort."
+            LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
+            "Passed successfully adjustment by transaction fee but noticing critical scarcity of \
+            MASQ balance. Operation will abort."
         )
     }
 }

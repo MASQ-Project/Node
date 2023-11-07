@@ -275,7 +275,7 @@ mod tests {
         let mut account_2 = account_1.clone();
         account_2.wallet = wallet_2.clone();
         let accounts = vec![account_1, account_2];
-        let adjustment = Adjustment::PriorityTransactionFee {
+        let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();

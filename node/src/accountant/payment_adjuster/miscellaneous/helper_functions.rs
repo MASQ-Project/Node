@@ -41,7 +41,7 @@ pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount
     })
 }
 
-pub fn keep_only_transaction_fee_affordable_count_of_accounts_and_drop_the_rest(
+pub fn keep_only_transaction_fee_affordable_accounts_and_drop_the_rest(
     criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     affordable_transaction_count: u16,
 ) -> Vec<(u128, PayableAccount)> {
@@ -291,7 +291,7 @@ pub fn sort_in_descendant_order_by_criteria_sums(
         .collect()
 }
 
-pub fn drop_criteria_sums_and_leave_accounts(
+pub fn drop_criteria_and_leave_naked_affordable_accounts(
     criteria_and_accounts: Vec<(u128, PayableAccount)>,
 ) -> Vec<PayableAccount> {
     criteria_and_accounts

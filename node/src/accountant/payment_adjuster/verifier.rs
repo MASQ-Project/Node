@@ -11,12 +11,13 @@ impl MasqAdjustmentPossibilityVerifier {
     pub fn verify_adjustment_possibility(
         &self,
         accounts: &[&PayableAccount],
-        cw_masq_balance_minor: u128,
+        cw_service_fee_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
-        // The reasoning is that the real adjustment algorithm will proceed by eliminating the biggest
-        // account in each iteration, reaching out the smallest one eventually; if the smallest one
-        // reduced by the disqualification margin turned out possible to pay with the currently available
-        // balance, we can tell that this Node is going to initiate at least one blockchain transaction
+        // The idea stands as the adjustment algorithm will have to proceed in each iteration by
+        // eliminating the biggest account there as it always finds an account to disqualify,
+        // reaching out the smallest one eventually; if the smallest one reduced by
+        // the disqualification margin turns out to be still possibly paid out we can be sure
+        // that this Node is going to realize at least one blockchain transaction
         let sorted = accounts
             .iter()
             .sorted_by(|account_a, account_b| {
@@ -25,14 +26,15 @@ impl MasqAdjustmentPossibilityVerifier {
             .collect::<Vec<_>>();
         let smallest_account = sorted.first().expect("empty Vec of qualified payables ");
 
-        if calculate_disqualification_edge(smallest_account.balance_wei) <= cw_masq_balance_minor {
+        if calculate_disqualification_edge(smallest_account.balance_wei)
+            <= cw_service_fee_balance_minor
+        {
             Ok(())
         } else {
-            let number_of_accounts = accounts.len();
             Err(
                 PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
-                    number_of_accounts,
-                    cw_masq_balance_minor,
+                    number_of_accounts: accounts.len(),
+                    cw_service_fee_balance_minor,
                 },
             )
         }
@@ -108,7 +110,7 @@ mod tests {
             Err(
                 PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
-                    cw_masq_balance_minor: cw_masq_balance
+                    cw_service_fee_balance_minor: cw_masq_balance
                 }
             )
         )
