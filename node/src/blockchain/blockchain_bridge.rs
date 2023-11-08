@@ -366,35 +366,41 @@ impl BlockchainBridge {
         //     .blockchain_interface
         //     .retrieve_transactions(start_block, &msg.recipient);
 
+        let logger = self.logger.clone();
+        let received_payments_subs = self
+            .received_payments_subs_opt
+            .as_ref()
+            .expect("Accountant is unbound")
+            .clone();
+
+
         Box::new(
-            self
-                .blockchain_interface
-                .retrieve_transactions(start_block, &msg.recipient).map_err(|e| {
-                format!(
-                    "Tried to retrieve received payments but failed: {:?}",
-                    e
-                )
-            }).and_then(|transactions| {
-                if let Err(e) = self
-                    .persistent_config
-                    .set_start_block(transactions.new_start_block)
-                {
-                    panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
-                };
-                if transactions.transactions.is_empty() {
-                    debug!(self.logger, "No new receivable detected");
-                }
-                self.received_payments_subs_opt
-                    .as_ref()
-                    .expect("Accountant is unbound")
-                    .try_send(ReceivedPayments {
-                        timestamp: SystemTime::now(),
-                        payments: transactions.transactions,
-                        response_skeleton_opt: msg.response_skeleton_opt,
-                    })
-                    .expect("Accountant is dead.");
-                Ok(())
-            })
+            self.blockchain_interface
+                .retrieve_transactions(start_block, &msg.recipient)
+                .map_err(|e| format!("Tried to retrieve received payments but failed: {:?}", e))
+                .and_then(move |transactions| {
+
+                    // --- ---
+                    if let Err(e) = self
+                        .persistent_config
+                        .set_start_block(transactions.new_start_block)
+                    {
+                        panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
+                    };
+                    // --- ---
+
+                    if transactions.transactions.is_empty() {
+                        debug!(logger, "No new receivable detected");
+                    }
+                    received_payments_subs
+                        .try_send(ReceivedPayments {
+                            timestamp: SystemTime::now(),
+                            payments: transactions.transactions,
+                            response_skeleton_opt: msg.response_skeleton_opt,
+                        })
+                        .expect("Accountant is dead.");
+                    Ok(())
+                }),
         )
     }
 

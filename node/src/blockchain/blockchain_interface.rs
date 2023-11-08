@@ -368,7 +368,7 @@ where
         let logger = self.logger.clone();
 
         Box::new(
-            log_request.then(|logs| {
+            log_request.then(move |logs| {
                 debug!(logger, "Transaction retrieval completed: {:?}", logs);
                 future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
                     Ok(logs) => {
