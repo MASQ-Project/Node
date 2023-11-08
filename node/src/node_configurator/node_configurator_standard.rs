@@ -1017,9 +1017,15 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
+        #[cfg(not(target_os = "windows"))]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
             .param("--config-file", "~/masqhome/config.toml")
+            .param("--data-directory", "~/masqhome");
+        #[cfg(target_os = "windows")]
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet1.com")
+            .param("--config-file", "~/masqhome\\config.toml")
             .param("--data-directory", "~/masqhome");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
