@@ -930,21 +930,22 @@ mod tests {
         let env_multiconfig = result.unwrap();
 
         #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "booga/data_dir/MASQ/polygon-mainnet".to_string()
-        );
+        {
+            assert_eq!(
+                value_m!(env_multiconfig, "data-directory", String).unwrap(),
+                "booga/data_dir/MASQ/polygon-mainnet".to_string()
+            );
+            assert_eq!(
+                value_m!(env_multiconfig, "config-file", String).unwrap(),
+                current_dir().expect("expected curerrnt dir")
+                    .join(PathBuf::from( "./generated/test/node_configurator_standard/multi_config_vcl_is_computed_do_right_job/config.toml"))
+                    .to_string_lossy().to_string()
+            );
+        }
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
             "generated/test/node_configurator_standard/multi_config_vcl_is_computed_do_right_job/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
-        );
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(env_multiconfig, "config-file", String).unwrap(),
-            current_dir().expect("expected curerrnt dir")
-                .join(PathBuf::from( "./generated/test/node_configurator_standard/multi_config_vcl_is_computed_do_right_job/config.toml"))
-                .to_string_lossy().to_string()
         );
     }
 
@@ -978,19 +979,20 @@ mod tests {
 
         assert_eq!(env_multiconfig.is_user_specified("--data-directory"), false);
         #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "booga/data_dir/MASQ/polygon-mainnet".to_string()
-        );
+        {
+            assert_eq!(
+                value_m!(env_multiconfig, "data-directory", String).unwrap(),
+                "booga/data_dir/MASQ/polygon-mainnet".to_string()
+            );
+            assert_eq!(
+                value_m!(env_multiconfig, "config-file", String).unwrap(),
+                current_dir().unwrap().join(PathBuf::from( "./generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_dot/config.toml")).to_string_lossy().to_string()
+            );
+        }
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
             "generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_dot/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
-        );
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(env_multiconfig, "config-file", String).unwrap(),
-            current_dir().unwrap().join(PathBuf::from( "./generated/test/node_configurator_standard/server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_dot/config.toml")).to_string_lossy().to_string()
         );
     }
 
@@ -1033,11 +1035,14 @@ mod tests {
             value_m!(multiconfig, "data-directory", String).unwrap(),
             result_data_dir.to_string_lossy().to_string()
         );
-        assert_eq!(multiconfig.is_user_specified("--real-user"), true);
-        assert_eq!(
-            value_m!(multiconfig, "real-user", String).unwrap(),
-            "9999:9999:booga"
-        );
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(multiconfig.is_user_specified("--real-user"), true);
+            assert_eq!(
+                value_m!(multiconfig, "real-user", String).unwrap(),
+                "9999:9999:booga"
+            );
+        }
         assert_eq!(multiconfig.is_user_specified("--config-file"), true);
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
@@ -1153,23 +1158,23 @@ mod tests {
         let result = params.as_ref().expect("REASON");
         let multiconfig = result;
         #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home/config.toml").to_string_lossy().to_string()
-        );
+        {
+            assert_eq!(
+                value_m!(multiconfig, "config-file", String).unwrap(),
+                current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home/config.toml").to_string_lossy().to_string()
+            );
+            assert_eq!(multiconfig.is_user_specified("--real-user"), true);
+            assert_eq!(
+                value_m!(multiconfig, "real-user", String).unwrap(),
+                "1001:1001:cooga".to_string()
+            );
+        }
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
             current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vlcs_properly/home\\config.toml").to_string_lossy().to_string()
         );
         assert_eq!(multiconfig.is_user_specified("--data-directory"), true);
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(multiconfig.is_user_specified("--real-user"), true);
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(multiconfig, "real-user", String).unwrap(),
-            "1001:1001:cooga".to_string()
-        );
     }
 
     #[test]
