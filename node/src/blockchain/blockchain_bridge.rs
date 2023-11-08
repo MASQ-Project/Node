@@ -115,7 +115,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
         msg: RetrieveTransactions,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        self.handle_scan(
+        self.handle_scan_future(
             Self::handle_retrieve_transactions,
             ScanType::Receivables,
             msg,
@@ -149,6 +149,7 @@ impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
+    // Done
     type Result = ();
 
     fn handle(&mut self, msg: ReportAccountsPayable, _ctx: &mut Self::Context) {
@@ -271,19 +272,6 @@ impl BlockchainBridge {
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
 
-        // let token_balance = match self
-        //     .blockchain_interface
-        //     .get_token_balance(consuming_wallet) // Will become a Future also
-        // {
-        //     Ok(token_balance) => token_balance,
-        //     Err(e) => {
-        //         return Box::new(err(format!(
-        //             "Did not find out token balance of the consuming wallet: {:?}",
-        //             e
-        //         )))
-        //     }
-        // };
-
         let balances_and_payables_sub_opt = self.balances_and_payables_sub_opt.clone();
         let get_transaction_fee_balance = self
             .blockchain_interface
@@ -325,21 +313,6 @@ impl BlockchainBridge {
                     })
                 }),
         );
-
-        // let gas_balance = match self
-        //     .blockchain_interface
-        //     .get_transaction_fee_balance(consuming_wallet)  // Has become a future
-        // {
-        //     Ok(gas_balance) => gas_balance,
-        //     Err(e) => {
-        //         return Box::new(err(format!(
-        //             "Did not find out gas balance of the consuming wallet: {:?}",
-        //             e
-        //         )))
-        //     }
-        // };
-
-        // Ok(())
     }
 
     // Result<(), String>
@@ -379,17 +352,29 @@ impl BlockchainBridge {
         );
     }
 
-    fn handle_retrieve_transactions(&mut self, msg: RetrieveTransactions) -> Result<(), String> {
+    // Result<(), String>
+    fn handle_retrieve_transactions(
+        &mut self,
+        msg: RetrieveTransactions,
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let start_block = match self.persistent_config.start_block() {
             Ok (sb) => sb,
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
-        let retrieved_transactions = self
-            .blockchain_interface
-            .retrieve_transactions(start_block, &msg.recipient);
 
-        match retrieved_transactions {
-            Ok(transactions) => {
+        // let retrieved_transactions = self
+        //     .blockchain_interface
+        //     .retrieve_transactions(start_block, &msg.recipient);
+
+        Box::new(
+            self
+                .blockchain_interface
+                .retrieve_transactions(start_block, &msg.recipient).map_err(|e| {
+                format!(
+                    "Tried to retrieve received payments but failed: {:?}",
+                    e
+                )
+            }).and_then(|transactions| {
                 if let Err(e) = self
                     .persistent_config
                     .set_start_block(transactions.new_start_block)
@@ -409,12 +394,8 @@ impl BlockchainBridge {
                     })
                     .expect("Accountant is dead.");
                 Ok(())
-            }
-            Err(e) => Err(format!(
-                "Tried to retrieve received payments but failed: {:?}",
-                e
-            )),
-        }
+            })
+        )
     }
 
     fn handle_request_transaction_receipts(
@@ -532,9 +513,6 @@ impl BlockchainBridge {
         };
 
         let new_fingerprints_recipient = self.get_new_fingerprints_recipient().clone();
-
-        // self.chain
-
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
         let batch_web3 = self.blockchain_interface.get_batch_web3();
@@ -545,12 +523,6 @@ impl BlockchainBridge {
                 .get_transaction_count(consuming_wallet)
                 .map_err(|e| PayableTransactionError::TransactionCount(e))
                 .and_then(move |pending_nonce| {
-                    // let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
-
-                    // err(PayableTransactionError::GasPriceQueryFailed(
-                    //     "test Error".to_string(),
-                    // ))
-
                     send_payables_within_batch(
                         &logger,
                         chain,
@@ -561,16 +533,6 @@ impl BlockchainBridge {
                         new_fingerprints_recipient.clone(),
                         msg_clone.accounts,
                     )
-
-                    // TODO: GH-744: Fix this
-                    // self.blockchain_interface.send_payables_within_batch(
-                    //     // <<<---- ( START HERE )
-                    //     consuming_wallet,
-                    //     gas_price,
-                    //     pending_nonce,
-                    //     new_fingerprints_recipient,
-                    //     msg_clone.accounts,
-                    // )
                 }),
         );
     }

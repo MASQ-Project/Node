@@ -12,6 +12,7 @@ use crate::blockchain::blockchain_interface_utils::{
     sign_and_append_payment, sign_transaction,
 };
 use crate::sub_lib::wallet::Wallet;
+use actix::fut::result;
 use actix::{Message, Recipient};
 use futures::future::err;
 use futures::{future, Future};
@@ -181,17 +182,7 @@ pub trait BlockchainInterface<T: BatchTransport = Http> {
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
-
-    fn send_payables_within_batch(
-        // *
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
 
     fn get_transaction_fee_balance(
         &self,
@@ -240,21 +231,11 @@ impl BlockchainInterface<Http> for BlockchainInterfaceNull {
         &self,
         _start_block: u64,
         _recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.handle_uninitialized_interface("retrieve transactions")
-    }
-
-    fn send_payables_within_batch(
-        &self,
-        _consuming_wallet: &Wallet,
-        _gas_price: u64,
-        _last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        _accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         Box::new(err(self
-            .handle_uninitialized_interface::<PayableTransactionError, _>("pay payables")
+            .handle_uninitialized_interface::<RetrievedBlockchainTransactions, blockchain_interface::BlockchainError>(
+                "retrieve transactions",
+            )
             .unwrap_err()))
     }
 
@@ -357,11 +338,12 @@ where
         todo!("FIX ME GH-744")
     }
 
+    // Result<RetrievedBlockchainTransactions, BlockchainError>
     fn retrieve_transactions(
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         debug!(
             self.logger,
             "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
@@ -384,8 +366,9 @@ where
 
         let log_request = self.web3.eth().logs(filter);
         let logger = self.logger.clone();
-        log_request
-            .then(|logs| {
+
+        Box::new(
+            log_request.then(|logs| {
                 debug!(logger, "Transaction retrieval completed: {:?}", logs);
                 future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
                     Ok(logs) => {
@@ -437,73 +420,8 @@ where
                     }
                     Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
                 })
-            })
-            .wait()
-    }
-
-    fn send_payables_within_batch(
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
-        debug!(
-            self.logger,
-            "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-            consuming_wallet,
-            self.chain.rec().contract,
-            self.chain.rec().num_chain_id,
-            gas_price
-        );
-
-        let hashes_and_paid_amounts = match sign_and_append_multiple_payments(
-            &self.logger,
-            self.chain,
-            self.batch_web3.clone(),
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            &accounts,
-        ) {
-            Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
-            Err(e) => {
-                todo!("TODO: GH-744 sign_and_append_multiple_payments Error");
-            }
-        };
-        let timestamp = SystemTime::now();
-
-        let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-        let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-
-        new_fingerprints_recipient
-            .try_send(PendingPayableFingerprintSeeds {
-                batch_wide_timestamp: timestamp,
-                hashes_and_balances: hashes_and_paid_amounts,
-            })
-            .expect("Accountant is dead");
-
-        info!(
-            self.logger,
-            "{}",
-            self.transmission_log(&accounts, gas_price)
-        );
-
-        return Box::new(
-            self.batch_web3
-                .transport()
-                .submit_batch()
-                .map_err(|e| Self::error_with_hashes(e, hashes_and_paid_amounts_error))
-                .and_then(move |batch_response| {
-                    Ok(Self::merged_output_data(
-                        batch_response,
-                        hashes_and_paid_amounts_ok,
-                        accounts,
-                    ))
-                }),
-        );
+            }), // .wait()
+        )
     }
 
     fn get_transaction_fee_balance(
@@ -517,17 +435,6 @@ where
                 .map_err(|e| QueryFailed(e.to_string())),
         )
     }
-
-    // fn get_transaction_fee_balance(
-    //     &self,
-    //     wallet: &Wallet,
-    // ) -> CallFuture<U256, Http::Out> {
-    //     self.web3
-    //         .eth()
-    //         .balance(wallet.address(), None)
-    //     // .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-    //     // .wait()
-    // }
 
     fn get_token_balance(
         &self,
@@ -547,19 +454,6 @@ where
         // .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
         // .wait()
     }
-
-    // fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
-    //     self.contract
-    //         .query(
-    //             "balanceOf",
-    //             wallet.address(),
-    //             None,
-    //             Options::default(),
-    //             None,
-    //         )
-    //         .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-    //         .wait()
-    // }
 
     fn get_transaction_count(
         &self,
@@ -616,266 +510,6 @@ where
             batch_web3,
             contract,
         }
-    }
-
-    fn sign_and_append_multiple_payments(
-        // *
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
-        accounts: &[PayableAccount],
-    ) -> HashAndAmountResult {
-        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
-        let init: (HashAndAmountResult, Option<U256>) =
-            (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
-
-        let (result, _) = accounts.iter().fold(
-            init,
-            |(processed_outputs_res, pending_nonce_opt), account| {
-                if let Ok(hashes_and_amounts) = processed_outputs_res {
-                    handle_payable_account(
-                        &self.logger,
-                        self.chain,
-                        self.batch_web3.clone(),
-                        pending_nonce_opt,
-                        hashes_and_amounts,
-                        consuming_wallet,
-                        gas_price,
-                        account,
-                    )
-                } else {
-                    (processed_outputs_res, None)
-                }
-            },
-        );
-        result
-    }
-
-    fn handle_payable_account(
-        // *
-        &self,
-        pending_nonce_opt: Option<U256>,
-        hashes_and_amounts: Vec<(H256, u128)>,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        account: &PayableAccount,
-    ) -> (HashAndAmountResult, Option<U256>) {
-        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
-        let nonce = pending_nonce_opt.expectv("pending nonce");
-        let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
-            &self.logger,
-            self.chain.clone(),
-            self.batch_web3.clone(),
-            hashes_and_amounts,
-            consuming_wallet.clone(),
-            nonce,
-            gas_price,
-            account,
-        );
-        let advanced_nonce = Self::advance_used_nonce(nonce);
-        (
-            updated_collected_attributes_of_processed_payments,
-            Some(advanced_nonce),
-        )
-    }
-
-    fn sign_and_append_payment(
-        // *
-        &self,
-        mut hashes_and_amounts: Vec<(H256, u128)>,
-        consuming_wallet: &Wallet,
-        nonce: U256,
-        gas_price: u64,
-        account: &PayableAccount,
-    ) -> HashAndAmountResult {
-        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
-        debug!(
-            self.logger,
-            "Preparing payment of {} wei to {} with nonce {}",
-            account.balance_wei.separate_with_commas(),
-            account.wallet,
-            nonce
-        );
-
-        match handle_new_transaction(
-            self.chain,
-            self.batch_web3.clone(),
-            account.wallet.clone(),
-            consuming_wallet.clone(),
-            account.balance_wei,
-            nonce,
-            gas_price,
-        ) {
-            Ok(new_hash) => {
-                hashes_and_amounts.push((new_hash, account.balance_wei));
-                Ok(hashes_and_amounts)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    fn advance_used_nonce(current_nonce: U256) -> U256 {
-        todo!("This function has been moved to blockchain_interface_utils");
-        current_nonce
-            .checked_add(U256::one())
-            .expect("unexpected limits")
-    }
-
-    fn merged_output_data(
-        responses: Vec<web3::transports::Result<Value>>,
-        hashes_and_paid_amounts: Vec<(H256, u128)>,
-        accounts: Vec<PayableAccount>,
-    ) -> Vec<ProcessedPayableFallible> {
-        todo!("This function has been moved to blockchain_interface_utils");
-        let iterator_with_all_data = responses
-            .into_iter()
-            .zip(hashes_and_paid_amounts.into_iter())
-            .zip(accounts.iter());
-        iterator_with_all_data
-            .map(|((rpc_result, (hash, _)), account)| match rpc_result {
-                Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
-                    recipient_wallet: account.wallet.clone(),
-                    hash,
-                }),
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
-                    rpc_error,
-                    recipient_wallet: account.wallet.clone(),
-                    hash,
-                }),
-            })
-            .collect()
-    }
-
-    fn error_with_hashes(
-        error: Web3Error,
-        hashes_and_paid_amounts: Vec<(H256, u128)>,
-    ) -> PayableTransactionError {
-        todo!("error_with_hashes - This function has moved, Ignore test relating to this for now");
-        let hashes = hashes_and_paid_amounts
-            .into_iter()
-            .map(|(hash, _)| hash)
-            .collect();
-        PayableTransactionError::Sending {
-            msg: error.to_string(),
-            hashes,
-        }
-    }
-
-    fn handle_new_transaction<'a>(
-        // *
-        &self,
-        recipient: &'a Wallet,
-        consuming_wallet: &'a Wallet,
-        amount: u128,
-        nonce: U256,
-        gas_price: u64,
-    ) -> Result<H256, PayableTransactionError> {
-        todo!("handle_new_transaction - This function has moved, Ignore test relating to this for now");
-        let signed_tx = sign_transaction(
-            self.chain,
-            self.batch_web3.clone(),
-            recipient.clone(),
-            consuming_wallet.clone(),
-            amount,
-            nonce,
-            gas_price,
-        )?;
-
-        // self.batch_payable_tools
-        //     .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
-        self.batch_web3
-            .eth()
-            .send_raw_transaction(signed_tx.raw_transaction);
-        Ok(signed_tx.transaction_hash)
-    }
-
-    fn sign_transaction<'a>(
-        // *
-        &self,
-        recipient: &'a Wallet,
-        consuming_wallet: &'a Wallet,
-        amount: u128,
-        nonce: U256,
-        gas_price: u64,
-    ) -> Result<SignedTransaction, PayableTransactionError> {
-        todo!("sign_transaction - This function has moved, Ignore test relating to this for now");
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        U256::try_from(amount)
-            .expect("shouldn't overflow")
-            .to_big_endian(&mut data[36..68]);
-        let base_gas_limit = Self::base_gas_limit(self.chain);
-        let gas_limit =
-            ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
-                acc + if v == &0u8 { 4 } else { 68 }
-            }))
-            .expect("Internal error");
-        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(nonce).expect("Internal error"),
-        )
-        .expect("Internal error");
-        let gas_price = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-        )
-        .expect("Internal error");
-
-        let transaction_parameters = TransactionParameters {
-            nonce: Some(converted_nonce),
-            to: Some(H160(self.contract_address().0)),
-            gas: gas_limit,
-            gas_price: Some(gas_price),
-            value: ethereum_types::U256::zero(),
-            data: Bytes(data.to_vec()),
-            chain_id: Some(self.chain.rec().num_chain_id),
-        };
-
-        let key = match consuming_wallet.prepare_secp256k1_secret() {
-            Ok(secret) => secret,
-            Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
-        };
-
-        self.batch_web3
-            .accounts()
-            .sign_transaction(transaction_parameters, &key)
-            .wait() // TODO: GH-744 Remove this wait.
-            .map_err(|e| PayableTransactionError::Signing(e.to_string()))
-
-        // self.batch_payable_tools
-        //     .sign_transaction(transaction_parameters, &self.batch_web3, &key)
-        //     .map_err(|e| PayableTransactionError::Signing(e.to_string()))
-    }
-
-    fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
-        todo!("This function has moved");
-        let chain_name = self
-            .chain
-            .rec()
-            .literal_identifier
-            .chars()
-            .skip_while(|char| char != &'-')
-            .skip(1)
-            .collect::<String>();
-        let introduction = once(format!(
-            "\
-        Paying to creditors...\n\
-        Transactions in the batch:\n\
-        \n\
-        gas price:                                   {} gwei\n\
-        chain:                                       {}\n\
-        \n\
-        [wallet address]                             [payment in wei]\n",
-            gas_price, chain_name
-        ));
-        let body = accounts.iter().map(|account| {
-            format!(
-                "{}   {}\n",
-                account.wallet,
-                account.balance_wei.separate_with_commas()
-            )
-        });
-        introduction.chain(body).collect()
     }
 
     fn base_gas_limit(chain: Chain) -> u64 {
@@ -1059,6 +693,7 @@ mod tests {
                 42,
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
+            .wait()
             .unwrap();
 
         let requests = test_server.requests_so_far();
@@ -1136,6 +771,7 @@ mod tests {
                 42,
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
+            .wait()
             .unwrap();
 
         let requests = test_server.requests_so_far();
@@ -1183,7 +819,8 @@ mod tests {
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
         let result = subject
-            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
+            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"))
+            .wait();
 
         assert_eq!(
             result.expect_err("Expected an Err, got Ok"),
@@ -1206,10 +843,12 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = subject.retrieve_transactions(
-            42,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .retrieve_transactions(
+                42,
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .wait();
 
         assert_eq!(
             result.expect_err("Expected an Err, got Ok"),
@@ -1234,10 +873,12 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = subject.retrieve_transactions(
-            42,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .retrieve_transactions(
+                42,
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .wait();
 
         assert_eq!(result, Err(BlockchainError::InvalidResponse));
     }
@@ -1259,10 +900,12 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = subject.retrieve_transactions(
-            42,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        let result = subject
+            .retrieve_transactions(
+                42,
+                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+            )
+            .wait();
 
         assert_eq!(
             result,

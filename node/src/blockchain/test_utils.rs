@@ -101,37 +101,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         start_block: u64,
         recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         self.retrieve_transactions_parameters
             .lock()
             .unwrap()
             .push((start_block, recipient.clone()));
-        self.retrieve_transactions_results.borrow_mut().remove(0)
-    }
-
-    fn send_payables_within_batch(
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        last_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
-        self.send_payables_within_batch_params
-            .lock()
-            .unwrap()
-            .push((
-                consuming_wallet.clone(),
-                gas_price,
-                last_nonce,
-                new_fingerprints_recipient.clone(),
-                accounts.to_vec(),
-            ));
         Box::new(result(
-            self.send_payables_within_batch_results
-                .borrow_mut()
-                .remove(0),
+            self.retrieve_transactions_results.borrow_mut().remove(0),
         ))
     }
 

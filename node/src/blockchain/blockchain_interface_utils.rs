@@ -282,8 +282,6 @@ pub fn sign_and_append_multiple_payments<T: BatchTransport>(
     );
     result
 }
-
-// pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 pub fn send_payables_within_batch<T: BatchTransport + 'static>(
     logger: &Logger,
     chain: Chain,
