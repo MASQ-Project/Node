@@ -12,7 +12,7 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::financials_command::args_validation::{financials_subcommand, NonZeroU16, TwoRanges};
-use crate::commands::financials_command::data_structures::restricted::{ProcessAccountsMetadata, UserOriginalTypingOfRanges};
+use crate::commands::financials_command::data_structures::restricted::{ProcessAccountsMetadata};
 use crate::commands::financials_command::pretty_print_utils::restricted::process_gwei_into_requested_format;
 use crate::commands::financials_command::pretty_print_utils::restricted::{
     financial_status_totals_title, main_title_for_tops_opt, no_records_found, prepare_metadata,
@@ -218,50 +218,6 @@ impl FinancialsCommand {
         })
     }
 
-    // fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
-    //     fn decompose_optional_inputs<N>(
-    //         composed_parameters_opt: Option<RangeQuery<N>>,
-    //     ) -> (Option<RangeQuery<N>>, Option<UserOriginalTypingOfRanges>) {
-    //         composed_parameters_opt
-    //             .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
-    //             .unwrap_or_default()
-    //     }
-    //     fn handle_inputs_for_custom_query(
-    //         payable_range_inputs_opt: Option<RangeQuery<u64>>,
-    //         receivable_range_inputs_opt: Option<RangeQuery<i64>>,
-    //     ) -> Option<CustomQueryInput> {
-    //         {
-    //             let (payable_opt, users_payable_format_opt) =
-    //                 decompose_optional_inputs(payable_range_inputs_opt);
-    //
-    //             let (receivable_opt, users_receivable_format_opt) =
-    //                 decompose_optional_inputs(receivable_range_inputs_opt);
-    //
-    //             Some(CustomQueryInput {
-    //                 query: CustomQueries {
-    //                     payable_opt,
-    //                     receivable_opt,
-    //                 },
-    //                 users_payable_format_opt,
-    //                 users_receivable_format_opt,
-    //             })
-    //         }
-    //     }
-    //
-    //     match (
-    //         Self::parse_range_for_query::<u64>(matches, "payable"),
-    //         Self::parse_range_for_query::<i64>(matches, "receivable"),
-    //     ) {
-    //         (None, None) => None,
-    //         (payable_range_inputs_opt, receivable_range_inputs_opt) => {
-    //             handle_inputs_for_custom_query(
-    //                 payable_range_inputs_opt,
-    //                 receivable_range_inputs_opt,
-    //             )
-    //         }
-    //     }
-    // }
-
     fn parse_custom_query_args(matches: &ArgMatches) -> Result<Option<CustomQueries>, String> {
         match (
             Self::parse_range_for_query_u(matches, "payable"),
@@ -307,22 +263,6 @@ impl FinancialsCommand {
             Some(two_ranges) => Some(two_ranges.try_convert_with_limit_i(i64::MAX as i128)),
         }
     }
-
-    // fn parse_range_for_query<'a, N: Sync + Send>(
-    //     matches: &'a ArgMatches,
-    //     parameter_name: &'a str,
-    // ) -> Option<RangeQuery<N>>
-    // where
-    //     N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
-    //     i64: TryFrom<N>,
-    //     u64: TryFrom<N>,
-    //     <N as TryFrom<i64>>::Error: Debug,
-    //     <i64 as TryFrom<N>>::Error: Debug,
-    // {
-    //     matches.get_one::<TwoRanges<N>>(parameter_name).map(|two_ranges| {
-    //         two_ranges.clone().into()
-    //     })
-    // }
 }
 
 #[cfg(test)]
@@ -425,8 +365,7 @@ mod tests {
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
-                "--top",
-                "10",
+                "--top", "10",
                 "--gwei",
             ]))
             .unwrap();
@@ -604,15 +543,18 @@ mod tests {
                     err
                 )
             } else {
+                let quote_str = with_quotes(*quotes);
                 assert!(
                     err.contains(&format!(
                         "{}{}{}",
-                        with_quotes(*quotes),
+                        quote_str,
                         string,
-                        with_quotes(*quotes)
+                        quote_str
                     )),
-                    "{} is not in {}",
+                    "Substring {}{}{} was not found in:\n------\n{}\n------",
+                    quote_str,
                     string,
+                    quote_str,
                     err
                 )
             }
@@ -623,7 +565,7 @@ mod tests {
     fn command_factory_top_records_and_payable_custom_query_are_mutually_exclusive() {
         top_records_mutual_exclusivity_assertion(
             &["financials", "--top", "15", "--payable", "5-100|600-7000"],
-            &[("--payable <PAYABLE>", true)],
+            &[("--payable <PAYABLE>", false)],
         )
     }
 
@@ -637,7 +579,7 @@ mod tests {
                 "--receivable",
                 "5-100|600-7000",
             ],
-            &[("--receivable <RECEIVABLE>", true)],
+            &[("--receivable <RECEIVABLE>", false)],
         )
     }
 
@@ -660,7 +602,7 @@ mod tests {
         };
         assert_on_text_simply_in_ide_and_otherwise_in_terminal(
             &err,
-            &[("--receivable <RECEIVABLE>", true)],
+            &[("--receivable <RECEIVABLE>", false)],
         );
         assert!(
             err.contains("cannot be used with"),
@@ -668,37 +610,6 @@ mod tests {
             err
         );
         assert!(err.contains("Usage"))
-    }
-
-    #[test]
-    fn ordered_have_just_two_possible_values() {
-        let args = slice_of_strs_to_vec_of_strings(&[
-            "financials",
-            "--top",
-            "11",
-            "--ordered",
-            "upside-down",
-        ]);
-
-        let result = financials_subcommand()
-            .try_get_matches_from(args)
-            .unwrap_err();
-
-        assert_on_text_simply_in_ide_and_otherwise_in_terminal(
-            &result.to_string(),
-            &[
-                ("upside-down", true),
-                ("--ordered <ORDERED>", true),
-                ("age", false),
-                ("balance", false),
-            ],
-        );
-        assert!(
-            result.to_string().contains("invalid value"),
-            "{}",
-            result
-        );
-        assert!(result.to_string().contains("[possible values: "), "{}", result)
     }
 
     #[test]

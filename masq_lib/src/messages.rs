@@ -606,11 +606,11 @@ pub enum TopRecordsOrdering {
     Balance,
 }
 
-impl TryFrom<&str> for TopRecordsOrdering {
-    type Error = String;
+impl FromStr for TopRecordsOrdering {
+    type Err = String;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Ok(match value {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "balance" => Self::Balance,
             "age" => Self::Age,
             x => return Err(format!("Unrecognized ordering: '{}'", x)),

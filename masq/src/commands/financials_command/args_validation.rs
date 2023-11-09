@@ -1,18 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::VecDeque;
 use clap::{Command as ClapCommand, Arg, ArgGroup, value_parser};
 use std::fmt::{Debug};
 use std::io::Write;
 use std::str::FromStr;
-use clap::builder::{ArgPredicate, PossibleValuesParser, ValueRange};
+use clap::builder::{ArgPredicate, ValueRange};
 use num::ToPrimitive;
 use regex::{Captures, Regex};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
-use masq_lib::messages::{CustomQueries, RangeQuery};
+use masq_lib::messages::{RangeQuery, TopRecordsOrdering};
 use masq_lib::short_writeln;
-use crate::commands::financials_command::data_structures::restricted::UserOriginalTypingOfRanges;
-use masq_lib::utils::ExpectValue;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
@@ -93,7 +90,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .short('o')
                 .ignore_case(false)
                 .default_value_if("top", ArgPredicate::IsPresent, "balance")
-                .value_parser(PossibleValuesParser::new(&["balance", "age"]))
+                .value_parser(value_parser!(TopRecordsOrdering))
                 .required(false),
         )
         .groups(&[
@@ -108,8 +105,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .multiple(true),
             ArgGroup::new("top-records-conflicts")
                 .args(&["top"])
-                .conflicts_with("custom-queries")
-                .requires("ordered"),
+                .conflicts_with("custom-queries"),
             ArgGroup::new("ordered-conflicts")
                 .arg("ordered")
                 .conflicts_with("custom-queries"),
@@ -366,63 +362,6 @@ impl TwoRanges {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
-    fn collect_captured_parts_of_a_number(captures: Captures) -> [Option<String>; 3] {
-        let fetch_group = |idx: usize| -> Option<String> { Self::single_capture(&captures, idx) };
-        [fetch_group(1), fetch_group(2), fetch_group(3)]
-    }
-
-    fn neaten_users_writing_if_possible(
-        user_ranges: &UserOriginalTypingOfRanges,
-    ) -> (String, String) {
-        fn assemble_string_segments_into_single_number(strings: [Option<String>; 3]) -> String {
-            strings.into_iter().flatten().collect()
-        }
-        fn assemble_age_and_balance_string_ranges(
-            mut numbers: VecDeque<String>,
-        ) -> (String, String) {
-            if numbers.get(3).expectv("fourth element").is_empty() {
-                //meaning the 4th limit deliberately omitted by the user
-                numbers[3] = "UNLIMITED".to_string()
-            };
-            let mut pop = || numbers.pop_front();
-            (
-                format!("{}-{}", pop().expectv("age min"), pop().expectv("age max")),
-                format!(
-                    "{}-{}",
-                    pop().expectv("balance min"),
-                    pop().expectv("balance max")
-                ),
-            )
-        }
-
-        //the 4th capture group is inactivated by ?:
-        let simplifying_extractor =
-            Regex::new(r#"^(-?)0*(\d+)(?:(\.\d*[1-9])0*$|\.0|$)"#).expect("wrong regex");
-        let apply_care = |cached_user_input: &str| -> [Option<String>; 3] {
-            simplifying_extractor
-                .captures(cached_user_input)
-                .map(Self::collect_captured_parts_of_a_number)
-                .unwrap_or_else(
-                    || panic!("Broken code: value must have been present during a check but yet wrong: {}", cached_user_input)
-                )
-        };
-        let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
-        let vec_of_possibly_corrected_values = [
-            apply_care(time_min),
-            apply_care(time_max),
-            apply_care(amount_min),
-            if amount_max.is_empty() {
-                Default::default()
-            } else {
-                apply_care(amount_max)
-            },
-        ]
-            .into_iter()
-            .map(assemble_string_segments_into_single_number)
-            .collect::<VecDeque<String>>();
-        assemble_age_and_balance_string_ranges(vec_of_possibly_corrected_values)
-    }
-
     pub fn title_for_custom_query<R>(
         stdout: &mut dyn Write,
         table_type: &str,
@@ -452,53 +391,8 @@ impl TwoRanges {
     }
 }
 
-// fn validate_two_ranges<N>(two_ranges: String) -> Result<(), String>
-// where
-//     N: FromStr<Err = ParseIntError>
-//         + TryFrom<i64>
-//         + TryFrom<u64>
-//         + CheckedMul
-//         + Display
-//         + Copy
-//         + PartialOrd,
-//     i64: TryFrom<N>,
-//     u64: TryFrom<N>,
-//     <N as TryFrom<i64>>::Error: Debug,
-//     <i64 as TryFrom<N>>::Error: Debug,
-// {
-//     fn checked_split<'a>(
-//         str: &'a str,
-//         delim: char,
-//         err_msg_formatter: fn(&'a str) -> String,
-//     ) -> Result<(&'a str, &'a str), String> {
-//         let split_elems = str.split(delim).collect::<Vec<&str>>();
-//         if split_elems.len() != 2 {
-//             return Err(err_msg_formatter(str));
-//         }
-//         Ok((split_elems[0], split_elems[1]))
-//     }
-//     let (aga_range, balance_range) = checked_split(&two_ranges, '|', |wrong_input| {
-//         format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
-//     })?;
-//     let (min_age_str, max_age_str) = checked_split(aga_range, '-', |wrong_input| {
-//         format!("Age range '{}' is formatted wrong", wrong_input)
-//     })?;
-//     let (min_age, max_age) = parse_time_params(min_age_str, max_age_str)?;
-//     let (min_amount, max_amount, _, _): (N, N, _, _) = parse_masq_range_to_gwei(balance_range)?;
-//     //Reasons why only a range input is allowed:
-//     //There is no use trying to check an exact age because of its all time moving nature.
-//     //The backend engine does the search always with a wei precision while at this end you cannot
-//     //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
-//     if min_age >= max_age || min_amount >= max_amount {
-//         Err(format!("Both ranges '{}' must be low to high", two_ranges))
-//     } else {
-//         Ok(())
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
-    use crate::commands::financials_command::test_utils::transpose_inputs_to_nested_tuples;
     use super::*;
 
     #[test]
@@ -700,91 +594,6 @@ mod tests {
             result,
             Err(format!("Amount bigger than the MASQ total supply: {}, total supply: {}", too_much, MASQ_TOTAL_SUPPLY))
         )
-    }
-
-    #[test]
-    fn neaten_users_writing_handles_leading_and_tailing_zeros() {
-        let result = TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "00045656",
-            "0354865.1500000",
-            "000124856",
-            "01561785.3300",
-        ]));
-
-        assert_eq!(
-            result,
-            (
-                "45656-354865.15".to_string(),
-                "124856-1561785.33".to_string()
-            )
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_handles_plain_zero_after_the_dot() {
-        let result = TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "45656.0",
-            "354865.0",
-            "124856.0",
-            "1561785.0",
-        ]));
-
-        assert_eq!(
-            result,
-            ("45656-354865".to_string(), "124856-1561785".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_returns_same_thing_if_no_change_needed() {
-        let result = TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "456500", "35481533", "-500", "0.4545",
-        ]));
-
-        assert_eq!(
-            result,
-            ("456500-35481533".to_string(), "-500-0.4545".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_returns_well_formatted_range_for_negative_values() {
-        let result = TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "456500", "35481533", "-500", "-45",
-        ]));
-
-        assert_eq!(
-            result,
-            ("456500-35481533".to_string(), "-500--45".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_treats_zero_followed_decimal_numbers_gently() {
-        let result = TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "0.45545000",
-            "000.333300",
-            "000.00010000",
-            "565.454500",
-        ]));
-
-        assert_eq!(
-            result,
-            ("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string())
-        )
-    }
-
-    #[test]
-    #[should_panic(
-    expected = "Broken code: value must have been present during a check but yet wrong: 0.4554booooga45"
-    )]
-    fn neaten_users_writing_complains_about_leaked_string_with_bad_syntax() {
-        TwoRanges::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "0.4554booooga45",
-            "333300",
-            "0.0001",
-            "565",
-        ]));
     }
 
     #[test]

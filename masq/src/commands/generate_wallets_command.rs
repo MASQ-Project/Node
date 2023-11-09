@@ -67,26 +67,7 @@ const PASSPHRASE_ARG_HELP: &str =
              process should require at the end of the mnemonic phrase, if you're supplying a \
              derivation path.";
 
-const WORD_COUNT_ARG_POSSIBLE_VALUES: [WordCount; 5] = [
-    WordCount::Twelve,
-    WordCount::Fifteen,
-    WordCount::Eighteen,
-    WordCount::TwentyOne,
-    WordCount::TwentyFour,
-];
-
 const WORD_COUNT_ARG_DEFAULT_VALUE: WordCount = WordCount::Twelve;
-
-const LANGUAGE_ARG_POSSIBLE_VALUES: [Language; 8] = [
-    Language::English,
-    Language::Chinese,
-    Language::TraditionalChinese,
-    Language::French,
-    Language::Italian,
-    Language::Japanese,
-    Language::Korean,
-    Language::Spanish,
-];
 
 const LANGUAGE_ARG_DEFAULT_VALUE: Language = Language::English;
 
@@ -362,6 +343,25 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
 
+    const WORD_COUNT_ARG_POSSIBLE_VALUES: [WordCount; 5] = [
+        WordCount::Twelve,
+        WordCount::Fifteen,
+        WordCount::Eighteen,
+        WordCount::TwentyOne,
+        WordCount::TwentyFour,
+    ];
+
+    const LANGUAGE_ARG_POSSIBLE_VALUES: [Language; 8] = [
+        Language::English,
+        Language::Chinese,
+        Language::TraditionalChinese,
+        Language::French,
+        Language::Italian,
+        Language::Japanese,
+        Language::Korean,
+        Language::Spanish,
+    ];
+
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(
@@ -409,24 +409,6 @@ mod tests {
             "An optional additional word (it can be any word) that the wallet-recovery \
              process should require at the end of the mnemonic phrase, if you're supplying a \
              derivation path."
-        );
-
-        assert_eq!(
-            WORD_COUNT_ARG_POSSIBLE_VALUES,
-            [WordCount::Twelve, WordCount::Fifteen, WordCount::Eighteen, WordCount::TwentyOne, WordCount::TwentyFour]
-        );
-        assert_eq!(
-            LANGUAGE_ARG_POSSIBLE_VALUES,
-            [
-                Language::English,
-                Language::Chinese,
-                Language::TraditionalChinese,
-                Language::French,
-                Language::Italian,
-                Language::Japanese,
-                Language::Korean,
-                Language::Spanish,
-            ]
         );
         assert_eq!(WORD_COUNT_ARG_DEFAULT_VALUE, WordCount::Twelve);
         assert_eq!(LANGUAGE_ARG_DEFAULT_VALUE, Language::English);
