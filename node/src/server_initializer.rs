@@ -18,7 +18,6 @@ use log::{log, Level};
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
 use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
-use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::io;
@@ -112,30 +111,6 @@ impl ResultsCombiner for RunModeResult {
                     .chain(e2.param_errors.into_iter())
                     .collect(),
             )),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct GatheredParams<'a> {
-    pub multi_config: MultiConfig<'a>,
-    pub config_file_path: PathBuf,
-    pub real_user: RealUser,
-    pub data_directory: PathBuf,
-}
-
-impl<'a> GatheredParams<'a> {
-    pub fn new(
-        multi_config: MultiConfig<'a>,
-        config_file_path: PathBuf,
-        real_user: RealUser,
-        data_directory: PathBuf,
-    ) -> Self {
-        Self {
-            multi_config,
-            config_file_path,
-            real_user,
-            data_directory,
         }
     }
 }

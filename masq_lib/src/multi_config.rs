@@ -155,10 +155,7 @@ impl<'a> MultiConfig<'a> {
     }
 
     pub fn is_user_specified(&self, value_name: &str) -> bool {
-        match self.computed_value_names.contains(value_name) {
-            true => false,
-            false => true,
-        }
+        !self.computed_value_names.contains(value_name)
     }
 
     pub fn occurrences_of(&self, parameter: &str) -> u64 {
