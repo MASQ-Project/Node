@@ -5,8 +5,10 @@ use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_bridge::{
+    PendingPayableFingerprintSeeds, UpdateStartBlockMessage,
+};
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
@@ -142,6 +144,7 @@ recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
+recorder_message_handler!(UpdateStartBlockMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where
@@ -434,6 +437,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
+        update_start_block_sub: recipient!(addr, UpdateStartBlockMessage),
     }
 }
 

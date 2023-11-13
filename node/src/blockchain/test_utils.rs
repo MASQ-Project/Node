@@ -82,6 +82,8 @@ pub struct BlockchainInterfaceMock {
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+    get_chain_results: RefCell<Vec<Chain>>,
+    get_batch_web3_results: RefCell<Vec<Web3<Batch<TestTransport>>>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -90,11 +92,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn get_chain(&self) -> Chain {
-        todo!("Fix me GH-744");
+        self.get_chain_results.borrow_mut().remove(0)
     }
 
-    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
-        todo!("Fix me GH-744");
+    fn get_batch_web3(&self) -> Web3<Batch<TestTransport>> {
+        self.get_batch_web3_results.borrow_mut().remove(0)
     }
 
     fn retrieve_transactions(
@@ -205,6 +207,16 @@ impl BlockchainInterfaceMock {
 
     pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_transaction_fee_balance_params = params.clone();
+        self
+    }
+
+    pub fn get_chain_result(self, result: Chain) -> Self {
+        self.get_chain_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_batch_web3_result(self, result: Web3<Batch<TestTransport>>) -> Self {
+        self.get_batch_web3_results.borrow_mut().push(result);
         self
     }
 

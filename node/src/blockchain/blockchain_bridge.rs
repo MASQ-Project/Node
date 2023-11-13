@@ -37,6 +37,7 @@ use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
 use std::time::SystemTime;
+use web3::transports::Batch;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
@@ -52,6 +53,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
     balances_and_payables_sub_opt: Option<Recipient<ConsumingWalletBalancesAndQualifiedPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
+    update_start_block_subs_opt: Option<Recipient<UpdateStartBlockMessage>>,
     crashable: bool,
     pending_payable_confirmation: TransactionConfirmationTools,
 }
@@ -83,6 +85,8 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
+        self.update_start_block_subs_opt =
+            Some(msg.peer_actors.blockchain_bridge.update_start_block_sub);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
                 self.logger,
@@ -189,11 +193,9 @@ impl Handler<UpdateStartBlockMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateStartBlockMessage, ctx: &mut Self::Context) -> Self::Result {
-        eprintln!("msg: {:?}", msg);
-
-        self.persistent_config.set_start_block(msg.start_block);
-
-        // todo!("Testing UpdateStartBlockMessage ")
+        self.persistent_config
+            .set_start_block(msg.start_block)
+            .expect("Database is corrupt");
     }
 }
 
@@ -232,6 +234,7 @@ impl BlockchainBridge {
             balances_and_payables_sub_opt: None,
             received_payments_subs_opt: None,
             scan_error_subs_opt: None,
+            update_start_block_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
             pending_payable_confirmation: TransactionConfirmationTools {
@@ -283,6 +286,7 @@ impl BlockchainBridge {
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
+            update_start_block_sub: recipient!(addr, UpdateStartBlockMessage),
         }
     }
 
@@ -408,6 +412,8 @@ impl BlockchainBridge {
                 .retrieve_transactions(start_block, &msg.recipient)
                 .map_err(|e| format!("Tried to retrieve received payments but failed: {:?}", e))
                 .and_then(move |transactions| {
+                    todo!("Finding Tests");
+
                     // --- ---
                     // if let Err(e) = self
                     //     .persistent_config
@@ -597,7 +603,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock, TestTransport};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
@@ -625,6 +631,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
+    use web3::Web3;
 
     #[test]
     fn update_start_block_message_works() {
@@ -1167,19 +1174,31 @@ mod tests {
 
     #[test]
     fn report_accounts_payable_returns_error_fetching_pending_nonce() {
+        let transport = TestTransport::default();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_chain_result(DEFAULT_CHAIN)
+            .get_batch_web3_result(Web3::new(Batch::new(transport)))
             .get_transaction_count_result(Err(BlockchainError::QueryFailed(
                 "What the hack...??".to_string(),
             )));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
-        let subject = BlockchainBridge::new(
+        let (accountant, _, _) = make_recorder();
+        let accountant_addr = accountant.start();
+        let received_payments_subs: Recipient<ReceivedPayments> =
+            accountant_addr.clone().recipient();
+        let fingerprint_recipient = accountant_addr.recipient();
+        let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
             Some(consuming_wallet),
         );
+        subject.received_payments_subs_opt = Some(received_payments_subs);
+        subject
+            .pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
@@ -1380,10 +1399,11 @@ mod tests {
     fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant
+        let accountant_addr = accountant
             .system_stop_conditions(match_every_type_id!(ScanError))
-            .start()
-            .recipient();
+            .start();
+        let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
+        let received_payments_subs: Recipient<ReceivedPayments> = accountant_addr.recipient();
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
             Err(BlockchainError::QueryFailed("we have no luck".to_string())),
         );
@@ -1395,6 +1415,7 @@ mod tests {
             None,
         );
         subject.scan_error_subs_opt = Some(scan_error_recipient);
+        subject.received_payments_subs_opt = Some(received_payments_subs);
         let msg = RetrieveTransactions {
             recipient: make_wallet("blah"),
             response_skeleton_opt: None,
@@ -1811,6 +1832,7 @@ mod tests {
         expected = "Cannot set start block in database; payments to you may not be processed: TransactionError"
     )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
+        todo!("Replace me with an expect in the handler of Update_start_block_message");
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError));
@@ -1824,18 +1846,23 @@ mod tests {
                 }],
             }),
         );
+        let (accountant, _, _) = make_recorder();
+        let received_payments_subs: Recipient<ReceivedPayments> = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
         );
+        subject.received_payments_subs_opt = Some(received_payments_subs);
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
             response_skeleton_opt: None,
         };
 
-        let _ = subject.handle_retrieve_transactions(retrieve_transactions);
+        let _ = subject
+            .handle_retrieve_transactions(retrieve_transactions)
+            .wait();
     }
 
     fn success_handler(
