@@ -1284,17 +1284,20 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
+        let expected_balance_1 = 3_900_336_673_839_282_582;
+        let expected_balance_2 = 5_817_708_802_473_506_572;
+        let expected_balance_3 = 5_393_065_634_131_655_290;
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
-                balance_wei: 3_929_064_899_188_044_996,
+                balance_wei: expected_balance_1,
                 ..account_1
             };
             let account_2_adjusted = PayableAccount {
-                balance_wei: 5_915_861_818_146_926_543,
+                balance_wei: expected_balance_2,
                 ..account_2
             };
             let account_3_adjusted = PayableAccount {
-                balance_wei: 5_266_184_393_109_472_905,
+                balance_wei: expected_balance_3,
                 ..account_3
             };
             vec![account_2_adjusted, account_3_adjusted, account_1_adjusted]
@@ -1313,11 +1316,11 @@ mod tests {
 |                                           Adjusted
 |
 |0x0000000000000000000000000000000000646566 6000000000000000000
-|                                           5915861818146926543
+|                                           {expected_balance_2}
 |0x0000000000000000000000000000000000676869 6666666666000000000
-|                                           5266184393109472905
+|                                           {expected_balance_3}
 |0x0000000000000000000000000000000000616263 4444444444444444444
-|                                           3929064899188044996"
+|                                           {expected_balance_1}"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
         render_formulas_characteristics_for_diagnostics_if_enabled();

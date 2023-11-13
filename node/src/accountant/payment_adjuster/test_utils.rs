@@ -64,9 +64,16 @@ pub fn make_extreme_accounts(
 }
 
 pub fn reinterpret_vec_of_values_on_x_axis<const L1: usize, const L2: usize>(
-    literal_feed: [u128; L1], exponent_determined_feed: [u32;L2]
+    literal_feed: [u128; L1],
+    exponent_determined_feed: [u32; L2],
 ) -> Vec<u128> {
-    let exponent_based_numbers = exponent_determined_feed.into_iter().map(|exponent|10_u128.pow(exponent));
-    literal_feed.into_iter().chain(exponent_based_numbers).sorted().collect()
+    let exponent_based_numbers = exponent_determined_feed
+        .into_iter()
+        .map(|exponent| 10_u128.pow(exponent));
+    literal_feed
+        .into_iter()
+        .chain(exponent_based_numbers)
+        .sorted()
+        .collect()
 }
 pub type Sentinel = Empty<(u128, PayableAccount)>;

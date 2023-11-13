@@ -11,7 +11,7 @@ use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
 test_only_use!(
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-        compute_progressive_characteristics, DiagnosticsConfig,
+        compute_progressive_characteristics, DiagnosticsAxisX,
         COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
     };
     use std::sync::Mutex;
@@ -52,9 +52,9 @@ pub trait CriterionCalculator:
     }
 
     #[cfg(test)]
-    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>>;
+    fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsAxisX<Self::Input>>>;
     #[cfg(test)]
-    fn diagnostics_config_opt(&self) -> Option<DiagnosticsConfig<Self::Input>> {
+    fn diagnostics_config_opt(&self) -> Option<DiagnosticsAxisX<Self::Input>> {
         self.diagnostics_config_location()
             .lock()
             .expect("diagnostics poisoned")
@@ -135,9 +135,7 @@ macro_rules! standard_impls_for_calculator {
             }
 
             #[cfg(test)]
-            fn diagnostics_config_location(
-                &self,
-            ) -> &Mutex<Option<DiagnosticsConfig<Self::Input>>> {
+            fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsAxisX<Self::Input>>> {
                 &$diagnostics_config_opt
             }
         }

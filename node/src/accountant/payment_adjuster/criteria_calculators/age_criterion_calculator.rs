@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::standard_impls_for_calculator;
 use std::time::SystemTime;
 test_only_use!(
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
         use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::characteristics_config::AGE_DIAGNOSTICS_CONFIG_OPT;
     use std::sync::Mutex;
 );
@@ -124,7 +124,7 @@ impl From<&PayableAccount> for AgeInput {
 #[cfg(test)]
 pub mod characteristics_config {
     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
     use crate::accountant::payment_adjuster::test_utils::reinterpret_vec_of_values_on_x_axis;
     use lazy_static::lazy_static;
     use std::sync::Mutex;
@@ -132,14 +132,42 @@ pub mod characteristics_config {
     use std::time::SystemTime;
 
     lazy_static! {
-        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<AgeInput>>> = {
+        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<AgeInput>>> = {
             let now = SystemTime::now();
-            let literal_nums = [1,5,9,25,44,50,75, 33_333, 200_300_400, 78_000_000_000, 444_333_444_444];
-            let decadic_exponents = [2,3,4,5,6,7,8,9,10, 12];
-            let horisontal_axis_data_suply = reinterpret_vec_of_values_on_x_axis(literal_nums, decadic_exponents);
-            Mutex::new(Some(DiagnosticsConfig {
-                horizontal_axis_progressive_supply: horisontal_axis_data_suply,
-                horizontal_axis_native_type_formatter: Box::new(
+            let literal_values = [
+                1,
+                5,
+                9,
+                25,
+                44,
+                50,
+                75,
+                180,
+                600,
+                900,
+                33_333,
+                86_400,
+                255_000,
+                6_700_000,
+                55_333_000,
+                200_300_400,
+                500_000_000,
+                7_000_000_000,
+                78_000_000_000,
+                444_333_444_444,
+            ];
+            let decadic_exponents = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+            let horisontal_axis_data_suply =
+                reinterpret_vec_of_values_on_x_axis(literal_values, decadic_exponents);
+            Mutex::new(Some(DiagnosticsAxisX {
+                non_remarkable_values_supply: horisontal_axis_data_suply,
+                remarkable_values_opt: Some(vec![
+                    (60, "MINUTE"),
+                    (3_600, "HOUR"),
+                    (86_400, "DAY"),
+                    (604_800, "WEEK"),
+                ]),
+                convertor_to_expected_formula_input_type: Box::new(
                     move |secs_since_last_paid_payable| {
                         let native_time = now
                             .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))

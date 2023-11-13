@@ -176,9 +176,28 @@ pub mod formulas_progressive_characteristics {
         Mutex::new(vec![]);
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
-    pub struct DiagnosticsConfig<A> {
-        pub horizontal_axis_progressive_supply: Vec<u128>,
-        pub horizontal_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
+    pub struct DiagnosticsAxisX<A> {
+        pub non_remarkable_values_supply: Vec<u128>,
+        pub remarkable_values_opt: Option<Vec<(u128, &'static str)>>,
+        pub convertor_to_expected_formula_input_type: Box<dyn Fn(u128) -> A + Send>,
+    }
+
+    impl<A> DiagnosticsAxisX<A> {
+        fn finalize_input_with_remarkable_values(&self) -> Vec<u128> {
+            match self.remarkable_values_opt.as_ref() {
+                Some(vals) => {
+                    let filtered_remarkable_values = vals.iter().map(|(num, _)| num);
+                    let standard_input = self.non_remarkable_values_supply.iter();
+                    filtered_remarkable_values
+                        .chain(standard_input)
+                        .sorted()
+                        .dedup()
+                        .map(|num| *num)
+                        .collect()
+                }
+                None => self.non_remarkable_values_supply.clone(),
+            }
+        }
     }
 
     pub fn render_formulas_characteristics_for_diagnostics_if_enabled() {
@@ -195,28 +214,51 @@ pub mod formulas_progressive_characteristics {
         }
     }
 
+    fn render_notation(
+        coordinate_value: u128,
+        remarkable_vals: Option<&Vec<(u128, &'static str)>>,
+    ) -> String {
+        match should_mark_be_used(coordinate_value, remarkable_vals) {
+            Some(mark) => format!("{}  {}", coordinate_value.separate_with_commas(), mark),
+            None => coordinate_value.separate_with_commas(),
+        }
+    }
+    fn should_mark_be_used(
+        coordinate_value: u128,
+        remarkable_vals: Option<&Vec<(u128, &'static str)>>,
+    ) -> Option<&'static str> {
+        match remarkable_vals {
+            Some(vals) => vals
+                .iter()
+                .find(|(val, _)| coordinate_value == *val)
+                .map(|(_, mark)| *mark),
+            None => None,
+        }
+    }
+
     pub fn compute_progressive_characteristics<A>(
         main_param_name: &'static str,
-        config_opt: Option<DiagnosticsConfig<A>>,
+        config_opt: Option<DiagnosticsAxisX<A>>,
         formula: &dyn Fn(A) -> u128,
     ) where
         A: Debug,
     {
-        config_opt.map(|config| {
-            let config_x_axis_type_formatter = config.horizontal_axis_native_type_formatter;
-            let characteristics =
-                config
-                    .horizontal_axis_progressive_supply
-                    .into_iter()
-                    .map(|input| {
-                        let correctly_formatted_input = config_x_axis_type_formatter(input);
-                        format!(
-                            "x: {:<length$} y: {}",
-                            input,
-                            formula(correctly_formatted_input).separate_with_commas(),
-                            length = 40
-                        )
-                    });
+        config_opt.map(|mut config| {
+            let input_values = config.finalize_input_with_remarkable_values();
+            let remarkable = config.remarkable_values_opt.take();
+            let config_x_axis_type_formatter = config.convertor_to_expected_formula_input_type;
+            let characteristics = input_values.into_iter().map(|single_coordinate| {
+                let correctly_formatted_input = config_x_axis_type_formatter(single_coordinate);
+                let input_with_commas = render_notation(single_coordinate, remarkable.as_ref());
+                let computed_value_with_commas =
+                    formula(correctly_formatted_input).separate_with_commas();
+                format!(
+                    "x: {:<length$} y: {}",
+                    input_with_commas,
+                    computed_value_with_commas,
+                    length = 40
+                )
+            });
             let head = once(format!(
                 "CHARACTERISTICS OF THE FORMULA FOR {}",
                 main_param_name
