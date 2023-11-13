@@ -22,6 +22,7 @@ use crate::sub_lib::blockchain_bridge::{
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::unshared_test_utils::AssertionsMessage;
 use actix::Actor;
 use actix::Context;
 use actix::Handler;
@@ -95,6 +96,18 @@ impl Handler<BindMessage> for BlockchainBridge {
     }
 }
 
+impl Handler<AssertionsMessage<BlockchainBridge>> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: AssertionsMessage<BlockchainBridge>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        (msg.assertions)(self)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RetrieveTransactions {
     pub recipient: Wallet,
@@ -165,6 +178,23 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 pub struct PendingPayableFingerprintSeeds {
     pub batch_wide_timestamp: SystemTime,
     pub hashes_and_balances: Vec<(H256, u128)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
+pub struct UpdateStartBlockMessage {
+    pub start_block: u64,
+}
+
+impl Handler<UpdateStartBlockMessage> for BlockchainBridge {
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateStartBlockMessage, ctx: &mut Self::Context) -> Self::Result {
+        eprintln!("msg: {:?}", msg);
+
+        self.persistent_config.set_start_block(msg.start_block);
+
+        // todo!("Testing UpdateStartBlockMessage ")
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -373,20 +403,18 @@ impl BlockchainBridge {
             .expect("Accountant is unbound")
             .clone();
 
-
         Box::new(
             self.blockchain_interface
                 .retrieve_transactions(start_block, &msg.recipient)
                 .map_err(|e| format!("Tried to retrieve received payments but failed: {:?}", e))
                 .and_then(move |transactions| {
-
                     // --- ---
-                    if let Err(e) = self
-                        .persistent_config
-                        .set_start_block(transactions.new_start_block)
-                    {
-                        panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
-                    };
+                    // if let Err(e) = self
+                    //     .persistent_config
+                    //     .set_start_block(transactions.new_start_block)
+                    // {
+                    //     panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
+                    // };
                     // --- ---
 
                     if transactions.transactions.is_empty() {
@@ -580,7 +608,7 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, ZERO,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -597,6 +625,40 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
+
+    #[test]
+    fn update_start_block_message_works() {
+        let persistent_config = configure_default_persistent_config(ZERO)
+            .start_block_result(Ok(42143274))
+            .set_start_block_result(Ok(()));
+        let subject = BlockchainBridge::new(
+            stub_bi(),
+            Box::new(persistent_config),
+            false,
+            Some(make_wallet("test wallet")),
+        );
+        let system = System::new("blockchain_bridge_receives_bind_message");
+        let addr = subject.start();
+        addr.try_send(BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        })
+        .unwrap();
+
+        addr.try_send(UpdateStartBlockMessage {
+            start_block: 42143274,
+        })
+        .unwrap();
+
+        addr.try_send(AssertionsMessage {
+            assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
+                let start_block = blockchain_bridge.persistent_config.start_block().unwrap();
+                assert_eq!(start_block, 42143274);
+            }),
+        })
+        .unwrap();
+        System::current().stop();
+        system.run();
+    }
 
     #[test]
     fn constants_have_correct_values() {
