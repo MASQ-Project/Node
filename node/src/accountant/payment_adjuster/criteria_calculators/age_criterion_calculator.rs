@@ -4,18 +4,17 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
     CriterionCalculator, ParameterCriterionCalculator,
 };
-use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-    DiagnosticsConfig,
-};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::x_or_1;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-use std::sync::Mutex;
-use std::time::SystemTime;
-use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::characteristics_config::AGE_DIAGNOSTICS_CONFIG_OPT;
 use crate::standard_impls_for_calculator;
+use std::time::SystemTime;
+test_only_use!(
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
+        use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::characteristics_config::AGE_DIAGNOSTICS_CONFIG_OPT;
+    use std::sync::Mutex;
+);
 
 const AGE_MAIN_EXPONENT: u32 = 3;
-const AGE_MULTIPLIER: u128 = 150;
 const AGE_DESC_MULTIPLIER_ARG_EXP: u32 = 2;
 const AGE_DESC_MULTIPLIER_LOG_STRESS_EXP: u32 = 2;
 const AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER: u128 = 1_000;
@@ -185,7 +184,7 @@ mod tests {
         AgeCriterionCalculator, AgeInput, AGE_DESC_MULTIPLIER_ARG_EXP,
         AGE_DESC_MULTIPLIER_DIVISOR_EXP, AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER,
         AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER,
-        AGE_MAIN_EXPONENT, AGE_MULTIPLIER,
+        AGE_MAIN_EXPONENT,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CriterionCalculator, ParameterCriterionCalculator,
@@ -197,7 +196,6 @@ mod tests {
     #[test]
     fn constants_are_correct() {
         assert_eq!(AGE_MAIN_EXPONENT, 3);
-        assert_eq!(AGE_MULTIPLIER, 150);
         assert_eq!(AGE_DESC_MULTIPLIER_ARG_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, 1_000);

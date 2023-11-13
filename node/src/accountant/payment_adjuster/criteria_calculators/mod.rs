@@ -6,14 +6,16 @@ pub mod balance_criterion_calculator;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
-use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-    compute_progressive_characteristics, DiagnosticsConfig,
-    COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
-};
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::calculator_local_diagnostics;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
-use std::sync::Mutex;
+test_only_use!(
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
+        compute_progressive_characteristics, DiagnosticsConfig,
+        COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
+    };
+    use std::sync::Mutex;
+);
 
 // Caution: always remember to use checked math operations in the criteria formulas!
 pub trait CriterionCalculator:

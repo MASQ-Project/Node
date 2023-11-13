@@ -15,6 +15,7 @@ use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
 };
 use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculators};
+#[cfg(test)]
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::print_formulas_characteristics_for_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::non_finalized_adjusted_accounts_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
@@ -441,6 +442,7 @@ impl PaymentAdjusterReal {
             sort_in_descendant_order_by_criteria_sums(criteria_and_accounts);
 
         // effective only if the iterator is collected
+        #[cfg(test)]
         print_formulas_characteristics_for_diagnostics();
 
         collected_accounts_with_criteria
@@ -541,11 +543,9 @@ impl PaymentAdjusterReal {
                 .into_iter()
                 .filter(|account_info| {
                     account_info.original_account.wallet != disqualified_account_wallet
-                })
-                .collect::<Vec<_>>();
+                });
 
             let remaining_reverted = remaining
-                .into_iter()
                 .map(|account_info| {
                     PayableAccount::from((account_info, ProposedAdjustmentResolution::Revert))
                 })

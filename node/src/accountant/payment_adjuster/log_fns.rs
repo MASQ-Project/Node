@@ -31,7 +31,7 @@ pub fn format_brief_adjustment_summary(
         adjusted_accounts: &[PayableAccount],
     ) -> String {
         adjusted_accounts
-            .into_iter()
+            .iter()
             .sorted_by(|account_a, account_b| {
                 Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
             })
@@ -56,7 +56,7 @@ pub fn format_brief_adjustment_summary(
             length = WALLET_ADDRESS_LENGTH
         ));
         let list = excluded
-            .into_iter()
+            .iter()
             .sorted_by(|(_, balance_account_a), (_, balance_account_b)| {
                 Ord::cmp(&balance_account_b, &balance_account_a)
             })

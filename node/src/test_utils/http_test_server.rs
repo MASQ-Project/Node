@@ -52,7 +52,7 @@ impl TestServer {
         TestServer { port, rx }
     }
 
-    pub fn server_url(&self) -> String {
+    pub fn local_url(&self) -> String {
         format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), self.port)
     }
 

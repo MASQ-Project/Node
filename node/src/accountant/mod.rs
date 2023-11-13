@@ -661,14 +661,9 @@ impl Accountant {
             Some(Either::Left(complete_msg)) => Some(complete_msg),
             Some(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                match self
-                    .scanners
+                self.scanners
                     .payable
                     .perform_payment_adjustment(unaccepted_msg, &self.logger)
-                {
-                    Some(instructions) => Some(instructions),
-                    None => None,
-                }
             }
             None => None,
         };

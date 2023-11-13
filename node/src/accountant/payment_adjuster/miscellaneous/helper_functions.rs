@@ -15,6 +15,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
+use std::cmp::Ordering;
 use std::iter::successors;
 use std::ops::Not;
 
@@ -36,9 +37,7 @@ where
 }
 
 pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount)]) -> u128 {
-    sum_as(&accounts_with_individual_criteria, |(criteria, _)| {
-        *criteria
-    })
+    sum_as(accounts_with_individual_criteria, |(criteria, _)| *criteria)
 }
 
 pub fn keep_only_transaction_fee_affordable_accounts_and_drop_the_rest(
@@ -63,9 +62,7 @@ pub fn compute_fractional_numbers_preventing_mul_coefficient(
 ) -> u128 {
     let criteria_sum_digits_count = log_10(account_criteria_sum);
     let cw_balance_digits_count = log_10(cw_masq_balance_minor);
-    let positive_difference = criteria_sum_digits_count
-        .checked_sub(cw_balance_digits_count)
-        .unwrap_or(0);
+    let positive_difference = criteria_sum_digits_count.saturating_sub(cw_balance_digits_count);
     let safe_mul_coefficient = positive_difference + EMPIRIC_PRECISION_COEFFICIENT;
     10_u128
         .checked_pow(safe_mul_coefficient as u32)
@@ -107,21 +104,23 @@ pub fn find_largest_nominated_account<'a>(
     accounts
         .iter()
         .fold(**first_account, |largest_so_far, current| {
-            if current.original_account.balance_wei < largest_so_far.original_account.balance_wei {
-                largest_so_far
-            } else if current.original_account.balance_wei
-                == largest_so_far.original_account.balance_wei
-            {
+            match Ord::cmp(
+                &current.original_account.balance_wei,
+                &largest_so_far.original_account.balance_wei,
+            ) {
+                Ordering::Less => largest_so_far,
+                Ordering::Greater => current,
+                Ordering::Equal =>
                 // Greater value means younger
-                if current.original_account.last_paid_timestamp
-                    > largest_so_far.original_account.last_paid_timestamp
                 {
-                    current
-                } else {
-                    largest_so_far
+                    if current.original_account.last_paid_timestamp
+                        > largest_so_far.original_account.last_paid_timestamp
+                    {
+                        current
+                    } else {
+                        largest_so_far
+                    }
                 }
-            } else {
-                current
             }
         })
 }
@@ -260,8 +259,7 @@ impl CwExhaustingStatus {
         possible_extra_addition: u128,
     ) -> Self {
         let corrected_adjusted_account_before_finalization = {
-            non_finalized_account_info.proposed_adjusted_balance =
-                non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition;
+            non_finalized_account_info.proposed_adjusted_balance += possible_extra_addition;
             non_finalized_account_info
         };
         self.remainder = self
@@ -317,7 +315,7 @@ pub fn list_accounts_nominated_for_disqualification(
                     disqualification_edge,
                 );
 
-                Some(&*account_info)
+                Some(account_info)
             } else {
                 None
             }

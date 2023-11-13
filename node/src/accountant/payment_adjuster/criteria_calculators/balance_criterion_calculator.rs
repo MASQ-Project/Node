@@ -4,13 +4,13 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
     CriterionCalculator, ParameterCriterionCalculator,
 };
-use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-    DiagnosticsConfig,
-};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{log_2};
-use std::sync::Mutex;
-use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::characteristics_config::BALANCE_DIAGNOSTICS_CONFIG_OPT;
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
 use crate::standard_impls_for_calculator;
+test_only_use!(
+    use std::sync::Mutex;
+        use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::characteristics_config::BALANCE_DIAGNOSTICS_CONFIG_OPT;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
+);
 
 // This parameter affects the steepness (sensitivity to balance increase)
 const BALANCE_LOG_2_ARG_DIVISOR: u128 = 33;
@@ -37,7 +37,7 @@ where
     pub fn new(iter: I) -> Self {
         let formula = Box::new(|wrapped_balance_minor: BalanceInput| {
             let balance_minor = wrapped_balance_minor.0;
-            let binary_weight = log_2(Self::calculate_binary_argument(balance_minor));
+            let binary_weight = Self::nonzero_log2(Self::calculate_binary_argument(balance_minor));
             balance_minor
                 .checked_mul(binary_weight as u128)
                 .expect("mul overflow")

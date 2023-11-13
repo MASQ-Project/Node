@@ -166,7 +166,7 @@ pub mod formulas_progressive_characteristics {
     use std::sync::{Mutex, Once};
     use thousands::Separable;
 
-    pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = false;
+    pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
     //mutex should be fine for debugging, no need for mut static
     static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
