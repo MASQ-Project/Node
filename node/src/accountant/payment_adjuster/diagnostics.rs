@@ -166,9 +166,13 @@ pub mod formulas_progressive_characteristics {
     use std::sync::{Mutex, Once};
     use thousands::Separable;
 
+    // Only for debugging; in order to see the characteristic values of distinct parameter
+    // you only have to run one (no matter if more) test which executes including the core part
+    // where the criteria are applied, in other words computed. You cannot grab a wrong one if
+    // you are picking from high level tests of the PaymentAdjuster class
     pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
     //mutex should be fine for debugging, no need for mut static
-    static STRINGS_WITH_FORMULAS_CHARACTERISTICS: Mutex<Vec<String>> = Mutex::new(vec![]);
+    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS: Mutex<Vec<String>> = Mutex::new(vec![]);
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
     pub struct DiagnosticsConfig<A> {
@@ -176,14 +180,15 @@ pub mod formulas_progressive_characteristics {
         pub horizontal_axis_native_type_formatter: Box<dyn Fn(u128) -> A + Send>,
     }
 
-    pub fn print_formulas_characteristics_for_diagnostics() {
+    pub fn render_formulas_characteristics_for_diagnostics_if_enabled() {
         if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
             FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
-                let report = STRINGS_WITH_FORMULAS_CHARACTERISTICS
+                let comprehend_debug_summary = SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
                     .lock()
                     .expect("diagnostics poisoned")
                     .join("\n\n");
-                eprintln!("{}", report)
+
+                eprintln!("{}", comprehend_debug_summary)
             })
         }
     }
@@ -215,7 +220,7 @@ pub mod formulas_progressive_characteristics {
                 main_param_name
             ));
             let full_text = head.into_iter().chain(characteristics).join("\n");
-            STRINGS_WITH_FORMULAS_CHARACTERISTICS
+            SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
                 .lock()
                 .expect("diagnostics poisoned")
                 .push(full_text);

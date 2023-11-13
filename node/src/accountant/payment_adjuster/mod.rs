@@ -15,8 +15,6 @@ use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
 };
 use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculators};
-#[cfg(test)]
-use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::print_formulas_characteristics_for_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::non_finalized_adjusted_accounts_diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
 use crate::accountant::payment_adjuster::inner::{
@@ -438,14 +436,7 @@ impl PaymentAdjusterReal {
             .calculate_age_criteria(self)
             .calculate_balance_criteria();
 
-        let collected_accounts_with_criteria =
-            sort_in_descendant_order_by_criteria_sums(criteria_and_accounts);
-
-        // effective only if the iterator is collected
-        #[cfg(test)]
-        print_formulas_characteristics_for_diagnostics();
-
-        collected_accounts_with_criteria
+        sort_in_descendant_order_by_criteria_sums(criteria_and_accounts)
     }
 
     fn perform_masq_adjustment(
@@ -697,6 +688,7 @@ mod tests {
     use std::{usize, vec};
     use thousands::Separable;
     use web3::types::U256;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{render_formulas_characteristics_for_diagnostics_if_enabled};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -988,6 +980,7 @@ mod tests {
 
     #[test]
     fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
+        render_formulas_characteristics_for_diagnostics_if_enabled();
         let now = SystemTime::now();
         let subject = make_initialized_subject(now, None, None);
         let account_1 = PayableAccount {
@@ -1032,6 +1025,7 @@ mod tests {
     #[test]
     fn minor_but_a_lot_aged_debt_is_prioritized_outweighed_and_stays_as_the_full_original_balance()
     {
+        render_formulas_characteristics_for_diagnostics_if_enabled();
         let now = SystemTime::now();
         let cw_service_fee_balance = 1_500_000_000_000_u128 - 25_000_000 - 1000;
         let mut subject = make_initialized_subject(now, Some(cw_service_fee_balance), None);
@@ -1155,7 +1149,8 @@ mod tests {
         };
         // We eliminated (disqualified) the other account than which was going to qualify as
         // outweighed
-        assert_eq!(remaining, vec![account_1])
+        assert_eq!(remaining, vec![account_1]);
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1240,6 +1235,7 @@ mod tests {
             "0x000000000000000000000000000000626c616832",
             1000,
         ));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1324,6 +1320,7 @@ mod tests {
 |                                           3929064899188044996"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1393,6 +1390,7 @@ mod tests {
 |0x0000000000000000000000000000000000616263 111000000000000"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1458,6 +1456,7 @@ mod tests {
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1537,8 +1536,8 @@ mod tests {
             "INFO: {test_name}: Shortage of MASQ \
         in your consuming wallet impacts on payable 0x000000000000000000000000000000000067686b, \
         ruled out from this round of payments. The proposed adjustment 69,153,257,937 wei was less \
-        than half of the recorded debt, 600,000,000,000 wei"
-        ));
+        than half of the recorded debt, 600,000,000,000 wei"));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     struct CompetitiveAccountsTestInputs<'a> {
@@ -1687,7 +1686,9 @@ mod tests {
                 account_2_age_positive_correction_secs: 0,
             },
             expected_wallet_of_the_winning_account,
-        )
+        );
+
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1769,6 +1770,7 @@ mod tests {
 |0x0000000000000000000000000000000000646566 55000000000"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1830,8 +1832,8 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Passed successfully adjustment by transaction fee but noticing \
-            critical scarcity of MASQ balance. Operation will abort."
-        ));
+            critical scarcity of MASQ balance. Operation will abort."));
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     #[test]
@@ -1915,7 +1917,8 @@ mod tests {
             }]
         );
         assert_eq!(adjustment_result.response_skeleton_opt, None);
-        assert_eq!(adjustment_result.agent.arbitrary_id_stamp(), agent_id_stamp)
+        assert_eq!(adjustment_result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
     struct TestConfigForServiceFeeBalances {
