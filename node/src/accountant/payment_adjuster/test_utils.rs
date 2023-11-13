@@ -6,7 +6,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::test_utils::make_wallet;
-use itertools::Either;
+use itertools::{Either, Itertools};
 use lazy_static::lazy_static;
 use masq_lib::constants::MASQ_TOTAL_SUPPLY;
 use masq_lib::logger::Logger;
@@ -63,4 +63,10 @@ pub fn make_extreme_accounts(
         .collect()
 }
 
+pub fn reinterpret_vec_of_values_on_x_axis<const L1: usize, const L2: usize>(
+    literal_feed: [u128; L1], exponent_determined_feed: [u32;L2]
+) -> Vec<u128> {
+    let exponent_based_numbers = exponent_determined_feed.into_iter().map(|exponent|10_u128.pow(exponent));
+    literal_feed.into_iter().chain(exponent_based_numbers).sorted().collect()
+}
 pub type Sentinel = Empty<(u128, PayableAccount)>;

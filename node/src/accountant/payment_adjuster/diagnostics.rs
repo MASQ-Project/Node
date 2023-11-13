@@ -172,7 +172,8 @@ pub mod formulas_progressive_characteristics {
     // you are picking from high level tests of the PaymentAdjuster class
     pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
     //mutex should be fine for debugging, no need for mut static
-    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS: Mutex<Vec<String>> = Mutex::new(vec![]);
+    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS: Mutex<Vec<String>> =
+        Mutex::new(vec![]);
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
     pub struct DiagnosticsConfig<A> {
@@ -183,10 +184,11 @@ pub mod formulas_progressive_characteristics {
     pub fn render_formulas_characteristics_for_diagnostics_if_enabled() {
         if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
             FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
-                let comprehend_debug_summary = SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
-                    .lock()
-                    .expect("diagnostics poisoned")
-                    .join("\n\n");
+                let comprehend_debug_summary =
+                    SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
+                        .lock()
+                        .expect("diagnostics poisoned")
+                        .join("\n\n");
 
                 eprintln!("{}", comprehend_debug_summary)
             })

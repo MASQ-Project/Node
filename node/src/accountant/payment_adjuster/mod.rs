@@ -1536,7 +1536,8 @@ mod tests {
             "INFO: {test_name}: Shortage of MASQ \
         in your consuming wallet impacts on payable 0x000000000000000000000000000000000067686b, \
         ruled out from this round of payments. The proposed adjustment 69,153,257,937 wei was less \
-        than half of the recorded debt, 600,000,000,000 wei"));
+        than half of the recorded debt, 600,000,000,000 wei"
+        ));
         render_formulas_characteristics_for_diagnostics_if_enabled();
     }
 
@@ -1830,7 +1831,8 @@ mod tests {
                 cw_service_fee_balance_minor: service_fee_balance_in_minor_units
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!(
+        TestLogHandler::new()
+            .exists_log_containing(&format!(
             "ERROR: {test_name}: Passed successfully adjustment by transaction fee but noticing \
             critical scarcity of MASQ balance. Operation will abort."));
         render_formulas_characteristics_for_diagnostics_if_enabled();

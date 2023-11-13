@@ -72,15 +72,15 @@ impl From<&PayableAccount> for BalanceInput {
 pub mod characteristics_config {
     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
+    use crate::accountant::payment_adjuster::test_utils::reinterpret_vec_of_values_on_x_axis;
     use lazy_static::lazy_static;
     use std::sync::Mutex;
 
     lazy_static! {
         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<BalanceInput>>> = {
-            let horisontal_axis_decimal_exponents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 18, 21, 25]
-                .into_iter()
-                .map(|exp| 10_u128.pow(exp))
-                .collect();
+            let literal_nums = [123_456, 7_777_777, 1_888_999_999_888, 543_210_000_000_000_000_000];
+            let decadic_exponents = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25];
+            let horisontal_axis_decimal_exponents = reinterpret_vec_of_values_on_x_axis(literal_nums, decadic_exponents);
             Mutex::new(Some(DiagnosticsConfig {
                 horizontal_axis_progressive_supply: horisontal_axis_decimal_exponents,
                 horizontal_axis_native_type_formatter: Box::new(|balance_wei| {

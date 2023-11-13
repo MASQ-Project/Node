@@ -125,7 +125,7 @@ impl From<&PayableAccount> for AgeInput {
 pub mod characteristics_config {
     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsConfig;
-    use itertools::Either::{Left, Right};
+    use crate::accountant::payment_adjuster::test_utils::reinterpret_vec_of_values_on_x_axis;
     use lazy_static::lazy_static;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -134,35 +134,9 @@ pub mod characteristics_config {
     lazy_static! {
         pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsConfig<AgeInput>>> = {
             let now = SystemTime::now();
-            let horisontal_axis_data_suply = {
-                [
-                    Left(1),
-                    Left(5),
-                    Left(9),
-                    Left(25),
-                    Left(44),
-                    Left(50),
-                    Left(75),
-                    Right(2),
-                    Right(3),
-                    Right(4),
-                    Left(33_333),
-                    Right(5),
-                    Right(6),
-                    Right(7),
-                    Right(8),
-                    Left(200_300_400),
-                    Right(9),
-                    Right(10),
-                    Right(12),
-                ]
-                .into_iter()
-                .map(|exp| match exp {
-                    Left(precise_secs) => precise_secs,
-                    Right(decimal_exp) => 10_u128.pow(decimal_exp),
-                })
-                .collect()
-            };
+            let literal_nums = [1,5,9,25,44,50,75, 33_333, 200_300_400, 78_000_000_000, 444_333_444_444];
+            let decadic_exponents = [2,3,4,5,6,7,8,9,10, 12];
+            let horisontal_axis_data_suply = reinterpret_vec_of_values_on_x_axis(literal_nums, decadic_exponents);
             Mutex::new(Some(DiagnosticsConfig {
                 horizontal_axis_progressive_supply: horisontal_axis_data_suply,
                 horizontal_axis_native_type_formatter: Box::new(
