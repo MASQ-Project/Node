@@ -602,6 +602,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
+        REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock, TestTransport};
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -1174,10 +1175,12 @@ mod tests {
 
     #[test]
     fn report_accounts_payable_returns_error_fetching_pending_nonce() {
-        let transport = TestTransport::default();
+        let url = "https://www.example.com";
+        let (_event_loop_handle, http) =
+            Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_chain_result(DEFAULT_CHAIN)
-            .get_batch_web3_result(Web3::new(Batch::new(transport)))
+            .get_batch_web3_result(Web3::new(Batch::new(http)))
             .get_transaction_count_result(Err(BlockchainError::QueryFailed(
                 "What the hack...??".to_string(),
             )));

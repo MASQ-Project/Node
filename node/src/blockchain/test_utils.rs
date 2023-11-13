@@ -83,7 +83,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
     get_chain_results: RefCell<Vec<Chain>>,
-    get_batch_web3_results: RefCell<Vec<Web3<Batch<TestTransport>>>>,
+    get_batch_web3_results: RefCell<Vec<Web3<Batch<Http>>>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -95,7 +95,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_chain_results.borrow_mut().remove(0)
     }
 
-    fn get_batch_web3(&self) -> Web3<Batch<TestTransport>> {
+    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
         self.get_batch_web3_results.borrow_mut().remove(0)
     }
 
@@ -215,7 +215,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_batch_web3_result(self, result: Web3<Batch<TestTransport>>) -> Self {
+    pub fn get_batch_web3_result(self, result: Web3<Batch<Http>>) -> Self {
         self.get_batch_web3_results.borrow_mut().push(result);
         self
     }
