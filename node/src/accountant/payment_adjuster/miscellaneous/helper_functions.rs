@@ -484,11 +484,9 @@ mod tests {
 
     #[test]
     fn multiplication_coefficient_extreme_feeding_and_safety_ceiling() {
-        // We also add some extra multiples of 10, the more of them the more accurate
-        // numbers we can expect from the ultimate results of the payment adjuster machinery
-        //
-        // We cannot say by heart which of the criteria sums of these parameters evaluates to is for sure bigger than another,
-        // therefore we could hardly put them into an order
+        // We cannot say by heart which of the evaluated criteria sums from
+        // these parameters below will be bigger than another and therefore
+        // we cannot line them up in an order
         let accounts_as_months_and_balances = vec![
             (1, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
             (5, 10_u128.pow(18)),
@@ -520,7 +518,7 @@ mod tests {
             reserved_initial_accounts_order_according_to_wallets
                 .iter()
                 .enumerate();
-        let mul_coefficients_and_criteria_sums_matching_the_order_of_the_original_inputs = results
+        let mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs = results
             .into_iter()
             .map(
                 |(computed_coefficient, account_wallet, account_criteria_sum)| {
@@ -534,44 +532,70 @@ mod tests {
             .sorted_by(|(idx_a, _, _), (idx_b, _, _)| Ord::cmp(&idx_b, &idx_a))
             .map(|(_, coefficient, criteria_sum)| (coefficient, criteria_sum))
             .collect::<Vec<(u128, u128)>>();
-        // For ease with visual check
-        #[rustfmt::skip]
-        fn expected_result() -> Vec<(u128, u128)> {
-            vec![
-                (
-                    100000000000000000000000000000000000000,
-                    3337685069315260840795395456195
-                ),
-                (
-                    100000000000000000000000000000000000,
-                    3147569315260840795395456195
-                ),
-                (
-                    100000000000000000000000000000000000,
-                    3032031628421209321195830846
-                ),
-                (
-                    100000000000000000000000000000000,
-                    8388546281691944888584197
-                ),
-                (
-                    10000000000000000000000000000000,
-                    428973298027210119732866
-                ),
-                (
-                    10000000000000000000000000000000,
-                    137300730946560000000000
-                ),
-                (
-                    100000000000000000000000000000000000,
-                    2962514007434791591273391962
-                )
-            ]
-        }
+        let templates_for_coefficients = vec![
+            100000000000000000000000000000000000000,
+            100000000000000000000000000000000000,
+            100000000000000000000000000000000000,
+            100000000000000000000000000000000,
+            10000000000000000000000000000000,
+            10000000000000000000000000000000,
+            100000000000000000000000000000000000,
+        ];
+        // I was trying to write these assertions so that it wouldn't require us to rewrite
+        // the expected values everytime someone pokes into the formulas.
+        check_relation_to_computed_criteria_sum_fairly_but_with_enough_benevolence(
+            &mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs,
+        );
+        compare_coefficients_to_templates(
+            &mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs,
+            &templates_for_coefficients,
+        );
+    }
+
+    fn check_relation_to_computed_criteria_sum_fairly_but_with_enough_benevolence(
+        output: &[(u128, u128)],
+    ) {
+        output.iter().for_each(|(coefficient, corresponding_criteria_sum)| {
+            let coefficient_num_decimal_length = log_10(*coefficient);
+            let criteria_sum_decimal_length = log_10(*corresponding_criteria_sum);
+            assert_eq!(coefficient_num_decimal_length, criteria_sum_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
+                       "coefficient with bad safety margin; should be {} but was {}, as one of this set {:?}",
+                       coefficient_num_decimal_length,
+                       criteria_sum_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
+                       output
+            );
+
+            let expected_division_by_10_if_wrong = 10_u128.pow(coefficient_num_decimal_length as u32 - 1);
+            let experiment_result = corresponding_criteria_sum / 10;
+            match experiment_result == expected_division_by_10_if_wrong {
+                false => (),
+                true => match corresponding_criteria_sum % 10 {
+                    0 => panic!("the criteria sum is a pure power of ten, too a suspicious result, \
+                                check it in {:?}", output),
+                    _ => ()
+                }
+            }
+        })
+    }
+
+    fn compare_coefficients_to_templates(outputs: &[(u128, u128)], templates: &[u128]) {
         assert_eq!(
-            mul_coefficients_and_criteria_sums_matching_the_order_of_the_original_inputs,
-            expected_result()
-        )
+            outputs.len(),
+            templates.len(),
+            "count of actual values {:?} and templates don't match {:?}",
+            outputs,
+            templates
+        );
+        outputs
+            .iter()
+            .zip(templates.iter())
+            .for_each(|((actual_coeff, _), expected_coeff)| {
+                assert_eq!(
+                    actual_coeff, expected_coeff,
+                    "actual coefficient {} does not match the expected one {} in the full set {:?}",
+                    actual_coeff, expected_coeff, outputs
+                )
+            })
     }
 
     fn make_non_finalized_adjusted_accounts(

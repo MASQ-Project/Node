@@ -167,11 +167,9 @@ pub mod formulas_progressive_characteristics {
     use thousands::Separable;
 
     // Only for debugging; in order to see the characteristic values of distinct parameter
-    // you only have to run one (no matter if more) test which executes including the core part
-    // where the criteria are applied, in other words computed. You cannot grab a wrong one if
-    // you are picking from high level tests of the PaymentAdjuster class
     pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
-    //mutex should be fine for debugging, no need for mut static
+    // TODO
+    // Mutex should be fine for debugging, no need for mut static
     static SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS: Mutex<Vec<String>> =
         Mutex::new(vec![]);
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
