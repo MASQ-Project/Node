@@ -335,7 +335,7 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
             .transport()
             .submit_batch()
             .map_err(|e| {
-                todo!("We are hitting the correct place");
+                // todo!("We are hitting the correct place");
                 error_with_hashes(e, hashes_and_paid_amounts_error)
             })
             .and_then(move |batch_response| {
