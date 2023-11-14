@@ -12,8 +12,14 @@ test_only_use!(
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
 );
 
-// This parameter affects the steepness inversely, but just slowly
-const BALANCE_LOG_2_ARG_DIVISOR: u128 = 4300;
+// This parameter affects the steepness inversely, but just slowly.
+//
+// Don't worry to change the number; it's not as scientific as it looks,
+// I arrived at it after many attempts, true, but only until I became
+// aligned with the tuning compared to the values gotten from the Age
+// parameter (to reproduce the process you probably need to use
+// the rendering tools from the diagnostics module)
+const BALANCE_LOG_2_ARG_DIVISOR: u128 = 18_490_000;
 // This parameter affects the steepness analogously, but energetically
 const BALANCE_FINAL_MULTIPLIER: u128 = 2;
 
@@ -39,7 +45,8 @@ where
     pub fn new(iter: I) -> Self {
         let formula = Box::new(|wrapped_balance_minor: BalanceInput| {
             let balance_minor = wrapped_balance_minor.0;
-            let binary_weight = Self::nonzero_log2(Self::calculate_binary_argument(balance_minor));
+            let argument_for_log = Self::calculate_binary_argument(balance_minor);
+            let binary_weight = Self::nonzero_log2(argument_for_log);
             balance_minor
                 .checked_mul(binary_weight as u128)
                 .expect("mul overflow")
@@ -48,8 +55,8 @@ where
         Self { iter, formula }
     }
 
-    fn nonzero_log2(balance_minor: u128) -> u32 {
-        let log = log_2(Self::calculate_binary_argument(balance_minor));
+    fn nonzero_log2(input: u128) -> u32 {
+        let log = log_2(input);
         if log > 0 {
             log
         } else {
@@ -110,7 +117,8 @@ pub mod characteristics_config {
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::{
-        BalanceCriterionCalculator, BalanceInput, BALANCE_LOG_2_ARG_DIVISOR,
+        BalanceCriterionCalculator, BalanceInput, BALANCE_FINAL_MULTIPLIER,
+        BALANCE_LOG_2_ARG_DIVISOR,
     };
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CriterionCalculator, ParameterCriterionCalculator,
@@ -153,12 +161,12 @@ mod tests {
 
     #[test]
     fn nonzero_log2_works() {
-        let result: Vec<_> = [0, 5, 66, 100, 131, 132]
+        let result: Vec<_> = [0, 1, 2, 5, 66, 100, 131, 132, u64::MAX as u128 + 1]
             .into_iter()
             .map(|balance| BalanceCriterionCalculator::<Sentinel>::nonzero_log2(balance))
             .collect();
 
-        assert_eq!(result, vec![1, 1, 1, 1, 1, 2])
+        assert_eq!(result, vec![1, 1, 1, 2, 6, 6, 7, 7, 64])
     }
 
     #[test]
@@ -178,15 +186,17 @@ mod tests {
         let result = subject.formula()(balance_wei_wrapped);
 
         let expected_result = {
-            let binary_weight = log_2(
-                BalanceCriterionCalculator::<Sentinel>::calculate_binary_argument(
-                    balance_wei_wrapped.0,
-                ),
-            );
+            let binary_weight =
+                BalanceCriterionCalculator::<Sentinel>::nonzero_log2(BalanceCriterionCalculator::<
+                    Sentinel,
+                >::calculate_binary_argument(
+                    balance_wei_wrapped.0
+                ));
             balance_wei_wrapped
                 .0
                 .checked_mul(binary_weight as u128)
                 .expect("mul overflow")
+                * BALANCE_FINAL_MULTIPLIER
         };
         assert_eq!(result, expected_result)
     }
