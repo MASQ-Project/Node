@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-const PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS: bool = false;
+const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -25,7 +25,7 @@ where
     F1: Fn() -> String,
     F2: Fn() -> String,
 {
-    if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
+    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
         let subject = if let Some(subject_renderer) = subject_renderer_opt {
             subject_renderer()
         } else {
@@ -43,7 +43,7 @@ where
 }
 
 pub fn collection_diagnostics<D: Debug>(label: &str, accounts: &[D]) {
-    if PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS {
+    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
         eprintln!("{}", label);
         accounts
             .iter()
@@ -167,11 +167,14 @@ pub mod formulas_progressive_characteristics {
     use thousands::Separable;
 
     // Only for debugging; in order to see the characteristic values of distinct parameter
-    pub const COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS: bool = true;
-    // TODO
-    // Mutex should be fine for debugging, no need for mut static
-    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS: Mutex<Vec<String>> =
+    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
+    // Preserve the 'static' keyword
+    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_FOR_EACH_PARAMETER: Mutex<Vec<String>> =
         Mutex::new(vec![]);
+    // Preserve the 'static' keyword
+    //
+    // The singleton ensures that we print the characteristics always only once, also if multiple
+    // tests are running
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
     pub struct DiagnosticsAxisX<A> {
@@ -199,10 +202,10 @@ pub mod formulas_progressive_characteristics {
     }
 
     pub fn render_formulas_characteristics_for_diagnostics_if_enabled() {
-        if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
+        if COMPUTE_FORMULAS_CHARACTERISTICS {
             FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
                 let comprehend_debug_summary =
-                    SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
+                    SUMMARIES_OF_FORMULA_CHARACTERISTICS_FOR_EACH_PARAMETER
                         .lock()
                         .expect("diagnostics poisoned")
                         .join("\n\n");
@@ -262,7 +265,7 @@ pub mod formulas_progressive_characteristics {
                 main_param_name
             ));
             let full_text = head.into_iter().chain(characteristics).join("\n");
-            SUMMARIES_OF_FORMULA_CHARACTERISTICS_SEPARATE_BY_PARAMETERS
+            SUMMARIES_OF_FORMULA_CHARACTERISTICS_FOR_EACH_PARAMETER
                 .lock()
                 .expect("diagnostics poisoned")
                 .push(full_text);
@@ -272,12 +275,12 @@ pub mod formulas_progressive_characteristics {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS;
-    use crate::accountant::payment_adjuster::diagnostics::PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::COMPUTE_FORMULAS_CHARACTERISTICS;
+    use crate::accountant::payment_adjuster::diagnostics::PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS;
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(PRINT_PARTIAL_COMPUTATIONS_FOR_DIAGNOSTICS, false);
-        assert_eq!(COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS, false)
+        assert_eq!(PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS, false);
+        assert_eq!(COMPUTE_FORMULAS_CHARACTERISTICS, false)
     }
 }

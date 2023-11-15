@@ -11,8 +11,7 @@ use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::fmt::Debug;
 test_only_use!(
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-        compute_progressive_characteristics, DiagnosticsAxisX,
-        COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS,
+        compute_progressive_characteristics, DiagnosticsAxisX, COMPUTE_FORMULAS_CHARACTERISTICS,
     };
     use std::sync::Mutex;
 );
@@ -65,7 +64,7 @@ pub trait CriterionCalculator:
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
-        if COMPUTE_FORMULAS_PROGRESSIVE_CHARACTERISTICS {
+        if COMPUTE_FORMULAS_CHARACTERISTICS {
             compute_progressive_characteristics(
                 self.parameter_name(),
                 self.diagnostics_config_opt(),

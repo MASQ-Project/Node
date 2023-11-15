@@ -123,13 +123,13 @@ mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CriterionCalculator, ParameterCriterionCalculator,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
     use crate::accountant::payment_adjuster::test_utils::Sentinel;
     use std::iter;
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(BALANCE_LOG_2_ARG_DIVISOR, 33)
+        assert_eq!(BALANCE_LOG_2_ARG_DIVISOR, 18_490_000);
+        assert_eq!(BALANCE_FINAL_MULTIPLIER, 2)
     }
 
     #[test]
