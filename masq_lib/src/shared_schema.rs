@@ -484,42 +484,61 @@ pub mod common_validators {
     use std::path::PathBuf;
     use std::str::FromStr;
     use itertools::Itertools;
+    use rustc_hex::{FromHexIter, ToHexIter};
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct IpAddrs {
-        ips: Vec<IpAddr>,
+        pub ips: Vec<IpAddr>,
     }
 
     impl FromStr for IpAddrs {
         type Err = String;
 
-        fn from_str(_s: &str) -> Result<Self, Self::Err> {
-            todo!()
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let init: (Vec<IpAddr>, bool) = (vec![], false);
+            let (ip_addrs, error_encountered) = s
+                .split(",")
+                .map(|ip_addr_str| IpAddr::from_str(ip_addr_str))
+                .fold(init, |sofar, ip_addr_result| {
+                    let (mut ip_addrs, error_encountered) = sofar;
+                    if error_encountered {
+                        (vec![], true)
+                    }
+                    else {
+                        match ip_addr_result {
+                            Ok(ip_addr) => {
+                                ip_addrs.push(ip_addr);
+                                (ip_addrs, false)
+                            },
+                            Err(_) => (vec![], true)
+                        }
+                    }
+                });
+            if error_encountered {
+                Err(format!("Must be a comma-separated list of IP addresses (no spaces), not '{}'", s))
+            }
+            else {
+                Ok(IpAddrs {ips: ip_addrs})
+            }
         }
     }
 
     impl From<IpAddrs> for Vec<IpAddr> {
-        fn from(_value: IpAddrs) -> Self {
+        fn from(value: IpAddrs) -> Self {
             todo!()
         }
     }
 
-    // pub fn validate_ip_addresses(addresses: String) -> Result<(), String> {
-    //     let errors = addresses
-    //         .split(',')
-    //         .map(|address| validate_ip_address(address.to_string()))
-    //         .flat_map(|result| match result {
-    //             Ok(_) => None,
-    //             Err(e) => Some(format!("{:?}", e)),
-    //         })
-    //         .collect::<Vec<String>>()
-    //         .join(";");
-    //     if errors.is_empty() {
-    //         Ok(())
-    //     } else {
-    //         Err(errors)
-    //     }
-    // }
+    impl Display for IpAddrs {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            let string = self
+                .ips
+                .iter()
+                .map(|ip_addr| ip_addr.to_string())
+                .join(",");
+            write!(f, "{}", string)
+        }
+    }
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct PrivateKey {
@@ -594,8 +613,24 @@ pub mod common_validators {
     impl FromStr for Wallet {
         type Err = String;
 
-        fn from_str(_s: &str) -> Result<Self, Self::Err> {
-            todo!()
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let regex = Regex::new("^0x([0-9a-fA-F]{40})$")
+                .expect("Failed to compile regular expression");
+            let hex_string = match regex.captures(s) {
+                Some(captures) => captures.get(1).expect("Bad regular expression"),
+                None => return Err(format!("Must begin with '0x' followed by 40 hexadecimal digits, not '{}'", s)),
+            }.as_str();
+            let address = FromHexIter::new(hex_string)
+                .map(|result| result.ok().expect("Regular expression allowed non-hex characters through"))
+                .collect_vec();
+            Ok(Self { address })
+        }
+    }
+
+    impl Display for Wallet {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            let hex_string = ToHexIter::new(self.address.iter()).join("");
+            write!(f, "0x{}", hex_string)
         }
     }
 
@@ -1111,7 +1146,7 @@ mod tests {
     use std::fs::File;
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{RealUser, VecU64};
+    use crate::shared_schema::common_validators::{IpAddrs, RealUser, VecU64, Wallet};
     use crate::shared_schema::{common_validators, official_chain_names};
     use std::path::PathBuf;
     use std::str::FromStr;
@@ -1662,17 +1697,6 @@ mod tests {
     }
 
     #[test]
-    fn data_directory_can_be_rendered_as_string() {
-        let config_file = PathBuf::from_str("parent_dir/child_dir").unwrap();
-        let cf_str = config_file.as_os_str().to_string_lossy().to_string();
-        let subject = DataDirectory {path: config_file};
-
-        let result = subject.to_string();
-
-        assert_eq!(result, cf_str);
-    }
-
-    #[test]
     fn data_directory_can_be_parsed_from_string() {
         let input = "this/should/be/valid";
 
@@ -1693,6 +1717,83 @@ mod tests {
         let result = DataDirectory::from_str(&dd_str);
 
         assert_eq!(result, Err(format!("Data directory must be a directory, not a file: '{}'", &dd_str)));
+    }
+
+    #[test]
+    fn data_directory_can_be_rendered_as_string() {
+        let config_file = PathBuf::from_str("parent_dir/child_dir").unwrap();
+        let cf_str = config_file.as_os_str().to_string_lossy().to_string();
+        let subject = DataDirectory {path: config_file};
+
+        let result = subject.to_string();
+
+        assert_eq!(result, cf_str);
+    }
+
+    #[test]
+    fn ip_addrs_can_be_parsed_from_string() {
+        let input = "1.2.3.4,2001:db8:85a3:8d3:1319:8a2e:370:7348";
+
+        let result = IpAddrs::from_str(input).unwrap();
+
+        assert_eq!(result.ips, vec![
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap()
+        ]);
+    }
+
+    #[test]
+    fn ip_addrs_rejects_bad_syntax() {
+
+        let result = IpAddrs::from_str("boogety,boo");
+
+        assert_eq!(result, Err("Must be a comma-separated list of IP addresses (no spaces), not 'boogety,boo'".to_string()));
+    }
+
+    #[test]
+    fn ip_addrs_can_be_rendered_as_string() {
+        let subject = IpAddrs{ips: vec![
+            IpAddr::from_str("1.2.3.4").unwrap(),
+            IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap()
+        ]};
+
+        let result = subject.to_string();
+
+        assert_eq!(result, "1.2.3.4,2001:db8:85a3:8d3:1319:8a2e:370:7348");
+    }
+
+    #[test]
+    fn wallet_can_be_parsed_from_string() {
+        let input = "0x0123456789abcDEFfedCBA987654321012345678";
+
+        let result = Wallet::from_str(input).unwrap();
+
+        let expected: Vec<u8> = vec![
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+            0x32, 0x10, 0x12, 0x34, 0x56, 0x78
+        ];
+        assert_eq!(result.address, expected);
+    }
+
+    #[test]
+    fn wallet_rejects_bad_syntax() {
+        let input = "Oy0123456789abcDEFfedCBA98765432101234567";
+
+        let result = Wallet::from_str(input);
+
+        assert_eq!(result, Err(format!("Must begin with '0x' followed by 40 hexadecimal digits, not '{}'", input)));
+    }
+
+    #[test]
+    fn wallet_can_be_rendered_as_string() {
+        let subject = Wallet{address: vec![
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+            0x32, 0x10, 0x12, 0x34, 0x56, 0x78
+        ]};
+
+        let result = subject.to_string();
+
+        assert_eq!(result, "0x0123456789abcdeffedcba987654321012345678");
     }
 
     #[test]

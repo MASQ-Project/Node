@@ -800,6 +800,7 @@ dependencies = [
  "log 0.4.17",
  "nix",
  "regex",
+ "rustc-hex",
  "serde",
  "serde_derive",
  "serde_json",
