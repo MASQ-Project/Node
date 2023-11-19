@@ -6,6 +6,8 @@ use crate::constants::{
     ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use core::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
@@ -29,21 +31,36 @@ impl Default for Chain {
     }
 }
 
-impl From<&str> for Chain {
-    fn from(str: &str) -> Self {
+impl FromStr for Chain {
+    type Err = String;
+
+    fn from_str(str: &str) -> Result<Self, Self::Err> {
         if str == POLYGON_MAINNET_FULL_IDENTIFIER {
-            Chain::PolyMainnet
+            Ok(Chain::PolyMainnet)
         } else if str == ETH_MAINNET_FULL_IDENTIFIER {
-            Chain::EthMainnet
+            Ok(Chain::EthMainnet)
         } else if str == POLYGON_MUMBAI_FULL_IDENTIFIER {
-            Chain::PolyMumbai
+            Ok(Chain::PolyMumbai)
         } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
-            Chain::EthRopsten
+            Ok(Chain::EthRopsten)
         } else if str == DEV_CHAIN_FULL_IDENTIFIER {
-            Chain::Dev
+            Ok(Chain::Dev)
         } else {
-            panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str)
+            Err(format!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str))
         }
+    }
+}
+
+impl Display for Chain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let identifier = match self {
+            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
+            Chain::EthMainnet => ETH_MAINNET_FULL_IDENTIFIER,
+            Chain::PolyMumbai => POLYGON_MUMBAI_FULL_IDENTIFIER,
+            Chain::EthRopsten => ETH_ROPSTEN_FULL_IDENTIFIER,
+            Chain::Dev => DEV_CHAIN_FULL_IDENTIFIER,
+        };
+        write!(f, "{}", identifier)
     }
 }
 
@@ -95,6 +112,7 @@ fn return_record_opt_body<'a>(
 
 #[cfg(test)]
 mod tests {
+    use crate::shared_schema::official_chain_names;
     use super::*;
 
     #[test]
@@ -129,11 +147,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Clap let in a wrong value for chain: 'olala'; if this happens we need to track down the slit"
-    )]
-    fn gibberish_causes_a_panic() {
-        let _ = Chain::from("olala");
+    fn gibberish_causes_an_error() {
+        let result = Chain::from_str("olala");
+        assert_eq! (result, Err("Clap let in a wrong value for chain: 'olala'; if this happens we need to track down the slit".to_string()))
+    }
+
+    #[test]
+    fn from_str_and_display_work() {
+        official_chain_names().iter().for_each(|expected_name| {
+            let chain = Chain::from_str(*expected_name).unwrap();
+            let actual_name = chain.to_string();
+            assert_eq! (&actual_name, expected_name);
+        })
     }
 
     fn make_defaulted_blockchain_record<'a>() -> BlockchainRecord {

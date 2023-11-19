@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashMap;
 use crate::blockchains::chains::Chain;
 use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
@@ -11,6 +12,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use clap::ArgMatches;
+use crate::shared_schema::{LogLevel, NeighborhoodMode};
+use crate::shared_schema::common_validators::{InsecurePort, VecU64};
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -70,6 +74,54 @@ fn compute_data_directory_help() -> String {
             &home_dir.to_string_lossy().to_string().as_str(),
             home_dir.to_string_lossy().to_string().as_str()
     )
+}
+
+
+pub trait ArgumentConverter {
+    fn convert(&self, matches: &ArgMatches, key: &str) -> Option<String>;
+}
+
+macro_rules! argument_converter_for {
+    ($exotic_type: ty, $converter_type: ident) => {
+        struct $converter_type {}
+        impl ArgumentConverter for $converter_type {
+            fn convert(&self, matches: &ArgMatches, key: &str) -> Option<String> {
+                matches
+                    .get_one::<$exotic_type>(key)
+                    .map(|v| v.to_string())
+            }
+        }
+    };
+}
+
+macro_rules! make_converter_entry {
+    ($arg_name: literal, $converter_type: ident) => {
+        ($arg_name, Box::new($converter_type {}) as Box<dyn ArgumentConverter>)
+    };
+}
+
+argument_converter_for!(NeighborhoodMode, NeighborhoodModeConverter);
+argument_converter_for!(LogLevel, LogLevelConverter);
+argument_converter_for!(VecU64, VecU64Converter);
+argument_converter_for!(Chain, ChainConverter);
+argument_converter_for!(InsecurePort, InsecurePortConverter);
+
+fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter>> {
+    HashMap::from([
+        make_converter_entry!("neighborhood-mode", NeighborhoodModeConverter),
+        make_converter_entry!("log-level", LogLevelConverter),
+        make_converter_entry!("scan-intervals", VecU64Converter),
+        make_converter_entry!("chain", ChainConverter),
+        make_converter_entry!("clandestine-port", InsecurePortConverter),
+    ])
+}
+
+pub fn get_argument_value_as_string(matches: &ArgMatches, key: &str) -> Option<String> {
+    // TODO: We should find a way to make the map of converters a static constant
+    match make_argument_converters().get(key) {
+        None => matches.get_one::<String>(key).map(|string_ref| string_ref.to_string()),
+        Some(converter) => converter.convert(matches, key),
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -489,6 +541,8 @@ mod tests {
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
+    use clap::Command;
+    use crate::shared_schema::shared_app;
 
     #[test]
     fn constants_have_correct_values() {
@@ -503,6 +557,74 @@ mod tests {
         assert_eq!(FIND_FREE_PORT_LOWEST, 32768);
         assert_eq!(FIND_FREE_PORT_HIGHEST, 65535);
         assert_eq!(DERIVATION_PATH_ROOT, "m/44'/60'/0'");
+    }
+
+    #[test]
+    fn get_argument_value_as_string_handles_exotic_types() {
+        let command = shared_app(Command::new("test"));
+        let matches = command.try_get_matches_from(&["first",
+            "--chain", "polygon-mainnet",
+            "--clandestine-port", "1234",
+            "--config-file", "../directory/file.toml",
+            "--consuming-private-key", "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100",
+            "--crash-point", "panic",
+            "--data-directory", "~/grandfather/father/target",
+            "--dns-servers", "1.2.3.4,2.3.4.5",
+            "--earning-wallet", "0x0123456789abcdef0123456789abcdef01234567",
+            "--fake-public-key", "Ym9vZ2EK",
+            "--gas-price", "1234",
+            "--ip", "3.4.5.6",
+            "--log-level", "warn",
+            "--mapping-protocol", "igdp",
+            "--min-hops", "4",
+            "--neighborhood-mode", "zero-hop",
+            "--neighbors", "1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567",
+            "--real-user", "4321:5432:/home/billy",
+            "--scans", "off",
+            "--scan-intervals",  "10|20|30",
+            "--rate-pack", "10|20|30|40",
+            "--payment-threshold", "10|20|30|40|50|60",
+        ]).unwrap();
+        let verifier = |key, expected_value: Option<&str>| {
+            let result = get_argument_value_as_string(&matches, key);
+            assert_eq! (result, expected_value.map(|v| v.to_string()))
+        };
+
+        verifier("blockchain-service-url", Some("https://blockchain.client.net/api/jsonrpc"));
+
+        verifier("chain", Some("polygon-mainnet"));
+        verifier("clandestine-port", Some("1234"));
+        verifier("config-file", Some("../directory/file.toml"));
+        verifier("consuming-private-key", Some("00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100"));
+        verifier("crash-point", Some("panic"));
+        verifier("data-directory", Some("~/grandfather/father/target"));
+        verifier("dns-servers", Some("1.2.3.4,2.3.4.5"));
+        verifier("earning-wallet", Some("0x0123456789abcdef0123456789abcdef01234567"));
+        verifier("fake-public-key", Some("Ym9vZ2EK"));
+        verifier("gas-price", Some("1234"));
+        verifier("ip", Some("3.4.5.6"));
+        verifier("log-level", Some("warn"));
+        verifier("mapping-protocol", Some("igdp"));
+        verifier("min-hops", Some("4"));
+        verifier("neighborhood-mode", Some("zero-hop"));
+        verifier("neighbors", Some("1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567"));
+        verifier("real-user", Some("4321:5432:/home/billy"));
+        verifier("scans", Some("off"));
+        verifier("scan-intervals", Some("10|20|30"));
+        verifier("rate-pack", Some("10|20|30|40"));
+        verifier("payment-threshold", Some("10|20|30|40|50|60"))
+    }
+
+    #[test]
+    fn get_argument_value_as_string_handles_mundane_types() {
+        let command = shared_app(Command::new("test"));
+        let matches = command.try_get_matches_from(&["first",
+            "--db-password", "boogety bop",
+        ]).unwrap();
+
+                let result = get_argument_value_as_string(&matches, "db-password");
+
+        assert_eq! (result, Some("boogety bop".to_string()));
     }
 
     #[test]

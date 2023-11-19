@@ -1192,11 +1192,11 @@ mod tests {
     #[test]
     fn top_records_ordering_from_str() {
         assert_eq!(
-            TopRecordsOrdering::try_from("balance").unwrap(),
+            TopRecordsOrdering::from_str("balance").unwrap(),
             TopRecordsOrdering::Balance
         );
         assert_eq!(
-            TopRecordsOrdering::try_from("age").unwrap(),
+            TopRecordsOrdering::from_str("age").unwrap(),
             TopRecordsOrdering::Age
         )
     }
@@ -1204,7 +1204,7 @@ mod tests {
     #[test]
     fn top_records_ordering_from_str_error() {
         assert_eq!(
-            TopRecordsOrdering::try_from("upside-down"),
+            TopRecordsOrdering::from_str("upside-down"),
             Err("Unrecognized ordering: 'upside-down'".to_string())
         );
     }

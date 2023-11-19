@@ -12,7 +12,7 @@ workspace = "../node"
 [dependencies]
 time = {version = "0.3.11", features = [ "macros" ]}
 clap = "4.4.6"
-crossbeam-channel = "0.5.1"
+crossbeam-channel = { version = "0.5.1" }
 itertools = "0.8.0"
 lazy_static = "1.4.0"
 linefeed = "0.6.0"

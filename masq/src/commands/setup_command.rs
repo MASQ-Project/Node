@@ -3,21 +3,22 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{Command as ClapCommand};
+use clap::{ArgMatches, Command as ClapCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
-use masq_lib::shared_schema::{data_directory_arg, shared_app};
+use masq_lib::shared_schema::{data_directory_arg, NeighborhoodMode, shared_app};
 use masq_lib::short_writeln;
-use masq_lib::utils::{index_of_from, DATA_DIRECTORY_DAEMON_HELP};
+use masq_lib::utils::{index_of_from, DATA_DIRECTORY_DAEMON_HELP, get_argument_value_as_string};
 #[cfg(test)]
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::Iterator;
+use itertools::Itertools;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -25,8 +26,17 @@ const SETUP_COMMAND_ABOUT: &str =
     "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
 
 pub fn setup_subcommand() -> ClapCommand {
-    shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT))
-        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
+    let command_with_old_data_directory = shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT));
+    let args_except_data_directory = command_with_old_data_directory.get_arguments()
+        .filter(|arg| arg.get_long() != Some("data-directory"))
+        .collect_vec();
+    let command_with_new_data_directory = ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT)
+        .args(args_except_data_directory)
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()));
+    command_with_new_data_directory
+
+    // shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT))
+    //     .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -58,7 +68,8 @@ impl Command for SetupCommand {
 
 impl SetupCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let matches = match setup_subcommand().try_get_matches_from(pieces) {
+        let subcommand = setup_subcommand();
+        let matches = match subcommand.try_get_matches_from(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(format!("{}", e)),
         };
@@ -68,8 +79,8 @@ impl SetupCommand {
             .map(|piece| piece[2..].to_string())
             .map(|key| {
                 if Self::has_value(pieces, &key) {
-                    let value = matches.get_one::<String>(&key).expect("Value disappeared!");
-                    UiSetupRequestValue::new(&key, value)
+                    let value = get_argument_value_as_string(&matches, &key).expect("Value disappeared");
+                    UiSetupRequestValue::new(&key, &value)
                 } else {
                     UiSetupRequestValue::clear(&key)
                 }
@@ -187,14 +198,7 @@ mod tests {
             .err()
             .unwrap();
 
-        assert_eq!(msg.contains("Found argument '"), true, "{}", msg);
-        assert_eq!(msg.contains("--booga"), true, "{}", msg);
-        assert_eq!(
-            msg.contains("which wasn't expected, or isn't valid in this context"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument '"), true, "{}", msg);
     }
 
     #[test]
@@ -225,15 +229,11 @@ mod tests {
         let subject = factory
             .make(&[
                 "setup".to_string(),
-                "--neighborhood-mode".to_string(),
-                "zero-hop".to_string(),
+                "--neighborhood-mode".to_string(), "zero-hop".to_string(),
                 "--log-level".to_string(),
-                "--chain".to_string(),
-                "polygon-mainnet".to_string(),
-                "--scan-intervals".to_string(),
-                "123|111|228".to_string(),
-                "--scans".to_string(),
-                "off".to_string(),
+                "--chain".to_string(), "polygon-mainnet".to_string(),
+                "--scan-intervals".to_string(), "123|111|228".to_string(),
+                "--scans".to_string(), "off".to_string(),
             ])
             .unwrap();
 

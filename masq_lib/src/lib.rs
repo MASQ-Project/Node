@@ -20,6 +20,7 @@ pub mod command;
 pub mod constants;
 pub mod crash_point;
 pub mod data_version;
+pub mod node_addr;
 pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;
