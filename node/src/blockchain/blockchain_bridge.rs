@@ -362,9 +362,9 @@ impl BlockchainBridge {
             .clone();
 
         let send_message_if_failure = move |msg: SentPayables| {
+            eprintln!("Before Sending message: {:?}", msg);
             sent_payable_subs.try_send(msg).expect("Accountant is dead");
         };
-
         let send_message_if_successful = send_message_if_failure.clone();
 
         return Box::new(
@@ -490,6 +490,7 @@ impl BlockchainBridge {
         F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
     {
+        // TODO: GH-744 This function could be Mocked and tested
         let skeleton_opt = msg.skeleton_opt();
         let logger = self.logger.clone();
         let scan_error_subs_opt = self.scan_error_subs_opt.clone();
@@ -505,6 +506,7 @@ impl BlockchainBridge {
                 })
                 .expect("Accountant is dead");
         });
+
         actix::spawn(future);
     }
 
@@ -599,6 +601,7 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
+    use crate::blockchain::blockchain_interface::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
@@ -610,7 +613,10 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::recorder::{
+        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from, make_recorder,
+        peer_actors_builder,
+    };
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::{
@@ -1059,8 +1065,9 @@ mod tests {
         system.run();
         let mut send_payables_within_batch_params =
             send_payables_within_batch_params_arc.lock().unwrap();
+
         todo!("GH-744: these assertions are failing due to futures ");
-        //cannot assert on the captured recipient as its actor is gone after the System stops spinning
+        // cannot assert on the captured recipient as its actor is gone after the System stops spinning
         // let (
         //     consuming_wallet_actual,
         //     gas_price_actual,
@@ -1073,10 +1080,10 @@ mod tests {
         // assert_eq!(gas_price_actual, expected_gas_price);
         // assert_eq!(nonce_actual, U256::from(1u64));
         // assert_eq!(accounts_actual, accounts);
-
-        let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
-        assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        //
+        // let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
+        // assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
+        // let accountant_recording = accountant_recording_arc.lock().unwrap();
 
         // let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         // assert_eq!(
@@ -1107,26 +1114,21 @@ mod tests {
             "handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant",
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let hash = make_tx_hash(0xde);
+        let accountant_addr = accountant
+            .system_stop_conditions(match_every_type_id!(SentPayables))
+            .start();
         let wallet_account = make_wallet("blah");
-        let expected_error_msg = "We were so close but we stumbled and smashed our face against \
-         the ground just a moment after the signing";
-        let expected_error = Err(PayableTransactionError::Sending {
-            msg: expected_error_msg.to_string(),
-            hashes: vec![hash],
-        });
         let url = "https://www.example.com";
         let (_event_loop_handle, http) =
             Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_chain_result(DEFAULT_CHAIN)
             .get_batch_web3_result(Web3::new(Batch::new(http)))
-            .get_transaction_count_result(Ok(U256::from(1u64)))
-            .send_payables_within_batch_result(expected_error.clone());
+            .get_transaction_count_result(Ok(U256::from(1u64)));
         let persistent_configuration_mock =
             PersistentConfigurationMock::default().gas_price_result(Ok(123));
         let consuming_wallet = make_paying_wallet(b"somewallet");
-        let subject = BlockchainBridge::new(
+        let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
@@ -1134,7 +1136,8 @@ mod tests {
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        let mut peer_actors = peer_actors_builder().build();
+        peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
         let accounts = vec![PayableAccount {
             wallet: wallet_account,
             balance_wei: 111_420_204,
@@ -1153,22 +1156,17 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        todo!("GH-744: This test is failing due to asserting on futures");
-        let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
-        assert_eq!(
-            *sent_payments_msg,
-            SentPayables {
-                payment_procedure_result: expected_error,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                })
-            }
+        let sent_payments_msg = accountant_recording.get_record::<SentPayables>(1);
+        assert_sending_error(
+            sent_payments_msg
+                .payment_procedure_result
+                .as_ref()
+                .unwrap_err(),
+            "Got invalid response",
         );
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
+        let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
         assert_eq!(
             *scan_error_msg,
             ScanError {
@@ -1178,13 +1176,11 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"{}\". Signed and hashed transactions: \
-            0x00000000000000000000000000000000000000000000000000000000000000de",
-                    expected_error_msg
+                    "ReportAccountsPayable: Sending phase: \"Got invalid response: Error(\"expected value\", line: 1, column: 1)\". Signed and hashed transactions: 0x1ceb46eee9890827f5fe9fef0243408f965a587688b81bb05a022b599ee96c6b"
                 )
             }
         );
-        assert_eq!(accountant_recording.len(), 2)
+        assert_eq!(accountant_recording.len(), 3)
     }
 
     #[test]
@@ -1271,8 +1267,19 @@ mod tests {
 
         let result = subject.process_payments(&request).wait();
 
-        if let PayableTransactionError::Sending { msg, hashes } = result.as_ref().unwrap_err() {
-            assert!(msg.contains("Got invalid response"));
+        assert_sending_error(result.as_ref().unwrap_err(), "Got invalid response");
+    }
+
+    fn assert_sending_error(error: &PayableTransactionError, error_msg: &str) {
+        if let PayableTransactionError::Sending { msg, hashes } = error {
+            if msg.contains(error_msg) {
+                assert!(msg.contains(error_msg));
+            } else {
+                panic!(
+                    "Error message: {:?} was not found inside: {:?}",
+                    error_msg, msg
+                );
+            }
         } else {
             panic!("Received wrong error");
         }
