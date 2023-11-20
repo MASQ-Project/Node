@@ -62,8 +62,6 @@ impl<'a> MultiConfig<'a> {
         schema: &App<'a, 'a>,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        let initial: Box<dyn VirtualCommandLine> =
-            Box::new(CommandLineVcl::new(vec![String::new()]));
         let mut computed_value_names = HashSet::new();
         vcls.iter().for_each(|vcl| {
             vcl.vcl_args().iter().for_each(|vcl_arg| {
@@ -73,7 +71,8 @@ impl<'a> MultiConfig<'a> {
                 };
             })
         });
-        // TODO pull this out to function to use in determine_user_specific_data
+        let initial: Box<dyn VirtualCommandLine> =
+            Box::new(CommandLineVcl::new(vec![String::new()]));
         let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
@@ -90,6 +89,7 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
+
         Ok(MultiConfig {
             arg_matches,
             computed_value_names,
@@ -169,7 +169,6 @@ impl<'a> MultiConfig<'a> {
 
 pub trait VclArg: Debug {
     fn name(&self) -> &str;
-    fn value_opt(&self) -> Option<&str>;
     fn to_args(&self) -> Vec<String>;
     fn dup(&self) -> Box<dyn VclArg>;
 }
@@ -195,9 +194,7 @@ impl VclArg for NameValueVclArg {
     fn name(&self) -> &str {
         &self.name
     }
-    fn value_opt(&self) -> Option<&str> {
-        Some(self.value.as_str())
-    }
+
     fn to_args(&self) -> Vec<String> {
         vec![self.name.clone(), self.value.clone()]
     }
@@ -225,9 +222,7 @@ impl VclArg for NameOnlyVclArg {
     fn name(&self) -> &str {
         &self.name
     }
-    fn value_opt(&self) -> Option<&str> {
-        None
-    }
+
     fn to_args(&self) -> Vec<String> {
         vec![self.name.clone()]
     }
@@ -406,7 +401,7 @@ impl EnvironmentVcl {
             .collect();
         let mut vcl_args: Vec<Box<dyn VclArg>> = vec![];
         for (upper_name, value) in std::env::vars() {
-            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") || (value == *"") {
+            if (upper_name.len() < 5) || (&upper_name[0..5] != "MASQ_") {
                 continue;
             }
             let lower_name = str::replace(&upper_name[5..].to_lowercase(), "_", "-");
@@ -574,11 +569,10 @@ fn append<T>(ts: Vec<T>, t: T) -> Vec<T> {
 impl<'a> MultiConfig<'a> {
     pub fn new_test_only(
         arg_matches: ArgMatches<'a>,
-        computed_value_names: HashSet<String>,
     ) -> Self {
         Self {
             arg_matches,
-            computed_value_names,
+            computed_value_names: HashSet::new()
         }
     }
 }
@@ -591,7 +585,6 @@ pub mod tests {
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
-    use std::ops::Deref;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {
@@ -1038,40 +1031,6 @@ pub mod tests {
     }
 
     #[test]
-    fn command_line_vcl_return_value_from_vcl_args_by_name() {
-        let command_line: Vec<String> = vec![
-            "",
-            "--first-value",
-            "/nonexistent/directory",
-            "--takes_no_value",
-            "--other_takes_no_value",
-        ]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
-
-        let subject = CommandLineVcl::new(command_line.clone());
-        let existing_value = match subject
-            .vcl_args
-            .iter()
-            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--first-value")
-        {
-            Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
-            None => None,
-        };
-        let non_existing_value = match subject
-            .vcl_args
-            .iter()
-            .find(|vcl_arg_box| vcl_arg_box.deref().name() == "--takes_no_value")
-        {
-            Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
-            None => None,
-        };
-        assert_eq!(existing_value.unwrap(), "/nonexistent/directory");
-        assert_eq!(non_existing_value, None);
-    }
-
-    #[test]
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
         let command_line: Vec<String> = vec!["", "value"]
@@ -1090,14 +1049,8 @@ pub mod tests {
                 Arg::with_name("numeric-arg")
                     .long("numeric-arg")
                     .takes_value(true),
-            )
-            .arg(
-                Arg::with_name("empty-arg")
-                    .long("empty-arg")
-                    .takes_value(true),
             );
         std::env::set_var("MASQ_NUMERIC_ARG", "47");
-        std::env::set_var("MASQ_EMPTY_ARG", "");
 
         let subject = EnvironmentVcl::new(&schema);
 
