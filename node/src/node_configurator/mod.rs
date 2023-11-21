@@ -11,74 +11,78 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::utils::db_connection_launch_panic;
+use crate::sub_lib::utils::{db_connection_launch_panic, make_new_multi_config};
 use clap::{value_t, App};
 use core::option::Option;
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
+use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::env::current_dir;
 use std::net::{SocketAddr, TcpListener};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
+#[derive(Default)]
 #[derive(Debug)]
-pub struct UserSpecifiedData {
-    pub(crate) chain: Chain,
-    pub(crate) chain_spec: bool,
-    pub(crate) real_user: RealUser,
-    pub(crate) real_user_spec: bool,
-    pub(crate) data_directory: PathBuf,
-    pub(crate) data_directory_spec: bool,
-    pub(crate) config_file: PathBuf,
-    pub(crate) config_file_spec: bool,
+pub struct FieldPair<T> {
+    pub(crate) item: T,
+    pub(crate) user_specified: bool
 }
 
-fn get_chain_from_vcl(configs: &[Box<dyn VclArg>]) -> (Chain, bool) {
-    match argument_from_vcl(configs, "--chain") {
-        Some(chain) => (Chain::from(chain), true),
-        None => (DEFAULT_CHAIN, false),
+impl<T> FieldPair<T> {
+    fn new(item: T, user_specified: bool) -> Self {
+        FieldPair {
+            item,
+            user_specified,
+        }
     }
 }
 
-fn get_real_user_from_vcl(
-    configs: &[Box<dyn VclArg>],
+#[derive(Debug)]
+pub struct ConfigInitializationData {
+    pub(crate) chain: FieldPair<Chain>,
+    pub(crate) real_user: FieldPair<RealUser>,
+    pub(crate) data_directory: FieldPair<PathBuf>,
+    pub(crate) config_file: FieldPair<PathBuf>,
+}
+
+fn get_chain_from_mc(multi_config: &MultiConfig) -> FieldPair<Chain> {
+    let chain = value_m!(multi_config, "chain", String);
+    match chain {
+        Some(chain) => FieldPair::new(Chain::from(&*chain), true),
+        None => FieldPair::new(DEFAULT_CHAIN, false),
+    }
+}
+
+fn get_real_user_from_mc(
+    multi_config: &MultiConfig,
     dirs_wrapper: &dyn DirsWrapper,
-) -> (RealUser, bool) {
-    match argument_from_vcl(configs, "--real-user") {
+) -> FieldPair<RealUser> {
+    let rel_user = value_m!(multi_config, "real-user", RealUser);
+    match rel_user {
         Some(user) => {
-            let real_user_split: Vec<&str> = user.split(':').collect();
-            (
-                RealUser::new(
-                    Some(real_user_split[0].parse::<i32>().expect("expected user id")),
-                    Some(
-                        real_user_split[1]
-                            .parse::<i32>()
-                            .expect("expected user group"),
-                    ),
-                    Some(PathBuf::from(real_user_split[2])),
-                ),
+            FieldPair::new(
+                user,
                 true,
             )
         }
         None => {
             #[cfg(target_os = "windows")]
             {
-                (
+                FieldPair::new(
                     RealUser::new(Some(999999), Some(999999), None).populate(dirs_wrapper),
                     false,
                 )
             }
             #[cfg(not(target_os = "windows"))]
             {
-                (
+                FieldPair::new(
                     RealUser::new(None, None, None).populate(dirs_wrapper),
                     false,
                 )
@@ -87,161 +91,131 @@ fn get_real_user_from_vcl(
     }
 }
 
-fn get_data_directory_from_vcl(
-    configs: &[Box<dyn VclArg>],
+fn get_data_directory_from_mc(
+    multi_config: &MultiConfig,
     dirs_wrapper: &dyn DirsWrapper,
     real_user: &RealUser,
     chain: &Chain,
-) -> (PathBuf, bool) {
-    match argument_from_vcl(configs, "--data-directory") {
-        Some(data_dir) => match PathBuf::from(data_dir).starts_with("~/") {
+) -> FieldPair<PathBuf> {
+    let data_directory = value_m!(multi_config, "data-directory", PathBuf);
+    match data_directory {
+        Some(data_dir) => match data_dir.starts_with("~/") {
             true => {
                 let home_dir_from_wrapper = dirs_wrapper
                     .home_dir()
-                    .expect("expexted users home dir")
+                    .expect("expected users home dir")
                     .to_str()
-                    .expect("expect home dir")
+                    .expect("expected home dir")
                     .to_string();
                 let replaced_tilde_dir =
-                    data_dir
+                    data_dir.display()
                         .to_string()
                         .replacen('~', home_dir_from_wrapper.as_str(), 1);
-                (PathBuf::from(replaced_tilde_dir), true)
+                FieldPair::new(PathBuf::from(replaced_tilde_dir), true)
             }
-            false => (PathBuf::from(&data_dir), true),
+            false => FieldPair::new(data_dir, true),
         },
-        None => (
+        None => FieldPair::new(
             data_directory_from_context(dirs_wrapper, real_user, *chain),
             false,
         ),
     }
 }
 
-fn get_config_file_from_vcl(
-    configs: &[Box<dyn VclArg>],
+fn get_config_file_from_mc(
+    multi_config: &MultiConfig,
     data_directory: &PathBuf,
     data_directory_def: bool,
     dirs_wrapper: &dyn DirsWrapper,
-) -> (PathBuf, bool) {
-    match argument_from_vcl(configs, "--config-file") {
-        Some(config_str) => {
-            let path = match PathBuf::from(config_str).is_relative() {
+) -> FieldPair<PathBuf> {
+    let config_file = value_m!(multi_config, "config-file", PathBuf);
+    match config_file {
+        Some(config_path) => {
+            let path = match config_path.is_relative() {
                 true => {
-                    match PathBuf::from(config_str).file_name().expect("expected file name") == config_str {
-                        true => PathBuf::from(data_directory).join(PathBuf::from(config_str)),
-                        false => match PathBuf::from(config_str).starts_with("./") || PathBuf::from(config_str).starts_with("../") {
-                            true => current_dir().expect("expected curerrnt dir").join(PathBuf::from(config_str)),
-                            false => match PathBuf::from(config_str).starts_with("~") {
+                    match config_path.file_name().expect("expected file name") == config_path {
+                        true => data_directory.join(PathBuf::from(config_path)),
+                        false => match config_path.starts_with("./") || config_path.starts_with("../") {
+                            true => current_dir().expect("expected current dir").join(config_path),
+                            false => match config_path.starts_with("~") {
                                 true => {
                                     let home_dir_from_wrapper = dirs_wrapper
                                         .home_dir()
-                                        .expect("expexted users home_dir")
+                                        .expect("expected users home_dir")
                                         .to_str()
-                                        .expect("expect str home_dir")
+                                        .expect("expected str home_dir")
                                         .to_string();
                                     let replaced_tilde_dir =
-                                        config_str
+                                        config_path.display()
                                             .to_string()
                                             .replacen('~', home_dir_from_wrapper.as_str(), 1);
                                     PathBuf::from(replaced_tilde_dir)
                                 }
                                 false => match data_directory_def {
-                                    true => PathBuf::from(data_directory).join(PathBuf::from(config_str)),
-                                    false => panic!("You need to define data-directory to define config file with naked directory 'dirname/config.toml'.")
+                                    true => data_directory.join(config_path),
+                                    false => panic!("You need to define data-directory to define config file with naked directory {}.", config_path.to_string_lossy())
                                 }
                             }
                         }
                     }
                 }
-                false => PathBuf::from(config_str),
+                false => config_path,
             };
-            (path, true)
+            FieldPair::new(path, true)
         }
         None => {
-            let path = PathBuf::from(data_directory).join(PathBuf::from("config.toml"));
+            let path = data_directory.join(PathBuf::from("config.toml"));
             match path.is_file() {
-                true => (path, true),
-                false => (path, false),
+                true => FieldPair::new(path, true),
+                false => FieldPair::new(path, false),
             }
         }
     }
 }
 
-fn config_file_data_dir_real_user_chain_from_vcl(
+fn config_file_data_dir_real_user_chain_from_mc(
     dirs_wrapper: &dyn DirsWrapper,
-    configs: Vec<Box<dyn VclArg>>,
-) -> UserSpecifiedData {
-    let mut user_specified_data = UserSpecifiedData {
+    multi_config: MultiConfig,
+) -> ConfigInitializationData {
+    let mut initialization_data = ConfigInitializationData {
         chain: Default::default(),
-        chain_spec: false,
         real_user: Default::default(),
-        real_user_spec: false,
         data_directory: Default::default(),
-        data_directory_spec: false,
         config_file: Default::default(),
-        config_file_spec: false,
     };
-    let configs = configs.as_slice();
-    (user_specified_data.chain, user_specified_data.chain_spec) = get_chain_from_vcl(configs);
-    (
-        user_specified_data.real_user,
-        user_specified_data.real_user_spec,
-    ) = get_real_user_from_vcl(configs, dirs_wrapper);
-    (
-        user_specified_data.data_directory,
-        user_specified_data.data_directory_spec,
-    ) = get_data_directory_from_vcl(
-        configs,
-        dirs_wrapper,
-        &user_specified_data.real_user,
-        &user_specified_data.chain,
-    );
-    (
-        user_specified_data.config_file,
-        user_specified_data.config_file_spec,
-    ) = get_config_file_from_vcl(
-        configs,
-        &user_specified_data.data_directory,
-        user_specified_data.data_directory_spec,
-        dirs_wrapper,
-    );
-    user_specified_data
-}
 
-fn argument_from_vcl<'a>(configs: &'a [Box<dyn VclArg>], needle: &'a str) -> Option<&'a str> {
-    match configs
-        .iter()
-        .find(|vcl_arg_box| vcl_arg_box.deref().name() == needle)
-    {
-        Some(vcl_arg_box) => vcl_arg_box.deref().value_opt(),
-        None => None,
-    }
+    initialization_data.chain = get_chain_from_mc(&multi_config);
+    initialization_data.real_user = get_real_user_from_mc(&multi_config, dirs_wrapper);
+    initialization_data.data_directory = get_data_directory_from_mc(
+        &multi_config,
+        dirs_wrapper,
+        &initialization_data.real_user.item,
+        &initialization_data.chain.item,
+    );
+    initialization_data.config_file = get_config_file_from_mc(
+        &multi_config,
+        &initialization_data.data_directory.item,
+        initialization_data.data_directory.user_specified,
+        dirs_wrapper,
+    );
+    initialization_data
 }
 
 pub fn determine_user_specific_data(
     dirs_wrapper: &dyn DirsWrapper,
     app: &App,
     args: &[String],
-) -> Result<UserSpecifiedData, ConfiguratorError> {
-    let orientation_args: Vec<Box<dyn VclArg>> = merge(
+) -> Result<ConfigInitializationData, ConfiguratorError> {
+    let orientation_args: Box<dyn VirtualCommandLine> = merge(
         Box::new(EnvironmentVcl::new(app)),
-        Box::new(CommandLineVcl::new(args.to_vec())),
-    )
-    .vcl_args()
-    .into_iter()
-    .filter(|vcl_arg| {
-        (vcl_arg.name() == "--chain")
-            || (vcl_arg.name() == "--real-user")
-            || (vcl_arg.name() == "--data-directory")
-            || (vcl_arg.name() == "--config-file")
-    })
-    .map(|vcl_arg| vcl_arg.dup())
-    .collect();
-    //TODO probably need to implement new merge from config_vcl with orientation_args
-    let user_specified_data =
-        config_file_data_dir_real_user_chain_from_vcl(dirs_wrapper, orientation_args);
+        Box::new(CommandLineVcl::new(args.to_vec()))
+    );
+    /* We create multiconfig to retrieve chain, real-user, data-directory and config file, to establish ConfigVcl */
+    let first_multi_config = make_new_multi_config(app, vec![orientation_args]).expect("expected MultiConfig");
+    let initialization_data =
+        config_file_data_dir_real_user_chain_from_mc(dirs_wrapper, first_multi_config);
 
-    Ok(user_specified_data)
+    Ok(initialization_data)
 }
 
 pub fn initialize_database(
@@ -375,35 +349,35 @@ mod tests {
         );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
-            .param("--clandestine-port", "2345")
             .param(
                 "--data-directory",
                 &data_directory.to_string_lossy().to_string(),
             )
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
-
+        let app = determine_config_file_path_app();
         let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
-            &determine_config_file_path_app(),
+            &app,
             args_vec.as_slice(),
         )
         .unwrap();
+
         assert_eq!(
             &format!(
                 "{}",
-                user_specific_data.config_file.parent().unwrap().display()
+                user_specific_data.config_file.item.parent().unwrap().display()
             ),
             &user_specific_data
-                .data_directory
-                .to_string_lossy()
-                .to_string(),
+            .data_directory.item
+            .to_string_lossy()
+            .to_string(),
         );
         assert_eq!(
             "booga.toml",
-            user_specific_data.config_file.file_name().unwrap()
+            user_specific_data.config_file.item.file_name().unwrap()
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[test]
@@ -420,28 +394,32 @@ mod tests {
             &data_directory.to_string_lossy().to_string(),
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
-
+        let app = determine_config_file_path_app();
         let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
-            &determine_config_file_path_app(),
+            &app,
             args_vec.as_slice(),
         )
         .unwrap();
         assert_eq!(
             format!(
                 "{}",
-                user_specific_data.config_file.parent().unwrap().display()
+                user_specific_data.config_file.item.parent().unwrap().display()
             ),
             user_specific_data
-                .data_directory
+                .data_directory.item
                 .to_string_lossy()
                 .to_string(),
         );
         assert_eq!(
             "booga.toml",
-            user_specific_data.config_file.file_name().unwrap()
+            user_specific_data.config_file.item.file_name().unwrap()
         );
-        assert_eq!(user_specific_data.real_user_spec, false); //all these assertions of 'real_user_specified' was incorrect, no idea how this tests could pass before
+        assert_eq!(
+            user_specific_data.config_file.user_specified,
+            true
+        );
+        assert_eq!(user_specific_data.real_user.user_specified, false); //all these assertions of 'real_user_specified' was incorrect, no idea how this tests could pass before
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -453,18 +431,19 @@ mod tests {
             .param("--config-file", "/tmp/booga.toml");
         let args_vec: Vec<String> = args.into();
 
+        let app = determine_config_file_path_app();
         let user_specific_data = determine_user_specific_data(
             &DirsWrapperReal {},
-            &determine_config_file_path_app(),
+            &app,
             args_vec.as_slice(),
         )
         .unwrap();
 
         assert_eq!(
             "/tmp/booga.toml",
-            &format!("{}", user_specific_data.config_file.display())
+            &format!("{}", user_specific_data.config_file.item.display())
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -485,9 +464,9 @@ mod tests {
 
         assert_eq!(
             r"\tmp\booga.toml",
-            &format!("{}", user_specific_data.config_file.display())
+            &format!("{}", user_specific_data.config_file.item.display())
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -508,9 +487,9 @@ mod tests {
 
         assert_eq!(
             r"c:\tmp\booga.toml",
-            &format!("{}", user_specific_data.config_file.display())
+            &format!("{}", user_specific_data.config_file.item.display())
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -531,9 +510,9 @@ mod tests {
 
         assert_eq!(
             r"\\TMP\booga.toml",
-            &format!("{}", user_specific_data.config_file.display())
+            &format!("{}", user_specific_data.config_file.item.display())
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[cfg(target_os = "windows")]
@@ -555,9 +534,9 @@ mod tests {
 
         assert_eq!(
             r"c:tmp\booga.toml",
-            &format!("{}", user_specific_data.config_file.display())
+            &format!("{}", user_specific_data.config_file.item.display())
         );
-        assert_eq!(user_specific_data.real_user_spec, false);
+        assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
     #[test]

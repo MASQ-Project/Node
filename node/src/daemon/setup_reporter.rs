@@ -498,8 +498,8 @@ impl SetupReporterReal {
             let user_specific_data =
                 determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(
-                &user_specific_data.config_file,
-                user_specific_data.config_file_spec,
+                &user_specific_data.config_file.item,
+                user_specific_data.config_file.user_specified,
             ) {
                 Ok(cfv) => cfv,
                 Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),

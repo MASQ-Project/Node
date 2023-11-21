@@ -573,7 +573,7 @@ pub mod unshared_test_utils {
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::any::TypeId;
     use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::num::ParseIntError;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::{Path, PathBuf};
@@ -643,7 +643,7 @@ pub mod unshared_test_utils {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
         let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
-        MultiConfig::new_test_only(arg_matches, HashSet::new())
+        MultiConfig::new_test_only(arg_matches)
     }
 
     pub const ZERO: u32 = 0b0;
