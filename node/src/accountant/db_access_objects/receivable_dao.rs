@@ -1,22 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::WalletAddress;
-use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
-    Addition, Subtraction,
-};
-use crate::accountant::big_int_processing::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
-};
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::checked_conversion;
-use crate::accountant::database_access_objects::dao_utils;
-use crate::accountant::database_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
+use crate::accountant::db_access_objects::utils;
+use crate::accountant::db_access_objects::utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::database_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
+use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::WalletAddress;
+use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
+use crate::accountant::db_big_integer::big_int_db_processor::{
+    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
+};
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -31,8 +29,6 @@ use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-#[cfg(test)]
-use std::any::Any;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -86,7 +82,7 @@ pub trait ReceivableDao: Send {
     //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
-    declare_as_any!();
+    as_any_in_trait!();
 }
 
 pub trait ReceivableDaoFactory {
@@ -269,7 +265,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl ReceivableDaoReal {
@@ -335,7 +331,7 @@ impl ReceivableDaoReal {
                 Ok(ReceivableAccount {
                     wallet,
                     balance_wei: BigIntDivider::reconstitute(high_bytes, low_bytes),
-                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                    last_received_timestamp: utils::from_time_t(last_received_timestamp),
                 })
             }
             e => panic!(
@@ -413,16 +409,17 @@ impl TableNameDAO for ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::{
-        from_time_t, now_time_t, to_time_t,
+    use crate::accountant::db_access_objects::utils::{
+        from_time_t, now_time_t, to_time_t, CustomQuery,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account,
     };
-    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
-    use crate::database::db_initializer::{DbInitializerReal, ExternalData};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
+    };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -1438,7 +1435,7 @@ mod tests {
             .unwrap();
 
         let insert = insert_account_by_separate_values;
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = utils::now_time_t();
         insert(
             &*conn,
             "0x1111111111111111111111111111111111111111",

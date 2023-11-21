@@ -8,7 +8,6 @@ use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
@@ -78,7 +77,6 @@ pub struct ProxyServerSubs {
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure_0v1>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
     pub route_result_sub: Recipient<AddRouteResultMessage>,
 }
@@ -110,7 +108,6 @@ mod tests {
             ),
             add_return_route: recipient!(recorder, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
             route_result_sub: recipient!(recorder, AddRouteResultMessage),
         };

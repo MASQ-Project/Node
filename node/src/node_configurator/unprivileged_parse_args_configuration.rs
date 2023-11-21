@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
@@ -20,7 +20,7 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -173,8 +173,8 @@ pub fn get_wallets(
                     consuming_private_key
                 )
             });
-        let key_pair =
-            Bip32ECKeyProvider::from_raw_secret(key_bytes.as_slice()).unwrap_or_else(|_| {
+        let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(key_bytes.as_slice())
+            .unwrap_or_else(|_| {
                 panic!(
                     "Wallet corruption: consuming wallet private key in invalid format: {:?}",
                     key_bytes
@@ -343,10 +343,8 @@ fn convert_ci_configs(
     match value_m!(multi_config, "neighbors", String) {
         None => Ok(None),
         Some(joined_configs) => {
-            let separate_configs: Vec<String> = joined_configs
-                .split(',')
-                .map(|s| s.to_string())
-                .collect_vec();
+            let separate_configs: Vec<String> =
+                joined_configs.split(',').map(to_string).collect_vec();
             if separate_configs.is_empty() {
                 Ok(None)
             } else {
@@ -623,9 +621,9 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::database_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -1558,7 +1556,8 @@ mod tests {
         assert_eq!(
             config.consuming_wallet_opt,
             Some(Wallet::from(
-                Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap()
+                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice())
+                    .unwrap()
             )),
         );
         assert_eq!(
@@ -2633,8 +2632,7 @@ mod tests {
         rate_pack_opt: Option<RatePack>,
         min_hops_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
-        let consuming_wallet_private_key_opt =
-            consuming_wallet_private_key_opt.map(|x| x.to_string());
+        let consuming_wallet_private_key_opt = consuming_wallet_private_key_opt.map(to_string);
         let earning_wallet_opt = match earning_wallet_address_opt {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
@@ -2653,9 +2651,7 @@ mod tests {
         let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result(
-                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
-            )
+            .earning_wallet_address_result(Ok(earning_wallet_address_opt.map(to_string)))
             .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)

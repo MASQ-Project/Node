@@ -47,6 +47,7 @@ macro_rules! values_m {
     }};
 }
 
+#[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
 }
@@ -500,6 +501,7 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::utils::to_string;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
@@ -928,7 +930,7 @@ pub mod tests {
             "--other_takes_no_value",
         ]
         .into_iter()
-        .map(|s| s.to_string())
+        .map(to_string)
         .collect();
 
         let subject = CommandLineVcl::new(command_line.clone());
@@ -951,10 +953,7 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
-        let command_line: Vec<String> = vec!["", "value"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        let command_line: Vec<String> = vec!["", "value"].into_iter().map(to_string).collect();
 
         CommandLineVcl::new(command_line.clone());
     }
@@ -1126,6 +1125,7 @@ pub mod tests {
         }
 
         let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+
         assert_contains(
             &result.to_string(),
             "doesn't make sense: parameter 'array' must have a scalar value, not an array value.",

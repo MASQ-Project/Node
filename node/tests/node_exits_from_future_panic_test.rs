@@ -3,18 +3,23 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
+use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+use masq_lib::utils::add_chain_specific_directory;
+use std::fs::create_dir_all;
 #[cfg(not(target_os = "windows"))]
 use std::process;
 #[cfg(not(target_os = "windows"))]
 use std::thread;
 #[cfg(not(target_os = "windows"))]
 use std::time::Duration;
+use utils::MASQNode;
 
 #[test]
 fn node_exits_from_future_panic_integration() {
     let panic_config = CommandConfig::new().pair("--crash-point", "panic");
 
-    let mut node = utils::MASQNode::start_standard(
+    let mut node = MASQNode::start_standard(
         "node_exits_from_future_panic_integration",
         Some(panic_config),
         true,
@@ -29,9 +34,17 @@ fn node_exits_from_future_panic_integration() {
 
 #[test]
 fn node_logs_panic_integration() {
-    let panic_config = CommandConfig::new().pair("--crash-point", "panic");
-
-    let mut node = utils::MASQNode::start_standard(
+    let data_directory =
+        ensure_node_home_directory_exists("integration", "node_logs_panic_integration");
+    let data_dir_chain_path = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
+    create_dir_all(&data_dir_chain_path).expect(
+        "Could not create chain directory inside node_logs_panic_integration home/MASQ directory",
+    );
+    let panic_config = CommandConfig::new()
+        .pair("--crash-point", "panic")
+        .pair("--chain", "polygon-mainnet")
+        .pair("--data-directory", data_directory.to_str().unwrap());
+    let mut node = MASQNode::start_standard(
         "node_logs_panic_integration",
         Some(panic_config),
         true,
@@ -52,15 +65,15 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn node_logfile_does_not_belong_to_root_integration() {
-    let mut node = utils::MASQNode::start_standard(
+    let mut node = MASQNode::start_standard(
         "node_logfile_does_not_belong_to_root_integration",
-        None,
+        Some(CommandConfig::new().pair("--chain", "polygon-mumbai")),
         true,
         true,
         false,
         true,
     );
-    let logfile_path = utils::MASQNode::path_to_logfile(&node.data_dir);
+    let logfile_path = MASQNode::path_to_logfile(&node.data_dir);
 
     thread::sleep(Duration::from_secs(2));
     node.kill().unwrap();

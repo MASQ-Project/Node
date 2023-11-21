@@ -12,9 +12,9 @@ use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::localhost;
+use masq_lib::utils::{localhost, to_string};
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
-use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -30,6 +30,7 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::string::ToString;
@@ -259,7 +260,7 @@ impl NodeStartupConfig {
     }
 
     fn slices_to_strings(strs: Vec<&str>) -> Vec<String> {
-        strs.into_iter().map(|x| x.to_string()).collect()
+        strs.into_iter().map(to_string).collect()
     }
 
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
@@ -376,7 +377,7 @@ impl NodeStartupConfig {
             EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
             EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::try_from((
+                let keypair = Bip32EncryptionKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
                 ))
@@ -391,12 +392,12 @@ impl NodeStartupConfig {
             ConsumingWalletInfo::None => None,
             ConsumingWalletInfo::PrivateKey(key) => {
                 let key_bytes = key.from_hex::<Vec<u8>>().unwrap();
-                let keypair = Bip32ECKeyProvider::from_raw_secret(&key_bytes).unwrap();
+                let keypair = Bip32EncryptionKeyProvider::from_raw_secret(&key_bytes).unwrap();
                 Some(Wallet::from(keypair))
             }
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
-                let keypair = Bip32ECKeyProvider::try_from((
+                let keypair = Bip32EncryptionKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
                     derivation_path.as_str(),
                 ))
@@ -641,7 +642,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
-        self.db_password = value.map(|str| str.to_string());
+        self.db_password = value.map(to_string);
         self
     }
 
@@ -1166,6 +1167,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
+        let log_file_path = Path::new(DATA_DIRECTORY).join(CURRENT_LOGFILE_NAME);
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {
@@ -1176,10 +1178,7 @@ impl MASQRealNode {
             thread::sleep(Duration::from_millis(250));
             match Self::exec_command_on_container_and_wait(
                 name,
-                vec![
-                    "cat",
-                    &format!("{}/{}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME),
-                ],
+                vec!["cat", &log_file_path.to_string_lossy()],
             ) {
                 Ok(output) => {
                     if let Some(captures) = descriptor_regex.captures(output.as_str()) {
@@ -1196,8 +1195,10 @@ impl MASQRealNode {
                 }
                 Err(e) => {
                     println!(
-                        "Failed to cat logfile for {} at {}/{}: {}",
-                        name, DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                        "Failed to cat logfile for {} at {}: {}",
+                        name,
+                        &log_file_path.to_string_lossy(),
+                        e
                     );
                 }
             };

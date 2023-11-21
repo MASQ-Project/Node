@@ -106,8 +106,8 @@ impl IdWrapperMock {
 }
 
 pub struct DirsWrapperMock {
-    data_dir_result: Option<PathBuf>,
-    home_dir_result: Option<PathBuf>,
+    pub(crate) data_dir_result: Option<PathBuf>,
+    pub(crate) home_dir_result: Option<PathBuf>,
 }
 
 impl DirsWrapper for DirsWrapperMock {
@@ -287,17 +287,6 @@ impl NullDiscriminatorFactory {
 
 pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<Recorder> {
     recorder.borrow_mut().take().unwrap().start()
-}
-
-pub fn make_stream_handler_pool_subs_from(
-    stream_handler_pool_opt: Option<Recorder>,
-) -> StreamHandlerPoolSubs {
-    let recorder = match stream_handler_pool_opt {
-        Some(recorder) => recorder,
-        None => Recorder::new(),
-    };
-    let addr = recorder.start();
-    make_stream_handler_pool_subs_from_recorder(&addr)
 }
 
 pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {

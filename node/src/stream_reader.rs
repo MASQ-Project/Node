@@ -213,11 +213,11 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
+    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from_recorder};
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
-    use crate::test_utils::recorder::make_dispatcher_subs_from;
+    use crate::test_utils::recorder::make_dispatcher_subs_from_recorder;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
@@ -238,13 +238,16 @@ mod tests {
 
     fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
         let (shp, _, recording) = make_recorder();
-        (recording, make_stream_handler_pool_subs_from(Some(shp)))
+        (
+            recording,
+            make_stream_handler_pool_subs_from_recorder(&shp.start()),
+        )
     }
 
     fn dispatcher_stuff() -> (Arc<Mutex<Recording>>, DispatcherSubs) {
         let (dispatcher, _, recording) = make_recorder();
         let addr: Addr<Recorder> = dispatcher.start();
-        (recording, make_dispatcher_subs_from(&addr))
+        (recording, make_dispatcher_subs_from_recorder(&addr))
     }
 
     #[test]

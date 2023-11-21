@@ -5,7 +5,7 @@ use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U64;
 use crate::sub_lib::combined_parameters::InitializationState::{Initialized, Uninitialized};
 use crate::sub_lib::neighborhood::RatePack;
 use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{to_string, ExpectValue};
 use paste::paste;
 use std::any::Any;
 use std::collections::HashMap;
@@ -55,9 +55,9 @@ impl CombinedParamsValueRetriever {
         fn parse<T>(str_value: &str) -> Result<T, String>
         where
             T: std::str::FromStr,
-            <T as std::str::FromStr>::Err: ToString,
+            <T as std::str::FromStr>::Err: Display,
         {
-            str_value.parse::<T>().map_err(|e| e.to_string())
+            str_value.parse::<T>().map_err(to_string)
         }
         match data_type {
             CombinedParamsDataTypes::U64 => {
