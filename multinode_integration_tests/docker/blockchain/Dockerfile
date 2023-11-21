@@ -1,5 +1,6 @@
 # Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-FROM trufflesuite/ganache-cli:v6.7.0
+#FROM trufflesuite/ganache-cli:v6.7.0
+FROM --platform=linux/arm64 nutrina/ganache-cli:0.3
 
 ADD ./entrypoint.sh /app/
 

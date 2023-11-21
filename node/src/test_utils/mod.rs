@@ -374,7 +374,6 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
     F: FnMut() -> bool,
@@ -391,7 +390,6 @@ where
     .unwrap();
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn await_value<F, T, E>(
     interval_and_limit_ms: Option<(u64, u64)>,
     mut f: F,
@@ -460,7 +458,6 @@ where
     set
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
     let mut buf = [0u8; 16384];
@@ -519,7 +516,6 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     )
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
@@ -530,7 +526,6 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-//must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
