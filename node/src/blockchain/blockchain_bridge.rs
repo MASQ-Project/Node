@@ -1066,46 +1066,47 @@ mod tests {
         let mut send_payables_within_batch_params =
             send_payables_within_batch_params_arc.lock().unwrap();
 
-        todo!("GH-744: these assertions are failing due to futures ");
-        // cannot assert on the captured recipient as its actor is gone after the System stops spinning
-        // let (
-        //     consuming_wallet_actual,
-        //     gas_price_actual,
-        //     nonce_actual,
-        //     _recipient_actual,
-        //     accounts_actual,
-        // ) = send_payables_within_batch_params.remove(0);
-        // assert!(send_payables_within_batch_params.is_empty());
-        // assert_eq!(consuming_wallet_actual, consuming_wallet.clone());
-        // assert_eq!(gas_price_actual, expected_gas_price);
-        // assert_eq!(nonce_actual, U256::from(1u64));
-        // assert_eq!(accounts_actual, accounts);
-        //
-        // let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
-        // assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
-        // let accountant_recording = accountant_recording_arc.lock().unwrap();
+        // todo!("GH-744: these assertions are failing due to futures ");
 
-        // let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
-        // assert_eq!(
-        //     *sent_payments_msg,
-        //     SentPayables {
-        //         payment_procedure_result: Ok(vec![
-        //             Correct(PendingPayable {
-        //                 recipient_wallet: wallet_account_1,
-        //                 hash: H256::from("sometransactionhash".keccak256())
-        //             }),
-        //             Correct(PendingPayable {
-        //                 recipient_wallet: wallet_account_2,
-        //                 hash: H256::from("someothertransactionhash".keccak256())
-        //             })
-        //         ]),
-        //         response_skeleton_opt: Some(ResponseSkeleton {
-        //             client_id: 1234,
-        //             context_id: 4321
-        //         })
-        //     }
-        // );
-        // assert_eq!(accountant_recording.len(), 1);
+        // cannot assert on the captured recipient as its actor is gone after the System stops spinning
+        let (
+            consuming_wallet_actual,
+            gas_price_actual,
+            nonce_actual,
+            _recipient_actual,
+            accounts_actual,
+        ) = send_payables_within_batch_params.remove(0);
+        assert!(send_payables_within_batch_params.is_empty());
+        assert_eq!(consuming_wallet_actual, consuming_wallet.clone());
+        assert_eq!(gas_price_actual, expected_gas_price);
+        assert_eq!(nonce_actual, U256::from(1u64));
+        assert_eq!(accounts_actual, accounts);
+
+        let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
+        assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+
+        let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
+        assert_eq!(
+            *sent_payments_msg,
+            SentPayables {
+                payment_procedure_result: Ok(vec![
+                    Correct(PendingPayable {
+                        recipient_wallet: wallet_account_1,
+                        hash: H256::from("sometransactionhash".keccak256())
+                    }),
+                    Correct(PendingPayable {
+                        recipient_wallet: wallet_account_2,
+                        hash: H256::from("someothertransactionhash".keccak256())
+                    })
+                ]),
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                })
+            }
+        );
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]
@@ -1118,6 +1119,7 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(SentPayables))
             .start();
         let wallet_account = make_wallet("blah");
+        // TODO: GH-744 Merge these 3 lines into a test tool function.
         let url = "https://www.example.com";
         let (_event_loop_handle, http) =
             Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
