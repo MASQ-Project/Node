@@ -1537,6 +1537,22 @@ mod tests {
         let (actual_prepared_adjustment, captured_now, logger_clone) =
             adjust_payments_params.remove(0);
         assert_eq!(actual_prepared_adjustment.adjustment, Adjustment::MasqToken);
+
+        // eprintln!(
+        //     "protected_qualified_payables: {:?}",
+        //     actual_prepared_adjustment
+        //         .original_setup_msg
+        //         .protected_qualified_payables
+        //         .expose_vector::<PayableAccount>()
+        // );
+
+        // let protected_qualified_payables = actual_prepared_adjustment
+        //     .original_setup_msg
+        //     .protected_qualified_payables
+        //     .expose_vector::<PayableAccount>();
+        //
+        // assert_eq!(protected_qualified_payables, affordable_accounts.clone());
+
         assert_eq!(
             actual_prepared_adjustment
                 .original_setup_msg

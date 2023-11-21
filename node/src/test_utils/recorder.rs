@@ -200,7 +200,7 @@ impl Handler<RouteQueryMessage> for Recorder {
         msg: RouteQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        self.handle_msg(msg);
+        self.record(msg);
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",

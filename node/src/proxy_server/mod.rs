@@ -2285,81 +2285,82 @@ mod tests {
 
     #[test]
     fn proxy_server_applies_late_wallet_information() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let hopper_mock = Recorder::new();
-        let hopper_log_arc = hopper_mock.get_recording();
-        let hopper_awaiter = hopper_mock.get_awaiter();
-        let destination_key = PublicKey::from(&b"our destination"[..]);
-        let route_query_response = RouteQueryResponse {
-            route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(
-                vec![make_exit_service_from_key(destination_key.clone())],
-                vec![],
-                1234,
-            ),
-        };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let expected_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(0),
-            last_data: true,
-            is_clandestine: false,
-            data: expected_data.clone(),
-        };
-        let expected_http_request = PlainData::new(http_request);
-        let route = route_query_response.route.clone();
-        let expected_payload = ClientRequestPayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: expected_http_request.into(),
-                sequence_number: 0,
-                last_data: true,
-            },
-            target_hostname: Some(String::from("nowhere.com")),
-            target_port: HTTP_PORT,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
-        };
-        let expected_pkg = IncipientCoresPackage::new(
-            main_cryptde,
-            route,
-            expected_payload.into(),
-            &destination_key,
-        )
-        .unwrap();
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
-            let system = System::new("proxy_server_applies_late_wallet_information");
-            let mut subject = ProxyServer::new(main_cryptde, alias_cryptde, true, None, false);
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject
-                .stream_key_routes
-                .insert(stream_key, route_query_response);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            subject_addr
-                .try_send(SetConsumingWalletMessage {
-                    wallet: make_wallet("Consuming wallet"),
-                })
-                .unwrap();
-
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
-            system.run();
-        });
-
-        hopper_awaiter.await_message_count(1);
-        let recording = hopper_log_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record, &expected_pkg);
+        todo!("GH-651 - Maybe we need to remove this test?");
+        // let main_cryptde = main_cryptde();
+        // let alias_cryptde = alias_cryptde();
+        // let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        // let hopper_mock = Recorder::new();
+        // let hopper_log_arc = hopper_mock.get_recording();
+        // let hopper_awaiter = hopper_mock.get_awaiter();
+        // let destination_key = PublicKey::from(&b"our destination"[..]);
+        // let route_query_response = RouteQueryResponse {
+        //     route: Route { hops: vec![] },
+        //     expected_services: ExpectedServices::RoundTrip(
+        //         vec![make_exit_service_from_key(destination_key.clone())],
+        //         vec![],
+        //         1234,
+        //     ),
+        // };
+        // let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        // let stream_key = StreamKey::make_meaningless_stream_key();
+        // let expected_data = http_request.to_vec();
+        // let msg_from_dispatcher = InboundClientData {
+        //     timestamp: SystemTime::now(),
+        //     peer_addr: socket_addr.clone(),
+        //     reception_port: Some(HTTP_PORT),
+        //     sequence_number: Some(0),
+        //     last_data: true,
+        //     is_clandestine: false,
+        //     data: expected_data.clone(),
+        // };
+        // let expected_http_request = PlainData::new(http_request);
+        // let route = route_query_response.route.clone();
+        // let expected_payload = ClientRequestPayload_0v1 {
+        //     stream_key: stream_key.clone(),
+        //     sequenced_packet: SequencedPacket {
+        //         data: expected_http_request.into(),
+        //         sequence_number: 0,
+        //         last_data: true,
+        //     },
+        //     target_hostname: Some(String::from("nowhere.com")),
+        //     target_port: HTTP_PORT,
+        //     protocol: ProxyProtocol::HTTP,
+        //     originator_public_key: alias_cryptde.public_key().clone(),
+        // };
+        // let expected_pkg = IncipientCoresPackage::new(
+        //     main_cryptde,
+        //     route,
+        //     expected_payload.into(),
+        //     &destination_key,
+        // )
+        // .unwrap();
+        // thread::spawn(move || {
+        //     let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
+        //     let system = System::new("proxy_server_applies_late_wallet_information");
+        //     let mut subject = ProxyServer::new(main_cryptde, alias_cryptde, true, None, false);
+        //     subject.stream_key_factory = Box::new(stream_key_factory);
+        //     subject.keys_and_addrs.insert(stream_key, socket_addr);
+        //     subject
+        //         .stream_key_routes
+        //         .insert(stream_key, route_query_response);
+        //     let subject_addr: Addr<ProxyServer> = subject.start();
+        //     let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
+        //     subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        //
+        //     subject_addr
+        //         .try_send(SetConsumingWalletMessage {
+        //             wallet: make_wallet("Consuming wallet"),
+        //         })
+        //         .unwrap();
+        //
+        //     subject_addr.try_send(msg_from_dispatcher).unwrap();
+        //     system.run();
+        // });
+        //
+        // hopper_awaiter.await_message_count(1);
+        // let recording = hopper_log_arc.lock().unwrap();
+        // let record = recording.get_record::<IncipientCoresPackage>(0);
+        // assert_eq!(record, &expected_pkg);
     }
 
     #[test]
@@ -2568,7 +2569,7 @@ mod tests {
         let neighborhood_mock =
             neighborhood_mock.route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -2956,7 +2957,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "AddRouteResultMessage Handler: stream key: +dKB2Lsh3ET2TS/J/cexaanFQz4 not found within dns_failure_retries"
+        expected = "AddRouteResultMessage Handler: stream key: AAAAAAAAAAAAAAAAAAAAAAAAAAA not found within dns_failure_retries"
     )]
     fn route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key() {
         let system = System::new("route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key");
@@ -2973,7 +2974,7 @@ mod tests {
 
         subject_addr
             .try_send(AddRouteResultMessage {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 result: Err("Some Error".to_string()),
             })
             .unwrap();
@@ -3036,7 +3037,7 @@ mod tests {
         let dispatcher_recording_arc = dispatcher.get_recording();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
@@ -3221,7 +3222,7 @@ mod tests {
             data: expected_data.clone(),
             is_clandestine: false,
         };
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         thread::spawn(move || {
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
@@ -3565,7 +3566,7 @@ mod tests {
         let dispatcher_recording_arc = dispatcher.get_recording();
         let neighborhood = Recorder::new().route_query_response(None);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
@@ -3950,7 +3951,7 @@ mod tests {
             false,
         );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let stream_key_clone = stream_key.clone();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
         subject
@@ -4717,7 +4718,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut dns_failure_retries_hash_map = HashMap::new();
         let client_payload = make_request_payload(111, cryptde);
@@ -4762,10 +4763,10 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let msg = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        let msg = neighborhood_recording.get_record::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(
             msg,
-            &NodeRecordMetadataMessage {
+            &UpdateNodeRecordMetadataMessage {
                 public_key: this_node_public_key.clone(),
                 metadata_change: NRMetadataChange::AddUnreachableHost {
                     hostname: "server.com".to_string()
@@ -4913,7 +4914,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject.logger = Logger::new(test_name);
         subject
@@ -4945,7 +4946,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: While handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for the stream_key: +dKB2Lsh3ET2TS/J/cexaanFQz4"));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: While handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for the stream_key: AAAAAAAAAAAAAAAAAAAAAAAAAAA"));
     }
 
     #[test]
@@ -5856,7 +5857,7 @@ mod tests {
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -5924,7 +5925,7 @@ mod tests {
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
