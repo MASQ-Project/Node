@@ -193,9 +193,12 @@ impl Handler<UpdateStartBlockMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateStartBlockMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.persistent_config
-            .set_start_block(msg.start_block)
-            .expect("Database is corrupt");
+        if let Err(e) = self.persistent_config.set_start_block(msg.start_block) {
+            panic!(
+                "Cannot set start block in database; payments to you may not be processed: {:?}",
+                e
+            )
+        };
     }
 }
 
@@ -401,6 +404,11 @@ impl BlockchainBridge {
         //     .retrieve_transactions(start_block, &msg.recipient);
 
         let logger = self.logger.clone();
+        let update_start_block_subs = self
+            .update_start_block_subs_opt
+            .as_ref()
+            .expect("BlockchainBridge is unbound")
+            .clone();
         let received_payments_subs = self
             .received_payments_subs_opt
             .as_ref()
@@ -412,6 +420,12 @@ impl BlockchainBridge {
                 .retrieve_transactions(start_block, &msg.recipient)
                 .map_err(|e| format!("Tried to retrieve received payments but failed: {:?}", e))
                 .and_then(move |transactions| {
+                    update_start_block_subs
+                        .try_send(UpdateStartBlockMessage {
+                            start_block: transactions.new_start_block,
+                        })
+                        .expect("BlockchainBridge is unbound");
+
                     // --- ---
                     // if let Err(e) = self
                     //     .persistent_config
@@ -992,6 +1006,7 @@ mod tests {
 
     #[test]
     fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
+        todo!("GH-744: Replace this test with a multi node test using ganache");
         let system =
             System::new("handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1689,10 +1704,13 @@ mod tests {
 
     #[test]
     fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
-        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let system =
             System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let accountant_addr = accountant
+            .system_stop_conditions(match_every_type_id!(ReceivedPayments))
+            .start();
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
         let amount2 = 55;
@@ -1712,13 +1730,8 @@ mod tests {
             ],
         };
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
-            .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(6));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
@@ -1727,7 +1740,10 @@ mod tests {
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        let mut peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+        peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
         send_bind_message!(subject_subs, peer_actors);
         let retrieve_transactions = RetrieveTransactions {
             recipient: earning_wallet.clone(),
@@ -1740,22 +1756,24 @@ mod tests {
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
-        System::current().stop();
         system.run();
         let after = SystemTime::now();
-        todo!("Failing due to futures");
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![1234]);
-        let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
-        assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
-        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_received_payment.len(), 1);
-        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
-        check_timestamp(before, received_payments.timestamp, after);
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recording.len(), 1);
+        let update_start_block_message =
+            blockchain_bridge_recording.get_record::<UpdateStartBlockMessage>(0);
         assert_eq!(
-            received_payments,
+            update_start_block_message,
+            &UpdateStartBlockMessage { start_block: 1234 }
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
+        check_timestamp(before, received_payments_message.timestamp, after);
+        assert_eq!(
+            received_payments_message,
             &ReceivedPayments {
-                timestamp: received_payments.timestamp,
+                timestamp: received_payments_message.timestamp,
                 payments: expected_transactions.transactions,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
