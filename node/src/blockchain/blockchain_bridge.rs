@@ -389,7 +389,6 @@ impl BlockchainBridge {
         );
     }
 
-    // Result<(), String>
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
@@ -398,11 +397,6 @@ impl BlockchainBridge {
             Ok (sb) => sb,
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
-
-        // let retrieved_transactions = self
-        //     .blockchain_interface
-        //     .retrieve_transactions(start_block, &msg.recipient);
-
         let logger = self.logger.clone();
         let update_start_block_subs = self
             .update_start_block_subs_opt
@@ -425,16 +419,6 @@ impl BlockchainBridge {
                             start_block: transactions.new_start_block,
                         })
                         .expect("BlockchainBridge is unbound");
-
-                    // --- ---
-                    // if let Err(e) = self
-                    //     .persistent_config
-                    //     .set_start_block(transactions.new_start_block)
-                    // {
-                    //     panic! ("Cannot set start block in database; payments to you may not be processed: {:?}", e)
-                    // };
-                    // --- ---
-
                     if transactions.transactions.is_empty() {
                         debug!(logger, "No new receivable detected");
                     }
@@ -1433,11 +1417,14 @@ mod tests {
     fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (blockchain_bridge, _, _) = make_recorder();
         let accountant_addr = accountant
             .system_stop_conditions(match_every_type_id!(ScanError))
             .start();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
         let received_payments_subs: Recipient<ReceivedPayments> = accountant_addr.recipient();
+        let update_start_block_subs: Recipient<UpdateStartBlockMessage> =
+            blockchain_bridge.start().recipient();
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
             Err(BlockchainError::QueryFailed("we have no luck".to_string())),
         );
@@ -1450,6 +1437,7 @@ mod tests {
         );
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         subject.received_payments_subs_opt = Some(received_payments_subs);
+        subject.update_start_block_subs_opt = Some(update_start_block_subs);
         let msg = RetrieveTransactions {
             recipient: make_wallet("blah"),
             response_skeleton_opt: None,
@@ -1871,37 +1859,25 @@ mod tests {
         expected = "Cannot set start block in database; payments to you may not be processed: TransactionError"
     )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
-        todo!("Replace me with an expect in the handler of Update_start_block_message");
+        let system =
+            System::new("handle_retrieve_transactions_panics_if_start_block_cannot_be_written");
         let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError));
-        let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
-            Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1234,
-                transactions: vec![BlockchainTransaction {
-                    block_number: 1000,
-                    from: make_wallet("somewallet"),
-                    wei_amount: 2345,
-                }],
-            }),
-        );
-        let (accountant, _, _) = make_recorder();
-        let received_payments_subs: Recipient<ReceivedPayments> = accountant.start().recipient();
+        let blockchain_interface = BlockchainInterfaceMock::default();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
         );
-        subject.received_payments_subs_opt = Some(received_payments_subs);
-        let retrieve_transactions = RetrieveTransactions {
-            recipient: make_wallet("somewallet"),
-            response_skeleton_opt: None,
-        };
+        let addr = subject.start();
 
-        let _ = subject
-            .handle_retrieve_transactions(retrieve_transactions)
-            .wait();
+        let _ = addr
+            .try_send(UpdateStartBlockMessage { start_block: 1234 })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
     }
 
     fn success_handler(
