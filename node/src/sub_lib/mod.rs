@@ -9,6 +9,7 @@ pub mod accountant;
 pub mod bidi_hashmap;
 pub mod binary_traverser;
 pub mod blockchain_bridge;
+pub mod blockchain_interface_web3;
 pub mod channel_wrappers;
 pub mod combined_parameters;
 pub mod configurator;

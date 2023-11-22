@@ -38,6 +38,7 @@ use web3::types::{
 use web3::{BatchTransport, Error, Web3};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
+use crate::sub_lib::blockchain_interface_web3::transaction_data_web3;
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -63,8 +64,6 @@ const TRANSACTION_LITERAL: H256 = H256([
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
     0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 ]);
-
-const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -507,7 +506,7 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
-        let data = Self::transaction_data(recipient, amount);
+        let data = transaction_data_web3(recipient, amount);
         let gas_limit = self.compute_gas_limit(data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
@@ -558,16 +557,6 @@ where
             )
         });
         introduction.chain(body).collect()
-    }
-
-    fn transaction_data(recipient: &Wallet, amount: u128) -> [u8; 68] {
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        U256::try_from(amount)
-            .expect("shouldn't overflow")
-            .to_big_endian(&mut data[36..68]);
-        data
     }
 
     fn compute_gas_limit(&self, data: &[u8]) -> U256 {
@@ -631,7 +620,6 @@ mod tests {
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
-        TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
@@ -716,7 +704,6 @@ mod tests {
         };
         assert_eq!(CONTRACT_ABI, contract_abi_expected);
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
-        assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
     }
 
@@ -1778,10 +1765,6 @@ mod tests {
         );
     }
 
-    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
-    const TEST_GAS_PRICE_ETH: u64 = 110;
-    const TEST_GAS_PRICE_POLYGON: u64 = 50;
-
     fn test_consuming_wallet_with_secret() -> Wallet {
         let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
@@ -1803,6 +1786,10 @@ mod tests {
         nonce: u64,
         template: &[u8],
     ) {
+        const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
+        const TEST_GAS_PRICE_ETH: u64 = 110;
+        const TEST_GAS_PRICE_POLYGON: u64 = 50;
+
         let transport = TestTransport::default();
         let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         let consuming_wallet = test_consuming_wallet_with_secret();
@@ -2191,13 +2178,5 @@ mod tests {
                 .agreed_fee_per_computation_unit_result(gas_price_gwei)
                 .pending_transaction_id_result(nonce),
         )
-    }
-
-    #[test]
-    fn hash_the_smart_contract_transfer_function_signature() {
-        assert_eq!(
-            "transfer(address,uint256)".keccak256()[0..4],
-            TRANSFER_METHOD_ID,
-        );
     }
 }
