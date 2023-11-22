@@ -18,6 +18,7 @@ use multinode_integration_tests_lib::utils::{
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::accountant::gwei_to_wei;
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -27,6 +28,7 @@ use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
 use node_lib::sub_lib::accountant::PaymentThresholds;
+use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -38,8 +40,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters};
 use web3::Web3;
-use node_lib::accountant::gwei_to_wei;
-use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
 
 #[test]
 fn verify_bill_payment() {
@@ -89,15 +89,23 @@ fn verify_bill_payment() {
         derivation_path(0, 1),
         None,
     );
-    let consuming_node_balance = gwei_to_wei(payment_thresholds.debt_threshold_gwei * 10);
-    transfer_tokens_to_address(&contract_owner_wallet, &consuming_node_wallet, consuming_node_balance, 1, &web3, cluster.chain);
-    thread::sleep(Duration::from_secs(10));
-    // assert_balances(
-    //     &consuming_node_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     &consuming_node_balance.to_string(),
-    // );
+    let consuming_node_initial_service_fee_balance =
+        gwei_to_wei(payment_thresholds.debt_threshold_gwei * 10);
+    transfer_tokens_to_address(
+        contract_addr,
+        &contract_owner_wallet,
+        &consuming_node_wallet,
+        consuming_node_initial_service_fee_balance,
+        1,
+        &web3,
+        cluster.chain,
+    );
+    assert_balances(
+        &consuming_node_wallet,
+        &blockchain_interface,
+        "100000000000000000000", // Default at ganache
+        &consuming_node_initial_service_fee_balance.to_string(),
+    );
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
@@ -175,7 +183,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount_1)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_1)
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
@@ -190,7 +198,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount_2)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_2)
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
@@ -205,7 +213,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount_3)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_3)
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
@@ -214,15 +222,13 @@ fn verify_bill_payment() {
     expire_receivables(serving_node_2_path.into());
     expire_receivables(serving_node_3_path.into());
 
-    let expected_deployed_token_initial_supply = 472_000_000_000_000_000_000_000_000_u128;
-
     // Note: ganache defaults the balance of each created account to 100 ETH
 
     assert_balances(
         &consuming_node_wallet,
         &blockchain_interface,
-        "99998381140000000000",
-        &expected_deployed_token_initial_supply.to_string(),
+        "100000000000000000000",
+        &consuming_node_initial_service_fee_balance.to_string(),
     );
 
     assert_balances(
@@ -265,12 +271,12 @@ fn verify_bill_payment() {
     }
 
     let expected_final_token_balance_consuming_node =
-        expected_deployed_token_initial_supply - (amount_1 + amount_2 + amount_3);
+        consuming_node_initial_service_fee_balance - (amount_1 + amount_2 + amount_3);
 
     assert_balances(
-        &contract_owner_wallet,
+        &consuming_node_wallet,
         &blockchain_interface,
-        "99998223622000000000",
+        "99999842482000000000",
         &expected_final_token_balance_consuming_node.to_string(),
     );
 
@@ -322,21 +328,21 @@ fn verify_bill_payment() {
     }
 
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_1_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_2_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_3_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
@@ -565,7 +571,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99998223682000000000",
+        "99951655600000000000",
         &expected_final_token_balance_consuming_node.to_string(),
     );
 
@@ -590,7 +596,6 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         amount.to_string().as_str(),
     );
 
-    //TODO we can do this by a client call --scans payables
     let serving_node_1 = cluster.start_named_real_node(
         &serving_node_1_name,
         serving_node_1_index,
@@ -709,19 +714,20 @@ fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Ad
 }
 
 fn transfer_tokens_to_address(
+    contract_addr: Address,
     from_wallet: &Wallet,
     to_wallet: &Wallet,
     amount: u128,
     transaction_nonce: u64,
     web3: &Web3<Http>,
     chain: Chain,
-){
+) {
     let data = transaction_data_web3(to_wallet, amount);
     let gas_price = 150_000_000_000_u64;
     let gas_limit = 1_000_000_u64;
     let tx = TransactionParameters {
         nonce: Some(ethereum_types::U256::try_from(transaction_nonce).expect("Internal error")),
-        to: Some(to_wallet.address()),
+        to: Some(contract_addr),
         gas: ethereum_types::U256::try_from(gas_limit).expect("Internal error"),
         gas_price: Some(ethereum_types::U256::try_from(gas_price).expect("Internal error")),
         value: ethereum_types::U256::zero(),
@@ -741,9 +747,12 @@ fn transfer_tokens_to_address(
     }
 }
 
-fn sign_transaction(web3: &Web3<Http>, tx: TransactionParameters, signing_wallet: &Wallet)->SignedTransaction{
-    web3
-        .accounts()
+fn sign_transaction(
+    web3: &Web3<Http>,
+    tx: TransactionParameters,
+    signing_wallet: &Wallet,
+) -> SignedTransaction {
+    web3.accounts()
         .sign_transaction(
             tx,
             &signing_wallet
