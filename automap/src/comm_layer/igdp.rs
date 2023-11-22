@@ -6,6 +6,7 @@ use crate::comm_layer::{
 };
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use igd::Error::AddPortError;
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
@@ -23,7 +24,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use igd::Error::AddPortError;
 
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
@@ -46,7 +46,6 @@ impl GatewayFactoryReal {
         Self {}
     }
 }
-
 
 trait GatewayWrapper: Send {
     fn get_gateway_addr(&self) -> SocketAddrV4;
@@ -558,9 +557,9 @@ impl MappingAdder for MappingAdderReal {
                 eprintln!("Router accepts only permanent mappings");
                 Err(AutomapError::PermanentLeasesOnly)
             }
-            Err(e) if (e == SpecialError) {
-                // TODO: Solution would look something like this
-            }
+            // Err(e) if (e == SpecialError) {
+            //     // TODO: Solution would look something like this
+            // }
             Err(e) => {
                 warning!(
                     self.logger,
