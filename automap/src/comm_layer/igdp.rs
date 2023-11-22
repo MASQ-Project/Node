@@ -538,6 +538,7 @@ impl MappingAdder for MappingAdderReal {
                 }
             },
         };
+        eprintln!("The router ip is: {}", local_ip);
         match gateway.add_port(
             PortMappingProtocol::TCP,
             hole_port,
@@ -552,6 +553,7 @@ impl MappingAdder for MappingAdderReal {
                         == "RequestError(ErrorCode(402, \"Invalid Args\"))") =>
             {
                 info!(self.logger, "Router accepts only permanent mappings");
+                eprintln!("Router accepts only permanent mappings");
                 Err(AutomapError::PermanentLeasesOnly)
             }
             Err(e) => {

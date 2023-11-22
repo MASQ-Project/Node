@@ -73,8 +73,16 @@ impl AutomapControl for AutomapControlReal {
         debug!(self.logger, "Adding mapping for port {}", hole_port);
         let experiment = Box::new(move |transactor: &dyn Transactor, router_ip: IpAddr| {
             match transactor.add_mapping(router_ip, hole_port, DEFAULT_MAPPING_LIFETIME_SECONDS) {
-                Ok(remap_after_sec) => Ok(remap_after_sec),
+                Ok(remap_after_sec) => {
+                    // TODO: Write an eprintln to print the remap_after_sec
+                    eprintln!(
+                        "The value (default: {}s) for remap after second is {}s",
+                        DEFAULT_MAPPING_LIFETIME_SECONDS, remap_after_sec
+                    );
+                    Ok(remap_after_sec)
+                }
                 Err(AutomapError::PermanentLeasesOnly) => {
+                    eprintln!("This router only makes Permanent Leases.");
                     transactor.add_permanent_mapping(router_ip, hole_port)
                 }
                 Err(e) => Err(e),
@@ -360,6 +368,9 @@ mod tests {
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+    use std::time::SystemTime;
 
     fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
         let mut subject = make_multirouter_specific_success_subject(
@@ -1078,6 +1089,46 @@ mod tests {
         subject.add_mapping(4567).unwrap();
 
         assert_eq!(subject.get_mapping_protocol(), Some(AutomapProtocol::Pcp));
+    }
+
+    #[test]
+    fn add_mapping_multiple_times() {
+        // Make subject1 and subject2 - 2 automap control objects
+        // Create an automap control - do the first attempt then destroy the object
+        // wait 5 secs
+        // Create another automap control - do the second attempt then destroy the object
+        // Look at the eprintlns
+        {
+            let mut subject1 = AutomapControlReal::new(
+                Some(AutomapProtocol::Igdp),
+                Box::new(|something| {
+                    eprintln!("Change handler is running...");
+                    dbg!(something);
+                }),
+            );
+            let first_attempt = subject1.add_mapping(4567);
+            eprintln!(
+                "The first attempt was performed at: {:?}",
+                SystemTime::now()
+            );
+            assert_eq!(first_attempt, Ok(()));
+        }
+        thread::sleep(Duration::from_secs(5));
+        {
+            let mut subject2 = AutomapControlReal::new(
+                Some(AutomapProtocol::Igdp),
+                Box::new(|something| {
+                    eprintln!("Change handler is running...");
+                    dbg!(something);
+                }),
+            );
+            let second_attempt = subject2.add_mapping(4567);
+            eprintln!(
+                "The second attempt was performed at: {:?}",
+                SystemTime::now()
+            );
+            assert_eq!(second_attempt, Err(AutomapError::Unknown));
+        }
     }
 
     #[test]
