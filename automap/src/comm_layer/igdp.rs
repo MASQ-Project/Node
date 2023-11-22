@@ -6,7 +6,6 @@ use crate::comm_layer::{
 };
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use igd::Error::AddPortError;
 use igd::{
     search_gateway, AddPortError, Gateway, GetExternalIpError, PortMappingProtocol,
     RemovePortError, SearchError, SearchOptions,
