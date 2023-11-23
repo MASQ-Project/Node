@@ -11,7 +11,8 @@ use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
+    ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
+    NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{
     node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
@@ -89,8 +90,10 @@ fn verify_bill_payment() {
         derivation_path(0, 1),
         None,
     );
+
     let consuming_node_initial_service_fee_balance =
         gwei_to_wei(payment_thresholds.debt_threshold_gwei * 10);
+
     transfer_tokens_to_address(
         contract_addr,
         &contract_owner_wallet,
@@ -100,12 +103,14 @@ fn verify_bill_payment() {
         &web3,
         cluster.chain,
     );
+
     assert_balances(
         &consuming_node_wallet,
         &blockchain_interface,
         "100000000000000000000", // Default at ganache
         &consuming_node_initial_service_fee_balance.to_string(),
     );
+
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
@@ -131,9 +136,9 @@ fn verify_bill_payment() {
     let amount = |addition: u128| {
         payment_thresholds.debt_threshold_gwei as u128 * WEIS_IN_GWEI as u128 + addition
     };
-    let amount_1 = amount(123);
-    let amount_2 = amount(456);
-    let amount_3 = amount(789);
+    let payment_to_serving_node_1 = amount(123);
+    let payment_to_serving_node_2 = amount(456);
+    let payment_to_serving_node_3 = amount(789);
 
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
@@ -163,13 +168,13 @@ fn verify_bill_payment() {
     );
     let now = SystemTime::now();
     consuming_payable_dao
-        .more_money_payable(now, &serving_node_1_wallet, amount_1)
+        .more_money_payable(now, &serving_node_1_wallet, payment_to_serving_node_1)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(now, &serving_node_2_wallet, amount_2)
+        .more_money_payable(now, &serving_node_2_wallet, payment_to_serving_node_2)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(now, &serving_node_3_wallet, amount_3)
+        .more_money_payable(now, &serving_node_3_wallet, payment_to_serving_node_3)
         .unwrap();
 
     let (serving_node_1_name, serving_node_1_index) =
@@ -183,7 +188,11 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
-        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_1)
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            payment_to_serving_node_1,
+        )
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
@@ -198,7 +207,11 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
-        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_2)
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            payment_to_serving_node_2,
+        )
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
@@ -213,7 +226,11 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
-        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount_3)
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            payment_to_serving_node_3,
+        )
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
@@ -270,8 +287,8 @@ fn verify_bill_payment() {
         thread::sleep(Duration::from_millis(400));
     }
 
-    let expected_final_token_balance_consuming_node =
-        consuming_node_initial_service_fee_balance - (amount_1 + amount_2 + amount_3);
+    let expected_final_token_balance_consuming_node = consuming_node_initial_service_fee_balance
+        - (payment_to_serving_node_1 + payment_to_serving_node_2 + payment_to_serving_node_3);
 
     assert_balances(
         &consuming_node_wallet,
@@ -284,21 +301,21 @@ fn verify_bill_payment() {
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        &amount_1.to_string(),
+        &payment_to_serving_node_1.to_string(),
     );
 
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        &amount_2.to_string(),
+        &payment_to_serving_node_2.to_string(),
     );
 
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        amount_3.to_string().as_str(),
+        payment_to_serving_node_3.to_string().as_str(),
     );
 
     let serving_node_1 = cluster.start_named_real_node(
@@ -375,12 +392,6 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         contract_addr
     );
     let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
-    assert_balances(
-        &contract_owner_wallet,
-        &blockchain_interface,
-        "99998381140000000000",
-        "472000000000000000000000000",
-    );
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_592_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -389,13 +400,13 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
+
     let consuming_node_ui_port = find_free_port();
-    // You might've noticed that we assume the consuming Node is configured with the contract owner
-    // wallet. That does not seem right but it has likely been chosen because at the beginning, when
-    // the contract is deployd, only the contract owner possesses the tokens. So, avoiding extra
-    // complexity from "airdropping" the tokens, we pretend this is okay. Above all, it completely
-    // is for this kind of tests.
-    let (consuming_config, _) = build_config(
+    let serving_node_1_ui_port = find_free_port();
+    let serving_node_2_ui_port = find_free_port();
+    let serving_node_3_ui_port = find_free_port();
+
+    let (consuming_config, consuming_node_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
@@ -403,29 +414,55 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         Some(consuming_node_ui_port),
     );
 
+    //TODO figure out how much it should be
+    let consuming_node_initial_service_fee_balance =
+        gwei_to_wei(payment_thresholds.debt_threshold_gwei * 10);
+
+    transfer_tokens_to_address(
+        contract_addr,
+        &contract_owner_wallet,
+        &consuming_node_wallet,
+        consuming_node_initial_service_fee_balance,
+        1,
+        &web3,
+        cluster.chain,
+    );
+
+    assert_balances(
+        &consuming_node_wallet,
+        &blockchain_interface,
+        "100000000000000000000", // Default at ganache
+        &consuming_node_initial_service_fee_balance.to_string(),
+    );
+
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 1),
-        None,
+        Some(serving_node_1_ui_port),
     );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 2),
-        None,
+        Some(serving_node_2_ui_port),
     );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 3),
-        None,
+        Some(serving_node_3_ui_port),
     );
 
-    let amount = payment_thresholds.debt_threshold_gwei as u128 * WEIS_IN_GWEI as u128;
+    let amount = |addition: u128| -> u128 {
+        todo!("hmmm");
+    };
+    let owed_to_serving_node_1 = amount(123);
+    let owed_to_serving_node_2 = amount(456);
+    let owed_to_serving_node_3 = amount(789);
 
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
@@ -435,8 +472,9 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
             make_init_config(cluster.chain),
         )
         .unwrap();
-    let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
+    let consuming_node_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
+
     assert_eq!(
         format!("{}", &contract_owner_wallet),
         "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
@@ -453,16 +491,6 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         format!("{}", &serving_node_3_wallet),
         "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
     );
-    let now = SystemTime::now();
-    consuming_payable_dao
-        .more_money_payable(now, &serving_node_1_wallet, amount)
-        .unwrap();
-    consuming_payable_dao
-        .more_money_payable(now, &serving_node_2_wallet, amount)
-        .unwrap();
-    consuming_payable_dao
-        .more_money_payable(now, &serving_node_3_wallet, amount)
-        .unwrap();
 
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
@@ -475,7 +503,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
@@ -490,7 +518,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
@@ -505,7 +533,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &consuming_node_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
@@ -547,19 +575,27 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
     let real_consuming_node =
         cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
 
-    // Now let's command the consuming Node to check its payables
-    let ui_client = real_consuming_node.make_ui(consuming_node_ui_port);
-    ui_client.send_request(
-        UiScanRequest {
-            scan_type: ScanType::Payables,
-        }
-        .tmb(5555),
+    let process_scan_request_to_node =
+        |real_node: &MASQRealNode, ui_port: u16, scan_type: ScanType, context_id: u64| {
+            let ui_client = real_consuming_node.make_ui(ui_port);
+            ui_client.send_request(UiScanRequest { scan_type }.tmb(context_id));
+            let response = ui_client.wait_for_response(context_id, Duration::from_secs(10));
+            UiScanResponse::fmb(response).unwrap();
+        };
+
+    // Commanding the consuming Node to check its payables
+    process_scan_request_to_node(
+        &real_consuming_node,
+        consuming_node_ui_port,
+        ScanType::Payables,
+        5555,
     );
-    let response = ui_client.wait_for_response(5555, Duration::from_secs(10));
-    UiScanResponse::fmb(response).unwrap();
 
     let now = Instant::now();
-    while !consuming_payable_dao.non_pending_payables().is_empty()
+    while !consuming_node_payable_dao
+        .payable_dao
+        .non_pending_payables()
+        .is_empty()
         && now.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
@@ -569,7 +605,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         expected_deployed_token_initial_supply - 3 * amount;
 
     assert_balances(
-        &contract_owner_wallet,
+        &consuming_node_wallet,
         &blockchain_interface,
         "99951655600000000000",
         &expected_final_token_balance_consuming_node.to_string(),
@@ -579,21 +615,21 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        &amount.to_string(),
+        "22222222222",
     );
 
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        &amount.to_string(),
+        "0",
     );
 
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        amount.to_string().as_str(),
+        "11111111111",
     );
 
     let serving_node_1 = cluster.start_named_real_node(
@@ -601,43 +637,51 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
         serving_node_1_index,
         serving_node_1_config,
     );
+    process_scan_request_to_node(
+        &serving_node_1,
+        serving_node_1_ui_port,
+        ScanType::Receivables,
+        2222,
+    );
     let serving_node_2 = cluster.start_named_real_node(
         &serving_node_2_name,
         serving_node_2_index,
         serving_node_2_config,
+    );
+    process_scan_request_to_node(
+        &serving_node_2,
+        serving_node_2_ui_port,
+        ScanType::Receivables,
+        3333,
     );
     let serving_node_3 = cluster.start_named_real_node(
         &serving_node_3_name,
         serving_node_3_index,
         serving_node_3_config,
     );
-    for _ in 0..6 {
-        cluster.start_real_node(
-            NodeStartupConfigBuilder::standard()
-                .chain(Chain::Dev)
-                .neighbor(serving_node_1.node_reference())
-                .neighbor(serving_node_2.node_reference())
-                .neighbor(serving_node_3.node_reference())
-                .build(),
-        );
-    }
+    process_scan_request_to_node(
+        &serving_node_3,
+        serving_node_3_ui_port,
+        ScanType::Receivables,
+        4444,
+    );
 
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_1_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_2_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
+        if let Some(status) = serving_node_3_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei == 0
         } else {
             false
@@ -834,4 +878,373 @@ fn expire_receivables(path: PathBuf) {
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
     config_stmt.execute([]).unwrap();
+}
+
+struct TestInputsOutputsConfig {
+    ui_ports_opt: Option<Ports>,
+    cons_node_initial_transaction_fee_balance_minor: u128,
+    cons_node_initial_service_fee_balance_minor: u128,
+    service_fee_owed_to_serv_node_1_minor: u128,
+    service_fee_owed_to_serv_node_2_minor: u128,
+    service_fee_owed_to_serv_node_3_minor: u128,
+
+    exp_final_cons_node_transaction_fee_balance_minor: u128,
+    exp_final_cons_node_service_fee_balance_minor: u128,
+    exp_final_service_fee_balance_serv_node_1_minor: u128,
+    exp_final_service_fee_balance_serv_node_2_minor: u128,
+    exp_final_service_fee_balance_serv_node_3_minor: u128,
+}
+
+enum UiPorts {
+    ConsNode,
+    ServNode1,
+    ServNode2,
+    ServNode3,
+}
+
+impl TestInputsOutputsConfig {
+    fn port(&self, requested: UiPorts) -> Option<u16> {
+        self.ui_ports_opt.map(|ports| match requested {
+            UiPorts::ConsNode => ports.consuming_node,
+            UiPorts::ServNode1 => ports.serving_node_1,
+            UiPorts::ServNode2 => ports.serving_node_2,
+            UiPorts::ServNode3 => ports.serving_node_3,
+        })
+    }
+}
+
+struct Ports {
+    consuming_node: u16,
+    serving_node_1: u16,
+    serving_node_2: u16,
+    serving_node_3: u16,
+}
+
+struct ServingNodeAttributes<'a> {
+    name: String,
+    index: usize,
+    config: &'a NodeStartupConfig,
+}
+
+fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformReceivablesCheck>(
+    global_config: TestInputsOutputsConfig,
+    stimulate_payments: StimulateConsumingNodePayments,
+    start_serving_nodes_and_run_check: StartServingNodesAndLetThemPerformReceivablesCheck,
+) where
+    StimulateConsumingNodePayments: FnOnce(&MASQNodeCluster, &MASQRealNode),
+    StartServingNodesAndLetThemPerformReceivablesCheck:
+        FnOnce(
+            &MASQNodeCluster,
+            ServingNodeAttributes,
+            ServingNodeAttributes,
+            ServingNodeAttributes,
+            &TestInputsOutputsConfig,
+        ) -> (MASQRealNode, MASQRealNode, MASQRealNode),
+{
+    let mut cluster = match MASQNodeCluster::start() {
+        Ok(cluster) => cluster,
+        Err(e) => panic!("{}", e),
+    };
+    let blockchain_server = BlockchainServer {
+        name: "ganache-cli",
+    };
+    blockchain_server.start();
+    blockchain_server.wait_until_ready();
+    let url = blockchain_server.url().to_string();
+    let (event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
+    let web3 = Web3::new(http.clone());
+    let deriv_path = derivation_path(0, 0);
+    let seed = make_seed();
+    let (contract_owner_wallet, _) = make_node_wallet(&seed, &deriv_path);
+    let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
+    assert_eq!(
+        contract_addr,
+        cluster.chain.rec().contract,
+        "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
+        contract_addr
+    );
+    let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
+    let payment_thresholds = PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 86_400,
+        maturity_threshold_sec: 86_400,
+        permanent_debt_allowed_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
+    };
+
+    let (consuming_config, consuming_node_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        deriv_path,
+        global_config.port(UiPorts::ConsNode),
+    );
+
+    transfer_tokens_to_address(
+        contract_addr,
+        &contract_owner_wallet,
+        &consuming_node_wallet,
+        global_config.cons_node_initial_service_fee_balance_minor,
+        1,
+        &web3,
+        cluster.chain,
+    );
+
+    assert_balances(
+        &consuming_node_wallet,
+        &blockchain_interface,
+        "100000000000000000000", // Default at ganache
+        &global_config
+            .cons_node_initial_service_fee_balance_minor
+            .to_string(),
+    );
+
+    let (serving_node_1_config, serving_node_1_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 1),
+        global_config.port(UiPorts::ServNode1),
+    );
+    let (serving_node_2_config, serving_node_2_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 2),
+        global_config.port(UiPorts::ServNode2),
+    );
+    let (serving_node_3_config, serving_node_3_wallet) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        derivation_path(0, 3),
+        global_config.port(UiPorts::ServNode3),
+    );
+
+    let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
+    let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
+    let consuming_node_connection = DbInitializerReal::default()
+        .initialize(
+            Path::new(&consuming_node_path),
+            make_init_config(cluster.chain),
+        )
+        .unwrap();
+    let consuming_node_payable_dao = PayableDaoReal::new(consuming_node_connection);
+    open_all_file_permissions(consuming_node_path.clone().into());
+
+    assert_eq!(
+        format!("{}", &contract_owner_wallet),
+        "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
+    );
+    assert_eq!(
+        format!("{}", &serving_node_1_wallet),
+        "0x7a3cf474962646b18666b5a5be597bb0af013d81"
+    );
+    assert_eq!(
+        format!("{}", &serving_node_2_wallet),
+        "0x0bd8bc4b8aba5d8abf13ea78a6668ad0e9985ad6"
+    );
+    assert_eq!(
+        format!("{}", &serving_node_3_wallet),
+        "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
+    );
+
+    let (serving_node_1_name, serving_node_1_index) =
+        cluster.prepare_real_node(&serving_node_1_config);
+    let serving_node_1_path = node_chain_specific_data_directory(&serving_node_1_name);
+    let serving_node_1_connection = DbInitializerReal::default()
+        .initialize(
+            Path::new(&serving_node_1_path),
+            make_init_config(cluster.chain),
+        )
+        .unwrap();
+    let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
+    serving_node_1_receivable_dao
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            global_config.service_fee_owed_to_serv_node_1_minor,
+        )
+        .unwrap();
+    open_all_file_permissions(serving_node_1_path.clone().into());
+
+    let (serving_node_2_name, serving_node_2_index) =
+        cluster.prepare_real_node(&serving_node_2_config);
+    let serving_node_2_path = node_chain_specific_data_directory(&serving_node_2_name);
+    let serving_node_2_connection = DbInitializerReal::default()
+        .initialize(
+            Path::new(&serving_node_2_path),
+            make_init_config(cluster.chain),
+        )
+        .unwrap();
+    let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
+    serving_node_2_receivable_dao
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            global_config.service_fee_owed_to_serv_node_2_minor,
+        )
+        .unwrap();
+    open_all_file_permissions(serving_node_2_path.clone().into());
+
+    let (serving_node_3_name, serving_node_3_index) =
+        cluster.prepare_real_node(&serving_node_3_config);
+    let serving_node_3_path = node_chain_specific_data_directory(&serving_node_3_name);
+    let serving_node_3_connection = DbInitializerReal::default()
+        .initialize(
+            Path::new(&serving_node_3_path),
+            make_init_config(cluster.chain),
+        )
+        .unwrap();
+    let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
+    serving_node_3_receivable_dao
+        .more_money_receivable(
+            SystemTime::now(),
+            &consuming_node_wallet,
+            global_config.service_fee_owed_to_serv_node_3_minor,
+        )
+        .unwrap();
+    open_all_file_permissions(serving_node_3_path.clone().into());
+
+    expire_payables(consuming_node_path.into());
+    expire_receivables(serving_node_1_path.into());
+    expire_receivables(serving_node_2_path.into());
+    expire_receivables(serving_node_3_path.into());
+
+    assert_balances(
+        &consuming_node_wallet,
+        &blockchain_interface,
+        &global_config
+            .cons_node_initial_transaction_fee_balance_minor
+            .to_string(),
+        &global_config
+            .cons_node_initial_transaction_fee_balance_minor
+            .to_string(),
+    );
+
+    assert_balances(
+        &serving_node_1_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        "0",
+    );
+
+    assert_balances(
+        &serving_node_2_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        "0",
+    );
+
+    assert_balances(
+        &serving_node_3_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        "0",
+    );
+
+    let real_consuming_node =
+        cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
+
+    stimulate_payments(&cluster, &real_consuming_node);
+
+    let now = Instant::now();
+    while !consuming_node_payable_dao
+        .payable_dao
+        .non_pending_payables()
+        .is_empty()
+        && now.elapsed() < Duration::from_secs(10)
+    {
+        thread::sleep(Duration::from_millis(400));
+    }
+
+    assert_balances(
+        &consuming_node_wallet,
+        &blockchain_interface,
+        &global_config
+            .exp_final_cons_node_transaction_fee_balance_minor
+            .to_string(),
+        &global_config
+            .exp_final_cons_node_service_fee_balance_minor
+            .to_string(),
+    );
+
+    assert_balances(
+        &serving_node_1_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        &global_config
+            .exp_final_service_fee_balance_serv_node_1_minor
+            .to_string(),
+    );
+
+    assert_balances(
+        &serving_node_2_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        &global_config
+            .exp_final_cons_node_service_fee_balance_minor
+            .to_string(),
+    );
+
+    assert_balances(
+        &serving_node_3_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        &global_config
+            .exp_final_cons_node_service_fee_balance_minor
+            .to_string(),
+    );
+
+    let serving_node_1_attributes = ServingNodeAttributes {
+        name: "".to_string(),
+        index: serving_node_1_index,
+        config: &serving_node_1_config,
+    };
+    let serving_node_2_attributes = ServingNodeAttributes {
+        name: "".to_string(),
+        index: serving_node_2_index,
+        config: &serving_node_2_config,
+    };
+    let serving_node_3_attributes = ServingNodeAttributes {
+        name: "".to_string(),
+        index: serving_node_3_index,
+        config: &serving_node_1_config,
+    };
+    start_serving_nodes_and_run_check(
+        &cluster,
+        serving_node_1_attributes,
+        serving_node_2_attributes,
+        serving_node_3_attributes,
+        &global_config,
+    );
+
+    test_utils::wait_for(Some(1000), Some(15000), || {
+        if let Some(status) = serving_node_1_receivable_dao.account_status(&consuming_node_wallet) {
+            status.balance_wei
+                == (global_config.service_fee_owed_to_serv_node_1_minor
+                    - global_config.exp_final_service_fee_balance_serv_node_1_minor)
+        } else {
+            false
+        }
+    });
+    test_utils::wait_for(Some(1000), Some(15000), || {
+        if let Some(status) = serving_node_2_receivable_dao.account_status(&consuming_node_wallet) {
+            status.balance_wei
+                == (global_config.service_fee_owed_to_serv_node_2_minor
+                    - global_config.exp_final_service_fee_balance_serv_node_2_minor)
+        } else {
+            false
+        }
+    });
+    test_utils::wait_for(Some(1000), Some(15000), || {
+        if let Some(status) = serving_node_3_receivable_dao.account_status(&consuming_node_wallet) {
+            status.balance_wei
+                == (global_config.service_fee_owed_to_serv_node_3_minor
+                    - global_config.exp_final_service_fee_balance_serv_node_3_minor)
+        } else {
+            false
+        }
+    });
 }
