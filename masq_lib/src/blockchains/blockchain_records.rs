@@ -9,7 +9,6 @@ use crate::constants::{
     ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use ethereum_types::{Address, H160};
-use std::str::FromStr;
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
 pub const CHAINS: [BlockchainRecord; 5] = [
@@ -103,6 +102,7 @@ mod tests {
     };
     use std::collections::HashSet;
     use std::iter::FromIterator;
+    use std::str::FromStr;
 
     #[test]
     fn record_returns_correct_blockchain_record() {
@@ -142,7 +142,7 @@ mod tests {
     fn undefined_str_returns_an_error() {
         let result = Chain::from_str("bitcoin");
 
-        assert_eq!(result, Err("Clap let in a wrong value for chain: 'bitcoin'".to_string()))
+        assert_eq!(result, Err("Clap let in a wrong value for chain: 'bitcoin'; if this happens we need to track down the slit".to_string()))
     }
 
     #[test]

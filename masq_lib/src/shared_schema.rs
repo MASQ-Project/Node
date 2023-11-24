@@ -7,7 +7,6 @@ use crate::constants::{
 use clap::{value_parser, Arg, Command};
 use lazy_static::lazy_static;
 use std::net::IpAddr;
-use std::ops::Add;
 use std::path::PathBuf;
 use std::str::FromStr;
 use base64::URL_SAFE_NO_PAD;
@@ -480,7 +479,6 @@ pub fn shared_app(head: Command) -> Command {
 pub mod common_validators {
     use std::fmt::{Display, Formatter};
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
-    use crate::utils::{hex_to_u128, partition};
     use regex::Regex;
     use std::net::IpAddr;
     use std::path::PathBuf;
@@ -500,8 +498,8 @@ pub mod common_validators {
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let init: (Vec<IpAddr>, bool) = (vec![], false);
             let (ip_addrs, error_encountered) = s
-                .split(",")
-                .map(|ip_addr_str| IpAddr::from_str(ip_addr_str))
+                .split(',')
+                .map(IpAddr::from_str)
                 .fold(init, |sofar, ip_addr_result| {
                     let (mut ip_addrs, error_encountered) = sofar;
                     if error_encountered {
@@ -523,12 +521,6 @@ pub mod common_validators {
             else {
                 Ok(IpAddrs {ips: ip_addrs})
             }
-        }
-    }
-
-    impl From<IpAddrs> for Vec<IpAddr> {
-        fn from(value: IpAddrs) -> Self {
-            todo!()
         }
     }
 
@@ -611,7 +603,7 @@ pub mod common_validators {
                 None => return Err(format!("Must begin with '0x' followed by 40 hexadecimal digits, not '{}'", s)),
             }.as_str();
             let address = FromHexIter::new(hex_string)
-                .map(|result| result.ok().expect("Regular expression allowed non-hex characters through"))
+                .map(|result| result.expect("Regular expression allowed non-hex characters through"))
                 .collect_vec();
             Ok(Self { address })
         }
@@ -922,7 +914,7 @@ impl FromStr for ConfigFile {
 
 impl Display for ConfigFile {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path.as_os_str().to_string_lossy().to_string())
+        write!(f, "{}", self.path.as_os_str().to_string_lossy())
     }
 }
 
@@ -948,7 +940,7 @@ impl FromStr for DataDirectory {
 
 impl Display for DataDirectory {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path.as_os_str().to_string_lossy().to_string())
+        write!(f, "{}", self.path.as_os_str().to_string_lossy())
     }
 }
 
@@ -995,13 +987,13 @@ impl FromStr for MinHops {
 
 impl Display for MinHops {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let string = match self {
-            &MinHops::One => "1",
-            &MinHops::Two => "2",
-            &MinHops::Three => "3",
-            &MinHops::Four => "4",
-            &MinHops::Five => "5",
-            &MinHops::Six => "6"
+        let string = match *self {
+            MinHops::One => "1",
+            MinHops::Two => "2",
+            MinHops::Three => "3",
+            MinHops::Four => "4",
+            MinHops::Five => "5",
+            MinHops::Six => "6"
         };
         write!(f, "{}", string)
     }
@@ -1018,9 +1010,9 @@ impl FromStr for Neighbors {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let init: (Vec<NodeAddr>, Vec<String>) = (vec![], vec![]);
         let (neighbors, errors) = s
-            .split(",")
+            .split(',')
             .map(|s| s.trim())
-            .map(|s| NodeAddr::from_str(s))
+            .map(NodeAddr::from_str)
             .fold(init, |sofar, result| {
                 let (mut node_addrs, mut errors) = sofar;
                 match result {
@@ -1104,7 +1096,7 @@ fn from_str_for_vec_u64(values_with_delimiters: &str, expected_count: usize) -> 
         })
 }
 
-fn fmt_vec_u64(numbers: &Vec<u64>, f: &mut Formatter<'_>) -> std::fmt::Result {
+fn fmt_vec_u64(numbers: &[u64], f: &mut Formatter<'_>) -> std::fmt::Result {
     let strings = numbers.iter().map(|v| v.to_string()).collect_vec();
     write!(f, "{}", strings.join("|"))
 }
@@ -1217,13 +1209,12 @@ mod tests {
     use std::fs::File;
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{GasPrice, IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
+    use crate::shared_schema::common_validators::{IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
     use crate::shared_schema::{common_validators, official_chain_names};
     use std::path::PathBuf;
     use std::str::FromStr;
     use itertools::Itertools;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::utils::hex_to_u128;
 
     #[test]
     fn constants_have_correct_values() {
