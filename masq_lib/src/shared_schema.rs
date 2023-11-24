@@ -7,8 +7,10 @@ use crate::constants::{
 use clap::{value_parser, Arg, Command};
 use lazy_static::lazy_static;
 use std::net::IpAddr;
+use std::ops::Add;
 use std::path::PathBuf;
 use std::str::FromStr;
+use base64::URL_SAFE_NO_PAD;
 use clap::builder::ValueRange;
 use itertools::Itertools;
 use url::Url;
@@ -397,7 +399,7 @@ pub fn shared_app(head: Command) -> Command {
             .long("gas-price")
             .value_name("GAS-PRICE")
             .num_args(ValueRange::new(0..=1))
-            .value_parser(value_parser!(u64))
+            .value_parser(value_parser!(common_validators::GasPrice))
             .help(GAS_PRICE_HELP()),
     )
     .arg(
@@ -485,6 +487,7 @@ pub mod common_validators {
     use std::str::FromStr;
     use itertools::Itertools;
     use rustc_hex::{FromHexIter, ToHexIter};
+    use crate::shared_schema::{hex_to_u8s, u8s_to_hex};
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct IpAddrs {
@@ -549,42 +552,23 @@ pub mod common_validators {
         type Err = String;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            if Regex::new("^[0-9a-fA-F]{64}$")
-                .expect("Failed to compile regular expression")
-                .is_match(s)
-            {
-                let pairs: Vec<String> = partition(s, 2).expect("64 just became odd");
-                let bytes = pairs
-                    .into_iter()
-                    .map(|pair| hex_to_u128(pair.as_str()).expect("Regex no longer works") as u8)
-                    .collect::<Vec<u8>>();
-                Ok(PrivateKey { data: bytes })
-            } else {
-                Err(format!(
-                    "Private key should be 64 hex characters long, not '{}'",
-                    s
-                ))
+            if s.len() != 64 {
+                Err(format!("PrivateKey must be 64 hex characters long, not {}", s.len()))
+            }
+            else {
+                match hex_to_u8s(s) {
+                    Ok(data) => Ok(PrivateKey {data}),
+                    Err(e) => Err(format!("Invalid PrivateKey: {}", e)),
+                }
             }
         }
     }
 
-    impl From<PrivateKey> for String {
-        fn from(_value: PrivateKey) -> Self {
-            todo!()
+    impl Display for PrivateKey {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", u8s_to_hex(&self.data))
         }
     }
-
-    // pub fn validate_private_key(_key: String) -> Result<(), String> {
-    //     todo! ("Use PrivateKey instead");
-    //     if Regex::new("^[0-9a-fA-F]{64}$")
-    //         .expect("Failed to compile regular expression")
-    //         .is_match(&_key)
-    //     {
-    //         Ok(())
-    //     } else {
-    //         Err(_key)
-    //     }
-    // }
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct GasPrice {
@@ -602,6 +586,12 @@ pub mod common_validators {
                     s
                 )),
             }
+        }
+    }
+
+    impl Display for GasPrice {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.price)
         }
     }
 
@@ -720,6 +710,12 @@ pub mod common_validators {
                     triple
                 ))
             }
+        }
+    }
+
+    impl Display for RealUser {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}:{}:{}", self.uid, self.gid, self.home_dir.to_string_lossy())
         }
     }
 
@@ -964,14 +960,17 @@ pub struct PublicKey {
 impl FromStr for PublicKey {
     type Err = String;
 
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match base64::decode_config(s, URL_SAFE_NO_PAD) {
+            Ok(data) => Ok(PublicKey{data}),
+            Err(_) => Err(format!("Illegal Base64 string for public key: '{}'", s))
+        }
     }
 }
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "{}", base64::encode_config(&self.data, URL_SAFE_NO_PAD))
     }
 }
 
@@ -981,14 +980,30 @@ pub enum MinHops { One, Two, Three, Four, Five, Six }
 impl FromStr for MinHops {
     type Err = String;
 
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" => Ok(MinHops::One),
+            "2" => Ok(MinHops::Two),
+            "3" => Ok(MinHops::Three),
+            "4" => Ok(MinHops::Four),
+            "5" => Ok(MinHops::Five),
+            "6" => Ok(MinHops::Six),
+            _ => Err(format!("Unrecognized min-hops value '{}'", s))
+        }
     }
 }
 
 impl Display for MinHops {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        let string = match self {
+            &MinHops::One => "1",
+            &MinHops::Two => "2",
+            &MinHops::Three => "3",
+            &MinHops::Four => "4",
+            &MinHops::Five => "5",
+            &MinHops::Six => "6"
+        };
+        write!(f, "{}", string)
     }
 }
 
@@ -1000,14 +1015,38 @@ pub struct Neighbors {
 impl FromStr for Neighbors {
     type Err = String;
 
-    fn from_str(_s: &str) -> Result<Self, Self::Err> {
-        todo!()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let init: (Vec<NodeAddr>, Vec<String>) = (vec![], vec![]);
+        let (neighbors, errors) = s
+            .split(",")
+            .map(|s| s.trim())
+            .map(|s| NodeAddr::from_str(s))
+            .fold(init, |sofar, result| {
+                let (mut node_addrs, mut errors) = sofar;
+                match result {
+                    Ok(node_addr) => {
+                        node_addrs.push(node_addr);
+                        (node_addrs, errors)
+                    },
+                    Err(e) => {
+                        errors.push(e);
+                        (vec![], errors)
+                    }
+                }
+            });
+        if errors.is_empty() {
+            Ok(Neighbors {neighbors})
+        }
+        else {
+            Err(errors.join("; "))
+        }
     }
 }
 
 impl Display for Neighbors {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        let string = self.neighbors.iter().map(|n| n.to_string()).join(",");
+        write!(f, "{}", string)
     }
 }
 
@@ -1073,7 +1112,7 @@ fn fmt_vec_u64(numbers: &Vec<u64>, f: &mut Formatter<'_>) -> std::fmt::Result {
 macro_rules! make_vec_u64_type {
     ($new_type: ident, $length: expr) => {
         #[derive(Debug, PartialEq, Clone)]
-        struct $new_type {data: Vec<u64>}
+        pub struct $new_type {data: Vec<u64>}
         impl FromStr for $new_type {
             type Err = String;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1141,17 +1180,50 @@ impl ConfiguratorError {
     }
 }
 
+const HEX_DIGITS: [char; 16] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B' ,'C', 'D', 'E', 'F'];
+fn hex_to_u8s(hex: &str) -> Result<Vec<u8>, String> {
+    let upperhex = hex.to_ascii_uppercase();
+    let upperhex_bytes = upperhex.as_bytes();
+    if (upperhex_bytes.len() & 1) > 0 {
+        return Err(format!("Hexadecimal string must have even number of digits, not {}", upperhex.len()))
+    }
+    let digit_value = |c: char| {
+        HEX_DIGITS.binary_search(&c)
+            .map_err(|_| format!("Not a hexadecimal digit: {}", c))
+    };
+    let mut u8s: Vec<u8> = vec![];
+    for pair_index in 0..(upperhex_bytes.len() >> 1) {
+        let sixteens_digit = digit_value(upperhex_bytes[pair_index * 2] as char)? as u8;
+        let ones_digit = digit_value(upperhex_bytes[(pair_index * 2) + 1] as char)? as u8;
+        u8s.push((sixteens_digit << 4) | ones_digit);
+    }
+    Ok(u8s)
+}
+
+fn u8s_to_hex(u8s: &Vec<u8>) -> String {
+    let hex_digit = |n: usize| -> char {
+        HEX_DIGITS[n]
+    };
+    let mut hex = String::new();
+    for b in u8s {
+        hex.push(hex_digit((b >> 4) as usize));
+        hex.push(hex_digit((b & 0xF) as usize));
+    }
+    hex
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{IpAddrs, RealUser, VecU64, Wallet};
+    use crate::shared_schema::common_validators::{GasPrice, IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
     use crate::shared_schema::{common_validators, official_chain_names};
     use std::path::PathBuf;
     use std::str::FromStr;
     use itertools::Itertools;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::utils::hex_to_u128;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1403,46 +1475,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_private_key_requires_a_key_that_is_64_characters_long() {
-        let result = common_validators::PrivateKey::from_str("42");
-
-        assert_eq!(
-            result,
-            Err("Private key should be 64 hex characters long, not '42'".to_string()),
-        );
-    }
-
-    #[test]
-    fn validate_private_key_must_contain_only_hex_characters() {
-        let result = common_validators::PrivateKey::from_str(
-            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex",
-        );
-
-        assert_eq!(
-            result,
-            Err("Private key should be 64 hex characters long, not 'cc46befe8d169b89db447bd725fc2368b12542113555302598430cinvalidhex'".to_string()),
-        );
-    }
-
-    #[test]
-    fn validate_private_key_handles_happy_path() {
-        let result = common_validators::PrivateKey::from_str(
-            "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9",
-        );
-
-        assert_eq!(
-            result,
-            Ok(common_validators::PrivateKey {
-                data: vec![
-                    0xcc, 0x46, 0xbe, 0xfe, 0x8d, 0x16, 0x9b, 0x89, 0xdb, 0x44, 0x7b, 0xd7, 0x25,
-                    0xfc, 0x23, 0x68, 0xb1, 0x25, 0x42, 0x11, 0x35, 0x55, 0x30, 0x25, 0x98, 0x43,
-                    0x0c, 0xb5, 0xd5, 0xc7, 0x4e, 0xa9
-                ]
-            })
-        );
-    }
-
-    #[test]
     fn insecure_port_validation_rejects_badly_formatted_port_number() {
         let result = common_validators::InsecurePort::from_str("booga");
 
@@ -1545,6 +1577,15 @@ mod tests {
     }
 
     #[test]
+    fn gas_price_to_string_works() {
+        let subject = common_validators::GasPrice {price: 12345678};
+
+        let result = subject.to_string();
+
+        assert_eq! (result, "12345678".to_string());
+    }
+
+    #[test]
     fn validate_real_user_happy_path() {
         let result = RealUser::from_str("1234:5678:/home/booga");
 
@@ -1593,6 +1634,15 @@ mod tests {
             result,
             Err("--real_user specified non-absolute home directory: 'home/dir'".to_string())
         );
+    }
+
+    #[test]
+    fn real_user_to_string_works() {
+        let subject = RealUser {uid: 1234, gid: 2345, home_dir: PathBuf::from("/home/booga")};
+
+        let result = subject.to_string();
+
+        assert_eq! (result, "1234:2345:/home/booga".to_string())
     }
 
     #[test]
@@ -1943,6 +1993,166 @@ mod tests {
     }
 
     #[test]
+    fn public_key_can_be_parsed_from_string() {
+        let input = "SW5zaWRlIG9mIGEgZG9nLCBpdCdzIHRvbyBkYXJrIHRvIHJlYWQu";
+
+        let result = PublicKey::from_str(input).unwrap();
+
+        assert_eq! (result.data, b"Inside of a dog, it's too dark to read.".to_vec())
+    }
+
+    #[test]
+    fn public_key_detects_invalid_value() {
+
+        let result = PublicKey::from_str("X");
+
+        assert_eq! (result, Err("Illegal Base64 string for public key: 'X'".to_string()))
+    }
+
+    #[test]
+    fn public_key_displays_properly() {
+        let input = PublicKey {data: b"Inside of a dog, it's too dark to read.".to_vec()};
+
+        let result = input.to_string();
+
+        assert_eq! (result, "SW5zaWRlIG9mIGEgZG9nLCBpdCdzIHRvbyBkYXJrIHRvIHJlYWQu");
+    }
+
+    #[test]
+    fn min_hops_can_be_parsed_from_strings() {
+        let inputs = vec!["1", "2", "3", "4", "5", "6"];
+
+        let result = inputs
+            .into_iter()
+            .map(|input| MinHops::from_str(input).unwrap())
+            .collect_vec();
+
+        assert_eq! (result, vec![
+            MinHops::One,
+            MinHops::Two,
+            MinHops::Three,
+            MinHops::Four,
+            MinHops::Five,
+            MinHops::Six
+        ])
+    }
+
+    #[test]
+    fn min_hops_detects_invalid_value() {
+
+        let result = MinHops::from_str("booga");
+
+        assert_eq! (result, Err("Unrecognized min-hops value 'booga'".to_string()))
+    }
+
+    #[test]
+    fn min_hops_displays_properly() {
+        let inputs = vec![
+            MinHops::One,
+            MinHops::Two,
+            MinHops::Three,
+            MinHops::Four,
+            MinHops::Five,
+            MinHops::Six
+        ];
+
+        let result = inputs
+            .into_iter()
+            .map(|input| input.to_string())
+            .collect_vec();
+
+        assert_eq! (
+            result,
+            vec!["1", "2", "3", "4", "5", "6"]
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect_vec()
+        )
+    }
+
+    #[test]
+    fn neighbors_can_be_parsed_from_strings() {
+        let input = "1.2.254.255:1234/2345/3456,3.4.253.254:4567/5678/6789";
+
+        let result = Neighbors::from_str(input).unwrap();
+
+        assert_eq! (result, Neighbors {neighbors: vec![
+            NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
+            NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap()
+        ]})
+    }
+
+    #[test]
+    fn neighbors_detects_invalid_value() {
+
+        let result = Neighbors::from_str("1.2.254.255:12342345/3456,300.4.253.254:4567/5678/6789");
+
+        assert_eq! (result, Err("NodeAddr must have port numbers between 1025 and 65535, not '12342345'; NodeAddr must have a valid IP address, not '300.4.253.254'".to_string()))
+    }
+
+    #[test]
+    fn neighbors_displays_properly() {
+        let input = Neighbors {neighbors: vec![
+            NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
+            NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap(),
+        ]};
+
+        let result = input.to_string();
+
+        assert_eq! (
+            result,
+            "1.2.254.255:1234/2345/3456,3.4.253.254:4567/5678/6789".to_string()
+        )
+    }
+
+    #[test]
+    fn private_key_can_be_parsed_from_string() {
+        let input = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc99008811772266335544";
+        let u8s = hex_to_u8s(input).unwrap();
+
+        let result = PrivateKey::from_str(input).unwrap();
+
+        assert_eq! (result, PrivateKey {data: u8s })
+    }
+
+    #[test]
+    fn private_key_cant_be_too_long() {
+        let input = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc990088117722663355440";
+
+        let result = PrivateKey::from_str(input);
+
+        assert_eq! (result, Err(format!("PrivateKey must be 64 hex characters long, not 65")))
+    }
+
+    #[test]
+    fn private_key_cant_be_too_short() {
+        let input = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc9900881177226633554";
+
+        let result = PrivateKey::from_str(input);
+
+        assert_eq! (result, Err(format!("PrivateKey must be 64 hex characters long, not 63")))
+    }
+
+    #[test]
+    fn private_key_must_be_hexadecimal() {
+        let input = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc9900881177226633554x";
+
+        let result = PrivateKey::from_str(input);
+
+        assert_eq! (result, Err(format!("Invalid PrivateKey: Not a hexadecimal digit: X")))
+    }
+
+    #[test]
+    fn private_key_displays_properly() {
+        let hex = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc99008811772266335544";
+        let input = PrivateKey {data: hex_to_u8s(hex).unwrap()};
+
+        let result = input.to_string();
+
+        assert_eq! (result, hex.to_string().to_ascii_uppercase())
+    }
+
+    #[test]
     fn on_off_from_str_and_display_work() {
         vec!["on", "off"].into_iter().for_each(|expected_value| {
             let value = OnOff::from_str (expected_value).unwrap();
@@ -1956,5 +2166,14 @@ mod tests {
         let value = OnOff::from_str("booga");
 
         assert_eq!(value, Err("Must be either 'on' or 'off', not 'booga'".to_string()))
+    }
+
+    #[test]
+    fn hex_to_u8s_does_not_like_an_odd_number_of_digits() {
+        let hex = "B";
+
+        let result = hex_to_u8s(hex);
+
+        assert_eq! (result, Err("Hexadecimal string must have even number of digits, not 1".to_string()));
     }
 }

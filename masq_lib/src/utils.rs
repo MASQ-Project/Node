@@ -13,8 +13,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use clap::ArgMatches;
-use crate::shared_schema::{LogLevel, NeighborhoodMode};
-use crate::shared_schema::common_validators::{InsecurePort, VecU64};
+use crate::shared_schema::{LogLevel, NeighborhoodMode, ConfigFile, DataDirectory, PublicKey, MappingProtocol, MinHops, Neighbors, OnOff, ScanIntervals, RatePack, PaymentThresholds};
+use crate::shared_schema::common_validators::{InsecurePort, VecU64, PrivateKey, IpAddrs, Wallet, GasPrice, RealUser};
+use crate::crash_point::CrashPoint;
+use url::Url;
 
 #[cfg(not(target_os = "windows"))]
 mod not_win_cfg {
@@ -100,19 +102,54 @@ macro_rules! make_converter_entry {
     };
 }
 
-argument_converter_for!(NeighborhoodMode, NeighborhoodModeConverter);
-argument_converter_for!(LogLevel, LogLevelConverter);
-argument_converter_for!(VecU64, VecU64Converter);
 argument_converter_for!(Chain, ChainConverter);
+argument_converter_for!(ConfigFile, ConfigFileConverter);
+argument_converter_for!(CrashPoint, CrashPointConverter);
+argument_converter_for!(DataDirectory, DataDirectoryConverter);
+argument_converter_for!(GasPrice, GasPriceConverter);
 argument_converter_for!(InsecurePort, InsecurePortConverter);
+argument_converter_for!(IpAddr, IpAddrConverter);
+argument_converter_for!(IpAddrs, IpAddrsConverter);
+argument_converter_for!(LogLevel, LogLevelConverter);
+argument_converter_for!(MappingProtocol, MappingProtocolConverter);
+argument_converter_for!(MinHops, MinHopsConverter);
+argument_converter_for!(NeighborhoodMode, NeighborhoodModeConverter);
+argument_converter_for!(Neighbors, NeighborsConverter);
+argument_converter_for!(OnOff, OnOffConverter);
+argument_converter_for!(PaymentThresholds, PaymentThresholdsConverter);
+argument_converter_for!(PrivateKey, PrivateKeyConverter);
+argument_converter_for!(PublicKey, PublicKeyConverter);
+argument_converter_for!(RatePack, RatePackConverter);
+argument_converter_for!(RealUser, RealUserConverter);
+argument_converter_for!(ScanIntervals, ScanIntervalsConverter);
+argument_converter_for!(Url, UrlConverter);
+argument_converter_for!(VecU64, VecU64Converter);
+argument_converter_for!(Wallet, WalletConverter);
 
 fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter>> {
     HashMap::from([
-        make_converter_entry!("neighborhood-mode", NeighborhoodModeConverter),
-        make_converter_entry!("log-level", LogLevelConverter),
-        make_converter_entry!("scan-intervals", VecU64Converter),
+        make_converter_entry!("blockchain-service-url", UrlConverter),
         make_converter_entry!("chain", ChainConverter),
         make_converter_entry!("clandestine-port", InsecurePortConverter),
+        make_converter_entry!("config-file", ConfigFileConverter),
+        make_converter_entry!("consuming-private-key", PrivateKeyConverter),
+        make_converter_entry!("crash-point", CrashPointConverter),
+        make_converter_entry!("data-directory", DataDirectoryConverter),
+        make_converter_entry!("dns-servers", IpAddrsConverter),
+        make_converter_entry!("earning-wallet", WalletConverter),
+        make_converter_entry!("fake-public-key", PublicKeyConverter),
+        make_converter_entry!("gas-price", GasPriceConverter),
+        make_converter_entry!("ip", IpAddrConverter),
+        make_converter_entry!("log-level", LogLevelConverter),
+        make_converter_entry!("mapping-protocol", MappingProtocolConverter),
+        make_converter_entry!("min-hops", MinHopsConverter),
+        make_converter_entry!("neighborhood-mode", NeighborhoodModeConverter),
+        make_converter_entry!("neighbors", NeighborsConverter),
+        make_converter_entry!("payment-thresholds", PaymentThresholdsConverter),
+        make_converter_entry!("rate-pack", RatePackConverter),
+        make_converter_entry!("real-user", RealUserConverter),
+        make_converter_entry!("scan-intervals", ScanIntervalsConverter),
+        make_converter_entry!("scans", OnOffConverter),
     ])
 }
 
@@ -563,6 +600,7 @@ mod tests {
     fn get_argument_value_as_string_handles_exotic_types() {
         let command = shared_app(Command::new("test"));
         let matches = command.try_get_matches_from(&["first",
+            "--blockchain-service-url", "https://blockchain.client.net/api/jsonrpc",
             "--chain", "polygon-mainnet",
             "--clandestine-port", "1234",
             "--config-file", "../directory/file.toml",
@@ -583,7 +621,7 @@ mod tests {
             "--scans", "off",
             "--scan-intervals",  "10|20|30",
             "--rate-pack", "10|20|30|40",
-            "--payment-threshold", "10|20|30|40|50|60",
+            "--payment-thresholds", "10|20|30|40|50|60",
         ]).unwrap();
         let verifier = |key, expected_value: Option<&str>| {
             let result = get_argument_value_as_string(&matches, key);
@@ -591,11 +629,10 @@ mod tests {
         };
 
         verifier("blockchain-service-url", Some("https://blockchain.client.net/api/jsonrpc"));
-
         verifier("chain", Some("polygon-mainnet"));
         verifier("clandestine-port", Some("1234"));
         verifier("config-file", Some("../directory/file.toml"));
-        verifier("consuming-private-key", Some("00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100"));
+        verifier("consuming-private-key", Some("00112233445566778899AABBCCDDEEFFFFEEDDCCBBAA99887766554433221100"));
         verifier("crash-point", Some("panic"));
         verifier("data-directory", Some("~/grandfather/father/target"));
         verifier("dns-servers", Some("1.2.3.4,2.3.4.5"));
@@ -612,7 +649,7 @@ mod tests {
         verifier("scans", Some("off"));
         verifier("scan-intervals", Some("10|20|30"));
         verifier("rate-pack", Some("10|20|30|40"));
-        verifier("payment-threshold", Some("10|20|30|40|50|60"))
+        verifier("payment-thresholds", Some("10|20|30|40|50|60"))
     }
 
     #[test]
