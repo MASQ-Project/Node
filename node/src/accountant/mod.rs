@@ -1541,7 +1541,7 @@ mod tests {
             actual_prepared_adjustment
                 .original_setup_msg
                 .protected_qualified_payables,
-            protect_payables_in_test(affordable_accounts.clone())
+            protect_payables_in_test(vec![unadjusted_account_1, unadjusted_account_2])
         );
         assert_eq!(
             actual_prepared_adjustment
