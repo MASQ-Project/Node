@@ -116,6 +116,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     .expect("Internal error");
     return gas_limit;
 }
+// Result<SignedTransaction, PayableTransactionError>
 pub fn sign_transaction<T: BatchTransport>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
@@ -124,7 +125,7 @@ pub fn sign_transaction<T: BatchTransport>(
     amount: u128,
     nonce: U256,
     gas_price: u64,
-) -> Result<SignedTransaction, PayableTransactionError> {
+) -> Box<dyn Future<Item = SignedTransaction, Error = PayableTransactionError>> {
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
 
@@ -149,14 +150,16 @@ pub fn sign_transaction<T: BatchTransport>(
 
     let key = match consuming_wallet.prepare_secp256k1_secret() {
         Ok(secret) => secret,
-        Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
+        Err(e) => return Box::new(err(PayableTransactionError::UnusableWallet(e.to_string()))),
     };
 
-    batch_web3
-        .accounts()
-        .sign_transaction(transaction_parameters, &key)
-        .wait() // TODO: GH-744 Remove this wait.
-        .map_err(|e| PayableTransactionError::Signing(e.to_string()))
+    Box::new(
+        batch_web3
+            .accounts()
+            .sign_transaction(transaction_parameters, &key)
+            // .wait() // TODO: GH-744 Remove this wait.
+            .map_err(|e| PayableTransactionError::Signing(e.to_string())),
+    )
 }
 
 pub fn handle_new_transaction<T: BatchTransport>(

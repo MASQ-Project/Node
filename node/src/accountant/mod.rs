@@ -1024,8 +1024,8 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
-    use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
+    use crate::blockchain::blockchain_interface::{BlockchainTransaction, REQUESTS_IN_PARALLEL};
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1051,7 +1051,7 @@ mod tests {
     use itertools::Itertools;
     use log::Level;
     use masq_lib::constants::{
-        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
+        DEFAULT_CHAIN, REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
         VALUE_EXCEEDS_ALLOWED_LIMIT,
     };
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -1070,7 +1070,9 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
     use std::vec;
+    use web3::transports::{Batch, Http};
     use web3::types::{TransactionReceipt, U256};
+    use web3::Web3;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -2960,6 +2962,7 @@ mod tests {
 
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
+        todo!("GH-744: Failing test, need to either create a mock or use hardhat/ganache - for - submit_batch");
         init_test_logging();
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2999,11 +3002,16 @@ mod tests {
         let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
+        let url = "https://www.example.com";
+        let (_event_loop_handle, http) =
+            Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_transaction_fee_balance_result(Ok(U256::from(u128::MAX)))
             .get_token_balance_result(Ok(U256::from(u128::MAX)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
+            .get_chain_result(DEFAULT_CHAIN)
+            .get_batch_web3_result(Web3::new(Batch::new(http)))
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
@@ -3101,7 +3109,8 @@ mod tests {
             .fingerprints_rowids_result(vec![
                 (Some(rowid_for_account_1), pending_tx_hash_1),
                 (Some(rowid_for_account_2), pending_tx_hash_2),
-            ]);
+            ])
+            .delete_fingerprints_result(Ok(()));
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
             .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
             .return_all_errorless_fingerprints_result(vec![])
@@ -3134,8 +3143,10 @@ mod tests {
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
+        let pending_payable_dao_for_accountant =
+            PendingPayableDaoMock::default().insert_fingerprints_result(Ok(()));
         let accountant_addr = Arbiter::builder()
-            .stop_system_on_panic(true)
+            // .stop_system_on_panic(true)
             .start(move |_| {
                 let mut subject = AccountantBuilder::default()
                     .bootstrapper_config(bootstrapper_config)
@@ -3146,6 +3157,7 @@ mod tests {
                     .pending_payable_daos(vec![
                         ForPayableScanner(pending_payable_dao_for_payable_scanner),
                         ForPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
+                        ForAccountantBody(pending_payable_dao_for_accountant),
                     ])
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
