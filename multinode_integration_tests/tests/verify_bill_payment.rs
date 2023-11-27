@@ -1,8 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+use masq_lib::messages::FromMessageBody;
+use masq_lib::messages::ToMessageBody;
+use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -15,6 +19,7 @@ use multinode_integration_tests_lib::utils::{
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::accountant::db_access_objects::utils::to_time_t;
 use node_lib::accountant::gwei_to_wei;
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
@@ -28,6 +33,7 @@ use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
+use rusqlite::{ToSql, Transaction};
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
@@ -57,43 +63,48 @@ fn verify_bill_payment() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
-    let service_fee_owed_to_serv_node_1_minor =
+    let owed_to_serving_node_1_minor =
         gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei) + 123_456;
-    let service_fee_owed_to_serv_node_2_minor =
+    let owed_to_serving_node_2_minor =
         gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei) + 456_789;
-    let service_fee_owed_to_serv_node_3_minor =
+    let owed_to_serving_node_3_minor =
         gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei) + 789_012;
     let cons_node_initial_service_fee_balance_minor =
         gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei) * 4;
     let exp_final_cons_node_service_fee_balance_minor = cons_node_initial_service_fee_balance_minor
-        - (service_fee_owed_to_serv_node_1_minor
-            + service_fee_owed_to_serv_node_2_minor
-            + service_fee_owed_to_serv_node_3_minor);
+        - (owed_to_serving_node_1_minor
+            + owed_to_serving_node_2_minor
+            + owed_to_serving_node_3_minor);
     let test_global_config = TestInputsOutputsConfig {
         ui_ports_opt: None,
         cons_node_initial_transaction_fee_balance_minor_opt: None,
         cons_node_initial_service_fee_balance_minor,
-        service_fee_owed_to_serv_node_1_minor,
-        service_fee_owed_to_serv_node_2_minor,
-        service_fee_owed_to_serv_node_3_minor,
+        debts_config: Either::Left(SimpleSimulatedDebts {
+            owed_to_serving_node_1_minor,
+            owed_to_serving_node_2_minor,
+            owed_to_serving_node_3_minor,
+        }),
         payment_thresholds_all_nodes: payment_thresholds,
         exp_final_cons_node_transaction_fee_balance_minor: 99_999_842_470_000_000_000,
         exp_final_cons_node_service_fee_balance_minor,
-        exp_final_service_fee_balance_serv_node_1_minor: service_fee_owed_to_serv_node_1_minor,
-        exp_final_service_fee_balance_serv_node_2_minor: service_fee_owed_to_serv_node_2_minor,
-        exp_final_service_fee_balance_serv_node_3_minor: service_fee_owed_to_serv_node_3_minor,
+        exp_final_service_fee_balance_serv_node_1_minor: owed_to_serving_node_1_minor,
+        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serving_node_2_minor,
+        exp_final_service_fee_balance_serv_node_3_minor: owed_to_serving_node_3_minor,
     };
 
-    let stimulate_payments = |cluster: &mut MASQNodeCluster, real_consuming_node: &MASQRealNode| {
-        for _ in 0..6 {
-            cluster.start_real_node(
-                NodeStartupConfigBuilder::standard()
-                    .chain(Chain::Dev)
-                    .neighbor(real_consuming_node.node_reference())
-                    .build(),
-            );
-        }
-    };
+    let stimulate_payments =
+        |cluster: &mut MASQNodeCluster,
+         real_consuming_node: &MASQRealNode,
+         _global_test_config: &TestInputsOutputsConfig| {
+            for _ in 0..6 {
+                cluster.start_real_node(
+                    NodeStartupConfigBuilder::standard()
+                        .chain(Chain::Dev)
+                        .neighbor(real_consuming_node.node_reference())
+                        .build(),
+                );
+            }
+        };
 
     let start_serving_nodes_and_run_check =
         |cluster: &mut MASQNodeCluster,
@@ -452,102 +463,122 @@ fn verify_bill_payment() {
 
 #[test]
 fn payments_were_adjusted_due_to_insufficient_balance() {
-    //
-    //     let consuming_node_ui_port = find_free_port();
-    //     let serving_node_1_ui_port = find_free_port();
-    //     let serving_node_2_ui_port = find_free_port();
-    //     let serving_node_3_ui_port = find_free_port();
-    //
-    //
-    //
-    //
-    //
-    //
-    //     transfer_tokens_to_address(
-    //         contract_addr,
-    //         &contract_owner_wallet,
-    //         &consuming_node_wallet,
-    //         consuming_node_initial_service_fee_balance,
-    //         1,
-    //         &web3,
-    //         cluster.chain,
-    //     );
-    //
-    //     assert_balances(
-    //         &consuming_node_wallet,
-    //         &blockchain_interface,
-    //         "100000000000000000000", // Default at ganache
-    //         &consuming_node_initial_service_fee_balance.to_string(),
-    //     );
-    //
-    //
-    //
-    //
-    //
-    //     let amount = |addition: u128| -> u128 {
-    //         todo!("hmmm");
-    //     };
-    //     let owed_to_serving_node_1 = amount(123);
-    //     let owed_to_serving_node_2 = amount(456);
-    //     let owed_to_serving_node_3 = amount(789);
-    //
-    //
-    //
-    //
-    //
-    //     let process_scan_request_to_node =
-    //         |real_node: &MASQRealNode, ui_port: u16, scan_type: ScanType, context_id: u64| {
-    //             let ui_client = real_consuming_node.make_ui(ui_port);
-    //             ui_client.send_request(UiScanRequest { scan_type }.tmb(context_id));
-    //             let response = ui_client.wait_for_response(context_id, Duration::from_secs(10));
-    //             UiScanResponse::fmb(response).unwrap();
-    //         };
-    //
-    //     // Commanding the consuming Node to check its payables
-    //     process_scan_request_to_node(
-    //         &real_consuming_node,
-    //         consuming_node_ui_port,
-    //         ScanType::Payables,
-    //         5555,
-    //     );
-    //
-    //
-    //
-    //
-    //
-    //     let serving_node_1 = cluster.start_named_real_node(
-    //         &serving_node_1_name,
-    //         serving_node_1_index,
-    //         serving_node_1_config,
-    //     );
-    //     process_scan_request_to_node(
-    //         &serving_node_1,
-    //         serving_node_1_ui_port,
-    //         ScanType::Receivables,
-    //         2222,
-    //     );
-    //     let serving_node_2 = cluster.start_named_real_node(
-    //         &serving_node_2_name,
-    //         serving_node_2_index,
-    //         serving_node_2_config,
-    //     );
-    //     process_scan_request_to_node(
-    //         &serving_node_2,
-    //         serving_node_2_ui_port,
-    //         ScanType::Receivables,
-    //         3333,
-    //     );
-    //     let serving_node_3 = cluster.start_named_real_node(
-    //         &serving_node_3_name,
-    //         serving_node_3_index,
-    //         serving_node_3_config,
-    //     );
-    //     process_scan_request_to_node(
-    //         &serving_node_3,
-    //         serving_node_3_ui_port,
-    //         ScanType::Receivables,
-    //         4444,
-    //     );
+    let consuming_node_ui_port = find_free_port();
+    let serving_node_1_ui_port = find_free_port();
+    let serving_node_2_ui_port = find_free_port();
+    let serving_node_3_ui_port = find_free_port();
+    let payment_thresholds = PaymentThresholds {
+        threshold_interval_sec: 2_500_000,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 85_000,
+        maturity_threshold_sec: 85_000,
+        permanent_debt_allowed_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
+    };
+    let owed_to_serv_node_1_minor =
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 10_000);
+    let owed_to_serv_node_2_minor =
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 20_000);
+    let owed_to_serv_node_3_minor =
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 30_000);
+    // Assuming all Nodes rely on the same set of payment thresholds
+    let cons_node_initial_service_fee_balance_minor =
+        (owed_to_serv_node_2_minor + owed_to_serv_node_3_minor) - 150_000;
+    let exp_final_cons_node_service_fee_balance_minor = cons_node_initial_service_fee_balance_minor
+        - (owed_to_serv_node_1_minor + owed_to_serv_node_2_minor + owed_to_serv_node_3_minor);
+    let test_global_config = TestInputsOutputsConfig {
+        ui_ports_opt: Some(Ports {
+            consuming_node: consuming_node_ui_port,
+            serving_node_1: serving_node_1_ui_port,
+            serving_node_2: serving_node_2_ui_port,
+            serving_node_3: serving_node_3_ui_port,
+        }),
+        // Shouldn't be enough for three payments therefore the least significant will be eliminated
+        cons_node_initial_transaction_fee_balance_minor_opt: Some(3_000_000_000_000_000),
+        cons_node_initial_service_fee_balance_minor,
+        debts_config: Either::Right(FullySpecifiedSimulatedDebts {
+            // This account will be the least significant and be eliminated for the reasons
+            // said above
+            owed_to_serving_node_1: AccountedDebt {
+                balance_minor: owed_to_serv_node_1_minor,
+                age_s: payment_thresholds.maturity_threshold_sec + 1000,
+            },
+            // This account has the middle amount in the balance but
+            // it is stressed by the age, which will cause this one will
+            // evaluate with the highest significance
+            owed_to_serving_node_2: AccountedDebt {
+                balance_minor: owed_to_serv_node_2_minor,
+                age_s: payment_thresholds.maturity_threshold_sec + 100_000,
+            },
+            // This balance is biggest but in the adjusted payment it will
+            // be reduced on the account of the second serving node,
+            // gaining the biggest portion from the available means for fees
+            owed_to_serving_node_3: AccountedDebt {
+                balance_minor: owed_to_serv_node_3_minor,
+                age_s: payment_thresholds.maturity_threshold_sec + 30_000,
+            },
+        }),
+        payment_thresholds_all_nodes: payment_thresholds,
+        exp_final_cons_node_transaction_fee_balance_minor: 99_999_842_470_000_000_000,
+        exp_final_cons_node_service_fee_balance_minor,
+        exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
+        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor,
+        exp_final_service_fee_balance_serv_node_3_minor: owed_to_serv_node_3_minor,
+    };
+
+    let process_scan_request_to_node =
+        |real_node: &MASQRealNode, ui_port: u16, scan_type: ScanType, context_id: u64| {
+            let ui_client = real_node.make_ui(ui_port);
+            ui_client.send_request(UiScanRequest { scan_type }.tmb(context_id));
+            let response = ui_client.wait_for_response(context_id, Duration::from_secs(10));
+            UiScanResponse::fmb(response).unwrap();
+        };
+
+    let stimulate_payments =
+        |_cluster: &mut MASQNodeCluster,
+         real_consuming_node: &MASQRealNode,
+         _global_test_config: &TestInputsOutputsConfig| {
+            process_scan_request_to_node(
+                &real_consuming_node,
+                consuming_node_ui_port,
+                ScanType::Payables,
+                5555,
+            )
+        };
+
+    let start_serving_nodes_and_run_check = |cluster: &mut MASQNodeCluster,
+                                             serving_node_1_attributes: ServingNodeAttributes,
+                                             serving_node_2_attributes: ServingNodeAttributes,
+                                             serving_node_3_attributes: ServingNodeAttributes,
+                                             test_global_config: &TestInputsOutputsConfig|
+     -> (MASQRealNode, MASQRealNode, MASQRealNode) {
+        let ports = test_global_config.ui_ports_opt.as_ref().unwrap();
+        let mut vec: Vec<MASQRealNode> = vec![
+            (serving_node_1_attributes, ports.serving_node_1, 1111),
+            (serving_node_2_attributes, ports.serving_node_2, 2222),
+            (serving_node_3_attributes, ports.serving_node_3, 3333),
+        ]
+        .into_iter()
+        .map(|(serving_node_attributes, ui_port, context_id)| {
+            let serving_node = cluster.start_named_real_node(
+                &serving_node_attributes.name,
+                serving_node_attributes.index,
+                serving_node_attributes.config,
+            );
+
+            process_scan_request_to_node(&serving_node, ui_port, ScanType::Receivables, context_id);
+
+            serving_node
+        })
+        .collect();
+        (vec.remove(0), vec.remove(0), vec.remove(0))
+    };
+
+    test_body(
+        test_global_config,
+        stimulate_payments,
+        start_serving_nodes_and_run_check,
+    );
 }
 
 fn make_init_config(chain: Chain) -> DbInitializationConfig {
@@ -711,14 +742,50 @@ fn build_config(
     (config, node_wallet)
 }
 
-fn expire_payables(path: PathBuf) {
+fn expire_payables(
+    path: PathBuf,
+    debts_config: &Either<SimpleSimulatedDebts, FullySpecifiedSimulatedDebts>,
+    now: SystemTime,
+    serving_node_1_wallet: &Wallet,
+    serving_node_2_wallet: &Wallet,
+    serving_node_3_wallet: &Wallet,
+) {
     let conn = DbInitializerReal::default()
         .initialize(&path, DbInitializationConfig::panic_on_migration())
         .unwrap();
-    let mut statement = conn
-        .prepare("update payable set last_paid_timestamp = 0 where pending_payable_rowid is null")
-        .unwrap();
-    statement.execute([]).unwrap();
+    match debts_config {
+        Either::Left(_) => {
+            let _ = conn
+            .prepare(
+                "update payable set last_paid_timestamp = 0 where pending_payable_rowid is null",
+            )
+            .unwrap()
+            .execute([])
+            .unwrap();
+        }
+        Either::Right(fully_specified_config) => vec![
+            (
+                serving_node_1_wallet,
+                fully_specified_config.owed_to_serving_node_1.age_s,
+            ),
+            (
+                serving_node_2_wallet,
+                fully_specified_config.owed_to_serving_node_2.age_s,
+            ),
+            (
+                serving_node_3_wallet,
+                fully_specified_config.owed_to_serving_node_3.age_s,
+            ),
+        ]
+        .iter()
+        .for_each(|(wallet, age_s)| {
+            let time_t = to_time_t(now.checked_sub(Duration::from_secs(*age_s)).unwrap());
+            conn.prepare("update payable set last_paid_timestamp = ? where wallet_address = ?")
+                .unwrap()
+                .execute(&[&time_t as &dyn ToSql, &(wallet.to_string())])
+                .unwrap();
+        }),
+    }
 
     let mut config_stmt = conn
         .prepare("update config set value = '0' where name = 'start_block'")
@@ -753,9 +820,7 @@ struct TestInputsOutputsConfig {
     // Specify number of wei this account should possess at its initialisation
     cons_node_initial_transaction_fee_balance_minor_opt: Option<u128>,
     cons_node_initial_service_fee_balance_minor: u128,
-    service_fee_owed_to_serv_node_1_minor: u128,
-    service_fee_owed_to_serv_node_2_minor: u128,
-    service_fee_owed_to_serv_node_3_minor: u128,
+    debts_config: Either<SimpleSimulatedDebts, FullySpecifiedSimulatedDebts>,
     payment_thresholds_all_nodes: PaymentThresholds,
 
     exp_final_cons_node_transaction_fee_balance_minor: u128,
@@ -765,21 +830,62 @@ struct TestInputsOutputsConfig {
     exp_final_service_fee_balance_serv_node_3_minor: u128,
 }
 
-enum UiPorts {
+enum NodeByRole {
     ConsNode,
     ServNode1,
     ServNode2,
     ServNode3,
 }
 
+struct SimpleSimulatedDebts {
+    owed_to_serving_node_1_minor: u128,
+    owed_to_serving_node_2_minor: u128,
+    owed_to_serving_node_3_minor: u128,
+}
+
+struct FullySpecifiedSimulatedDebts {
+    owed_to_serving_node_1: AccountedDebt,
+    owed_to_serving_node_2: AccountedDebt,
+    owed_to_serving_node_3: AccountedDebt,
+}
+
+struct AccountedDebt {
+    balance_minor: u128,
+    age_s: u64,
+}
+
 impl TestInputsOutputsConfig {
-    fn port(&self, requested: UiPorts) -> Option<u16> {
+    fn port(&self, requested: NodeByRole) -> Option<u16> {
         self.ui_ports_opt.as_ref().map(|ports| match requested {
-            UiPorts::ConsNode => ports.consuming_node,
-            UiPorts::ServNode1 => ports.serving_node_1,
-            UiPorts::ServNode2 => ports.serving_node_2,
-            UiPorts::ServNode3 => ports.serving_node_3,
+            NodeByRole::ConsNode => ports.consuming_node,
+            NodeByRole::ServNode1 => ports.serving_node_1,
+            NodeByRole::ServNode2 => ports.serving_node_2,
+            NodeByRole::ServNode3 => ports.serving_node_3,
         })
+    }
+
+    fn debt_size(&self, requested: NodeByRole) -> u128 {
+        match self.debts_config.as_ref() {
+            Either::Left(simple_config) => match requested {
+                NodeByRole::ServNode1 => simple_config.owed_to_serving_node_1_minor,
+                NodeByRole::ServNode2 => simple_config.owed_to_serving_node_2_minor,
+                NodeByRole::ServNode3 => simple_config.owed_to_serving_node_3_minor,
+                NodeByRole::ConsNode => panic!(
+                    "Version simple: These configs are \
+                serve to set owed to the consuming node, while that one should not be here."
+                ),
+            },
+            Either::Right(fully_specified) => match requested {
+                NodeByRole::ServNode1 => fully_specified.owed_to_serving_node_1.balance_minor,
+                NodeByRole::ServNode2 => fully_specified.owed_to_serving_node_2.balance_minor,
+                NodeByRole::ServNode3 => fully_specified.owed_to_serving_node_3.balance_minor,
+                NodeByRole::ConsNode => panic!(
+                    "Version fully specified: These configs \
+                are serve to set owed to the consuming node, while that one should not \
+                be here."
+                ),
+            },
+        }
     }
 }
 
@@ -798,12 +904,13 @@ struct ServingNodeAttributes {
 
 fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformReceivablesCheck>(
     global_config: TestInputsOutputsConfig,
-    stimulate_payments: StimulateConsumingNodePayments,
+    stimulate_consuming_node_to_pay: StimulateConsumingNodePayments,
     start_serving_nodes_and_run_check: StartServingNodesAndLetThemPerformReceivablesCheck,
 ) where
-    StimulateConsumingNodePayments: FnOnce(&mut MASQNodeCluster, &MASQRealNode),
+    StimulateConsumingNodePayments:
+        FnOnce(&mut MASQNodeCluster, &MASQRealNode, &TestInputsOutputsConfig),
     StartServingNodesAndLetThemPerformReceivablesCheck:
-    FnOnce(
+        FnOnce(
             &mut MASQNodeCluster,
             ServingNodeAttributes,
             ServingNodeAttributes,
@@ -833,15 +940,13 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         contract_addr
     );
     let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
-
     let (consuming_config, consuming_node_wallet) = build_config(
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
         derivation_path(0, 1),
-        global_config.port(UiPorts::ConsNode),
+        global_config.port(NodeByRole::ConsNode),
     );
-
     transfer_tokens_to_address(
         contract_addr,
         &contract_owner_wallet,
@@ -851,37 +956,35 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         &web3,
         cluster.chain,
     );
-
     assert_balances(
         &consuming_node_wallet,
         &blockchain_interface,
-        global_config.cons_node_initial_transaction_fee_balance_minor_opt.unwrap_or(DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI),
         global_config
-            .cons_node_initial_service_fee_balance_minor,
+            .cons_node_initial_transaction_fee_balance_minor_opt
+            .unwrap_or(DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI),
+        global_config.cons_node_initial_service_fee_balance_minor,
     );
-
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
         derivation_path(0, 2),
-        global_config.port(UiPorts::ServNode1),
+        global_config.port(NodeByRole::ServNode1),
     );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
         derivation_path(0, 3),
-        global_config.port(UiPorts::ServNode2),
+        global_config.port(NodeByRole::ServNode2),
     );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
         derivation_path(0, 4),
-        global_config.port(UiPorts::ServNode3),
+        global_config.port(NodeByRole::ServNode3),
     );
-
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()
@@ -892,7 +995,6 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         .unwrap();
     let consuming_node_payable_dao = PayableDaoReal::new(consuming_node_connection);
     open_all_file_permissions(consuming_node_path.clone().into());
-
     assert_eq!(
         format!("{}", &consuming_node_wallet),
         "0x7a3cf474962646b18666b5a5be597bb0af013d81"
@@ -909,18 +1011,28 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         format!("{}", &serving_node_3_wallet),
         "0xb45a33ef3e3097f34c826369b74141ed268cdb5a"
     );
-
     let now = SystemTime::now();
     consuming_node_payable_dao
-        .more_money_payable(now, &serving_node_1_wallet, global_config.service_fee_owed_to_serv_node_1_minor)
+        .more_money_payable(
+            now,
+            &serving_node_1_wallet,
+            global_config.debt_size(NodeByRole::ServNode1),
+        )
         .unwrap();
     consuming_node_payable_dao
-        .more_money_payable(now, &serving_node_2_wallet, global_config.service_fee_owed_to_serv_node_2_minor)
+        .more_money_payable(
+            now,
+            &serving_node_2_wallet,
+            global_config.debt_size(NodeByRole::ServNode2),
+        )
         .unwrap();
     consuming_node_payable_dao
-        .more_money_payable(now, &serving_node_3_wallet, global_config.service_fee_owed_to_serv_node_3_minor)
+        .more_money_payable(
+            now,
+            &serving_node_3_wallet,
+            global_config.debt_size(NodeByRole::ServNode3),
+        )
         .unwrap();
-
     let (serving_node_1_name, serving_node_1_index) =
         cluster.prepare_real_node(&serving_node_1_config);
     let serving_node_1_path = node_chain_specific_data_directory(&serving_node_1_name);
@@ -935,11 +1047,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         .more_money_receivable(
             SystemTime::now(),
             &consuming_node_wallet,
-            global_config.service_fee_owed_to_serv_node_1_minor,
+            global_config.debt_size(NodeByRole::ServNode1),
         )
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
-
     let (serving_node_2_name, serving_node_2_index) =
         cluster.prepare_real_node(&serving_node_2_config);
     let serving_node_2_path = node_chain_specific_data_directory(&serving_node_2_name);
@@ -954,11 +1065,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         .more_money_receivable(
             SystemTime::now(),
             &consuming_node_wallet,
-            global_config.service_fee_owed_to_serv_node_2_minor,
+            global_config.debt_size(NodeByRole::ServNode2),
         )
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
-
     let (serving_node_3_name, serving_node_3_index) =
         cluster.prepare_real_node(&serving_node_3_config);
     let serving_node_3_path = node_chain_specific_data_directory(&serving_node_3_name);
@@ -973,41 +1083,43 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         .more_money_receivable(
             SystemTime::now(),
             &consuming_node_wallet,
-            global_config.service_fee_owed_to_serv_node_3_minor,
+            global_config.debt_size(NodeByRole::ServNode3),
         )
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
-
-    expire_payables(consuming_node_path.into());
+    expire_payables(
+        consuming_node_path.into(),
+        &global_config.debts_config,
+        now,
+        &serving_node_1_wallet,
+        &serving_node_2_wallet,
+        &serving_node_3_wallet,
+    );
     expire_receivables(serving_node_1_path.into());
     expire_receivables(serving_node_2_path.into());
     expire_receivables(serving_node_3_path.into());
-
     assert_balances(
         &serving_node_1_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
         0,
     );
-
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
         0,
     );
-
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
         0,
     );
-
     let real_consuming_node =
         cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
 
-    stimulate_payments(&mut cluster, &real_consuming_node);
+    stimulate_consuming_node_to_pay(&mut cluster, &real_consuming_node, &global_config);
 
     let now = Instant::now();
     while !consuming_node_payable_dao.non_pending_payables().is_empty()
@@ -1015,40 +1127,30 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
     {
         thread::sleep(Duration::from_millis(400));
     }
-
     assert_balances(
         &consuming_node_wallet,
         &blockchain_interface,
-        global_config
-            .exp_final_cons_node_transaction_fee_balance_minor,
-        global_config
-            .exp_final_cons_node_service_fee_balance_minor,
+        global_config.exp_final_cons_node_transaction_fee_balance_minor,
+        global_config.exp_final_cons_node_service_fee_balance_minor,
     );
-
     assert_balances(
         &serving_node_1_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        global_config
-            .exp_final_service_fee_balance_serv_node_1_minor,
+        global_config.exp_final_service_fee_balance_serv_node_1_minor,
     );
-
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        global_config
-            .exp_final_service_fee_balance_serv_node_2_minor,
+        global_config.exp_final_service_fee_balance_serv_node_2_minor,
     );
-
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        global_config
-            .exp_final_service_fee_balance_serv_node_3_minor,
+        global_config.exp_final_service_fee_balance_serv_node_3_minor,
     );
-
     let serving_node_1_attributes = ServingNodeAttributes {
         name: serving_node_1_name.to_string(),
         index: serving_node_1_index,
@@ -1071,12 +1173,11 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         serving_node_3_attributes,
         &global_config,
     );
-
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_1_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei
                 == i128::try_from(
-                    global_config.service_fee_owed_to_serv_node_1_minor
+                    global_config.debt_size(NodeByRole::ServNode1)
                         - global_config.exp_final_service_fee_balance_serv_node_1_minor,
                 )
                 .unwrap()
@@ -1088,7 +1189,7 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         if let Some(status) = serving_node_2_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei
                 == i128::try_from(
-                    global_config.service_fee_owed_to_serv_node_2_minor
+                    global_config.debt_size(NodeByRole::ServNode2)
                         - global_config.exp_final_service_fee_balance_serv_node_2_minor,
                 )
                 .unwrap()
@@ -1100,7 +1201,7 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         if let Some(status) = serving_node_3_receivable_dao.account_status(&consuming_node_wallet) {
             status.balance_wei
                 == i128::try_from(
-                    global_config.service_fee_owed_to_serv_node_3_minor
+                    global_config.debt_size(NodeByRole::ServNode3)
                         - global_config.exp_final_service_fee_balance_serv_node_3_minor,
                 )
                 .unwrap()
