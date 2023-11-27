@@ -1,8 +1,8 @@
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
-    to_wei, HashAndAmountResult, PayableTransactionError, ProcessedPayableFallible,
-    RpcPayableFailure, TRANSFER_METHOD_ID,
+    to_wei, HashAndAmountResult, HashesAndAmounts, PayableTransactionError,
+    ProcessedPayableFallible, RpcPayableFailure, TRANSFER_METHOD_ID,
 };
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
@@ -162,6 +162,7 @@ pub fn sign_transaction<T: BatchTransport>(
     )
 }
 
+// Result<H256, PayableTransactionError>
 pub fn handle_new_transaction<T: BatchTransport>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
@@ -170,35 +171,56 @@ pub fn handle_new_transaction<T: BatchTransport>(
     amount: u128,
     nonce: U256,
     gas_price: u64,
-) -> Result<H256, PayableTransactionError> {
-    let signed_tx = sign_transaction(
-        chain,
-        batch_web3.clone(),
-        recipient_wallet.clone(),
-        consuming_wallet.clone(),
-        amount,
-        nonce,
-        gas_price,
-    )?;
+) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+    Box::new(
+        sign_transaction(
+            chain,
+            batch_web3.clone(),
+            recipient_wallet.clone(),
+            consuming_wallet.clone(),
+            amount,
+            nonce,
+            gas_price,
+        )
+        .map_err(|e| e)
+        .and_then(|signed_tx| {
+            batch_web3
+                .eth()
+                .send_raw_transaction(signed_tx.raw_transaction);
+            Ok(signed_tx.transaction_hash)
+        }),
+    )
 
-    // self.batch_payable_tools
-    //     .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
-    batch_web3
-        .eth()
-        .send_raw_transaction(signed_tx.raw_transaction);
-    Ok(signed_tx.transaction_hash)
+    // let signed_tx = sign_transaction(
+    //     chain,
+    //     batch_web3.clone(),
+    //     recipient_wallet.clone(),
+    //     consuming_wallet.clone(),
+    //     amount,
+    //     nonce,
+    //     gas_price,
+    // );
+    //
+    // // self.batch_payable_tools
+    // //     .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
+    // batch_web3
+    //     .eth()
+    //     .send_raw_transaction(signed_tx.raw_transaction);
+    // Ok(signed_tx.transaction_hash)
 }
 
+// HashAndAmountResult / Result<Vec<(H256, u128)>, PayableTransactionError>
+// HashesAndAmounts
 pub fn sign_and_append_payment<T: BatchTransport>(
     logger: &Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    mut hashes_and_amounts: Vec<(H256, u128)>,
+    mut hashes_and_amounts: HashesAndAmounts,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price: u64,
     account: &PayableAccount,
-) -> HashAndAmountResult {
+) -> Box<dyn Future<Item = HashesAndAmounts, Error = PayableTransactionError>> {
     debug!(
         logger,
         "Preparing payment of {} wei to {} with nonce {}",
@@ -207,21 +229,38 @@ pub fn sign_and_append_payment<T: BatchTransport>(
         nonce
     );
 
-    match handle_new_transaction(
-        chain,
-        batch_web3,
-        account.wallet.clone(),
-        consuming_wallet,
-        account.balance_wei,
-        nonce,
-        gas_price,
-    ) {
-        Ok(new_hash) => {
+    Box::new(
+        handle_new_transaction(
+            chain,
+            batch_web3,
+            account.wallet.clone(),
+            consuming_wallet,
+            account.balance_wei,
+            nonce,
+            gas_price,
+        )
+        .map_err(|e| e)
+        .and_then(|new_hash| {
             hashes_and_amounts.push((new_hash, account.balance_wei));
             Ok(hashes_and_amounts)
-        }
-        Err(e) => Err(e),
-    }
+        }),
+    )
+
+    // match handle_new_transaction(
+    //     chain,
+    //     batch_web3,
+    //     account.wallet.clone(),
+    //     consuming_wallet,
+    //     account.balance_wei,
+    //     nonce,
+    //     gas_price,
+    // ) {
+    //     Ok(new_hash) => {
+    //         hashes_and_amounts.push((new_hash, account.balance_wei));
+    //         Ok(hashes_and_amounts)
+    //     }
+    //     Err(e) => Err(e),
+    // }
 }
 
 pub fn handle_payable_account<T: BatchTransport>(
@@ -234,6 +273,7 @@ pub fn handle_payable_account<T: BatchTransport>(
     gas_price: u64,
     account: &PayableAccount,
 ) -> (HashAndAmountResult, Option<U256>) {
+    todo!("GH-744: Remove this Function")
     let nonce = pending_nonce_opt.expectv("pending nonce");
     let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
         logger,
@@ -268,16 +308,36 @@ pub fn sign_and_append_multiple_payments<T: BatchTransport>(
         init,
         |(processed_outputs_res, pending_nonce_opt), account| {
             if let Ok(hashes_and_amounts) = processed_outputs_res {
-                handle_payable_account(
+
+                let nonce = pending_nonce_opt.expectv("pending nonce");
+
+                let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
                     logger,
                     chain,
-                    batch_web3.clone(),
-                    pending_nonce_opt,
+                    batch_web3,
                     hashes_and_amounts,
-                    consuming_wallet,
+                    consuming_wallet.clone(),
+                    nonce,
                     gas_price,
                     account,
+                );
+
+                let advanced_nonce = advance_used_nonce(nonce);
+                (
+                    updated_collected_attributes_of_processed_payments,
+                    Some(advanced_nonce),
                 )
+
+                // handle_payable_account(
+                //     logger,
+                //     chain,
+                //     batch_web3.clone(),
+                //     pending_nonce_opt,
+                //     hashes_and_amounts,
+                //     consuming_wallet,
+                //     gas_price,
+                //     account,
+                // )
             } else {
                 (processed_outputs_res, None)
             }

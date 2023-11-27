@@ -490,6 +490,7 @@ pub struct RpcPayableFailure {
 }
 
 pub type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
+pub type HashesAndAmounts = Vec<(H256, u128)>;
 
 impl<T> BlockchainInterfaceWeb3<T>
 where
