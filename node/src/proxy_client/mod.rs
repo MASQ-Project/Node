@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn bind_operates_properly() {
-        let system = System::new("bind_initializes_resolver_wrapper_properly");
+        let system = System::new();
         let resolver_wrapper = ResolverWrapperMock::new();
         let mut resolver_wrapper_new_parameters_arc: Arc<
             Mutex<Vec<(ResolverConfig, ResolverOpts)>>,
@@ -620,7 +620,7 @@ mod tests {
             request,
             0,
         );
-        let system = System::new("panics_if_hopper_is_unbound");
+        let system = System::new();
         let subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: dnss(),
@@ -644,7 +644,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
-            let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
+            let system = System::new();
             let subject = ProxyClient::new(ProxyClientConfig {
                 cryptde,
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
@@ -684,7 +684,7 @@ mod tests {
         let return_route_inner = return_route.clone();
         let originator_key_inner = originator_key.clone();
         thread::spawn(move || {
-            let system = System::new("forwards_dns_resolve_failed_to_hopper");
+            let system = System::new();
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             let mut subject = ProxyClient::new(ProxyClientConfig {
                 cryptde,
@@ -767,7 +767,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("data_from_hopper_is_relayed_to_stream_handler_pool");
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -824,7 +824,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("refuse_to_provide_exit_services_with_no_paying_wallet");
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -891,7 +891,7 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new("unparseable_request_results_in_log_and_no_response");
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -930,7 +930,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new();
         let route = make_meaningless_route();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
@@ -1078,7 +1078,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1130,7 +1130,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1180,7 +1180,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("new_return_route_overwrites_existing_return_route");
+        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],

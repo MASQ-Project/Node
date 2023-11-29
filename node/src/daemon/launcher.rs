@@ -347,7 +347,7 @@ mod tests {
         subject.spawn_wrapper = Box::new(spawn_wrapper);
         let (result_tx, result_rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let crashed_recipient = daemon.start().recipient();
 
             result_tx
@@ -404,7 +404,7 @@ mod tests {
         subject.spawn_wrapper = Box::new(spawn_wrapper);
         let (result_tx, result_rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let crashed_recipient = daemon.start().recipient();
 
             result_tx
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn launch_calls_execer_and_verifier_and_returns_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let crashed_recipient = ui_gateway.start().recipient();
         let exec_params_arc = Arc::new(Mutex::new(vec![]));
         let execer = ExecerMock::new()

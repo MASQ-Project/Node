@@ -9,7 +9,7 @@ use crate::blockchain::blockchain_interface::BlockchainError::{
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use futures::{future, Future};
+use futures::{future};
 use indoc::indoc;
 use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
@@ -63,6 +63,7 @@ const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "To avoid being delinquency-b
 restart the Node with a value for blockchain-service-url";
 
 #[derive(Clone, Debug, Eq, Message, PartialEq)]
+#[rtype(result = "()")]
 pub struct BlockchainTransaction {
     pub block_number: u64,
     pub from: Wallet,
@@ -1361,7 +1362,7 @@ mod tests {
             .unwrap();
 
         let test_timestamp_after = SystemTime::now();
-        let system = System::new("can transfer tokens test");
+        let system = System::new();
         System::current().stop();
         assert_eq!(system.run(), 0);
         let send_batch_params = send_batch_params_arc.lock().unwrap();
@@ -1833,7 +1834,7 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let system = System::new("test");
+        let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
         let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(

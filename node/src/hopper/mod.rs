@@ -196,7 +196,7 @@ mod tests {
             sequence_number: None,
             data: encrypted_package,
         };
-        let system = System::new("panics_if_routing_service_is_unbound");
+        let system = System::new();
         let subject = Hopper::new(HopperConfig {
             cryptdes: CryptDEPair {
                 main: main_cryptde,
@@ -239,7 +239,7 @@ mod tests {
             &main_cryptde.public_key(),
         )
         .unwrap();
-        let system = System::new("panics_if_consuming_service_is_unbound");
+        let system = System::new();
         let subject = Hopper::new(HopperConfig {
             cryptdes: CryptDEPair {
                 main: main_cryptde,

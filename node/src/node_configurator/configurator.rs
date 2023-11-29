@@ -835,7 +835,7 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
-    use crate::sub_lib::node_addr::NodeAddr;
+    use masq_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn ignores_unexpected_message() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = make_subject(None);
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn check_password_works() {
-        let system = System::new("test");
+        let system = System::new();
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
@@ -984,7 +984,7 @@ mod tests {
 
     #[test]
     fn change_password_works() {
-        let system = System::new("test");
+        let system = System::new();
         let change_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .change_password_params(&change_password_params_arc)
@@ -1104,7 +1104,7 @@ mod tests {
 
     #[test]
     fn handle_wallet_addresses_works() {
-        let system = System::new("test");
+        let system = System::new();
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .consuming_wallet_result(Ok(Some(
@@ -1282,7 +1282,7 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new("test");
+        let system = System::new();
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -1548,7 +1548,7 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new("test");
+        let system = System::new();
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -1955,7 +1955,7 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new("test");
+        let system = System::new();
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();

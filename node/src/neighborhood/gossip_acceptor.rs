@@ -8,7 +8,6 @@ use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
 };
-use crate::sub_lib::node_addr::NodeAddr;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -1347,6 +1346,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2318,7 +2318,7 @@ mod tests {
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
-        let system = System::new("test");
+        let system = System::new();
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
@@ -2615,7 +2615,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new("test");
+        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2655,7 +2655,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new("test");
+        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2702,7 +2702,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new("test");
+        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2743,7 +2743,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new("test");
+        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -3381,7 +3381,7 @@ mod tests {
             IntroductionHandler::identify_players(agrs.clone(), gossip_source).unwrap();
         let new_ip = introducee.node_addr_opt.unwrap().ip_addr();
         let system =
-            System::new("introduction_gossip_handler_sends_cpm_for_neighborship_established");
+            System::new();
 
         subject.handle(cryptde, &mut db, agrs, gossip_source, neighborhood_metadata);
 
@@ -3446,7 +3446,7 @@ mod tests {
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let system = System::new("handles_a_new_pass_target");
+        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3500,7 +3500,7 @@ mod tests {
                 .sub(PASS_GOSSIP_EXPIRED_TIME)
                 .add(Duration::from_secs(1)),
         );
-        let system = System::new("handles_pass_target_that_is_not_yet_expired");
+        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3542,7 +3542,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         let system =
-            System::new("handles_pass_target_that_is_a_part_of_a_different_connection_progress");
+            System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3586,7 +3586,7 @@ mod tests {
             .previous_pass_targets
             .borrow_mut()
             .insert(pass_target_ip_addr, SystemTime::now().sub(expired_time));
-        let system = System::new("handles_pass_target_that_has_expired");
+        let system = System::new();
         let initial_timestamp = SystemTime::now();
 
         let result = subject.handle(

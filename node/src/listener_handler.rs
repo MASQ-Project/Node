@@ -286,7 +286,7 @@ mod tests {
 
         let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("handles_connection_errors");
+            let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
             tx.send(add_stream_sub)
                 .expect("Unable to send add_stream_sub to test");
@@ -373,7 +373,7 @@ mod tests {
 
         let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("converts_connections_into_connection_infos");
+            let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
             tx.send(add_stream_sub).expect("Internal Error");
             system.run();

@@ -77,7 +77,7 @@ impl DaemonInitializer for DaemonInitializerReal {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));
         }
-        let system = System::new("daemon");
+        let system = System::new();
         let (sender, receiver) = self.channel_factory.make();
 
         self.bind(sender);
@@ -323,7 +323,7 @@ mod tests {
         );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
-        let system = System::new("bind_binds_everything_together");
+        let system = System::new();
         let recipients = make_recipients(ui_gateway, daemon);
         let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir.clone()))
@@ -362,7 +362,7 @@ mod tests {
             "split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args",
         );
         let system =
-            System::new("split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args");
+            System::new();
         let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir.clone()))
             .data_dir_result(Some(home_dir.join("data")));

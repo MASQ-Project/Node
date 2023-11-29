@@ -771,7 +771,7 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
 
         thread::spawn(move || {
-            let system = System::new("logs_pre_upgrade_connection_errors");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -871,7 +871,7 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
 
         thread::spawn(move || {
-            let system = System::new("rejects_connection_attempt_with_improper_protocol_name");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -898,7 +898,7 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
 
         thread::spawn(move || {
-            let system = System::new("logs_unexpected_binary_ping_pong_websocket_messages");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -935,7 +935,7 @@ mod tests {
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
 
         thread::spawn(move || {
-            let system = System::new("can_connect_two_clients_and_receive_messages_from_them");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -1307,7 +1307,7 @@ mod tests {
         let (tx, rx) = bounded(1);
 
         thread::spawn(move || {
-            let system = System::new("once_a_client_sends_a_close_no_more_data_is_accepted");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -1380,7 +1380,7 @@ mod tests {
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
 
         thread::spawn(move || {
-            let system = System::new("a_client_that_violates_the_protocol_is_terminated");
+            let system = System::new();
             let ui_message_sub = subs(ui_gateway);
             let subject = lazy(move || {
                 let _subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
@@ -1414,7 +1414,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let system = System::new("send_msg_sends_a_message_to_the_client");
+        let system = System::new();
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
             let one_mock_client = ClientWrapperMock::new()
@@ -1455,7 +1455,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let system = System::new("send_msg_sends_a_message_to_the_client");
+        let system = System::new();
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
             let one_mock_client = ClientWrapperMock::new()
@@ -1498,7 +1498,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let system = System::new("send_msg_sends_a_message_to_the_client");
+        let system = System::new();
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
             let one_mock_client = ClientWrapperMock::new()
@@ -1556,7 +1556,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let system = System::new("send_msg_fails_to_look_up_client_to_send_to");
+        let system = System::new();
         let lazy_future = lazy(move || {
             let subject = WebSocketSupervisorReal::new(port, ui_message_sub).unwrap();
             let msg = NodeToUiMessage {

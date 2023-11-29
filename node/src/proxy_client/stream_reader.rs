@@ -161,7 +161,7 @@ mod tests {
 
         let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
@@ -242,7 +242,7 @@ mod tests {
         ];
         let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
@@ -312,7 +312,7 @@ mod tests {
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
 
-        let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
+        let system = System::new();
         let peer_actors = peer_actors_builder().build();
         let mut sequencer = Sequencer::new();
         sequencer.next_sequence_number();
@@ -357,7 +357,7 @@ mod tests {
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            let system = System::new("non_dead_stream_read_errors_log_but_do_not_shut_down");
+            let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)

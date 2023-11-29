@@ -2,7 +2,7 @@
 
 use crate::database::db_initializer::{InitializationError, DATABASE_FILE};
 use actix::{Actor, AsyncContext, Context, Handler, Message, SpawnHandle};
-use clap::App;
+use clap::Command;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
@@ -91,10 +91,10 @@ pub fn to_string_s(data: &[u8]) -> String {
     }
 }
 
-pub fn make_new_multi_config<'a>(
-    schema: &App<'a, 'a>,
+pub fn make_new_multi_config(
+    schema: &Command,
     vcls: Vec<Box<dyn VirtualCommandLine>>,
-) -> Result<MultiConfig<'a>, ConfiguratorError> {
+) -> Result<MultiConfig, ConfiguratorError> {
     MultiConfig::try_new(schema, vcls)
 }
 
@@ -248,6 +248,7 @@ pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Pat
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct MessageScheduler<M: Message> {
     pub scheduled_msg: M,
     pub delay: Duration,
@@ -474,6 +475,7 @@ mod tests {
     }
 
     #[derive(Message)]
+    #[rtype(result = "()")]
     struct NotifyHandlesProbeMessage {
         id: usize,
         start_time: SystemTime,
@@ -514,7 +516,7 @@ mod tests {
         let (sender, receiver) = unbounded();
         let test_actor = NotifyHandlesTestActor::new(sender);
         let _ = test_actor.start();
-        let system = System::new("notify_handles_test");
+        let system = System::new();
 
         system.run();
 

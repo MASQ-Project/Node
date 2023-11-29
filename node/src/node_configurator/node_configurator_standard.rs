@@ -12,7 +12,6 @@ use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 
-use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
@@ -99,7 +98,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
 impl<'a>
     From<(
         &'a NodeConfiguratorStandardUnprivileged,
-        &'a MultiConfig<'a>,
+        &'a MultiConfig,
     )> for ExternalData
 {
     fn from(tuple: (&'a NodeConfiguratorStandardUnprivileged, &'a MultiConfig)) -> ExternalData {

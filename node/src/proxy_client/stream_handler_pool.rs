@@ -565,7 +565,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         thread::spawn(move || {
-            let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
+            let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let cryptde = main_cryptde();
             let resolver_mock =
@@ -1540,7 +1540,7 @@ mod tests {
 
     #[test]
     fn clean_up_dead_streams_sends_server_drop_report_if_dead_stream_is_in_map() {
-        let system = System::new("test");
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
@@ -1583,7 +1583,7 @@ mod tests {
 
     #[test]
     fn clean_up_dead_streams_does_not_send_server_drop_report_if_dead_stream_is_gone_already() {
-        let system = System::new("test");
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(

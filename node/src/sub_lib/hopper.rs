@@ -7,7 +7,6 @@ use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::neighborhood::GossipFailure_0v1;
-use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -20,6 +19,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use masq_lib::node_addr::NodeAddr;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES
@@ -33,6 +33,7 @@ use std::net::SocketAddr;
 /// of PublicKeys destined to be looked up in the database by the Dispatcher.
 /// This struct can be used only for single-hop traffic.
 #[derive(Clone, Debug, PartialEq, Eq, Message)]
+#[rtype(result = "()")]
 pub struct NoLookupIncipientCoresPackage {
     pub public_key: PublicKey,
     pub node_addr: NodeAddr,
@@ -60,6 +61,7 @@ impl NoLookupIncipientCoresPackage {
 
 /// New CORES package about to be sent to the Hopper and thence put on the MASQ Network
 #[derive(Clone, Debug, PartialEq, Eq, Message)]
+#[rtype(result = "()")]
 pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: CryptData,
@@ -95,6 +97,7 @@ impl IncipientCoresPackage {
 
 /// CORES package that has traversed the MASQ Network and is arriving at its destination
 #[derive(Clone, Debug, PartialEq, Eq, Message)]
+#[rtype(result = "()")]
 pub struct ExpiredCoresPackage<T> {
     pub immediate_neighbor: SocketAddr,
     pub paying_wallet: Option<Wallet>,

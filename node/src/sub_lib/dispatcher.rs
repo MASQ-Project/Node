@@ -113,6 +113,7 @@ pub enum DispatcherError {
 }
 
 #[derive(PartialEq, Eq, Clone, Message)]
+#[rtype(result = "()")]
 pub struct InboundClientData {
     pub timestamp: SystemTime,
     pub peer_addr: SocketAddr,
@@ -153,6 +154,7 @@ impl InboundClientData {
 }
 
 #[derive(PartialEq, Eq, Clone, Message, Debug)]
+#[rtype(result = "()")]
 pub struct StreamShutdownMsg {
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,

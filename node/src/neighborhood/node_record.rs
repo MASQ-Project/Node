@@ -5,7 +5,6 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
-use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::blockchains::chains::Chain;
@@ -13,6 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
+use masq_lib::node_addr::NodeAddr;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]

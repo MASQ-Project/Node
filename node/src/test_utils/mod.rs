@@ -583,6 +583,7 @@ pub mod unshared_test_utils {
     use std::vec;
 
     #[derive(Message)]
+    #[rtype(result = "()")]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
     }
@@ -793,7 +794,7 @@ pub mod unshared_test_utils {
         actor: T,
         crash_key: &str,
     ) {
-        let system = System::new("test");
+        let system = System::new();
         let addr: Addr<T> = actor.start();
         let killer = SystemKillerActor::new(Duration::from_millis(2000));
         killer.start();
@@ -826,6 +827,7 @@ pub mod unshared_test_utils {
         use super::*;
 
         #[derive(Debug, Message, Clone)]
+        #[rtype(result = "()")]
         pub struct CleanUpMessage {
             pub sleep_ms: u64,
         }

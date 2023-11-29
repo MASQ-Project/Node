@@ -563,7 +563,7 @@ mod tests {
         };
         let (proxy_server, _, proxy_server_recording) = make_recorder();
 
-        let system = System::new("dns_resolution_failures_are_reported_to_the_proxy_server");
+        let system = System::new();
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
             cryptdes,
@@ -763,7 +763,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("converts_live_message_to_expired_for_proxy_client");
+        let system = System::new();
         let peer_actors = peer_actors_builder().proxy_client(component).build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -836,7 +836,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("converts_live_message_to_expired_for_proxy_client");
+        let system = System::new();
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -895,7 +895,7 @@ mod tests {
             data: lcp_enc.into(),
         };
 
-        let system = System::new("converts_live_message_to_expired_for_proxy_server");
+        let system = System::new();
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -976,7 +976,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("converts_live_gossip_message_to_expired_for_neighborhood");
+        let system = System::new();
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -1053,7 +1053,7 @@ mod tests {
         };
 
         let system =
-            System::new("converts_live_gossip_failure_message_to_expired_for_neighborhood");
+            System::new();
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -1132,7 +1132,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new("passes_on_inbound_client_data_not_meant_for_this_node");
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -1598,7 +1598,7 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let system = System::new("test");
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -1672,7 +1672,7 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let system = System::new("test");
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .dispatcher(dispatcher)
             .accountant(accountant)
@@ -1719,7 +1719,7 @@ mod tests {
             sequence_number: None,
             data: vec![],
         };
-        let system = System::new("consume_logs_error_when_given_bad_input_data");
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1777,7 +1777,7 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let system = System::new("consume_logs_error_when_given_bad_input_data");
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -2017,7 +2017,7 @@ mod tests {
             MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_gossip");
+        let system = System::new();
 
         subject.route_expired_package(Component::Neighborhood, expired_package, true);
 
@@ -2056,7 +2056,7 @@ mod tests {
             MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_client_request");
+        let system = System::new();
 
         subject.route_expired_package(Component::ProxyClient, expired_package, true);
 
@@ -2095,7 +2095,7 @@ mod tests {
             MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_client_response");
+        let system = System::new();
 
         subject.route_expired_package(Component::ProxyServer, expired_package, true);
 
@@ -2134,7 +2134,7 @@ mod tests {
             MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_dns_resolve_failure");
+        let system = System::new();
 
         subject.route_expired_package(Component::ProxyServer, expired_package, true);
 
@@ -2173,7 +2173,7 @@ mod tests {
             MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_gossip_failure");
+        let system = System::new();
 
         subject.route_expired_package(Component::Neighborhood, expired_package, true);
 

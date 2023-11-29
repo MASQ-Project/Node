@@ -147,7 +147,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (sub_tx, sub_rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new("spawn_stream_reader_handles_data");
+            let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             sub_tx
                 .send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)

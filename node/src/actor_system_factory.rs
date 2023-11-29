@@ -634,7 +634,6 @@ mod tests {
     use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
@@ -690,6 +689,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use masq_lib::node_addr::NodeAddr;
 
     struct LogRecipientSetterNull {}
 
@@ -1103,7 +1103,7 @@ mod tests {
             )),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(tools));
-        let system = System::new("test");
+        let system = System::new();
 
         subject.make_and_start_actors(config, Box::new(actor_factory), Box::new(persistent_config));
         System::current().stop();
@@ -1182,7 +1182,7 @@ mod tests {
             Box::new(actor_factory),
         );
 
-        let system = System::new("MASQNode");
+        let system = System::new();
         System::current().stop();
         system.run();
         check_bind_message(&recordings.dispatcher, false);
@@ -1328,7 +1328,7 @@ mod tests {
         let change_handler: ChangeHandler = make_params.remove(0).1;
         change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.5").unwrap()));
 
-        let system = System::new("MASQNode");
+        let system = System::new();
         System::current().stop();
         system.run();
     }
@@ -1461,7 +1461,7 @@ mod tests {
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
-        let system = System::new("MASQNode");
+        let system = System::new();
         let mut subject = make_subject_with_null_setter();
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
@@ -1540,7 +1540,7 @@ mod tests {
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
-        let system = System::new("test");
+        let system = System::new();
         let change_handler = &make_params[0].1;
         change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed(
             vec![],
@@ -1574,7 +1574,7 @@ mod tests {
             vec![],
         );
 
-        let system = System::new("test");
+        let system = System::new();
         System::current().stop();
         system.run();
     }
@@ -1606,7 +1606,7 @@ mod tests {
 
         subject.start_automap(&config, Box::new(persistent_config), vec![]);
 
-        let system = System::new("test");
+        let system = System::new();
         System::current().stop();
         system.run();
     }
@@ -1652,7 +1652,7 @@ mod tests {
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let subject = make_subject_with_null_setter();
-        let system = System::new("MASQNode");
+        let system = System::new();
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1746,7 +1746,7 @@ mod tests {
     where
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
-        let system = System::new("test");
+        let system = System::new();
         let killer = SystemKillerActor::new(Duration::from_millis(1500));
         let mercy_signal_rx = killer.receiver();
         Arbiter::start(|_| killer);
@@ -2085,7 +2085,7 @@ mod tests {
             addr_of!(*persistent_config_after),
             persistent_config_before_raw
         );
-        let system = System::new("make_and_start_actors_happy_path");
+        let system = System::new();
         let msg_of_irrelevant_choice = NodeFromUiMessage {
             client_id: 5,
             body: UiDescriptorRequest {}.tmb(1),

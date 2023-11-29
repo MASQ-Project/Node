@@ -555,6 +555,7 @@ mod tests {
     use actix::System;
 
     #[derive(Debug, PartialEq, Eq, Message)]
+    #[rtype(result = "()")]
     struct FirstMessageType {
         string: String,
     }
@@ -562,6 +563,7 @@ mod tests {
     recorder_message_handler!(FirstMessageType);
 
     #[derive(Debug, PartialEq, Eq, Message)]
+    #[rtype(result = "()")]
     struct SecondMessageType {
         size: usize,
         flag: bool,
@@ -571,7 +573,7 @@ mod tests {
 
     #[test]
     fn recorder_records_different_messages() {
-        let system = System::new("test");
+        let system = System::new();
         let recorder = Recorder::new();
         let recording_arc = recorder.get_recording();
 

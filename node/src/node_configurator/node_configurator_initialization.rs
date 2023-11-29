@@ -37,7 +37,6 @@ impl NodeConfigurator<InitializationConfig> for NodeConfiguratorInitializationRe
 
 mod initialization {
     use super::*;
-    use clap::value_t;
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::MultiConfig;
 

@@ -9,7 +9,6 @@ use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
-use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -33,6 +32,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use masq_lib::node_addr::NodeAddr;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -464,6 +464,7 @@ pub enum NodeQueryMessage {
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct DispatcherNodeQueryMessage {
     pub query: NodeQueryMessage,
     pub context: TransmitDataMsg,
@@ -518,6 +519,7 @@ pub struct RouteQueryResponse {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
@@ -534,17 +536,20 @@ pub enum ConnectionProgressEvent {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct ConnectionProgressMessage {
     pub peer_addr: IpAddr,
     pub event: ConnectionProgressEvent,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct AskAboutDebutGossipMessage {
     pub prev_connection_progress: ConnectionProgress,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct NodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub metadata_change: NRMetadataChange,

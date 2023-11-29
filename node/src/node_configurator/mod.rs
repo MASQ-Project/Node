@@ -12,7 +12,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::utils::{db_connection_launch_panic, make_new_multi_config};
-use clap::{value_t, App};
+use clap::{Command};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
@@ -31,10 +31,10 @@ pub trait NodeConfigurator<T> {
 
 pub fn determine_fundamentals(
     dirs_wrapper: &dyn DirsWrapper,
-    app: &App,
+    app: &Command,
     args: &[String],
 ) -> Result<(PathBuf, bool, PathBuf, RealUser), ConfiguratorError> {
-    let orientation_schema = App::new("MASQNode")
+    let orientation_schema = Command::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
         .arg(data_directory_arg(DATA_DIRECTORY_HELP))
@@ -164,9 +164,9 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
 
-    fn determine_config_file_path_app() -> App<'static, 'static> {
-        App::new("test")
-            .arg(data_directory_arg(DATA_DIRECTORY_HELP))
+    fn determine_config_file_path_app() -> Command {
+        Command::new("test")
+            .arg(data_directory_arg(DATA_DIRECTORY_HELP.to_string()))
             .arg(config_file_arg())
     }
 

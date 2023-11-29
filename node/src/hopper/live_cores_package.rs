@@ -96,7 +96,6 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::IncipientCoresPackage;
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::route::{Route, RouteError};
     use crate::test_utils::{
@@ -105,6 +104,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
+    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {

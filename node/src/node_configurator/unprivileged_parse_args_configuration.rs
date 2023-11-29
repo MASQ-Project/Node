@@ -11,9 +11,8 @@ use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{
     Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
 };
-use crate::sub_lib::node_addr::NodeAddr;
+use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};

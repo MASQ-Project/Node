@@ -36,6 +36,7 @@ impl Debug for BlockchainBridgeSubs {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+#[rtype(result = "()")]
 pub struct RequestBalancesToPayPayables {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -48,6 +49,7 @@ impl SkeletonOptHolder for RequestBalancesToPayPayables {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,

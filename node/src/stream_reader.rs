@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn stream_reader_shuts_down_and_returns_err_when_it_gets_a_dead_stream_error() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn stream_reader_returns_not_ready_when_it_gets_not_ready() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -432,7 +432,7 @@ mod tests {
     #[should_panic(expected = "Internal error: no Discriminator factories!")]
     fn stream_reader_panics_with_no_discriminator_factories() {
         init_test_logging();
-        let _system = System::new("test");
+        let _system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn stream_reader_sends_framed_chunks_to_dispatcher() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -526,7 +526,7 @@ mod tests {
 
     #[test]
     fn stream_reader_sends_two_correct_sequenced_messages_when_sent_a_http_connect() {
-        let system = System::new("test");
+        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
-        let system = System::new("test");
+        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -656,7 +656,7 @@ mod tests {
     #[test]
     fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequence(
     ) {
-        let system = System::new("test");
+        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -717,7 +717,7 @@ mod tests {
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let system = System::new("test");
+        let system = System::new();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
@@ -756,7 +756,7 @@ mod tests {
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let system = System::new("test");
+        let system = System::new();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];

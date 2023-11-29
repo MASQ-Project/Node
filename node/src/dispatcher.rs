@@ -4,7 +4,7 @@ use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeDescriptor;
-use crate::sub_lib::node_addr::NodeAddr;
+use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -21,6 +21,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
+use masq_lib::node_addr::NodeAddr;
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 lazy_static! {
@@ -216,7 +217,6 @@ mod tests {
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::neighborhood::NodeDescriptor;
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn sends_inbound_data_for_hopper_to_hopper() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Hopper unbound in Dispatcher")]
     fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn forwards_outbound_data_to_stream_handler_pool() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn handle_new_public_ip_msg_modifies_and_publishes_descriptor() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut node_descriptor = NODE_DESCRIPTOR.clone();
         node_descriptor.node_addr_opt = Some(NodeAddr::new(
@@ -596,7 +596,7 @@ mod tests {
     #[test]
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
     fn descriptor_request_after_start_with_ip_results_in_descriptor_response() {
-        let system = System::new("test");
+        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -641,7 +641,7 @@ mod tests {
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
     fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response(
     ) {
-        let system = System::new("test");
+        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -686,7 +686,7 @@ mod tests {
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
     fn descriptor_request_after_start_without_ip_after_automap_results_in_descriptor_response() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -737,7 +737,7 @@ mod tests {
     #[test]
     fn new_ip_message_without_node_addr_is_logged_and_ignored() {
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let mut node_descriptor = NodeDescriptor::from((

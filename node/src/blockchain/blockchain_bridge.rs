@@ -99,6 +99,7 @@ impl Handler<BindMessage> for BlockchainBridge {
 }
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
+#[rtype(result = "()")]
 pub struct RetrieveTransactions {
     pub recipient: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -163,6 +164,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
+#[rtype(result = "()")]
 pub struct PendingPayableFingerprintSeeds {
     pub batch_wide_timestamp: SystemTime,
     pub hashes_and_balances: Vec<(H256, u128)>,
@@ -556,7 +558,7 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let system = System::new("blockchain_bridge_receives_bind_message");
+        let system = System::new();
         let addr = subject.start();
 
         addr.try_send(BindMessage {
@@ -581,7 +583,7 @@ mod tests {
             false,
             None,
         );
-        let system = System::new("blockchain_bridge_receives_bind_message");
+        let system = System::new();
         let addr = subject.start();
 
         addr.try_send(BindMessage {
@@ -630,7 +632,7 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
-        let system = System::new("test");
+        let system = System::new();
 
         let result = subject.handle_report_accounts_payable(request);
 
@@ -762,7 +764,7 @@ mod tests {
             }),
         };
         let subject_addr = subject.start();
-        let system = System::new(test_name);
+        let system = System::new();
 
         // Don't eliminate or bypass this message as an important check that
         // the Handler employs scan_handle()
@@ -849,7 +851,7 @@ mod tests {
     #[test]
     fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
         let system =
-            System::new("handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant");
+            System::new();
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_payables_within_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1144,7 +1146,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
-        let system = System::new("test");
+        let system = System::new();
 
         subject_addr.try_send(request).unwrap();
 
@@ -1218,7 +1220,7 @@ mod tests {
 
         let _ = addr.try_send(msg).unwrap();
 
-        let system = System::new("transaction receipts");
+        let system = System::new();
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1268,7 +1270,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
-        let system = System::new("test");
+        let system = System::new();
 
         subject_addr.try_send(msg).unwrap();
 
@@ -1342,7 +1344,7 @@ mod tests {
             .get_transaction_receipt_result(Err(BlockchainError::QueryFailed(
                 "bad bad bad".to_string(),
             )));
-        let system = System::new("test_transaction_receipts");
+        let system = System::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
@@ -1482,7 +1484,7 @@ mod tests {
             pending_payable: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
         };
-        let system = System::new("test");
+        let system = System::new();
 
         let _ = subject.handle_scan(
             BlockchainBridge::handle_request_transaction_receipts,
@@ -1519,7 +1521,7 @@ mod tests {
     fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let system =
-            System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
+            System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
@@ -1729,7 +1731,7 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new("test");
+        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1761,7 +1763,7 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new("test");
+        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1800,7 +1802,7 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new("test");
+        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),

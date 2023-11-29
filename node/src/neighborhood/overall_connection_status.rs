@@ -962,7 +962,7 @@ mod tests {
             OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(u8::MAX))]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;
-        let system = System::new(test_name);
+        let system = System::new();
 
         subject.update_ocs_stage_and_send_message_to_ui(
             new_stage,

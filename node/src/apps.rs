@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::{crate_description, crate_version, App, AppSettings, Arg};
+use clap::{crate_description, crate_version, Command, AppSettings, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -10,8 +10,8 @@ use masq_lib::shared_schema::{
 };
 use masq_lib::utils::DATA_DIRECTORY_DAEMON_HELP;
 
-pub fn app_head() -> App<'static, 'static> {
-    App::new("MASQNode")
+pub fn app_head() -> Command {
+    Command::new("MASQNode")
         .global_settings(if cfg!(test) {
             &[AppSettings::ColorNever]
         } else {
@@ -22,7 +22,7 @@ pub fn app_head() -> App<'static, 'static> {
         .about(crate_description!())
 }
 
-pub fn app_daemon() -> App<'static, 'static> {
+pub fn app_daemon() -> Command {
     app_head()
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
         .arg(
@@ -35,11 +35,11 @@ pub fn app_daemon() -> App<'static, 'static> {
         .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
-pub fn app_node() -> App<'static, 'static> {
+pub fn app_node() -> Command {
     shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
-pub fn app_config_dumper() -> App<'static, 'static> {
+pub fn app_config_dumper() -> Command {
     app_head()
         .arg(chain_arg())
         .arg(
@@ -50,7 +50,7 @@ pub fn app_config_dumper() -> App<'static, 'static> {
                 .help(DUMP_CONFIG_HELP),
         )
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
-        .arg(db_password_arg(DB_PASSWORD_HELP))
+        .arg(db_password_arg(DB_PASSWORD_HELP.to_string()))
         .arg(real_user_arg())
 }
 

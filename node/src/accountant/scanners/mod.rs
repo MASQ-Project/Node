@@ -1513,7 +1513,7 @@ mod tests {
         let hash_tx_2 = make_tx_hash(0x3039);
         let first_fingerprint_rowid = 3;
         let second_fingerprint_rowid = 5;
-        let system = System::new(test_name);
+        let system = System::new();
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(vec![

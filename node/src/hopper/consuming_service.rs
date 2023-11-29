@@ -135,7 +135,6 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::make_recorder;
@@ -148,6 +147,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
+    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -161,7 +161,7 @@ mod tests {
             make_meaningless_message_type(),
         )
         .unwrap();
-        let system = System::new("");
+        let system = System::new();
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
             main_cryptde(),
@@ -197,7 +197,7 @@ mod tests {
             node_addr: target_node_addr.clone(),
             payload: CryptData::new(b""),
         };
-        let system = System::new("");
+        let system = System::new();
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
             main_cryptde(),
@@ -231,7 +231,7 @@ mod tests {
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
-        let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
+        let system = System::new();
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
             cryptde,
@@ -278,7 +278,7 @@ mod tests {
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
-        let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = ConsumingService::new(
             cryptde,
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn consume_logs_error_when_given_bad_input_data() {
         init_test_logging();
-        let _system = System::new("consume_logs_error_when_given_bad_input_data");
+        let _system = System::new();
         let peer_actors = peer_actors_builder().build();
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;

@@ -21,7 +21,7 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryMessage,
 };
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
-use crate::sub_lib::node_addr::NodeAddr;
+use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
@@ -829,7 +829,7 @@ mod tests {
         let before = SystemTime::now();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new());
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -950,7 +950,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -1013,7 +1013,7 @@ mod tests {
         let (sub_tx, sub_rx) = unbounded();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
 
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
@@ -1117,7 +1117,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:5673").unwrap();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
 
             let mut subject =
                 StreamHandlerPool::new(vec![Box::new(JsonDiscriminatorFactory {})], false);
@@ -1190,7 +1190,7 @@ mod tests {
     #[test]
     fn handle_remove_stream_msg_handles_report_to_counterpart_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1226,7 +1226,7 @@ mod tests {
     #[test]
     fn handle_remove_stream_msg_handles_no_report_to_counterpart_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1264,7 +1264,7 @@ mod tests {
     #[test]
     fn handle_remove_stream_msg_handles_stream_waiting_for_connect_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1304,7 +1304,7 @@ mod tests {
         let connect_pair_params_arc_a = connect_pair_params_arc.clone();
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood");
+            let system = System::new();
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new()
@@ -1499,7 +1499,7 @@ mod tests {
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -1580,7 +1580,7 @@ mod tests {
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -1628,7 +1628,7 @@ mod tests {
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -1692,7 +1692,7 @@ mod tests {
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject
                 .stream_writers
@@ -1855,7 +1855,7 @@ mod tests {
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new()
@@ -1995,7 +1995,7 @@ mod tests {
             data: b"hello".to_vec(),
         };
 
-        let system = System::new("test");
+        let system = System::new();
         let subject = StreamHandlerPool::new(vec![], false);
         let subject_addr: Addr<StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -2043,7 +2043,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let subject = StreamHandlerPool::new(vec![], false);
 
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
@@ -2116,7 +2116,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         thread::spawn(move || {
-            let system = System::new("test");
+            let system = System::new();
             let mut subject = StreamHandlerPool::new(vec![], false);
             subject.traffic_analyzer = Box::new(TrafficAnalyzerMock {});
 

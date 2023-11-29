@@ -26,7 +26,6 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
-use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::DEFAULT_CHAIN;
@@ -39,6 +38,7 @@ use masq_lib::multi_config::{
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::{add_chain_specific_directory, ExpectValue};
 use std::collections::HashMap;
+use std::default::Default;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
@@ -476,12 +476,12 @@ impl SetupReporterReal {
         command_line
     }
 
-    fn make_multi_config<'a>(
+    fn make_multi_config(
         dirs_wrapper: &dyn DirsWrapper,
         command_line_opt: Option<Vec<String>>,
         environment: bool,
         config_file: bool,
-    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+    ) -> Result<MultiConfig, ConfiguratorError> {
         let app = shared_app(app_head());
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
@@ -1205,7 +1205,6 @@ mod tests {
     };
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::Hops;
-    use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::sub_lib::{accountant, neighborhood};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
@@ -1235,6 +1234,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn constants_have_correct_values() {

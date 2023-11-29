@@ -109,7 +109,7 @@ mod tests {
         let _ = BatchPayableToolsReal::<TestTransport>::default()
             .send_new_payable_fingerprints_seeds(timestamp, &recipient, &hashes_and_balances);
 
-        let system = System::new("new fingerprints");
+        let system = System::new();
         System::current().stop();
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();

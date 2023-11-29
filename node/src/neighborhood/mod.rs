@@ -57,7 +57,7 @@ use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
-use crate::sub_lib::node_addr::NodeAddr;
+use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -1822,7 +1822,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
-            System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
+            System::new();
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
@@ -1925,7 +1925,7 @@ mod tests {
         let initial_ocs = subject.overall_connection_status.clone();
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
-        let system = System::new("testing");
+        let system = System::new();
         let cpm = ConnectionProgressMessage {
             peer_addr: unknown_peer,
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1977,7 +1977,7 @@ mod tests {
             .connection_stage = ConnectionStage::TcpConnectionEstablished;
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
-        let system = System::new("testing");
+        let system = System::new();
         let cpm = ConnectionProgressMessage {
             peer_addr: peer_2,
             event: ConnectionProgressEvent::PassGossipReceived(peer_1),
@@ -2015,7 +2015,7 @@ mod tests {
             connection_stage: ConnectionStage::TcpConnectionEstablished,
         };
         let beginning_connection_progress_clone = beginning_connection_progress.clone();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -2074,7 +2074,7 @@ mod tests {
         let aadgrm = AskAboutDebutGossipMessage {
             prev_connection_progress: beginning_connection_progress.clone(),
         };
-        let system = System::new("testing");
+        let system = System::new();
 
         recipient.try_send(aadgrm).unwrap();
 
@@ -2113,7 +2113,7 @@ mod tests {
                 connection_stage: ConnectionStage::TcpConnectionEstablished,
             },
         };
-        let system = System::new("testing");
+        let system = System::new();
 
         recipient.try_send(aadgrm).unwrap();
 
@@ -2139,7 +2139,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionFailed,
@@ -2183,7 +2183,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let new_pass_target = make_ip(2);
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
@@ -2228,7 +2228,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::PassLoopFound,
@@ -2275,7 +2275,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::IntroductionGossipReceived(make_ip(2)),
@@ -2334,7 +2334,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::StandardGossipReceived,
@@ -2390,7 +2390,7 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::NoGossipResponseReceived,
@@ -2443,7 +2443,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new("testing");
+        let system = System::new();
         cpm_recipient
             .try_send(ConnectionProgressMessage {
                 peer_addr: peer_1,
@@ -2527,7 +2527,7 @@ mod tests {
             GossipFailure_0v1::ManualRejection,
             0,
         );
-        let system = System::new("responds_with_none_when_initially_configured_with_no_data");
+        let system = System::new();
         let addr = subject.start();
         let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure_0v1>>();
 
@@ -2545,7 +2545,7 @@ mod tests {
     #[test]
     fn route_query_responds_with_none_when_asked_for_route_with_too_many_hops() {
         let system =
-            System::new("route_query_responds_with_none_when_asked_for_route_with_too_many_hops");
+            System::new();
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -2561,7 +2561,7 @@ mod tests {
     #[test]
     fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
     ) {
-        let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet");
+        let system = System::new();
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -2579,7 +2579,7 @@ mod tests {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let system =
-            System::new("route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet");
+            System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::OneHop;
         subject
@@ -2661,7 +2661,7 @@ mod tests {
     #[test]
     fn route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops(
     ) {
-        let system = System::new("route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops");
+        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::OneHop;
         let a = &make_node_record(1234, true);
@@ -2693,7 +2693,7 @@ mod tests {
     #[test]
     fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
     ) {
-        let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet");
+        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2711,7 +2711,7 @@ mod tests {
     #[test]
     fn route_query_responds_with_standard_zero_hop_route_when_requested() {
         let cryptde = main_cryptde();
-        let system = System::new("responds_with_standard_zero_hop_route_when_requested");
+        let system = System::new();
         let mut subject = make_standard_subject();
         subject.mode = NeighborhoodModeLight::ZeroHop;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2783,7 +2783,7 @@ mod tests {
     fn route_query_messages() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let system = System::new("route_query_messages");
+        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         subject
@@ -2903,7 +2903,7 @@ mod tests {
     #[test]
     fn return_route_ids_increase() {
         let cryptde = main_cryptde();
-        let system = System::new("return_route_ids_increase");
+        let system = System::new();
         let (_, _, _, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2934,7 +2934,7 @@ mod tests {
     #[test]
     fn can_update_consuming_wallet() {
         let cryptde = main_cryptde();
-        let system = System::new("can_update_consuming_wallet");
+        let system = System::new();
         let (o, r, e, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -3368,7 +3368,7 @@ mod tests {
         let other_neighbor_inside = other_neighbor.clone();
 
         thread::spawn(move || {
-            let system = System::new("gossips_after_removing_a_neighbor");
+            let system = System::new();
             let mut subject = Neighborhood::new(
                 cryptde,
                 &bc_from_nc_plus(
@@ -3501,7 +3501,7 @@ mod tests {
             payload: gossip.clone(),
             payload_len: 0,
         };
-        let system = System::new("test");
+        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
 
@@ -3553,7 +3553,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
@@ -3592,7 +3592,7 @@ mod tests {
             ));
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new("neighborhood_transmits_gossip_failure_properly");
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
@@ -3691,7 +3691,7 @@ mod tests {
             replacement_database,
         });
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let system = System::new();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
@@ -3718,7 +3718,7 @@ mod tests {
             replacement_database,
         });
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new("neighborhood_does_not_start_accountant_if_already_connected");
+        let system = System::new();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
@@ -3742,7 +3742,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
-        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -3813,7 +3813,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
-        let system = System::new(test_name);
+        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -3869,7 +3869,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
-        let system = System::new(test_name);
+        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -4188,7 +4188,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4279,7 +4279,7 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4313,7 +4313,7 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
@@ -4357,7 +4357,7 @@ mod tests {
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4384,7 +4384,7 @@ mod tests {
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new("");
+        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4490,7 +4490,7 @@ mod tests {
         let hopper = Recorder::new();
         let this_node_inside = this_node.clone();
         thread::spawn(move || {
-            let system = System::new("");
+            let system = System::new();
             let subject = Neighborhood::new(
                 cryptde,
                 &bc_from_nc_plus(
@@ -4576,7 +4576,7 @@ mod tests {
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
-        let system = System::new("node_gossips_to_neighbors_on_startup");
+        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4630,7 +4630,7 @@ mod tests {
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
-        let system = System::new(test_name);
+        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4673,7 +4673,7 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().min_hops_result(Ok(min_hops_in_db)),
         ));
-        let system = System::new(test_name);
+        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4719,7 +4719,7 @@ mod tests {
 
     #[test]
     fn neighborhood_removes_neighbor_when_directed_to() {
-        let system = System::new("neighborhood_removes_neighbor_when_directed_to");
+        let system = System::new();
         let hopper = Recorder::new();
         let mut subject = make_standard_subject();
         let n = &subject.neighborhood_database.root().clone();
@@ -4789,7 +4789,7 @@ mod tests {
         let cryptde = main_cryptde();
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("responds_with_none_when_initially_configured_with_no_data");
+            let system = System::new();
 
             let addr: Addr<Recorder> = recorder.start();
             let recipient: Recipient<DispatcherNodeQueryResponse> =
@@ -4830,7 +4830,7 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data");
+            let system = System::new();
             let addr: Addr<Recorder> = recorder.start();
             let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
@@ -4902,7 +4902,7 @@ mod tests {
         };
         let context_a = context.clone();
         thread::spawn(move || {
-            let system = System::new("neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data");
+            let system = System::new();
             let addr: Addr<Recorder> = recorder.start();
             let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
             let mut subject = Neighborhood::new(
@@ -4960,7 +4960,7 @@ mod tests {
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
-            let system = System::new("neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data");
+            let system = System::new();
             let addr: Addr<Recorder> = recorder.start();
             let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
@@ -5030,7 +5030,7 @@ mod tests {
         };
         let context_a = context.clone();
         thread::spawn(move || {
-            let system = System::new("neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data");
+            let system = System::new();
             let addr: Addr<Recorder> = recorder.start();
             let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
@@ -5357,7 +5357,7 @@ mod tests {
         let mut subject = neighborhood_from_nodes(&subject_node, None);
         let _ = subject.neighborhood_database.add_node(node_record);
         let addr = subject.start();
-        let system = System::new("test");
+        let system = System::new();
 
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
@@ -5406,7 +5406,7 @@ mod tests {
     fn handle_stream_shutdown_handles_socket_addr_with_unknown_ip() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let unrecognized_node = make_node_record(3123, true);
         let unrecognized_node_addr = unrecognized_node.node_addr_opt().unwrap();
         let unrecognized_socket_addr = SocketAddr::new(
@@ -5437,7 +5437,7 @@ mod tests {
     fn handle_stream_shutdown_handles_already_inactive_node() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let gossip_neighbor_node = make_node_record(2456, true);
         let inactive_neighbor_node = make_node_record(3123, true);
         let inactive_neighbor_node_addr = inactive_neighbor_node.node_addr_opt().unwrap();
@@ -5492,7 +5492,7 @@ mod tests {
     fn handle_stream_shutdown_handles_existing_socket_addr() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new("test");
+        let system = System::new();
         let gossip_neighbor_node = make_node_record(2456, true);
         let shutdown_neighbor_node = make_node_record(3123, true);
         let shutdown_neighbor_node_addr = shutdown_neighbor_node.node_addr_opt().unwrap();
@@ -5551,7 +5551,7 @@ mod tests {
     fn shutdown_instruction_generates_log() {
         running_test();
         init_test_logging();
-        let system = System::new("test");
+        let system = System::new();
         let subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -5665,7 +5665,7 @@ mod tests {
 
     #[test]
     fn new_password_message_works() {
-        let system = System::new("test");
+        let system = System::new();
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
@@ -5944,7 +5944,7 @@ mod tests {
         context_id: u64,
         test_name: &str,
     ) -> Option<NodeToUiMessage> {
-        let system = System::new("test");
+        let system = System::new();
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(

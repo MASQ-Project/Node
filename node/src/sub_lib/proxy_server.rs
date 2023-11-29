@@ -56,6 +56,7 @@ impl ClientRequestPayload_0v1 {
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
@@ -64,6 +65,7 @@ pub struct AddReturnRouteMessage {
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct AddRouteMessage {
     pub stream_key: StreamKey,
     pub route: RouteQueryResponse,

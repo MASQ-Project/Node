@@ -7,7 +7,6 @@ use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
-use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -19,6 +18,7 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+use masq_lib::node_addr::NodeAddr;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 

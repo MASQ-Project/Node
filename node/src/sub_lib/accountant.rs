@@ -124,6 +124,7 @@ impl AccountantSubsFactory for AccountantSubsFactoryReal {
 
 // TODO: These four structures all consist of exactly the same five fields. They could be factored out.
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ReportRoutingServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -133,6 +134,7 @@ pub struct ReportRoutingServiceProvidedMessage {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ReportExitServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -142,6 +144,7 @@ pub struct ReportExitServiceProvidedMessage {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
     pub exit: ExitServiceConsumed,

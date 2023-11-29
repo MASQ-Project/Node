@@ -8,7 +8,6 @@ use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
-use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::versioned_data::StepError;
 use pretty_hex::PrettyHex;
 use serde_cbor::Value;
@@ -20,6 +19,7 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
+use masq_lib::node_addr::NodeAddr;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {

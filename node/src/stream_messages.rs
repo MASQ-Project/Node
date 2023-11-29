@@ -11,6 +11,7 @@ use std::fmt::Formatter;
 use std::net::SocketAddr;
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct AddStreamMsg {
     pub connection_info: ConnectionInfo,
     pub origin_port: Option<u16>,
@@ -44,6 +45,7 @@ pub enum RemovedStreamType {
 }
 
 #[derive(PartialEq, Eq, Message)]
+#[rtype(result = "()")]
 pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
@@ -62,6 +64,7 @@ impl Debug for RemoveStreamMsg {
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs,
@@ -95,7 +98,7 @@ mod tests {
 
     #[test]
     fn pool_bind_message_is_debug() {
-        let _system = System::new("test");
+        let _system = System::new();
         let dispatcher_subs = peer_actors_builder().build().dispatcher;
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
         let neighborhood_subs = peer_actors_builder().build().neighborhood;

@@ -213,6 +213,7 @@ mod tests {
     }
 
     #[derive(Debug, Message, Clone)]
+    #[rtype(result = "()")]
     struct MailboxCapacityCheck {
         tx: Sender<usize>,
     }
@@ -228,7 +229,7 @@ mod tests {
 
     #[test]
     fn bind_message_removes_mailbox_size_limit() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = UiGateway::new(
             &UiGatewayConfig {
                 ui_port: find_free_port(),
@@ -251,7 +252,7 @@ mod tests {
 
     #[test]
     fn daemon_bind_message_removes_mailbox_size_limit() {
-        let system = System::new("test");
+        let system = System::new();
         let subject = UiGateway::new(
             &UiGatewayConfig {
                 ui_port: find_free_port(),
@@ -292,7 +293,7 @@ mod tests {
             },
             false,
         );
-        let system = System::new("test");
+        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder()
             .accountant(accountant)
@@ -353,7 +354,7 @@ mod tests {
         subject.websocket_supervisor = Either::Left(
             Box::new(websocket_supervisor_factory) as Box<dyn WebSocketSupervisorFactory>
         );
-        let system = System::new("test");
+        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -386,7 +387,7 @@ mod tests {
             },
             false,
         );
-        let system = System::new("test");
+        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();

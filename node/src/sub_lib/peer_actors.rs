@@ -34,6 +34,7 @@ impl Debug for PeerActors {
 }
 
 #[derive(Debug, Message, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
@@ -46,9 +47,11 @@ pub struct BindMessage {
 // routing messages, the Neighborhood sends another StartMessage to the Accountant, which uses
 // the StartMessage as a signal to begin running its regular scans.
 #[derive(Debug, Message, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
 pub struct StartMessage {}
 
 #[derive(Message, Clone, PartialEq, Eq, Debug)]
+#[rtype(result = "()")]
 pub struct NewPublicIp {
     pub new_ip: IpAddr,
 }
@@ -60,7 +63,7 @@ mod tests {
 
     #[test]
     fn peer_actors_debug() {
-        let _ = System::new("test");
+        let _ = System::new();
         let subject = peer_actors_builder().build();
 
         let result = format!("{:?}", subject);

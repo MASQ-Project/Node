@@ -8,7 +8,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
-use crate::sub_lib::node_addr::NodeAddr;
+use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use ethereum_types::H160;
