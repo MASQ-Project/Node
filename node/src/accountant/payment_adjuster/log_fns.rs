@@ -41,9 +41,10 @@ pub fn format_brief_adjustment_summary(
                     account.wallet,
                     original_account_balances_mapped
                         .get(&account.wallet)
-                        .expectv("initial balance"),
+                        .expectv("initial balance")
+                        .separate_with_commas(),
                     BLANK_SPACE,
-                    account.balance_wei,
+                    account.balance_wei.separate_with_commas(),
                     length = WALLET_ADDRESS_LENGTH
                 )
             })
@@ -52,7 +53,7 @@ pub fn format_brief_adjustment_summary(
     fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
         let title = once(format!(
             "\n{:<length$} Original\n",
-            "Ruled Out",
+            "Ruled Out Accounts",
             length = WALLET_ADDRESS_LENGTH
         ));
         let list = excluded
@@ -60,7 +61,9 @@ pub fn format_brief_adjustment_summary(
             .sorted_by(|(_, balance_account_a), (_, balance_account_b)| {
                 Ord::cmp(&balance_account_b, &balance_account_a)
             })
-            .map(|(wallet, original_balance)| format!("{} {}", wallet, original_balance));
+            .map(|(wallet, original_balance)| {
+                format!("{} {}", wallet, original_balance.separate_with_commas())
+            });
         title.chain(list).join("\n")
     }
 
@@ -92,8 +95,6 @@ pub fn format_brief_adjustment_summary(
     .join("\n")
 }
 
-const UNDERLINING_LENGTH: usize = 58;
-
 pub fn before_and_after_debug_msg(
     original_account_balances_mapped: HashMap<Wallet, u128>,
     adjusted_accounts: &[PayableAccount],
@@ -101,15 +102,14 @@ pub fn before_and_after_debug_msg(
     format!(
         "\n\
             {:<length$} {}\n\
-            {}\n\
+            \n\
             {:<length$} {}\n\
             {:<length$} {}\n\
             \n\
             {}",
         "Payable Account",
         "Balance Wei",
-        "-".repeat(UNDERLINING_LENGTH),
-        "Successfully Adjusted",
+        BLANK_SPACE,
         "Original",
         BLANK_SPACE,
         "Adjusted",
