@@ -106,7 +106,6 @@ impl Actor for Accountant {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-#[rtype(result = "()")]
 pub struct ResponseSkeleton {
     pub client_id: u64,
     pub context_id: u64,

@@ -38,7 +38,6 @@ use masq_lib::multi_config::{
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
 use masq_lib::utils::{add_chain_specific_directory, ExpectValue};
 use std::collections::HashMap;
-use std::default::Default;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};

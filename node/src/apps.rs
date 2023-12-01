@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::{crate_description, crate_version, Command, AppSettings, Arg};
+use clap::{crate_description, crate_version, Command, Arg, ColorChoice};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -12,13 +12,10 @@ use masq_lib::utils::DATA_DIRECTORY_DAEMON_HELP;
 
 pub fn app_head() -> Command {
     Command::new("MASQNode")
-        .global_settings(if cfg!(test) {
-            &[AppSettings::ColorNever]
-        } else {
-            &[AppSettings::ColorAuto, AppSettings::ColoredHelp]
-        })
-        .version(crate_version!())
+        .color(if cfg!(test) {ColorChoice::Never} else {ColorChoice::Auto})
+        .disable_colored_help(cfg!(test))
         .author("MASQ")
+        .version(crate_version!())
         .about(crate_description!())
 }
 
@@ -32,11 +29,11 @@ pub fn app_daemon() -> Command {
                 .takes_value(false)
                 .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
-        .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+        .arg(ui_port_arg(DAEMON_UI_PORT_HELP.clone()))
 }
 
 pub fn app_node() -> Command {
-    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(DAEMON_UI_PORT_HELP.clone()))
 }
 
 pub fn app_config_dumper() -> Command {

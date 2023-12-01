@@ -11,6 +11,8 @@ use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
@@ -22,7 +24,7 @@ impl fmt::Display for PrivateKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            BASE64_STANDARD_NO_PAD.encode(&self.data)
         )
     }
 }
@@ -105,7 +107,7 @@ impl fmt::Display for PublicKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            BASE64_STANDARD_NO_PAD.encode(&self.data)
         )
     }
 }
@@ -209,7 +211,7 @@ impl fmt::Display for SymmetricKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            BASE64_STANDARD_NO_PAD.encode(&self.data)
         )
     }
 }
@@ -219,7 +221,7 @@ impl fmt::Debug for SymmetricKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            BASE64_STANDARD_NO_PAD.encode(&self.data)
         )
     }
 }

@@ -2070,7 +2070,7 @@ name = "masq_lib"
 version = "0.7.3"
 dependencies = [
  "actix",
- "base64 0.13.0",
+ "base64 0.21.5",
  "clap",
  "const_format",
  "crossbeam-channel",

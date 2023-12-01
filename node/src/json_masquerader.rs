@@ -4,6 +4,8 @@ use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
 use masq_lib::logger::Logger;
 use serde_derive::{Deserialize, Serialize};
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 pub struct JsonMasquerader {
     logger: Logger,
@@ -58,7 +60,7 @@ impl JsonMasquerader {
     }
 
     fn make_binary_structure(data: &[u8]) -> Result<String, serde_json::Error> {
-        let base64 = base64::encode(data);
+        let base64 = BASE64_STANDARD_NO_PAD.encode(data);
         let structure = JsonMasqueraderDataStructure { bodyData: base64 };
         serde_json::to_string(&structure)
     }
@@ -96,7 +98,7 @@ impl JsonMasquerader {
     ) -> Result<Vec<u8>, MasqueradeError> {
         match (structure.bodyText.clone(), structure.bodyData.clone()) {
             (Some(text), None) => Ok(text.into_bytes()),
-            (None, Some(data)) => match base64::decode(&data[..]) {
+            (None, Some(data)) => match BASE64_STANDARD_NO_PAD.decode(&data[..]) {
                 Ok(vec) => Ok(vec),
                 Err(_) => Err(MasqueradeError::HighLevelDataError(format!(
                     "Can't decode Base64: '{}'",

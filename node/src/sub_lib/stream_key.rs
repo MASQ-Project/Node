@@ -9,6 +9,8 @@ use serde::Serializer;
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
@@ -17,7 +19,7 @@ pub struct StreamKey {
 
 impl fmt::Debug for StreamKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let string = base64::encode_config(&self.hash, base64::STANDARD_NO_PAD);
+        let string = BASE64_STANDARD_NO_PAD.encode(&self.hash);
         write!(f, "{}", string)
     }
 }

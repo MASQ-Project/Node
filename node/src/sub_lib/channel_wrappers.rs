@@ -3,7 +3,6 @@ use futures::sync::mpsc;
 use futures::sync::mpsc::SendError;
 use futures::sync::mpsc::UnboundedReceiver;
 use futures::sync::mpsc::UnboundedSender;
-use futures::Stream;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use tokio::prelude::Async;

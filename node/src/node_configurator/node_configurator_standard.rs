@@ -33,6 +33,8 @@ use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -226,7 +228,7 @@ pub fn privileged_parse_args(
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
     if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
-        let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
+        let (main_public_key, alias_public_key) = match BASE64_STANDARD_NO_PAD.decode(&public_key_str) {
             Ok(mut key) => {
                 let main_public_key = PublicKey::new(&key);
                 key.reverse();

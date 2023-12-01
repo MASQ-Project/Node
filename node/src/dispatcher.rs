@@ -21,7 +21,6 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
-use masq_lib::node_addr::NodeAddr;
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 lazy_static! {

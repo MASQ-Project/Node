@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use clap::ArgMatches;
 use crate::shared_schema::{LogLevel, NeighborhoodMode, ConfigFile, DataDirectory, PublicKey, MappingProtocol, MinHops, Neighbors, OnOff, ScanIntervals, RatePack, PaymentThresholds};
-use crate::shared_schema::common_validators::{InsecurePort, VecU64, PrivateKey, IpAddrs, Wallet, GasPrice, RealUser};
+use crate::shared_schema::{InsecurePort, VecU64, PrivateKey, IpAddrs, Wallet, GasPrice, RealUser};
 use crate::crash_point::CrashPoint;
 use url::Url;
 

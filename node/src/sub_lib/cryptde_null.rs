@@ -13,6 +13,8 @@ use rustc_hex::ToHex;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -123,7 +125,7 @@ impl CryptDE for CryptDENull {
     }
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
-        base64::encode_config(public_key.as_slice(), base64::URL_SAFE_NO_PAD)
+        BASE64_STANDARD_NO_PAD.encode(public_key.as_slice())
     }
 
     fn descriptor_fragment_to_first_contact_public_key(
@@ -133,7 +135,7 @@ impl CryptDE for CryptDENull {
         if descriptor_fragment.is_empty() {
             return Err("Public key cannot be empty".to_string());
         }
-        let half_key = match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
+        let half_key = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
             Ok(half_key) => half_key,
             Err(_) => {
                 return Err(format!(

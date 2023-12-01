@@ -13,6 +13,8 @@ use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
 use std::any::Any;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -149,7 +151,7 @@ impl CryptDE for CryptDEReal {
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
         let encryption_public_key = &public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
-        base64::encode_config(encryption_public_key, base64::URL_SAFE_NO_PAD)
+        BASE64_STANDARD_NO_PAD.encode(encryption_public_key)
     }
 
     fn descriptor_fragment_to_first_contact_public_key(
@@ -157,7 +159,7 @@ impl CryptDE for CryptDEReal {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String> {
         let mut encryption_public_key =
-            match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
+            match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
                 Ok(v) => v,
                 Err(_) => {
                     return Err(format!(
@@ -234,6 +236,7 @@ impl CryptDEReal {
 
 #[cfg(test)]
 mod tests {
+    use base64::prelude::BASE64_STANDARD_NO_PAD;
     use super::*;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -464,7 +467,7 @@ mod tests {
 
         assert_eq!(
             result,
-            base64::encode_config(public_encryption_key, base64::URL_SAFE_NO_PAD)
+            BASE64_STANDARD_NO_PAD.encode(public_encryption_key)
         );
     }
 
@@ -472,7 +475,7 @@ mod tests {
     fn destringifies_public_key_properly() {
         let subject = CryptDEReal::default();
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
-        let half_key_string = base64::encode_config(public_encryption_key, base64::URL_SAFE_NO_PAD);
+        let half_key_string = BASE64_STANDARD_NO_PAD.encode(public_encryption_key);
 
         let result = subject
             .descriptor_fragment_to_first_contact_public_key(&half_key_string)
@@ -503,7 +506,7 @@ mod tests {
         let short_public_encryption_key =
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
         let short_half_key_string =
-            base64::encode_config(short_public_encryption_key, base64::URL_SAFE_NO_PAD);
+            BASE64_STANDARD_NO_PAD.encode(short_public_encryption_key);
 
         let result =
             subject.descriptor_fragment_to_first_contact_public_key(&short_half_key_string);
@@ -524,7 +527,7 @@ mod tests {
             subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES].to_vec();
         long_public_encryption_key.push(0);
         let long_half_key_string =
-            base64::encode_config(&long_public_encryption_key, base64::URL_SAFE_NO_PAD);
+            BASE64_STANDARD_NO_PAD.encode(&long_public_encryption_key);
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(&long_half_key_string);
 

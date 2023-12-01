@@ -72,7 +72,7 @@ impl From<&dyn MASQNode> for NodeReference {
 
 impl fmt::Display for NodeReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let public_key_string = base64::encode_config(&self.public_key.as_slice(), URL_SAFE_NO_PAD);
+        let public_key_string = BASE64_STANDARD_NO_PAD.encode(&self.public_key.as_slice());
         let ip_addr_string = match &self.node_addr_opt {
             Some(node_addr) => format!("{}", node_addr.ip_addr()),
             None => String::new(),
@@ -124,7 +124,7 @@ impl NodeReference {
     }
 
     fn extract_public_key(slice: &str) -> Result<PublicKey, String> {
-        match base64::decode_config(slice,URL_SAFE_NO_PAD) {
+        match BASE64_STANDARD_NO_PAD.decode(slice) {
             Ok (data) => Ok (PublicKey::new (&data[..])),
             Err (_) => Err (format!("The public key of a NodeReference must be represented as a valid Base64 string, not '{}'", slice))
         }
