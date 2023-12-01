@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
+    calculate_disqualification_edge, sum_as,
+};
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use itertools::Itertools;
 
@@ -24,16 +26,18 @@ impl MasqAdjustmentPossibilityVerifier {
                 Ord::cmp(&account_a.balance_wei, &account_b.balance_wei)
             })
             .collect::<Vec<_>>();
-        let smallest_account = sorted.first().expect("empty Vec of qualified payables ");
+        let smallest_account = sorted.first().expect("should be one at minimum");
 
         if calculate_disqualification_edge(smallest_account.balance_wei)
             <= cw_service_fee_balance_minor
         {
             Ok(())
         } else {
+            let total_amount_demanded_minor = sum_as(accounts, |account| account.balance_wei);
             Err(
-                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: accounts.len(),
+                    total_amount_demanded_minor,
                     cw_service_fee_balance_minor,
                 },
             )
@@ -45,7 +49,7 @@ impl MasqAdjustmentPossibilityVerifier {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
-    use crate::accountant::payment_adjuster::verifier::MasqAdjustmentPossibilityVerifier;
+    use crate::accountant::payment_adjuster::possibility_verifier::MasqAdjustmentPossibilityVerifier;
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
     use crate::accountant::test_utils::make_payable_account;
 
@@ -108,8 +112,9 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
+                    total_amount_demanded_minor: 2_000_000_000 + 2_000_000_002 + 1_000_000_002,
                     cw_service_fee_balance_minor: cw_masq_balance
                 }
             )

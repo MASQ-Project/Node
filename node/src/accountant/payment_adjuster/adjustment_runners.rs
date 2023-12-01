@@ -106,7 +106,9 @@ fn adjust_last_one(
     payment_adjuster: &PaymentAdjusterReal,
     last_account: PayableAccount,
 ) -> Option<AdjustedAccountBeforeFinalization> {
-    let cw_balance = payment_adjuster.inner.unallocated_cw_masq_balance_minor();
+    let cw_balance = payment_adjuster
+        .inner
+        .unallocated_cw_service_fee_balance_minor();
     let proposed_adjusted_balance = if last_account.balance_wei.checked_sub(cw_balance) == None {
         last_account.balance_wei
     } else {

@@ -1056,16 +1056,15 @@ mod tests {
         assert_eq!(*get_transaction_id_params, vec![wallet.clone()]);
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), transaction_id);
-        assert_eq!(result.transaction_fee_balance(), transaction_fee_balance);
-        assert_eq!(result.service_fee_balance(), masq_balance.as_u128());
-        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
-        let expected_fee_estimation =
-            ((BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain)
-                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-                * 50) as u128;
         assert_eq!(
-            result.estimated_transaction_fee_per_transaction(),
-            expected_fee_estimation
+            result.transaction_fee_balance_minor(),
+            transaction_fee_balance
+        );
+        assert_eq!(result.service_fee_balance_minor(), masq_balance.as_u128());
+        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
+        assert_eq!(
+            result.estimated_transaction_fee_per_transaction_minor(),
+            3666400000000000
         )
     }
 

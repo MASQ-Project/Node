@@ -12,18 +12,18 @@ pub struct BlockchainAgentNull {
 }
 
 impl BlockchainAgent for BlockchainAgentNull {
-    fn estimated_transaction_fee_per_transaction(&self) -> u128 {
-        self.log_function_call("estimated_transaction_fee_per_transaction()");
+    fn estimated_transaction_fee_per_transaction_minor(&self) -> u128 {
+        self.log_function_call("estimated_transaction_fee_per_transaction_minor()");
         0
     }
 
-    fn transaction_fee_balance(&self) -> U256 {
-        self.log_function_call("transaction_fee_balance()");
+    fn transaction_fee_balance_minor(&self) -> U256 {
+        self.log_function_call("transaction_fee_balance_minor()");
         U256::zero()
     }
 
-    fn service_fee_balance(&self) -> u128 {
-        self.log_function_call("service_fee_balance()");
+    fn service_fee_balance_minor(&self) -> u128 {
+        self.log_function_call("service_fee_balance_minor()");
         0
     }
 
@@ -117,42 +117,42 @@ mod tests {
     }
 
     #[test]
-    fn null_agent_estimated_transaction_fee_per_transaction() {
+    fn null_agent_estimated_transaction_fee_per_transaction_minor() {
         init_test_logging();
-        let test_name = "null_agent_estimated_transaction_fee_per_transaction";
+        let test_name = "null_agent_estimated_transaction_fee_per_transaction_minor";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.estimated_transaction_fee_per_transaction();
+        let result = subject.estimated_transaction_fee_per_transaction_minor();
 
         assert_eq!(result, 0);
-        assert_error_log(test_name, "estimated_transaction_fee_per_transaction");
+        assert_error_log(test_name, "estimated_transaction_fee_per_transaction_minor");
     }
 
     #[test]
-    fn null_agent_consuming_transaction_fee_balance() {
+    fn null_agent_consuming_transaction_fee_balance_minor() {
         init_test_logging();
-        let test_name = "null_agent_consuming_transaction_fee_balance";
+        let test_name = "null_agent_consuming_transaction_fee_balance_minor";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.transaction_fee_balance();
+        let result = subject.transaction_fee_balance_minor();
 
         assert_eq!(result, U256::zero());
-        assert_error_log(test_name, "transaction_fee_balance")
+        assert_error_log(test_name, "transaction_fee_balance_minor")
     }
 
     #[test]
-    fn null_agent_service_fee_balance() {
+    fn null_agent_service_fee_balance_minor() {
         init_test_logging();
-        let test_name = "null_agent_service_fee_balance";
+        let test_name = "null_agent_service_fee_balance_minor";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.service_fee_balance();
+        let result = subject.service_fee_balance_minor();
 
         assert_eq!(result, 0);
-        assert_error_log(test_name, "service_fee_balance")
+        assert_error_log(test_name, "service_fee_balance_minor")
     }
 
     #[test]

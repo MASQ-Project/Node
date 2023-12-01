@@ -1651,10 +1651,9 @@ mod tests {
         considered due to detected insolvency but the current balances are likely to suffice for \
         none of the recently qualified payables, not even by at least a half of any of them, which \
         would still lead to a launch of a payment. Please fund your consuming wallet in order to \
-        avoid bans from your creditors. Failure reason: Found smaller transaction fee balance than \
-        does for a single payment. Number of canceled \
-        payments: 1. Transaction fee for a single account: 3,300,000 wei. Current consuming wallet \
-        balance: 123,000,000,000 wei."
+        avoid bans from your creditors. Failure reason: Found a smaller transaction fee balance \
+        than it does for a single payment. Number of canceled payments: 1. Transaction fee by single \
+        account: 3,300,000 wei. Consuming wallet balance: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
@@ -1679,8 +1678,8 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not \
         produced any executable payments. Please fund your consuming wallet in order to avoid bans \
-        from your creditors. Failure reason: Despite the positive preliminary analysis, \
-        no executable adjusted payments could be arranged, the algorithm rejected each payable"
+        from your creditors. Failure reason: While chances were according to the preliminary analysis, \
+        the adjustment algorithm rejected each payable"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));

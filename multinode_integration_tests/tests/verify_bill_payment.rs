@@ -33,7 +33,7 @@ use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
-use rusqlite::{ToSql, Transaction};
+use rusqlite::ToSql;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ use std::time::{Duration, Instant, SystemTime};
 use std::{thread, u128};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters};
+use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, TransactionRequest};
 use web3::Web3;
 
 #[test]
@@ -85,7 +85,8 @@ fn verify_bill_payment() {
             owed_to_serving_node_3_minor,
         }),
         payment_thresholds_all_nodes: payment_thresholds,
-        exp_final_cons_node_transaction_fee_balance_minor: 99_999_842_470_000_000_000,
+        cons_node_transaction_fee_agreed_unit_price_opt: None,
+        exp_final_cons_node_transaction_fee_balance_minor: 999_842_470_000_000_000,
         exp_final_cons_node_service_fee_balance_minor,
         exp_final_service_fee_balance_serv_node_1_minor: owed_to_serving_node_1_minor,
         exp_final_service_fee_balance_serv_node_2_minor: owed_to_serving_node_2_minor,
@@ -146,344 +147,32 @@ fn verify_bill_payment() {
         stimulate_payments,
         start_serving_nodes_and_run_check,
     );
-    //
-    // let mut cluster = match MASQNodeCluster::start() {
-    //     Ok(cluster) => cluster,
-    //     Err(e) => panic!("{}", e),
-    // };
-    // let blockchain_server = BlockchainServer {
-    //     name: "ganache-cli",
-    // };
-    // blockchain_server.start();
-    // blockchain_server.wait_until_ready();
-    // let url = blockchain_server.url().to_string();
-    // let (event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
-    // let web3 = Web3::new(http.clone());
-    // let seed = make_seed();
-    // let (contract_owner_wallet, _) = make_node_wallet(&seed, &derivation_path(0, 0));
-    // let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
-    // assert_eq!(
-    //     contract_addr,
-    //     cluster.chain.rec().contract,
-    //     "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
-    //     contract_addr
-    // );
-    // let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
-    // let payment_thresholds = PaymentThresholds {
-    //     threshold_interval_sec: 2_500_000,
-    //     debt_threshold_gwei: 1_000_000_000,
-    //     payment_grace_period_sec: 85_000,
-    //     maturity_threshold_sec: 85_000,
-    //     permanent_debt_allowed_gwei: 10_000_000,
-    //     unban_below_gwei: 10_000_000,
-    // };
-    // let (consuming_config, consuming_node_wallet) = build_config(
-    //     &blockchain_server,
-    //     &seed,
-    //     payment_thresholds,
-    //     derivation_path(0, 1),
-    //     None,
-    // );
-    //
-    // let consuming_node_initial_service_fee_balance =
-    //     gwei_to_wei(payment_thresholds.debt_threshold_gwei * 10);
-    //
-    // transfer_tokens_to_address(
-    //     contract_addr,
-    //     &contract_owner_wallet,
-    //     &consuming_node_wallet,
-    //     consuming_node_initial_service_fee_balance,
-    //     1,
-    //     &web3,
-    //     cluster.chain,
-    // );
-    //
-    // assert_balances(
-    //     &consuming_node_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000", // Default at ganache
-    //     &consuming_node_initial_service_fee_balance.to_string(),
-    // );
-    //
-    // let (serving_node_1_config, serving_node_1_wallet) = build_config(
-    //     &blockchain_server,
-    //     &seed,
-    //     payment_thresholds,
-    //     derivation_path(0, 2),
-    //     None,
-    // );
-    // let (serving_node_2_config, serving_node_2_wallet) = build_config(
-    //     &blockchain_server,
-    //     &seed,
-    //     payment_thresholds,
-    //     derivation_path(0, 3),
-    //     None,
-    // );
-    // let (serving_node_3_config, serving_node_3_wallet) = build_config(
-    //     &blockchain_server,
-    //     &seed,
-    //     payment_thresholds,
-    //     derivation_path(0, 4),
-    //     None,
-    // );
-    //
-    // let amount = |addition: u128| {
-    //     payment_thresholds.debt_threshold_gwei as u128 * WEIS_IN_GWEI as u128 + addition
-    // };
-    // let payment_to_serving_node_1 = amount(123);
-    // let payment_to_serving_node_2 = amount(456);
-    // let payment_to_serving_node_3 = amount(789);
-    //
-    // let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
-    // let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
-    // let consuming_node_connection = DbInitializerReal::default()
-    //     .initialize(
-    //         Path::new(&consuming_node_path),
-    //         make_init_config(cluster.chain),
-    //     )
-    //     .unwrap();
-    // let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
-    // open_all_file_permissions(consuming_node_path.clone().into());
-    // assert_eq!(
-    //     format!("{}", &consuming_node_wallet),
-    //     "0x7a3cf474962646b18666b5a5be597bb0af013d81"
-    // );
-    // assert_eq!(
-    //     format!("{}", &serving_node_1_wallet),
-    //     "0x0bd8bc4b8aba5d8abf13ea78a6668ad0e9985ad6"
-    // );
-    // assert_eq!(
-    //     format!("{}", &serving_node_2_wallet),
-    //     "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
-    // );
-    // assert_eq!(
-    //     format!("{}", &serving_node_3_wallet),
-    //     "0xb45a33ef3e3097f34c826369b74141ed268cdb5a"
-    // );
-    // let now = SystemTime::now();
-    // consuming_payable_dao
-    //     .more_money_payable(now, &serving_node_1_wallet, payment_to_serving_node_1)
-    //     .unwrap();
-    // consuming_payable_dao
-    //     .more_money_payable(now, &serving_node_2_wallet, payment_to_serving_node_2)
-    //     .unwrap();
-    // consuming_payable_dao
-    //     .more_money_payable(now, &serving_node_3_wallet, payment_to_serving_node_3)
-    //     .unwrap();
-    //
-    // let (serving_node_1_name, serving_node_1_index) =
-    //     cluster.prepare_real_node(&serving_node_1_config);
-    // let serving_node_1_path = node_chain_specific_data_directory(&serving_node_1_name);
-    // let serving_node_1_connection = DbInitializerReal::default()
-    //     .initialize(
-    //         Path::new(&serving_node_1_path),
-    //         make_init_config(cluster.chain),
-    //     )
-    //     .unwrap();
-    // let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
-    // serving_node_1_receivable_dao
-    //     .more_money_receivable(
-    //         SystemTime::now(),
-    //         &consuming_node_wallet,
-    //         payment_to_serving_node_1,
-    //     )
-    //     .unwrap();
-    // open_all_file_permissions(serving_node_1_path.clone().into());
-    //
-    // let (serving_node_2_name, serving_node_2_index) =
-    //     cluster.prepare_real_node(&serving_node_2_config);
-    // let serving_node_2_path = node_chain_specific_data_directory(&serving_node_2_name);
-    // let serving_node_2_connection = DbInitializerReal::default()
-    //     .initialize(
-    //         Path::new(&serving_node_2_path),
-    //         make_init_config(cluster.chain),
-    //     )
-    //     .unwrap();
-    // let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
-    // serving_node_2_receivable_dao
-    //     .more_money_receivable(
-    //         SystemTime::now(),
-    //         &consuming_node_wallet,
-    //         payment_to_serving_node_2,
-    //     )
-    //     .unwrap();
-    // open_all_file_permissions(serving_node_2_path.clone().into());
-    //
-    // let (serving_node_3_name, serving_node_3_index) =
-    //     cluster.prepare_real_node(&serving_node_3_config);
-    // let serving_node_3_path = node_chain_specific_data_directory(&serving_node_3_name);
-    // let serving_node_3_connection = DbInitializerReal::default()
-    //     .initialize(
-    //         Path::new(&serving_node_3_path),
-    //         make_init_config(cluster.chain),
-    //     )
-    //     .unwrap();
-    // let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
-    // serving_node_3_receivable_dao
-    //     .more_money_receivable(
-    //         SystemTime::now(),
-    //         &consuming_node_wallet,
-    //         payment_to_serving_node_3,
-    //     )
-    //     .unwrap();
-    // open_all_file_permissions(serving_node_3_path.clone().into());
-    //
-    // expire_payables(consuming_node_path.into());
-    // expire_receivables(serving_node_1_path.into());
-    // expire_receivables(serving_node_2_path.into());
-    // expire_receivables(serving_node_3_path.into());
-    //
-    // // Note: ganache defaults the balance of each created account to 100 ETH
-    //
-    // assert_balances(
-    //     &consuming_node_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     &consuming_node_initial_service_fee_balance.to_string(),
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_1_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     "0",
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_2_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     "0",
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_3_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     "0",
-    // );
-    //
-    // let real_consuming_node =
-    //     cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
-    // for _ in 0..6 {
-    //     cluster.start_real_node(
-    //         NodeStartupConfigBuilder::standard()
-    //             .chain(Chain::Dev)
-    //             .neighbor(real_consuming_node.node_reference())
-    //             .build(),
-    //     );
-    // }
-    //
-    // let now = Instant::now();
-    // while !consuming_payable_dao.non_pending_payables().is_empty()
-    //     && now.elapsed() < Duration::from_secs(10)
-    // {
-    //     thread::sleep(Duration::from_millis(400));
-    // }
-    //
-    // let expected_final_token_balance_consuming_node = consuming_node_initial_service_fee_balance
-    //     - (payment_to_serving_node_1 + payment_to_serving_node_2 + payment_to_serving_node_3);
-    //
-    // assert_balances(
-    //     &consuming_node_wallet,
-    //     &blockchain_interface,
-    //     "99999842482000000000",
-    //     &expected_final_token_balance_consuming_node.to_string(),
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_1_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     &payment_to_serving_node_1.to_string(),
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_2_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     &payment_to_serving_node_2.to_string(),
-    // );
-    //
-    // assert_balances(
-    //     &serving_node_3_wallet,
-    //     &blockchain_interface,
-    //     "100000000000000000000",
-    //     payment_to_serving_node_3.to_string().as_str(),
-    // );
-    //
-    // let serving_node_1 = cluster.start_named_real_node(
-    //     &serving_node_1_name,
-    //     serving_node_1_index,
-    //     serving_node_1_config,
-    // );
-    // let serving_node_2 = cluster.start_named_real_node(
-    //     &serving_node_2_name,
-    //     serving_node_2_index,
-    //     serving_node_2_config,
-    // );
-    // let serving_node_3 = cluster.start_named_real_node(
-    //     &serving_node_3_name,
-    //     serving_node_3_index,
-    //     serving_node_3_config,
-    // );
-    // for _ in 0..6 {
-    //     cluster.start_real_node(
-    //         NodeStartupConfigBuilder::standard()
-    //             .chain(Chain::Dev)
-    //             .neighbor(serving_node_1.node_reference())
-    //             .neighbor(serving_node_2.node_reference())
-    //             .neighbor(serving_node_3.node_reference())
-    //             .build(),
-    //     );
-    // }
-    //
-    // test_utils::wait_for(Some(1000), Some(15000), || {
-    //     if let Some(status) = serving_node_1_receivable_dao.account_status(&consuming_node_wallet) {
-    //         status.balance_wei == 0
-    //     } else {
-    //         false
-    //     }
-    // });
-    // test_utils::wait_for(Some(1000), Some(15000), || {
-    //     if let Some(status) = serving_node_2_receivable_dao.account_status(&consuming_node_wallet) {
-    //         status.balance_wei == 0
-    //     } else {
-    //         false
-    //     }
-    // });
-    // test_utils::wait_for(Some(1000), Some(15000), || {
-    //     if let Some(status) = serving_node_3_receivable_dao.account_status(&consuming_node_wallet) {
-    //         status.balance_wei == 0
-    //     } else {
-    //         false
-    //     }
-    // });
 }
 
 #[test]
-fn payments_were_adjusted_due_to_insufficient_balance() {
+fn payments_were_adjusted_due_to_insufficient_balances() {
     let consuming_node_ui_port = find_free_port();
     let serving_node_1_ui_port = find_free_port();
     let serving_node_2_ui_port = find_free_port();
     let serving_node_3_ui_port = find_free_port();
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_500_000,
-        debt_threshold_gwei: 1_000_000_000,
+        debt_threshold_gwei: 100_000_000,
         payment_grace_period_sec: 85_000,
         maturity_threshold_sec: 85_000,
         permanent_debt_allowed_gwei: 10_000_000,
-        unban_below_gwei: 10_000_000,
+        unban_below_gwei: 1_000_000,
     };
     let owed_to_serv_node_1_minor =
-        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 10_000);
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 5_000_000);
     let owed_to_serv_node_2_minor =
-        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 20_000);
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 20_000_000);
     let owed_to_serv_node_3_minor =
-        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 30_000);
+        gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 60_000_000);
     // Assuming all Nodes rely on the same set of payment thresholds
-    let cons_node_initial_service_fee_balance_minor =
-        (owed_to_serv_node_2_minor + owed_to_serv_node_3_minor) - 150_000;
+    let cons_node_initial_service_fee_balance_minor = (owed_to_serv_node_2_minor
+        + owed_to_serv_node_3_minor)
+        - gwei_to_wei::<u128, u64>(20_000_000);
     let exp_final_cons_node_service_fee_balance_minor = cons_node_initial_service_fee_balance_minor
         - (owed_to_serv_node_1_minor + owed_to_serv_node_2_minor + owed_to_serv_node_3_minor);
     let test_global_config = TestInputsOutputsConfig {
@@ -493,8 +182,9 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
             serving_node_2: serving_node_2_ui_port,
             serving_node_3: serving_node_3_ui_port,
         }),
-        // Shouldn't be enough for three payments therefore the least significant will be eliminated
-        cons_node_initial_transaction_fee_balance_minor_opt: Some(3_000_000_000_000_000),
+        // Should be enough only for two payments therefore the least significant one will
+        // need to go away
+        cons_node_initial_transaction_fee_balance_minor_opt: Some(6_000_000),
         cons_node_initial_service_fee_balance_minor,
         debts_config: Either::Right(FullySpecifiedSimulatedDebts {
             // This account will be the least significant and be eliminated for the reasons
@@ -519,7 +209,8 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
             },
         }),
         payment_thresholds_all_nodes: payment_thresholds,
-        exp_final_cons_node_transaction_fee_balance_minor: 99_999_842_470_000_000_000,
+        cons_node_transaction_fee_agreed_unit_price_opt: Some(60),
+        exp_final_cons_node_transaction_fee_balance_minor: 37_514_000_000_000,
         exp_final_cons_node_service_fee_balance_minor,
         exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
         exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor,
@@ -542,7 +233,7 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
                 &real_consuming_node,
                 consuming_node_ui_port,
                 ScanType::Payables,
-                5555,
+                1111,
             )
         };
 
@@ -554,9 +245,9 @@ fn payments_were_adjusted_due_to_insufficient_balance() {
      -> (MASQRealNode, MASQRealNode, MASQRealNode) {
         let ports = test_global_config.ui_ports_opt.as_ref().unwrap();
         let mut vec: Vec<MASQRealNode> = vec![
-            (serving_node_1_attributes, ports.serving_node_1, 1111),
-            (serving_node_2_attributes, ports.serving_node_2, 2222),
-            (serving_node_3_attributes, ports.serving_node_3, 3333),
+            (serving_node_1_attributes, ports.serving_node_1, 2222),
+            (serving_node_2_attributes, ports.serving_node_2, 3333),
+            (serving_node_3_attributes, ports.serving_node_3, 4444),
         ]
         .into_iter()
         .map(|(serving_node_attributes, ui_port, context_id)| {
@@ -649,16 +340,16 @@ fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Ad
     }
 }
 
-fn transfer_tokens_to_address(
+fn transfer_service_fee_amount_to_address(
     contract_addr: Address,
     from_wallet: &Wallet,
     to_wallet: &Wallet,
-    amount: u128,
+    amount_minor: u128,
     transaction_nonce: u64,
     web3: &Web3<Http>,
     chain: Chain,
 ) {
-    let data = transaction_data_web3(to_wallet, amount);
+    let data = transaction_data_web3(to_wallet, amount_minor);
     let gas_price = 150_000_000_000_u64;
     let gas_limit = 1_000_000_u64;
     let tx = TransactionParameters {
@@ -699,6 +390,57 @@ fn sign_transaction(
         .expect("transaction preparation failed")
 }
 
+fn transfer_transaction_fee_amount_to_address(
+    from_wallet: &Wallet,
+    to_wallet: &Wallet,
+    amount_minor: u128,
+    transaction_nonce: u64,
+    web3: &Web3<Http>,
+) {
+    let gas_price = 150_000_000_000_u64;
+    let gas_limit = 1_000_000_u64;
+    let tx = TransactionRequest {
+        from: from_wallet.address(),
+        to: Some(to_wallet.address()),
+        gas: Some(ethereum_types::U256::try_from(gas_limit).expect("Internal error")),
+        gas_price: Some(ethereum_types::U256::try_from(gas_price).expect("Internal error")),
+        value: Some(ethereum_types::U256::from(amount_minor)),
+        data: None,
+        nonce: Some(ethereum_types::U256::try_from(transaction_nonce).expect("Internal error")),
+        condition: None,
+    };
+
+    match web3
+        .personal()
+        .unlock_account(from_wallet.address(), "", None)
+        .wait()
+    {
+        Ok(was_successful) => {
+            if was_successful {
+                eprintln!(
+                    "Account {} unlocked for a single transaction",
+                    from_wallet.address()
+                )
+            } else {
+                panic!(
+                    "Couldn't unlock account {} for the purpose of signing the next transaction",
+                    from_wallet.address()
+                )
+            }
+        }
+        Err(e) => panic!(
+            "Attempt to unlock account {} failed at {:?}",
+            from_wallet.address(),
+            e
+        ),
+    }
+
+    match web3.eth().send_transaction(tx).wait() {
+        Ok(tx_hash) => eprintln!("Transaction {} was sent", tx_hash),
+        Err(e) => panic!("Transaction for token transfer failed {:?}", e),
+    }
+}
+
 fn make_node_wallet(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
     let extended_priv_key = ExtendedPrivKey::derive(&seed.as_ref(), derivation_path).unwrap();
     let secret = extended_priv_key.secret().to_hex::<String>();
@@ -720,11 +462,12 @@ fn build_config(
     server_url_holder: &dyn UrlHolder,
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
+    transaction_fee_agreed_price_per_unit_opt: Option<u64>,
     wallet_derivation_path: String,
     port_opt: Option<u16>,
 ) -> (NodeStartupConfig, Wallet) {
     let (node_wallet, node_secret) = make_node_wallet(seed, wallet_derivation_path.as_str());
-    let pre_config = NodeStartupConfigBuilder::standard()
+    let cfg_to_build = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(server_url_holder.url())
         .chain(Chain::Dev)
         .payment_thresholds(payment_thresholds)
@@ -733,12 +476,17 @@ fn build_config(
             "{}",
             node_wallet.clone()
         )));
-    let pre_config = if let Some(port) = port_opt {
-        pre_config.ui_port(port)
+    let cfg_to_build = if let Some(port) = port_opt {
+        cfg_to_build.ui_port(port)
     } else {
-        pre_config
+        cfg_to_build
     };
-    let config = pre_config.build();
+    let cfg_to_build = if let Some(price) = transaction_fee_agreed_price_per_unit_opt {
+        cfg_to_build.gas_price(price)
+    } else {
+        cfg_to_build
+    };
+    let config = cfg_to_build.build();
     (config, node_wallet)
 }
 
@@ -808,8 +556,6 @@ fn expire_receivables(path: PathBuf) {
     config_stmt.execute([]).unwrap();
 }
 
-const DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI: u128 = 100_000_000_000_000_000_000;
-
 struct TestInputsOutputsConfig {
     ui_ports_opt: Option<Ports>,
     // Gets ganache default 100 ETH if None.
@@ -822,6 +568,7 @@ struct TestInputsOutputsConfig {
     cons_node_initial_service_fee_balance_minor: u128,
     debts_config: Either<SimpleSimulatedDebts, FullySpecifiedSimulatedDebts>,
     payment_thresholds_all_nodes: PaymentThresholds,
+    cons_node_transaction_fee_agreed_unit_price_opt: Option<u64>,
 
     exp_final_cons_node_transaction_fee_balance_minor: u128,
     exp_final_cons_node_service_fee_balance_minor: u128,
@@ -944,15 +691,26 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
+        global_config.cons_node_transaction_fee_agreed_unit_price_opt,
         derivation_path(0, 1),
         global_config.port(NodeByRole::ConsNode),
     );
-    transfer_tokens_to_address(
+    let initial_transaction_fee_balance = global_config
+        .cons_node_initial_transaction_fee_balance_minor_opt
+        .unwrap_or(1_000_000_000_000_000_000);
+    transfer_transaction_fee_amount_to_address(
+        &contract_owner_wallet,
+        &consuming_node_wallet,
+        initial_transaction_fee_balance,
+        1,
+        &web3,
+    );
+    transfer_service_fee_amount_to_address(
         contract_addr,
         &contract_owner_wallet,
         &consuming_node_wallet,
         global_config.cons_node_initial_service_fee_balance_minor,
-        1,
+        2,
         &web3,
         cluster.chain,
     );
@@ -961,13 +719,14 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         &blockchain_interface,
         global_config
             .cons_node_initial_transaction_fee_balance_minor_opt
-            .unwrap_or(DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI),
+            .unwrap_or(1_000_000_000_000_000_000),
         global_config.cons_node_initial_service_fee_balance_minor,
     );
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
+        None,
         derivation_path(0, 2),
         global_config.port(NodeByRole::ServNode1),
     );
@@ -975,6 +734,7 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
+        None,
         derivation_path(0, 3),
         global_config.port(NodeByRole::ServNode2),
     );
@@ -982,6 +742,7 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         &blockchain_server,
         &seed,
         global_config.payment_thresholds_all_nodes,
+        None,
         derivation_path(0, 4),
         global_config.port(NodeByRole::ServNode3),
     );
@@ -1098,24 +859,9 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
     expire_receivables(serving_node_1_path.into());
     expire_receivables(serving_node_2_path.into());
     expire_receivables(serving_node_3_path.into());
-    assert_balances(
-        &serving_node_1_wallet,
-        &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        0,
-    );
-    assert_balances(
-        &serving_node_2_wallet,
-        &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        0,
-    );
-    assert_balances(
-        &serving_node_3_wallet,
-        &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
-        0,
-    );
+    assert_balances(&serving_node_1_wallet, &blockchain_interface, 0, 0);
+    assert_balances(&serving_node_2_wallet, &blockchain_interface, 0, 0);
+    assert_balances(&serving_node_3_wallet, &blockchain_interface, 0, 0);
     let real_consuming_node =
         cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
 
@@ -1136,19 +882,19 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
     assert_balances(
         &serving_node_1_wallet,
         &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
+        0,
         global_config.exp_final_service_fee_balance_serv_node_1_minor,
     );
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
+        0,
         global_config.exp_final_service_fee_balance_serv_node_2_minor,
     );
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
-        DEFAULT_GANACHE_TRANSACTION_FEE_BALANCE_WEI,
+        0,
         global_config.exp_final_service_fee_balance_serv_node_3_minor,
     );
     let serving_node_1_attributes = ServingNodeAttributes {

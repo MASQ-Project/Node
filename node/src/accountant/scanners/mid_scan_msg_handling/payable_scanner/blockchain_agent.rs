@@ -21,9 +21,9 @@ use web3::types::U256;
 //* defaulted limit
 
 pub trait BlockchainAgent: Send {
-    fn estimated_transaction_fee_per_transaction(&self) -> u128;
-    fn transaction_fee_balance(&self) -> U256;
-    fn service_fee_balance(&self) -> u128;
+    fn estimated_transaction_fee_per_transaction_minor(&self) -> u128;
+    fn transaction_fee_balance_minor(&self) -> U256;
+    fn service_fee_balance_minor(&self) -> u128;
     fn agreed_fee_per_computation_unit(&self) -> u64;
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;

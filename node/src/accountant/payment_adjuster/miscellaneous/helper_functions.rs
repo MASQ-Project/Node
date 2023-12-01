@@ -127,18 +127,18 @@ pub fn find_largest_nominated_account<'a>(
 
 pub fn exhaust_cw_till_the_last_drop(
     approved_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    original_cw_masq_balance_minor: u128,
+    original_cw_service_fee_balance_minor: u128,
 ) -> Vec<PayableAccount> {
     let adjusted_balances_total: u128 = sum_as(&approved_accounts, |account_info| {
         account_info.proposed_adjusted_balance
     });
 
-    let cw_reminder = original_cw_masq_balance_minor
+    let cw_reminder = original_cw_service_fee_balance_minor
         .checked_sub(adjusted_balances_total)
         .unwrap_or_else(|| {
             panic!(
                 "Remainder should've been a positive number but wasn't after {} - {}",
-                original_cw_masq_balance_minor, adjusted_balances_total
+                original_cw_service_fee_balance_minor, adjusted_balances_total
             )
         });
 

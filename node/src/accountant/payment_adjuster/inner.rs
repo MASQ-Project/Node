@@ -5,16 +5,16 @@ use std::time::SystemTime;
 pub trait PaymentAdjusterInner {
     fn now(&self) -> SystemTime;
     fn transaction_fee_count_limit_opt(&self) -> Option<u16>;
-    fn original_cw_masq_balance_minor(&self) -> u128;
-    fn unallocated_cw_masq_balance_minor(&self) -> u128;
-    fn update_unallocated_cw_balance_minor(&mut self, _subtrahend: u128);
+    fn original_cw_service_fee_balance_minor(&self) -> u128;
+    fn unallocated_cw_service_fee_balance_minor(&self) -> u128;
+    fn update_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128);
 }
 
 pub struct PaymentAdjusterInnerReal {
     now: SystemTime,
     transaction_fee_count_limit_opt: Option<u16>,
-    original_cw_masq_balance_minor: u128,
-    unallocated_cw_masq_balance_minor: u128,
+    original_cw_service_fee_balance_minor: u128,
+    unallocated_cw_service_fee_balance_minor: u128,
 }
 
 impl PaymentAdjusterInnerReal {
@@ -26,8 +26,8 @@ impl PaymentAdjusterInnerReal {
         Self {
             now,
             transaction_fee_count_limit_opt,
-            original_cw_masq_balance_minor: cw_masq_balance_minor,
-            unallocated_cw_masq_balance_minor: cw_masq_balance_minor,
+            original_cw_service_fee_balance_minor: cw_masq_balance_minor,
+            unallocated_cw_service_fee_balance_minor: cw_masq_balance_minor,
         }
     }
 }
@@ -39,18 +39,18 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
         self.transaction_fee_count_limit_opt
     }
-    fn original_cw_masq_balance_minor(&self) -> u128 {
-        self.original_cw_masq_balance_minor
+    fn original_cw_service_fee_balance_minor(&self) -> u128 {
+        self.original_cw_service_fee_balance_minor
     }
-    fn unallocated_cw_masq_balance_minor(&self) -> u128 {
-        self.unallocated_cw_masq_balance_minor
+    fn unallocated_cw_service_fee_balance_minor(&self) -> u128 {
+        self.unallocated_cw_service_fee_balance_minor
     }
-    fn update_unallocated_cw_balance_minor(&mut self, subtrahend: u128) {
+    fn update_unallocated_cw_service_fee_balance_minor(&mut self, subtrahend: u128) {
         let updated_thought_cw_balance = self
-            .unallocated_cw_masq_balance_minor
+            .unallocated_cw_service_fee_balance_minor
             .checked_sub(subtrahend)
             .expect("got into negative numbers");
-        self.unallocated_cw_masq_balance_minor = updated_thought_cw_balance
+        self.unallocated_cw_service_fee_balance_minor = updated_thought_cw_balance
     }
 }
 
@@ -72,14 +72,16 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerNull {
     fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
         PaymentAdjusterInnerNull::panicking_operation("transaction_fee_count_limit_opt()")
     }
-    fn original_cw_masq_balance_minor(&self) -> u128 {
-        PaymentAdjusterInnerNull::panicking_operation("original_cw_masq_balance_minor()")
+    fn original_cw_service_fee_balance_minor(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("original_cw_service_fee_balance_minor()")
     }
-    fn unallocated_cw_masq_balance_minor(&self) -> u128 {
-        PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_masq_balance_minor()")
+    fn unallocated_cw_service_fee_balance_minor(&self) -> u128 {
+        PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_service_fee_balance_minor()")
     }
-    fn update_unallocated_cw_balance_minor(&mut self, _subtrahend: u128) {
-        PaymentAdjusterInnerNull::panicking_operation("update_unallocated_cw_balance_minor()")
+    fn update_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128) {
+        PaymentAdjusterInnerNull::panicking_operation(
+            "update_unallocated_cw_service_fee_balance_minor()",
+        )
     }
 }
 
@@ -103,8 +105,14 @@ mod tests {
             result.transaction_fee_count_limit_opt,
             transaction_fee_count_limit_opt
         );
-        assert_eq!(result.original_cw_masq_balance_minor, cw_masq_balance);
-        assert_eq!(result.unallocated_cw_masq_balance_minor, cw_masq_balance)
+        assert_eq!(
+            result.original_cw_service_fee_balance_minor,
+            cw_masq_balance
+        );
+        assert_eq!(
+            result.unallocated_cw_service_fee_balance_minor,
+            cw_masq_balance
+        )
     }
 
     #[test]
@@ -129,31 +137,31 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the original_cw_masq_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_original_cw_masq_balance_minor() {
+    fn inner_null_calling_original_cw_service_fee_balance_minor() {
         let subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.original_cw_masq_balance_minor();
+        let _ = subject.original_cw_service_fee_balance_minor();
     }
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_unallocated_cw_balance() {
         let subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.unallocated_cw_masq_balance_minor();
+        let _ = subject.unallocated_cw_service_fee_balance_minor();
     }
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the update_unallocated_cw_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the update_unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_update_unallocated_cw_balance_minor() {
+    fn inner_null_calling_update_unallocated_cw_service_fee_balance_minor() {
         let mut subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.update_unallocated_cw_balance_minor(123);
+        let _ = subject.update_unallocated_cw_service_fee_balance_minor(123);
     }
 }

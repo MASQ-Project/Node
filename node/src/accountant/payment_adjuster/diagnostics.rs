@@ -167,13 +167,13 @@ pub mod formulas_progressive_characteristics {
     use thousands::Separable;
 
     // Only for debugging; in order to see the characteristic values of distinct parameter
-    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
+    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = false;
     // Preserve the 'static' keyword
     static SUMMARIES_OF_FORMULA_CHARACTERISTICS_FOR_EACH_PARAMETER: Mutex<Vec<String>> =
         Mutex::new(vec![]);
     // Preserve the 'static' keyword
     //
-    // The singleton ensures that we print the characteristics always only once, also if multiple
+    // The singleton ensures that we print the characteristics always only once, no matter how many
     // tests are running
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 

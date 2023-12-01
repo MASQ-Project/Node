@@ -7,8 +7,8 @@ mod diagnostics;
 mod inner;
 mod log_fns;
 mod miscellaneous;
+mod possibility_verifier;
 mod test_utils;
-mod verifier;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
@@ -32,7 +32,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{compute_fractional_numbers_preventing_mul_coefficient, criteria_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, drop_criteria_and_leave_naked_affordable_accounts, keep_only_transaction_fee_affordable_accounts_and_drop_the_rest, sort_in_descendant_order_by_criteria_sums, sum_as};
-use crate::accountant::payment_adjuster::verifier::MasqAdjustmentPossibilityVerifier;
+use crate::accountant::payment_adjuster::possibility_verifier::MasqAdjustmentPossibilityVerifier;
 use crate::diagnostics;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
@@ -93,7 +93,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Err(e) => return Err(e),
         };
 
-        let service_fee_balance_minor = agent.service_fee_balance();
+        let service_fee_balance_minor = agent.service_fee_balance_minor();
         match Self::check_need_of_adjustment_by_service_fee(
             &self.logger,
             Either::Left(qualified_payables),
@@ -113,7 +113,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let qualified_payables = setup.qualified_payables;
         let response_skeleton_opt = setup.response_skeleton_opt;
         let agent = setup.agent;
-        let initial_service_fee_balance_minor = agent.service_fee_balance();
+        let initial_service_fee_balance_minor = agent.service_fee_balance_minor();
         let required_adjustment = setup.adjustment;
 
         self.initialize_inner(initial_service_fee_balance_minor, required_adjustment, now);
@@ -157,9 +157,10 @@ impl PaymentAdjusterReal {
         number_of_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, PaymentAdjusterError> {
-        let per_transaction_requirement_minor = agent.estimated_transaction_fee_per_transaction();
+        let per_transaction_requirement_minor =
+            agent.estimated_transaction_fee_per_transaction_minor();
 
-        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance();
+        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
 
         let max_possible_tx_count = u128::try_from(
             cw_transaction_fee_balance_minor / U256::from(per_transaction_requirement_minor),
@@ -270,7 +271,7 @@ impl PaymentAdjusterReal {
             Either::Left(non_exhausted_accounts) => {
                 let affordable_accounts_by_fully_exhausted_cw = exhaust_cw_till_the_last_drop(
                     non_exhausted_accounts,
-                    self.inner.original_cw_masq_balance_minor(),
+                    self.inner.original_cw_service_fee_balance_minor(),
                 );
                 Ok(affordable_accounts_by_fully_exhausted_cw)
             }
@@ -318,7 +319,7 @@ impl PaymentAdjusterReal {
                 criteria_and_accounts_in_descending_order,
                 already_known_affordable_transaction_count,
             );
-        let unallocated_balance = self.inner.unallocated_cw_masq_balance_minor();
+        let unallocated_balance = self.inner.unallocated_cw_service_fee_balance_minor();
 
         let is_service_fee_adjustment_needed = match Self::check_need_of_adjustment_by_service_fee(
             &self.logger,
@@ -476,7 +477,7 @@ impl PaymentAdjusterReal {
         accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
         criteria_total: u128,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
-        let cw_masq_balance = self.inner.unallocated_cw_masq_balance_minor();
+        let cw_masq_balance = self.inner.unallocated_cw_service_fee_balance_minor();
         let cpm_coeff =
             compute_fractional_numbers_preventing_mul_coefficient(cw_masq_balance, criteria_total);
         let multiplication_coeff_u256 = U256::from(cpm_coeff);
@@ -589,13 +590,13 @@ impl PaymentAdjusterReal {
             account.proposed_adjusted_balance
         });
         self.inner
-            .update_unallocated_cw_balance_minor(subtrahend_total);
+            .update_unallocated_cw_service_fee_balance_minor(subtrahend_total);
 
         diagnostics!(
             "LOWERED CW BALANCE",
             "Unallocated balance lowered by {} to {}",
             subtrahend_total,
-            self.inner.unallocated_cw_masq_balance_minor()
+            self.inner.unallocated_cw_service_fee_balance_minor()
         )
     }
 
@@ -625,8 +626,9 @@ pub enum PaymentAdjusterError {
         per_transaction_requirement_minor: u128,
         cw_transaction_fee_balance_minor: U256,
     },
-    RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+    RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
         number_of_accounts: usize,
+        total_amount_demanded_minor: u128,
         cw_service_fee_balance_minor: u128,
     },
     AllAccountsUnexpectedlyEliminated,
@@ -641,29 +643,31 @@ impl Display for PaymentAdjusterError {
                 cw_transaction_fee_balance_minor,
             } => write!(
                 f,
-                "Found smaller transaction fee balance than does for a single payment. \
-                Number of canceled payments: {}. Transaction fee for a single account: {} wei. \
-                Current consuming wallet balance: {} wei",
+                "Found a smaller transaction fee balance than it does for a single payment. \
+                Number of canceled payments: {}. Transaction fee by single account: {} wei. \
+                Consuming wallet balance: {} wei",
                 number_of_accounts,
                 per_transaction_requirement_minor.separate_with_commas(),
                 cw_transaction_fee_balance_minor.separate_with_commas()
             ),
-            PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+            PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                 number_of_accounts,
+                total_amount_demanded_minor,
                 cw_service_fee_balance_minor: cw_masq_balance_minor,
             } => write!(
                 f,
-                "Analysis has projected a likely unacceptable adjustment leaving each \
-                of the payable accounts with too a low adjusted amount to pay. Please, proceed \
-                by sending funds to your wallet. Number of canceled payments: {}. Current \
-                consuming wallet balance: {} wei of MASQ",
+                "Analysis projected a possibility for an adjustment leaving each of the transactions \
+                with an uneconomical portion of money compared to the whole bills. Please proceed \
+                by sending funds to your consuming wallet. Number of canceled payments: {}. \
+                Total amount demanded: {} wei. Consuming wallet balance: {} wei",
                 number_of_accounts.separate_with_commas(),
+                total_amount_demanded_minor.separate_with_commas(),
                 cw_masq_balance_minor.separate_with_commas()
             ),
             PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
                 f,
-                "Despite the positive preliminary analysis, no executable adjusted payments \
-                could be arranged, the algorithm rejected each payable"
+                "While chances were according to the preliminary analysis, the adjustment \
+                algorithm rejected each payable"
             ),
         }
     }
@@ -700,15 +704,15 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Broken code: Called the null implementation of \
-        the unallocated_cw_masq_balance_minor() method in PaymentAdjusterInner")]
+        the unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner")]
     fn payment_adjuster_new_is_created_with_inner_null() {
         let result = PaymentAdjusterReal::new();
 
-        let _ = result.inner.unallocated_cw_masq_balance_minor();
+        let _ = result.inner.unallocated_cw_service_fee_balance_minor();
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_gives_negative_answer() {
+    fn search_for_indispensable_adjustment_happy_path() {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_gives_negative_answer";
         let mut subject = PaymentAdjusterReal::new();
@@ -769,13 +773,12 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_positive_for_transaction_fee() {
+    fn search_for_indispensable_adjustment_sad_path_for_transaction_fee() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_positive_for_transaction_fee";
+        let test_name = "search_for_indispensable_adjustment_sad_path_positive_for_transaction_fee";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let number_of_accounts = 3;
-        // means a confidently big balance is picked in the behind
         let masq_balances_config_opt = None;
         let (qualified_payables, agent) = make_test_input_for_initial_check(
             masq_balances_config_opt,
@@ -809,9 +812,9 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_positive_for_service_fee_token() {
+    fn search_for_indispensable_adjustment_sad_path_for_service_fee_balance() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_positive_for_service_fee_token";
+        let test_name = "search_for_indispensable_adjustment_positive_for_service_fee_balance";
         let logger = Logger::new(test_name);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
@@ -841,9 +844,9 @@ mod tests {
     }
 
     #[test]
-    fn checking_three_accounts_positive_for_transaction_fee_but_service_fee_balance_is_unbearably_low(
-    ) {
-        let test_name = "checking_three_accounts_positive_for_transaction_fee_but_service_fee_balance_is_unbearably_low";
+    fn checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low()
+    {
+        let test_name = "checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low";
         let cw_service_fee_balance_minor = gwei_to_wei::<u128, _>(120_u64) / 2 - 1; // this would normally kick a serious error
         let service_fee_balances_config_opt = Some(TestConfigForServiceFeeBalances {
             balances_of_accounts: Either::Left(vec![120, 300, 500]),
@@ -859,8 +862,9 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
+                    total_amount_demanded_minor: 920_000_000_000,
                     cw_service_fee_balance_minor
                 }
             )
@@ -903,14 +907,16 @@ mod tests {
     fn payment_adjuster_error_implements_display() {
         vec![
             (
-                PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                         number_of_accounts: 5,
-                        cw_service_fee_balance_minor: 333_000_000,
+                    total_amount_demanded_minor: 6_000_000_000,
+                    cw_service_fee_balance_minor: 333_000_000,
                     },
-                "Analysis has projected a likely unacceptable adjustment leaving each of the payable \
-                accounts with too a low adjusted amount to pay. Please, proceed by sending funds to \
-                your wallet. Number of canceled payments: 5. Current consuming wallet balance: \
-                333,000,000 wei of MASQ",
+                "Analysis projected a possibility for an adjustment leaving each of \
+                the transactions with an uneconomical portion of money compared to the whole bills. \
+                Please proceed by sending funds to your consuming wallet. Number of canceled \
+                payments: 5. Total amount demanded: 6,000,000,000 wei. Consuming wallet balance: \
+                333,000,000 wei",
             ),
             (
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
@@ -918,14 +924,14 @@ mod tests {
                         per_transaction_requirement_minor: 70_000_000_000_000,
                         cw_transaction_fee_balance_minor: U256::from(90_000),
                     },
-                "Found smaller transaction fee balance than does for a single payment. \
-                Number of canceled payments: 4. Transaction fee for a single account: \
-                70,000,000,000,000 wei. Current consuming wallet balance: 90,000 wei",
+                "Found a smaller transaction fee balance than it does for a single payment. \
+                Number of canceled payments: 4. Transaction fee by single account: \
+                70,000,000,000,000 wei. Consuming wallet balance: 90,000 wei",
             ),
             (
                 PaymentAdjusterError::AllAccountsUnexpectedlyEliminated,
-                "Despite the positive preliminary analysis, no executable adjusted payments \
-                could be arranged, the algorithm rejected each payable",
+                "While chances were according to the preliminary analysis, the adjustment \
+                algorithm rejected each payable",
             ),
         ]
         .into_iter()
@@ -1197,8 +1203,8 @@ mod tests {
         // In turn, extremely small cw balance
         let cw_service_fee_balance = 1_000;
         let agent = {
-            let mock =
-                BlockchainAgentMock::default().service_fee_balance_result(cw_service_fee_balance);
+            let mock = BlockchainAgentMock::default()
+                .service_fee_balance_minor_result(cw_service_fee_balance);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1272,7 +1278,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1356,7 +1362,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(10_u128.pow(22));
+                .service_fee_balance_minor_result(10_u128.pow(22));
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1427,7 +1433,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -1497,7 +1503,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -1589,7 +1595,7 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         let agent = {
             let mock = BlockchainAgentMock::default()
-                .service_fee_balance_result(cw_service_fee_balance_in_minor);
+                .service_fee_balance_minor_result(cw_service_fee_balance_in_minor);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1727,7 +1733,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(service_fee_balance_in_minor);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1802,7 +1808,7 @@ mod tests {
         let service_fee_balance_in_minor_units = (111_000_000_000_000 / 2) - 1;
         let agent = {
             let mock = BlockchainAgentMock::default()
-                .service_fee_balance_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1822,8 +1828,9 @@ mod tests {
         };
         assert_eq!(
             err,
-            PaymentAdjusterError::RiskOfWastedAdjustmentWithAllAccountsEventuallyEliminated {
+            PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                 number_of_accounts: 2,
+                total_amount_demanded_minor: 333_000_000_000_000 + 222_000_000_000_000,
                 cw_service_fee_balance_minor: service_fee_balance_in_minor_units
             }
         );
@@ -1886,7 +1893,7 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1989,9 +1996,9 @@ mod tests {
                 * agreed_transaction_fee_price,
         );
         let blockchain_agent = BlockchainAgentMock::default()
-            .transaction_fee_balance_result(cw_transaction_fee_minor)
-            .service_fee_balance_result(service_fee_balances_setup.cw_balance_minor)
-            .estimated_transaction_fee_per_transaction_result(
+            .transaction_fee_balance_minor_result(cw_transaction_fee_minor)
+            .service_fee_balance_minor_result(service_fee_balances_setup.cw_balance_minor)
+            .estimated_transaction_fee_per_transaction_minor_result(
                 estimated_transaction_fee_per_transaction_minor,
             );
 
