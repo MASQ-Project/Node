@@ -276,11 +276,12 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             Err(e) => {
                 warning!(
                     logger,
-                    "Payment adjustment was considered due to detected insolvency but the current \
-                    balances are likely to suffice for none of the recently qualified payables, \
-                    not even by at least a half of any of them, which would still lead to a launch \
-                    of a payment. Please fund your consuming wallet in order to avoid bans from \
-                    your creditors. Failure reason: {}.",
+                    "Insolvency detected, followed by considering a payment adjustment, however, \
+                    giving no satisfactory solution. Please note that your disponible means are not \
+                    able to cover even an reasonable portion out of any payable among those \
+                    recently qualified for an imminent payment. You are kindly requested to add \
+                    funds into your consuming wallet in order to stay free of delinquency bans \
+                    that your creditors may apply against you. Failure reason: {}.",
                     e
                 );
                 None
@@ -304,7 +305,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                 warning!(
                     logger,
                     "Payment adjustment has not produced any executable payments. Please \
-                    fund your consuming wallet in order to avoid bans from your creditors. \
+                    add funds into your consuming wallet in order to avoid bans from your creditors. \
                     Failure reason: {}",
                     e
                 );
