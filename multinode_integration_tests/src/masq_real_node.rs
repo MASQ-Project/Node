@@ -207,8 +207,8 @@ impl NodeStartupConfig {
         args.push(format!("\"{}\"", self.rate_pack));
         args.push("--payment-thresholds".to_string());
         args.push(format!("\"{}\"", self.payment_thresholds));
-        args.push("--gas-price".to_string());
         if let Some(price) = self.gas_price_opt {
+            args.push("--gas-price".to_string());
             args.push(price.to_string());
         }
         if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {

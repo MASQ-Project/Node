@@ -172,9 +172,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     // Assuming all Nodes rely on the same set of payment thresholds
     let cons_node_initial_service_fee_balance_minor = (owed_to_serv_node_2_minor
         + owed_to_serv_node_3_minor)
-        - gwei_to_wei::<u128, u64>(20_000_000);
-    let exp_final_cons_node_service_fee_balance_minor = cons_node_initial_service_fee_balance_minor
-        - (owed_to_serv_node_1_minor + owed_to_serv_node_2_minor + owed_to_serv_node_3_minor);
+        - gwei_to_wei::<u128, u64>(40_000_000);
     let test_global_config = TestInputsOutputsConfig {
         ui_ports_opt: Some(Ports {
             consuming_node: consuming_node_ui_port,
@@ -184,7 +182,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         }),
         // Should be enough only for two payments therefore the least significant one will
         // need to go away
-        cons_node_initial_transaction_fee_balance_minor_opt: Some(6_000_000),
+        cons_node_initial_transaction_fee_balance_minor_opt: Some(gwei_to_wei::<_, u64>(8_000_000)),
         cons_node_initial_service_fee_balance_minor,
         debts_config: Either::Right(FullySpecifiedSimulatedDebts {
             // This account will be the least significant and be eliminated for the reasons
@@ -210,11 +208,14 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         }),
         payment_thresholds_all_nodes: payment_thresholds,
         cons_node_transaction_fee_agreed_unit_price_opt: Some(60),
-        exp_final_cons_node_transaction_fee_balance_minor: 37_514_000_000_000,
-        exp_final_cons_node_service_fee_balance_minor,
-        exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
-        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor,
-        exp_final_service_fee_balance_serv_node_3_minor: owed_to_serv_node_3_minor,
+        exp_final_cons_node_transaction_fee_balance_minor: 2_601_680_000_000_000,
+        exp_final_cons_node_service_fee_balance_minor: 0, // Because the algorithm is designed to
+        // exhaust the wallet till the last drop
+        exp_final_service_fee_balance_serv_node_1_minor: 0, // This account had to be dropped so received no money
+        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor, // This account was granted with
+        // the full size as the higher age had this effect
+        exp_final_service_fee_balance_serv_node_3_minor: owed_to_serv_node_3_minor
+            - gwei_to_wei::<u128, u64>(40_000_000),
     };
 
     let process_scan_request_to_node =
