@@ -509,7 +509,6 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -563,7 +562,7 @@ mod tests {
     #[test]
     fn dns_resolution_failure_sends_a_message_to_proxy_client() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         thread::spawn(move || {
             let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -624,7 +623,7 @@ mod tests {
     #[test]
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
@@ -688,7 +687,7 @@ mod tests {
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -737,7 +736,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: true,
                 sequence_number: 0,
                 source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
@@ -757,7 +756,7 @@ mod tests {
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -846,7 +845,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -866,7 +865,7 @@ mod tests {
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -955,7 +954,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -967,13 +966,16 @@ mod tests {
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
+        let test_name =
+            "missing_hostname_for_nonexistent_stream_generates_log_and_termination_message";
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1010,7 +1012,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
@@ -1020,7 +1022,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: ProxyClient: Cannot open new stream with key {:?}: no hostname supplied",
-                make_meaningless_stream_key()
+                stream_key
             )
             .as_str(),
         );
@@ -1042,7 +1044,7 @@ mod tests {
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1133,7 +1135,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1148,7 +1150,7 @@ mod tests {
     #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
@@ -1233,7 +1235,7 @@ mod tests {
     #[test]
     fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -1353,7 +1355,7 @@ mod tests {
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -1414,7 +1416,7 @@ mod tests {
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
         let (accountant, _, _) = make_recorder();
@@ -1479,16 +1481,18 @@ mod tests {
     fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
+        let test_name = "process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key";
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 sequenced_packet: SequencedPacket {
                     data: vec![],
                     sequence_number: 0,
@@ -1528,7 +1532,7 @@ mod tests {
         tlh.await_log_containing(
             &format!(
                 "Empty request payload received for nonexistent stream {:?} - ignoring",
-                make_meaningless_stream_key()
+                stream_key
             )[..],
             2000,
         );
@@ -1553,7 +1557,7 @@ mod tests {
         );
         let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         {
             let mut inner = subject.inner.lock().unwrap();
@@ -1596,7 +1600,7 @@ mod tests {
         );
         let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
         subject.clean_up_dead_streams();

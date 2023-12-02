@@ -27,7 +27,6 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::versioned_data::VersionedData;
-use node_lib::test_utils::make_meaningless_stream_key;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::io;
 use std::net::SocketAddr;
@@ -298,7 +297,10 @@ fn context_from_request_lcp(
 }
 
 fn arbitrary_context() -> (StreamKey, u32) {
-    (make_meaningless_stream_key(), 12345678)
+    (
+        StreamKey::make_meaningful_stream_key("arbitrary_context"),
+        12345678,
+    )
 }
 
 fn create_request_icp(
@@ -353,7 +355,8 @@ fn create_meaningless_icp(
     exit_node: &MASQRealNode,
 ) -> IncipientCoresPackage {
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
-    let stream_key = StreamKey::new(PublicKey::new(&[9, 8, 7, 6]), socket_addr);
+    let stream_key =
+        StreamKey::make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
     IncipientCoresPackage::new(
         originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
