@@ -144,7 +144,7 @@ fn replace_dots(config_path: &Path, panic: &mut bool) -> PathBuf {
         *panic = false;
         new_path = current_dir()
             .expect("expected current dir")
-            .join(&(*config_path).to_owned());
+            .join(&(*config_path));
     };
     new_path
 }
