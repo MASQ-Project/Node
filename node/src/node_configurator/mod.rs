@@ -120,7 +120,7 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde(config_path: &PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
+fn replace_tilde(config_path: &Path, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
     let mut replaced_tilde_dir = "".to_string();
     if config_path.starts_with("~") {
         let home_dir_from_wrapper = dirs_wrapper
@@ -138,20 +138,19 @@ fn replace_tilde(config_path: &PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathB
     PathBuf::from(replaced_tilde_dir)
 }
 
-fn replace_dots(config_path: &PathBuf, panic: &mut bool) -> PathBuf {
-    let origin_path = config_path.clone();
+fn replace_dots(config_path: &Path, panic: &mut bool) -> PathBuf {
     let mut new_path: PathBuf = Default::default();
-    if config_path.starts_with("./") || origin_path.starts_with("../") {
+    if config_path.starts_with("./") || config_path.starts_with("../") {
         *panic = false;
         new_path = current_dir()
             .expect("expected current dir")
-            .join(origin_path.clone());
+            .join(&(*config_path).to_owned());
     };
     new_path
 }
 
 fn replace_relative_path(
-    config_path: &PathBuf,
+    config_path: &Path,
     data_directory_def: bool,
     data_directory: &Path,
     panic: &mut bool,
