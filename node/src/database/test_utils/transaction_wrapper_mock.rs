@@ -8,10 +8,13 @@ use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_imp
 use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
+use std::ptr::drop_in_place;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
 pub struct TransactionWrapperMock {
+    already_committed: bool,
+
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results_opt: Option<PrepareMethodResults>,
     commit_params: Arc<Mutex<Vec<()>>>,
@@ -22,6 +25,14 @@ pub struct TransactionWrapperMock {
 impl TransactionWrapperMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn can_be_used_only_before_commit(&self){
+        if !self.already_committed {
+            ()
+        } else {
+            panic!("Something got terribly wrong ")
+        }
     }
 
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
@@ -66,14 +77,19 @@ impl TransactionWrapper for TransactionWrapperMock {
 
     fn commit(&mut self) -> Result<(), Error> {
         self.commit_params.lock().unwrap().push(());
+
         let next_result = self.commit_results.borrow_mut().remove(0);
-        match (next_result.is_ok(), self.prepare_results_opt.as_mut()) {
+        let result = match (next_result.is_ok(), self.prepare_results_opt.as_mut()) {
             (true, Some(prepared_results)) => match &mut prepared_results.setup {
                 Either::Left(for_both) => for_both.commit_prod_calls(),
                 Either::Right(_) => next_result,
             },
             _ => next_result,
-        }
+        };
+
+        self.already_committed = true;
+
+        result
     }
 
     arbitrary_id_stamp_in_trait_impl!();
@@ -139,8 +155,10 @@ impl SetupForBoth {
 
 impl Drop for SetupForBoth {
     fn drop(&mut self) {
-        // Making sure that the referenced transaction will deconstruct
-        // before the connection it was pointing to
+        // The real transaction ties up a safeness plain reference as made by casting
+        // from a raw pointer - which breaks the check mechanism for pointing to an invalid
+        // memory segment. We must make sure that this transactions deconstruct before
+        // the database Connection it was originally pointing to is gone
         drop(self.prod_code_calls_transaction_opt.take())
     }
 }
