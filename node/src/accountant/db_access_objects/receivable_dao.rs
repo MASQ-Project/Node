@@ -83,7 +83,7 @@ pub trait ReceivableDao {
 
     fn total(&self) -> i128;
 
-    //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
+    // Test-only method but because of shares with multi-node tests #[cfg(test)] cannot be applied
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     as_any_ref_in_trait!();
@@ -161,6 +161,10 @@ impl ReceivableDao for ReceivableDaoReal {
                     &self.logger,
                 )
             }) {
+            // We pull the txn out concerned about data continuity because the changes would
+            // not be safe until we have also the start block updated which must happen in
+            // the same transaction. That is an operation being semantically wrong concerning
+            // this place and must be done away from here.
             Ok(txn) => txn,
             Err(e) => {
                 Self::more_money_received_roll_back_error_log(&self.logger, received_payments);
@@ -313,7 +317,7 @@ impl ReceivableDaoReal {
         logger: &Logger,
     ) -> Result<Box<dyn TransactionWrapper + 'txn>, ReceivableDaoError> {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
-        // to become -x of i128 which produces a negative i64 integer representing the high bytes in the db
+        // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
                  balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received \
                  where wallet_address = :wallet";
@@ -442,36 +446,38 @@ impl ReceivableDaoReal {
         logger: &Logger,
         payments: &[BlockchainTransaction],
     ) {
-        fn finalize_report((report_lines, sum_of_all_txs): (Vec<String>, u128)) -> String {
-            plus(
-                report_lines,
+        fn finalize_report(mut report_lines: Vec<String>, sum_of_all_txs: u128) -> String {
+            report_lines.push(
                 format!("{:10} {:42} {:<18}", "TOTAL", "", sum_of_all_txs),
-            )
+            );
+            report_lines
             .join("\n")
         }
-        fn record_one_more_transaction(
-            (formatted_lines_so_far, sum_so_far): (Vec<String>, u128),
+        fn note_single_transaction(
+            (mut formatted_lines_so_far, sum_so_far): (Vec<String>, u128),
             blockchain_tx: &BlockchainTransaction,
         ) -> (Vec<String>, u128) {
-            let lines_adjusted = plus(
-                formatted_lines_so_far,
-                format!(
+            let lines_extended_by_new_one = {
+                let new_line = format!(
                     "{:<10} {:42} {:<18}",
                     blockchain_tx.block_number, blockchain_tx.from, blockchain_tx.wei_amount
-                ),
-            );
-            let sum_so_far = sum_so_far + blockchain_tx.wei_amount;
-            (lines_adjusted, sum_so_far)
+                );
+                formatted_lines_so_far.push(new_line);
+                formatted_lines_so_far
+            };
+            let money_total_so_far = sum_so_far + blockchain_tx.wei_amount;
+            (lines_extended_by_new_one, money_total_so_far)
         }
+
         let init = (
             vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")],
             0_u128,
         );
-        let aggregated = payments.iter().fold(init, record_one_more_transaction);
+        let (report_lines, received_in_total) = payments.iter().fold(init, note_single_transaction);
         error!(
             logger,
             "Payment reception failed, rolling back:\n{}",
-            finalize_report(aggregated)
+            finalize_report(report_lines, received_in_total)
         );
     }
 }
@@ -563,10 +569,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn multi_row_update_from_received_payments_handles_error_of_number_sign_check() {
+    fn more_money_received_handles_error_of_number_sign_check() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "multi_row_update_from_received_payments_handles_error_of_number_sign_check",
+            "more_money_received_handles_error_of_number_sign_check",
         );
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
@@ -830,10 +836,10 @@ mod tests {
     }
 
     #[test]
-    fn multi_row_update_from_received_payments_ignores_unknown_address_without_affecting_the_good_ones(
+    fn more_money_received_ignores_unknown_address_without_affecting_the_good_ones(
     ) {
         init_test_logging();
-        let test_name = "multi_row_update_from_received_payments_ignores_unknown_address_without_affecting_the_good_ones";
+        let test_name = "more_money_received_ignores_unknown_address_without_affecting_the_good_ones";
         let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let previous_timestamp = UNIX_EPOCH;
         let time_of_change = SystemTime::now()
@@ -917,9 +923,9 @@ mod tests {
     }
 
     #[test]
-    fn multi_row_update_for_received_payments_general_db_error() {
+    fn more_money_received_general_db_error() {
         init_test_logging();
-        let test_name = "multi_row_update_for_received_payments_general_db_error";
+        let test_name = "more_money_received_general_db_error";
         let data_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let time_of_change = SystemTime::now()
             .checked_sub(Duration::from_secs(1111))
@@ -995,9 +1001,9 @@ mod tests {
     }
 
     #[test]
-    fn multi_row_update_for_received_payments_leaves_transactions_uncommitted_if_panic_occurs() {
+    fn more_money_received_leaves_transactions_uncommitted_if_panic_occurs() {
         init_test_logging();
-        let test_name = "multi_row_update_for_received_payments_leaves_transactions_uncommitted_if_panic_occurs";
+        let test_name = "more_money_received_leaves_transactions_uncommitted_if_panic_occurs";
         let data_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let time_of_change = SystemTime::now()
