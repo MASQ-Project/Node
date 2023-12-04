@@ -22,7 +22,6 @@ use masq_lib::multi_config::{
 };
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
-use nix::NixPath;
 use std::env::current_dir;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -120,33 +119,35 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde(config_path: &Path, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
-    let mut replaced_tilde_dir = "".to_string();
-    if config_path.starts_with("~") {
-        let home_dir_from_wrapper = dirs_wrapper
-            .home_dir()
-            .expect("expected users home_dir")
-            .to_str()
-            .expect("expected str home_dir")
-            .to_string();
-        replaced_tilde_dir =
-            config_path
+fn replace_tilde(config_path: &Path, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
+    match config_path.starts_with("~") {
+        true => {
+            let home_dir_from_wrapper = dirs_wrapper
+                .home_dir()
+                .expect("expected users home_dir")
+                .to_str()
+                .expect("expected str home_dir")
+                .to_string();
+            Some(PathBuf::from(config_path
                 .display()
                 .to_string()
-                .replacen('~', home_dir_from_wrapper.as_str(), 1);
-    };
-    PathBuf::from(replaced_tilde_dir)
+                .replacen('~', home_dir_from_wrapper.as_str(), 1)))
+        }
+        false => None
+    }
+
 }
 
-fn replace_dots(config_path: &Path, panic: &mut bool) -> PathBuf {
-    let mut new_path: PathBuf = Default::default();
-    if config_path.starts_with("./") || config_path.starts_with("../") {
-        *panic = false;
-        new_path = current_dir()
-            .expect("expected current dir")
-            .join(config_path);
-    };
-    new_path
+fn replace_dots(config_path: &Path, panic: &mut bool) -> Option<PathBuf> {
+    match config_path.starts_with("./") || config_path.starts_with("../") {
+        true => {
+            *panic = false;
+            Some(current_dir()
+                .expect("expected current dir")
+                .join(config_path))
+        }
+        false => None
+    }
 }
 
 fn replace_relative_path(
@@ -154,21 +155,20 @@ fn replace_relative_path(
     data_directory_def: bool,
     data_directory: &Path,
     panic: &mut bool,
-) -> PathBuf {
-    let mut path = Default::default();
-    if config_path.is_relative() {
-        match data_directory_def {
+) -> Option<PathBuf> {
+    match config_path.is_relative() {
+        true => match data_directory_def {
             true => {
                 *panic = false;
-                path = data_directory.join(config_path);
+                Some(data_directory.join(config_path))
             }
             false => {
                 *panic = true;
-                path = config_path.to_path_buf();
+                Some(config_path.to_path_buf())
             }
         }
-    };
-    path
+        false => None
+    }
 }
 
 fn get_config_file_from_mc(
@@ -181,24 +181,31 @@ fn get_config_file_from_mc(
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {
         Some(config_path) => {
-            let config_file_pth_tilde: PathBuf = replace_tilde(&config_path, dirs_wrapper);
+            let config_file_pth_tilde = replace_tilde(&config_path, dirs_wrapper);
             let config_file_pth_dot = replace_dots(&config_path, &mut panic);
             let config_file_pth_relative =
                 replace_relative_path(&config_path, data_directory_def, data_directory, &mut panic);
-            let config_file_pth = match config_file_pth_tilde.is_empty() {
-                true => match config_file_pth_dot.is_empty() {
-                    true => match config_file_pth_relative.is_empty() {
-                        true => PathBuf::from("config.toml"),
-                        false => config_file_pth_relative,
-                    },
-                    false => {
+            let config_file_pth = match config_file_pth_tilde {
+                Some(path) => {
                         panic = false;
-                        config_file_pth_dot
-                    }
+                        path
                 },
-                false => {
-                    panic = false;
-                    config_file_pth_tilde
+                None => match config_file_pth_dot {
+                    Some(config_path) => {
+                        panic = false;
+                        config_path
+                    }
+                    None => {
+                        match config_file_pth_relative {
+                            Some(path_rel) => {
+                                path_rel
+                            }
+                            None => {
+                                panic = false;
+                                PathBuf::from("config.toml")
+                            }
+                        }
+                    }
                 }
             };
             if panic {
