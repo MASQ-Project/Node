@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceNull, BlockchainInterfaceWeb3,
-    PayableTransactionError, ProcessedPayableFallible,
+    HashAndAmount, PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -28,7 +28,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
-use futures::future::{err, result};
+use futures::future::err;
 use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -181,7 +181,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct PendingPayableFingerprintSeeds {
     pub batch_wide_timestamp: SystemTime,
-    pub hashes_and_balances: Vec<(H256, u128)>,
+    pub hashes_and_balances: Vec<HashAndAmount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
@@ -597,21 +597,19 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::blockchain_interface::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
         REQUESTS_IN_PARALLEL,
     };
-    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock, TestTransport};
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
-        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from, make_recorder,
-        peer_actors_builder,
+        make_accountant_subs_from_recorder, make_recorder, peer_actors_builder,
     };
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;

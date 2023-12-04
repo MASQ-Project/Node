@@ -2,30 +2,27 @@
 
 #![cfg(test)]
 
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
-    ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
+    ProcessedPayableFallible, ResultForBalance, ResultForReceipt, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
-use futures::future::{err, result};
+use futures::future::result;
 use futures::Future;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
+use masq_lib::blockchains::chains::Chain;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
-
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use masq_lib::blockchains::chains::Chain;
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::types::{Address, SignedTransaction, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 

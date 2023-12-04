@@ -1,41 +1,30 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::accountant::db_access_objects::payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed, UninitializedBlockchainInterface,
 };
-use crate::blockchain::blockchain_interface_utils::{
-    handle_new_transaction, handle_payable_account, sign_and_append_multiple_payments,
-    sign_and_append_payment, sign_transaction,
-};
 use crate::sub_lib::wallet::Wallet;
-use actix::fut::result;
-use actix::{Message, Recipient};
+use actix::Message;
 use futures::future::err;
 use futures::{future, Future};
 use indoc::indoc;
 use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
-use serde_json::Value;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::once;
-use std::time::SystemTime;
-use thousands::Separable;
 use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
-    Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H160, H256, U256,
+    Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, TransactionReceipt,
+    H160, H256, U256,
 };
-use web3::{BatchTransport, Error as Web3Error, Transport, Web3};
+use web3::{BatchTransport, Error as Web3Error, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -492,6 +481,12 @@ pub struct RpcPayableFailure {
 pub type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 pub type HashesAndAmounts = Vec<(H256, u128)>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub struct HashAndAmount {
+    pub hash: H256,
+    pub amount: u128,
+}
+
 impl<T> BlockchainInterfaceWeb3<T>
 where
     T: BatchTransport + Debug + 'static,
@@ -530,28 +525,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::from_time_t;
-    use crate::accountant::gwei_to_wei;
-    use crate::accountant::test_utils::{
-        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-    };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::test_utils::{
-        make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash, TestTransport,
-    };
+    use crate::blockchain::test_utils::{make_fake_event_loop_handle, make_tx_hash, TestTransport};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::decode_hex;
-    use crate::test_utils::{make_wallet, TestRawTransaction};
-    use actix::{Actor, System};
+    use crate::test_utils::TestRawTransaction;
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
-    use jsonrpc_core::Version::V2;
-    use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
     use serde_derive::Deserialize;
@@ -564,10 +545,9 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant, SystemTime};
+    use std::time::{Duration, Instant};
     use web3::transports::Http;
     use web3::types::H2048;
-    use web3::Error as Web3Error;
 
     #[test]
     fn constants_have_correct_values() {

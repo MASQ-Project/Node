@@ -1,14 +1,14 @@
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
-    to_wei, HashAndAmountResult, HashesAndAmounts, PayableTransactionError,
-    ProcessedPayableFallible, RpcPayableFailure, TRANSFER_METHOD_ID,
+    to_wei, HashAndAmount, HashAndAmountResult, PayableTransactionError, ProcessedPayableFallible,
+    RpcPayableFailure, TRANSFER_METHOD_ID,
 };
-use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use futures::future::err;
-use futures::Future;
+use futures::stream::FuturesOrdered;
+use futures::{Future, Stream};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
 use serde_json::Value;
@@ -36,11 +36,11 @@ pub fn advance_used_nonce(current_nonce: U256) -> U256 {
 
 fn error_with_hashes(
     error: Web3Error,
-    hashes_and_paid_amounts: Vec<(H256, u128)>,
+    hashes_and_paid_amounts: Vec<HashAndAmount>,
 ) -> PayableTransactionError {
     let hashes = hashes_and_paid_amounts
         .into_iter()
-        .map(|(hash, _)| hash)
+        .map(|hash_and_amount| hash_and_amount.hash)
         .collect();
     PayableTransactionError::Sending {
         msg: error.to_string(),
@@ -50,7 +50,7 @@ fn error_with_hashes(
 
 pub fn merged_output_data(
     responses: Vec<web3::transports::Result<Value>>,
-    hashes_and_paid_amounts: Vec<(H256, u128)>,
+    hashes_and_paid_amounts: Vec<HashAndAmount>,
     accounts: Vec<PayableAccount>,
 ) -> Vec<ProcessedPayableFallible> {
     let iterator_with_all_data = responses
@@ -58,17 +58,19 @@ pub fn merged_output_data(
         .zip(hashes_and_paid_amounts.into_iter())
         .zip(accounts.iter());
     iterator_with_all_data
-        .map(|((rpc_result, (hash, _)), account)| match rpc_result {
-            Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: account.wallet.clone(),
-                hash,
-            }),
-            Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
-                rpc_error,
-                recipient_wallet: account.wallet.clone(),
-                hash,
-            }),
-        })
+        .map(
+            |((rpc_result, hash_and_amount), account)| match rpc_result {
+                Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
+                    recipient_wallet: account.wallet.clone(),
+                    hash: hash_and_amount.hash,
+                }),
+                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
+                    rpc_error,
+                    recipient_wallet: account.wallet.clone(),
+                    hash: hash_and_amount.hash,
+                }),
+            },
+        )
         .collect()
 }
 
@@ -139,10 +141,10 @@ pub fn sign_transaction<T: BatchTransport>(
     .expect("Internal error");
 
     let transaction_parameters = TransactionParameters {
-        nonce: Some(converted_nonce),
+        nonce: Some(converted_nonce), // TODO: GH-744 Change this to None and let the BlockChain figure out the correct Nonce instead.
         to: Some(H160(chain.rec().contract.0)),
         gas: gas_limit,
-        gas_price: Some(gas_price),
+        gas_price: Some(gas_price), // TODO: GH-744 Talk about this.
         value: ethereum_types::U256::zero(),
         data: Bytes(data.to_vec()),
         chain_id: Some(chain.rec().num_chain_id),
@@ -211,24 +213,15 @@ pub fn handle_new_transaction<T: BatchTransport>(
 
 // HashAndAmountResult / Result<Vec<(H256, u128)>, PayableTransactionError>
 // HashesAndAmounts
+// TODO: GH-744 Rename and refactor this function after merging with Master
 pub fn sign_and_append_payment<T: BatchTransport>(
-    logger: &Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    mut hashes_and_amounts: HashesAndAmounts,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price: u64,
     account: &PayableAccount,
-) -> Box<dyn Future<Item = HashesAndAmounts, Error = PayableTransactionError>> {
-    debug!(
-        logger,
-        "Preparing payment of {} wei to {} with nonce {}",
-        account.balance_wei.separate_with_commas(),
-        account.wallet,
-        nonce
-    );
-
+) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError>> {
     Box::new(
         handle_new_transaction(
             chain,
@@ -241,26 +234,12 @@ pub fn sign_and_append_payment<T: BatchTransport>(
         )
         .map_err(|e| e)
         .and_then(|new_hash| {
-            hashes_and_amounts.push((new_hash, account.balance_wei));
-            Ok(hashes_and_amounts)
+            Ok(HashAndAmount {
+                hash: new_hash,
+                amount: account.balance_wei,
+            })
         }),
     )
-
-    // match handle_new_transaction(
-    //     chain,
-    //     batch_web3,
-    //     account.wallet.clone(),
-    //     consuming_wallet,
-    //     account.balance_wei,
-    //     nonce,
-    //     gas_price,
-    // ) {
-    //     Ok(new_hash) => {
-    //         hashes_and_amounts.push((new_hash, account.balance_wei));
-    //         Ok(hashes_and_amounts)
-    //     }
-    //     Err(e) => Err(e),
-    // }
 }
 
 pub fn handle_payable_account<T: BatchTransport>(
@@ -274,76 +253,101 @@ pub fn handle_payable_account<T: BatchTransport>(
     account: &PayableAccount,
 ) -> (HashAndAmountResult, Option<U256>) {
     todo!("GH-744: Remove this Function")
-    let nonce = pending_nonce_opt.expectv("pending nonce");
-    let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
-        logger,
-        chain,
-        batch_web3,
-        hashes_and_amounts,
-        consuming_wallet.clone(),
-        nonce,
-        gas_price,
-        account,
-    );
-    let advanced_nonce = advance_used_nonce(nonce);
-    (
-        updated_collected_attributes_of_processed_payments,
-        Some(advanced_nonce),
-    )
+    // let nonce = pending_nonce_opt.expectv("pending nonce");
+    // let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
+    //     logger,
+    //     chain,
+    //     batch_web3,
+    //     hashes_and_amounts,
+    //     consuming_wallet.clone(),
+    //     nonce,
+    //     gas_price,
+    //     account,
+    // );
+    // let advanced_nonce = advance_used_nonce(nonce);
+    // (
+    //     updated_collected_attributes_of_processed_payments,
+    //     Some(advanced_nonce),
+    // )
 }
 
+// HashAndAmountResult
 pub fn sign_and_append_multiple_payments<T: BatchTransport>(
     logger: &Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
     consuming_wallet: &Wallet,
     gas_price: u64,
-    pending_nonce: U256,
+    mut pending_nonce: U256,
     accounts: &[PayableAccount],
-) -> HashAndAmountResult {
-    let init: (HashAndAmountResult, Option<U256>) =
-        (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
+) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError>>> {
+    let mut payable_que = FuturesOrdered::new();
+    accounts.iter().for_each(|payable| {
+        debug!(
+            logger,
+            "Preparing payable future of {} wei to {} with nonce {}",
+            payable.balance_wei.separate_with_commas(),
+            payable.wallet,
+            pending_nonce
+        );
 
-    let (result, _) = accounts.iter().fold(
-        init,
-        |(processed_outputs_res, pending_nonce_opt), account| {
-            if let Ok(hashes_and_amounts) = processed_outputs_res {
+        let payable_future = sign_and_append_payment(
+            chain,
+            batch_web3,
+            consuming_wallet.clone(),
+            pending_nonce,
+            gas_price,
+            payable,
+        );
+        pending_nonce = advance_used_nonce(pending_nonce);
 
-                let nonce = pending_nonce_opt.expectv("pending nonce");
+        payable_que.push(payable_future)
+    });
 
-                let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
-                    logger,
-                    chain,
-                    batch_web3,
-                    hashes_and_amounts,
-                    consuming_wallet.clone(),
-                    nonce,
-                    gas_price,
-                    account,
-                );
+    payable_que
 
-                let advanced_nonce = advance_used_nonce(nonce);
-                (
-                    updated_collected_attributes_of_processed_payments,
-                    Some(advanced_nonce),
-                )
-
-                // handle_payable_account(
-                //     logger,
-                //     chain,
-                //     batch_web3.clone(),
-                //     pending_nonce_opt,
-                //     hashes_and_amounts,
-                //     consuming_wallet,
-                //     gas_price,
-                //     account,
-                // )
-            } else {
-                (processed_outputs_res, None)
-            }
-        },
-    );
-    result
+    // let init: (HashAndAmountResult, Option<U256>) =
+    //     (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
+    // let (result, _) = accounts.iter().fold(
+    //     init,
+    //     |(processed_outputs_res, pending_nonce_opt), account| {
+    //         if let Ok(hashes_and_amounts) = processed_outputs_res {
+    //             let nonce = pending_nonce_opt.expectv("pending nonce");
+    //             let updated_collected_attributes_of_processed_payments = sign_and_append_payment(
+    //                 logger,
+    //                 chain,
+    //                 batch_web3,
+    //                 hashes_and_amounts,
+    //                 consuming_wallet.clone(),
+    //                 nonce,
+    //                 gas_price,
+    //                 account,
+    //             );
+    //                 // .wait(); // <<<----- TODO: GH-744: This wait will need to be removed
+    //             // TODO: GH-744: Currently we are not proceeding with following payments if a single payment fails.
+    //             // --- >>> FuturesUnordered <<< --- \\
+    //             // payable_que.push(updated_collected_attributes_of_processed_payments);
+    //             let advanced_nonce = advance_used_nonce(nonce);
+    //             (
+    //                 updated_collected_attributes_of_processed_payments,
+    //                 Some(advanced_nonce),
+    //             )
+    //             // handle_payable_account(
+    //             //     logger,
+    //             //     chain,
+    //             //     batch_web3.clone(),
+    //             //     pending_nonce_opt,
+    //             //     hashes_and_amounts,
+    //             //     consuming_wallet,
+    //             //     gas_price,
+    //             //     account,
+    //             // )
+    //         } else {
+    //             (processed_outputs_res, None)
+    //         }
+    //     },
+    // );
+    // result
 }
 pub fn send_payables_within_batch<T: BatchTransport + 'static>(
     logger: &Logger,
@@ -364,51 +368,77 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
             gas_price
         );
 
-    let hashes_and_paid_amounts = match sign_and_append_multiple_payments(
-        logger,
-        chain,
-        batch_web3.clone(),
-        &consuming_wallet,
-        gas_price,
-        pending_nonce,
-        &accounts,
-    ) {
-        Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
-        Err(e) => {
-            return Box::new(err(e));
-        }
-    };
+    // let hashes_and_paid_amounts = match sign_and_append_multiple_payments(
+    //     logger,
+    //     chain,
+    //     batch_web3.clone(),
+    //     &consuming_wallet,
+    //     gas_price,
+    //     pending_nonce,
+    //     &accounts,
+    // ) {
+    //     Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
+    //     Err(e) => {
+    //         return Box::new(err(e));
+    //     }
+    // };
 
-    let timestamp = SystemTime::now();
-
-    let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-    let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-
-    new_fingerprints_recipient
-        .try_send(PendingPayableFingerprintSeeds {
-            batch_wide_timestamp: timestamp,
-            hashes_and_balances: hashes_and_paid_amounts,
-        })
-        .expect("Accountant is dead");
-
-    info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
+    // let timestamp = SystemTime::now();
+    //
+    // let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
+    // let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
+    //
+    // new_fingerprints_recipient
+    //     .try_send(PendingPayableFingerprintSeeds {
+    //         batch_wide_timestamp: timestamp,
+    //         hashes_and_balances: hashes_and_paid_amounts,
+    //     })
+    //     .expect("Accountant is dead");
+    //
+    // info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
 
     return Box::new(
-        batch_web3
-            .transport()
-            .submit_batch()
-            .map_err(|e| {
-                // todo!("We are hitting the correct place");
-                error_with_hashes(e, hashes_and_paid_amounts_error)
-            })
-            .and_then(move |batch_response| {
-                // todo!("We are hitting the wrong place");
-                Ok(merged_output_data(
-                    batch_response,
-                    hashes_and_paid_amounts_ok,
-                    accounts,
-                ))
-            }),
+        sign_and_append_multiple_payments(
+            logger,
+            chain,
+            batch_web3.clone(),
+            &consuming_wallet,
+            gas_price,
+            pending_nonce,
+            &accounts,
+        )
+        .collect()
+        .map_err(|e| err(e))
+        .and_then(|hashes_and_paid_amounts| {
+            let timestamp = SystemTime::now();
+            let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
+            let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
+
+            new_fingerprints_recipient
+                .try_send(PendingPayableFingerprintSeeds {
+                    batch_wide_timestamp: timestamp,
+                    hashes_and_balances: hashes_and_paid_amounts,
+                })
+                .expect("Accountant is dead");
+
+            info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
+
+            batch_web3
+                .transport()
+                .submit_batch()
+                .map_err(|e| {
+                    // todo!("We are hitting the correct place");
+                    error_with_hashes(e, hashes_and_paid_amounts_error)
+                })
+                .and_then(move |batch_response| {
+                    // todo!("We are hitting the wrong place");
+                    Ok(merged_output_data(
+                        batch_response,
+                        hashes_and_paid_amounts_ok,
+                        accounts,
+                    ))
+                })
+        }),
     );
 
     // return Box::new(err(PayableTransactionError::GasPriceQueryFailed(
@@ -427,36 +457,23 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
-        make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash, TestTransport,
+        make_default_signed_transaction, make_tx_hash, TestTransport,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use crate::test_utils::{make_wallet, TestRawTransaction};
     use actix::{Actor, System};
-    use crossbeam_channel::{unbounded, Receiver};
-    use ethereum_types::U64;
-    use ethsign_crypto::Keccak256;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::{find_free_port, slice_of_strs_to_vec_of_strings};
-    use serde_derive::Deserialize;
     use serde_json::json;
     use serde_json::Value;
-    use simple_server::{Request, Server};
-    use std::fmt::Debug;
-    use std::io::Write;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
-    use std::ops::Add;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::{Duration, Instant, SystemTime};
-    use web3::transports::Http;
-    use web3::types::H2048;
+    use std::time::SystemTime;
     use web3::Error as Web3Error;
 
     #[test]
@@ -619,15 +636,23 @@ mod tests {
             test_timestamp_before <= actual_common_timestamp
                 && actual_common_timestamp <= test_timestamp_after
         );
+        let hash_and_amount_1 = HashAndAmount {
+            hash: expected_hash_1,
+            amount: gwei_to_wei(900_000_000_u64),
+        };
+        let hash_and_amount_2 = HashAndAmount {
+            hash: expected_hash_2,
+            amount: gwei_to_wei(123_456_789),
+        };
+        let hash_and_amount_3 = HashAndAmount {
+            hash: expected_hash_3,
+            amount: gwei_to_wei(33_355_666_u64),
+        };
         assert_eq!(
             initiate_fingerprints_msg,
             &PendingPayableFingerprintSeeds {
                 batch_wide_timestamp: actual_common_timestamp,
-                hashes_and_balances: vec![
-                    (expected_hash_1, gwei_to_wei(900_000_000_u64)),
-                    (expected_hash_2, 123_456_789),
-                    (expected_hash_3, gwei_to_wei(33_355_666_u64))
-                ]
+                hashes_and_balances: vec![hash_and_amount_1, hash_and_amount_2, hash_and_amount_3]
             }
         );
         let log_handler = TestLogHandler::new();
@@ -677,8 +702,14 @@ mod tests {
             },
         ];
         let fingerprint_inputs = vec![
-            (make_tx_hash(444), 2_345_678),
-            (make_tx_hash(333), 6_543_210),
+            HashAndAmount {
+                hash: make_tx_hash(444),
+                amount: 2_345_678,
+            },
+            HashAndAmount {
+                hash: make_tx_hash(333),
+                amount: 6_543_210,
+            },
         ];
         let responses = vec![
             Ok(Value::String(String::from("blah"))),

@@ -34,7 +34,7 @@ use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::{
-    BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible,
+    BlockchainTransaction, HashAndAmount, PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -884,8 +884,10 @@ impl Accountant {
     }
 
     fn handle_new_pending_payable_fingerprints(&self, msg: PendingPayableFingerprintSeeds) {
-        fn serialize_hashes(fingerprints_data: &[(H256, u128)]) -> String {
-            comma_joined_stringifiable(fingerprints_data, |(hash, _)| format!("{:?}", hash))
+        fn serialize_hashes(fingerprints_data: &[HashAndAmount]) -> String {
+            comma_joined_stringifiable(fingerprints_data, |hash_and_amount| {
+                format!("{:?}", hash_and_amount.hash)
+            })
         }
 
         match self
@@ -3336,7 +3338,17 @@ mod tests {
         let amount_1 = 12345;
         let hash_2 = make_tx_hash(0x1b207);
         let amount_2 = 87654;
-        let init_params = vec![(hash_1, amount_1), (hash_2, amount_2)];
+
+        let hash_and_amount_1 = HashAndAmount {
+            hash: hash_1,
+            amount: amount_1,
+        };
+        let hash_and_amount_2 = HashAndAmount {
+            hash: hash_2,
+            amount: amount_2,
+        };
+
+        let init_params = vec![hash_and_amount_1, hash_and_amount_2];
         let init_fingerprints_msg = PendingPayableFingerprintSeeds {
             batch_wide_timestamp: timestamp,
             hashes_and_balances: init_params.clone(),
@@ -3373,13 +3385,17 @@ mod tests {
             )));
         let amount = 2345;
         let transaction_hash = make_tx_hash(0x1c8);
+        let hash_and_amount = HashAndAmount {
+            hash: transaction_hash,
+            amount,
+        };
         let subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForAccountantBody(pending_payable_dao)])
             .build();
         let timestamp = SystemTime::now();
         let report_new_fingerprints = PendingPayableFingerprintSeeds {
             batch_wide_timestamp: timestamp,
-            hashes_and_balances: vec![(transaction_hash, amount)],
+            hashes_and_balances: vec![hash_and_amount],
         };
 
         let _ = subject.handle_new_pending_payable_fingerprints(report_new_fingerprints);
