@@ -936,7 +936,7 @@ impl ReceivableScanner {
         let new_start_block = msg.new_start_block;
         match self
             .persistent_configuration
-            .set_start_block_from_txn(new_start_block, txn.as_mut())
+            .set_start_block_from_txn(new_start_block, &mut txn)
         {
             Ok(()) => (),
             Err(e) => panic!(
@@ -951,10 +951,6 @@ impl ReceivableScanner {
             }
             Err(e) => panic!("Commit of received transactions failed: {:?}", e),
         }
-        // At this moment the txn is useless; but we cannot have it consumed by its method
-        // because it qualifies as a trait object, therefore the 'self' must always be
-        // referenced
-        drop(txn);
 
         let total_newly_paid_receivable = msg
             .payments
@@ -1153,6 +1149,7 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
+    use crate::database::rusqlite_wrappers::SqliteTransactionWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
@@ -3101,6 +3098,7 @@ mod tests {
                 .commit_result(Ok(()))
                 .set_arbitrary_id_stamp(transaction_id),
         );
+        let transaction = SqliteTransactionWrapper::new(transaction);
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_from_txn_params(&set_start_block_from_txn_params_arc)
             .set_start_block_from_txn_result(Ok(()));
@@ -3145,10 +3143,9 @@ mod tests {
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
-        let set_through_provided_transaction_params =
-            set_start_block_from_txn_params_arc.lock().unwrap();
+        let set_by_other_transaction_params = set_start_block_from_txn_params_arc.lock().unwrap();
         assert_eq!(
-            *set_through_provided_transaction_params,
+            *set_by_other_transaction_params,
             vec![(7890123, transaction_id)]
         );
         let commit_params = commit_params_arc.lock().unwrap();
@@ -3166,6 +3163,7 @@ mod tests {
         let test_name = "received_transactions_processed_but_start_block_setting_fails";
         let now = SystemTime::now();
         let transaction = Box::new(TransactionWrapperMock::new());
+        let transaction = SqliteTransactionWrapper::new(transaction);
         let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
             Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
         );
@@ -3209,6 +3207,7 @@ mod tests {
                 Some("blah".to_string()),
             ),
         )));
+        let transaction = SqliteTransactionWrapper::new(transaction);
         let persistent_config =
             PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);

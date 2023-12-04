@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::utils::DaoFactoryReal;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
@@ -41,9 +43,9 @@ pub trait ConfigDao {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn set_through_provided_transaction(
+    fn set_by_other_transaction(
         &self,
-        txn: &mut dyn TransactionWrapper,
+        txn: &mut SqliteTransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError>;
@@ -75,9 +77,9 @@ impl ConfigDao for ConfigDaoReal {
         Self::set(prepare_stm, name, value)
     }
 
-    fn set_through_provided_transaction(
+    fn set_by_other_transaction(
         &self,
-        txn: &mut dyn TransactionWrapper,
+        txn: &mut SqliteTransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -296,7 +298,7 @@ mod tests {
         let mut txn = conn.transaction().unwrap();
 
         subject
-            .set_through_provided_transaction(&mut *txn, "schema_version", Some("3".to_string()))
+            .set_by_other_transaction(&mut txn, "schema_version", Some("3".to_string()))
             .unwrap();
 
         let assert_dao = make_subject(&home_dir);

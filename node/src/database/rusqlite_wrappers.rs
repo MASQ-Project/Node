@@ -2,6 +2,7 @@
 
 use crate::arbitrary_id_stamp_in_trait;
 use crate::masq_lib::utils::ExpectValue;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 
@@ -30,7 +31,7 @@ use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction<'a>(&'a mut self) -> Result<Box<dyn TransactionWrapper + 'a>, rusqlite::Error>;
+    fn transaction<'a>(&'a mut self) -> Result<SqliteTransactionWrapper<'a>, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -42,10 +43,10 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-    fn transaction<'a>(&'a mut self) -> Result<Box<dyn TransactionWrapper + 'a>, Error> {
+    fn transaction<'a>(&'a mut self) -> Result<SqliteTransactionWrapper<'a>, Error> {
         self.conn
             .transaction()
-            .map(|tx| Box::new(TransactionWrapperReal::new(tx)) as Box<dyn TransactionWrapper + 'a>)
+            .map(|tx| SqliteTransactionWrapper::new(Box::new(TransactionWrapperReal::new(tx))))
     }
 }
 
@@ -97,28 +98,54 @@ impl<'a> TransactionWrapper for TransactionWrapperReal<'a> {
     }
 }
 
-pub struct SqliteTransactionWrapper {
-    wrapped_guts: Box<dyn TransactionWrapper>
+// Whole point of this outer wrapper common for both the real and mock transaction is to give us
+// a chance to deconstruct the whole thing when we call `commit()`. A classical mockable structure
+// compounded of a trait object doesn't allow to consume itself because of the rules about trait
+// objects clearly saying we can ever access it only by a reference and for consuming it we need
+// to have an ownership.
+//
+// Leaving around an already used, committed, transaction would expose us to risks as in somebody
+// trying to use it again, while the actual transaction is gone and nothing usable has left. Second,
+// we want to be exact and careful about the mock version because it hides a possible segmentation
+// error raised from the OS if we don't deconstruct the unsafely kept reference pointing back inside
+// to the same structure where we also hold an extra created connection to the database.
+//
+// (That is a trick to avoid difficulties with writing a mock for a gradually referenced object,
+// here the later transaction located inside a mocked connection with its own wrapper. This way we
+// can construct a separate transaction but pointing to the same database so the effect of operations
+// done upon this transaction will appear as if it was done through the original connection we can
+// find in the production code. We can do without referring to the outside world, having
+// a connection between which and the transaction there always must be a reference, but we keep them
+// both inside an owned object we can move around without obstacles, meaning we can put it into
+// a queue of results of another mock, in this case the prod. code connection, but mocked itself,
+// comes naturally to one's mind.)
+
+#[derive(Debug)]
+pub struct SqliteTransactionWrapper<'conn_in_real_or_static_in_mock> {
+    wrapped_guts: Box<dyn TransactionWrapper + 'conn_in_real_or_static_in_mock>,
 }
 
-impl SqliteTransactionWrapper {
-    fn new(transaction: Transaction)->Self{
-        todo!()
+impl<'a> SqliteTransactionWrapper<'a> {
+    pub fn new(inner: Box<dyn TransactionWrapper + 'a>) -> Self {
+        Self {
+            wrapped_guts: inner,
+        }
     }
 
-    #[cfg(test)]
-    fn new_for_test()->Self{
-        todo!()
-    }
-    fn prepare(&self, query: &str) -> Result<Statement, Error> {
+    pub fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.wrapped_guts.prepare(query)
     }
 
-    fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
+    pub fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
         self.wrapped_guts.execute(query, params)
     }
 
-    fn commit(mut self) -> Result<(), Error> {
+    pub fn commit(mut self) -> Result<(), Error> {
         self.wrapped_guts.commit()
+    }
+
+    #[cfg(test)]
+    pub fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+        self.wrapped_guts.arbitrary_id_stamp()
     }
 }

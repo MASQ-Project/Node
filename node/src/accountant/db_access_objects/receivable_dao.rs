@@ -17,7 +17,9 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -69,7 +71,7 @@ pub trait ReceivableDao {
         &mut self,
         now: SystemTime,
         transactions: &[BlockchainTransaction],
-    ) -> Box<dyn TransactionWrapper + '_>;
+    ) -> SqliteTransactionWrapper;
 
     fn new_delinquencies(
         &self,
@@ -147,7 +149,7 @@ impl ReceivableDao for ReceivableDaoReal {
         &mut self,
         timestamp: SystemTime,
         received_payments: &[BlockchainTransaction],
-    ) -> Box<dyn TransactionWrapper + '_> {
+    ) -> SqliteTransactionWrapper<'_> {
         match self
             .conn
             .transaction()
@@ -311,11 +313,11 @@ impl ReceivableDaoReal {
 
     fn run_processing_of_received_payments<'txn>(
         big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
-        txn: Box<dyn TransactionWrapper + 'txn>,
+        txn: SqliteTransactionWrapper<'txn>,
         received_payments: &[BlockchainTransaction],
         timestamp: SystemTime,
         logger: &Logger,
-    ) -> Result<Box<dyn TransactionWrapper + 'txn>, ReceivableDaoError> {
+    ) -> Result<SqliteTransactionWrapper<'txn>, ReceivableDaoError> {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
         // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
@@ -337,7 +339,7 @@ impl ReceivableDaoReal {
                 .build();
 
             let result = big_int_db_processor.execute(
-                Either::Right(txn.as_ref()),
+                Either::Right(&txn),
                 BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
             );
 
@@ -348,7 +350,7 @@ impl ReceivableDaoReal {
                 }
                 Err(BigIntDatabaseError::RowChangeMismatch { .. }) => {
                     Self::verify_possibly_unknown_wallet(
-                        txn.as_ref(),
+                        &txn,
                         logger,
                         received_payment,
                         received_payments,
@@ -362,7 +364,7 @@ impl ReceivableDaoReal {
     }
 
     fn verify_possibly_unknown_wallet(
-        txn: &dyn TransactionWrapper,
+        txn: &SqliteTransactionWrapper,
         logger: &Logger,
         suspect: &BlockchainTransaction,
         all_received_payments: &[BlockchainTransaction],
@@ -388,7 +390,7 @@ impl ReceivableDaoReal {
     }
 
     // TODO you'd better check if there is a single row or more (meaning obviously terribly wrong)
-    fn check_row_presence(conn: &dyn TransactionWrapper, wallet: &Wallet) -> bool {
+    fn check_row_presence(conn: &SqliteTransactionWrapper, wallet: &Wallet) -> bool {
         conn.prepare("select wallet_address from receivable where wallet_address = ?")
             .expect("internal sqlite error")
             .exists(&[wallet])
@@ -447,11 +449,8 @@ impl ReceivableDaoReal {
         payments: &[BlockchainTransaction],
     ) {
         fn finalize_report(mut report_lines: Vec<String>, sum_of_all_txs: u128) -> String {
-            report_lines.push(
-                format!("{:10} {:42} {:<18}", "TOTAL", "", sum_of_all_txs),
-            );
-            report_lines
-            .join("\n")
+            report_lines.push(format!("{:10} {:42} {:<18}", "TOTAL", "", sum_of_all_txs));
+            report_lines.join("\n")
         }
         fn note_single_transaction(
             (mut formatted_lines_so_far, sum_so_far): (Vec<String>, u128),
@@ -818,7 +817,6 @@ mod tests {
         let mut txn = subject.more_money_received(payment_time, &transactions);
 
         txn.commit().unwrap();
-        drop(txn);
         let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, first_expected_result);
@@ -836,10 +834,10 @@ mod tests {
     }
 
     #[test]
-    fn more_money_received_ignores_unknown_address_without_affecting_the_good_ones(
-    ) {
+    fn more_money_received_ignores_unknown_address_without_affecting_the_good_ones() {
         init_test_logging();
-        let test_name = "more_money_received_ignores_unknown_address_without_affecting_the_good_ones";
+        let test_name =
+            "more_money_received_ignores_unknown_address_without_affecting_the_good_ones";
         let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let previous_timestamp = UNIX_EPOCH;
         let time_of_change = SystemTime::now()
@@ -888,10 +886,9 @@ mod tests {
         };
         let transactions = vec![transaction_1, transaction_2, transaction_3];
 
-        let mut txn = subject.more_money_received(time_of_change, transactions.as_slice());
+        let txn = subject.more_money_received(time_of_change, transactions.as_slice());
 
         txn.commit().unwrap();
-        drop(txn);
         let actual_record_1 = subject.account_status(&first_tracked_wallet).unwrap();
         assert_eq!(actual_record_1.wallet, first_tracked_wallet);
         assert_eq!(
@@ -1048,6 +1045,7 @@ mod tests {
                 .prepare_params(&prepare_params_arc)
                 .prepare_results(prepare_results),
         );
+        let mocked_transaction = SqliteTransactionWrapper::new(mocked_transaction);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);
@@ -1157,7 +1155,7 @@ mod tests {
         let logger = Logger::new(test_name);
 
         let result = ReceivableDaoReal::verify_possibly_unknown_wallet(
-            txn.as_ref(),
+            &txn,
             &logger,
             &suspect,
             &all_received_payments,

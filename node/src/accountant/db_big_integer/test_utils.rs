@@ -5,7 +5,9 @@
 use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDatabaseError, BigIntDatabaseProcessor, BigIntSqlConfig, TableNameDAO,
 };
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use itertools::Either;
 use std::cell::RefCell;
 
@@ -43,7 +45,7 @@ where
 {
     fn execute<'a>(
         &self,
-        _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        _conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         _config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDatabaseError> {
         // You can implement a params capture here but so far it hasn't been needed,

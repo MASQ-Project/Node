@@ -2,7 +2,9 @@
 
 #![cfg(test)]
 
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use itertools::Either;
@@ -27,7 +29,7 @@ impl TransactionWrapperMock {
         Self::default()
     }
 
-    pub fn can_be_used_only_before_commit(&self){
+    pub fn can_be_used_only_before_commit(&self) {
         if !self.already_committed {
             ()
         } else {
@@ -139,7 +141,7 @@ struct SetupForStubbed<S> {
 struct SetupForBoth {
     prod_code_calls_conn_used_for_both: bool,
     prod_code_calls_conn: Box<dyn ConnectionWrapper>,
-    prod_code_calls_transaction_opt: Option<Box<dyn TransactionWrapper>>,
+    prod_code_calls_transaction_opt: Option<SqliteTransactionWrapper<'static>>,
     requested_preceding_prod_code_calls: usize,
     stubbed: SetupForStubbed<Option<String>>,
 }
@@ -147,7 +149,7 @@ struct SetupForBoth {
 impl SetupForBoth {
     fn commit_prod_calls(&mut self) -> Result<(), Error> {
         let txn_opt = self.prod_code_calls_transaction_opt.take();
-        let mut txn = txn_opt
+        let txn = txn_opt
             .expect("Error: missing transaction in setup for both prod code and stubbed calls");
         txn.commit()
     }
@@ -368,7 +370,7 @@ impl PrepareMethodResults {
 
     fn resolve_choice_of_stubbed_conn(
         &self,
-    ) -> Either<&dyn TransactionWrapper, &dyn ConnectionWrapper> {
+    ) -> Either<&SqliteTransactionWrapper, &dyn ConnectionWrapper> {
         let setup = self.setup_for_both_or_panic_ref();
 
         if setup.prod_code_calls_conn_used_for_both {
@@ -376,8 +378,7 @@ impl PrepareMethodResults {
                 setup
                     .prod_code_calls_transaction_opt
                     .as_ref()
-                    .expect("Conn for prod code calls not available")
-                    .as_ref(),
+                    .expect("Conn for prod code calls not available"),
             )
         } else {
             Either::Right(setup.stubbed.stubbed_calls_conn.as_ref())

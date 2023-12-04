@@ -3,7 +3,9 @@
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
@@ -138,7 +140,7 @@ pub trait PersistentConfiguration {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut dyn TransactionWrapper,
+        transaction: &mut SqliteTransactionWrapper,
     ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
@@ -425,7 +427,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut dyn TransactionWrapper,
+        transaction: &mut SqliteTransactionWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.simple_set_method_from_provided_txn("start_block", value, transaction)
     }
@@ -569,13 +571,11 @@ impl PersistentConfigurationReal {
         &mut self,
         parameter_name: &str,
         value: T,
-        txn: &mut dyn TransactionWrapper,
+        txn: &mut SqliteTransactionWrapper,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set_through_provided_transaction(
-            txn,
-            parameter_name,
-            Some(value.to_string()),
-        )?)
+        Ok(self
+            .dao
+            .set_by_other_transaction(txn, parameter_name, Some(value.to_string()))?)
     }
 
     fn simple_get_method<T>(
@@ -1546,11 +1546,12 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .set_through_provided_transaction_params(&set_params_arc)
-                .set_through_provided_transaction_result(Ok(())),
+                .set_by_other_transaction_params(&set_params_arc)
+                .set_by_other_transaction_result(Ok(())),
         );
         let txn_id = ArbitraryIdStamp::new();
-        let mut txn = TransactionWrapperMock::new().set_arbitrary_id_stamp(txn_id);
+        let txn = Box::new(TransactionWrapperMock::new().set_arbitrary_id_stamp(txn_id));
+        let mut txn = SqliteTransactionWrapper::new(txn);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block_from_txn(1234, &mut txn);

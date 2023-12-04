@@ -4,7 +4,9 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};
@@ -19,7 +21,7 @@ where
 {
     fn execute<'a>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -35,7 +37,7 @@ where
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
@@ -74,10 +76,7 @@ impl<T: TableNameDAO + 'static> Default for BigIntDatabaseProcessorReal<T> {
 
 impl<T: TableNameDAO> BigIntDatabaseProcessorReal<T> {
     fn prepare_statement<'params>(
-        form_of_conn: Either<
-            &'params dyn ConnectionWrapper,
-            &'params (dyn TransactionWrapper + 'params),
-        >,
+        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params SqliteTransactionWrapper>,
         sql: &'params str,
     ) -> Statement<'params> {
         match form_of_conn {
@@ -94,7 +93,7 @@ where
 {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -115,7 +114,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -167,7 +166,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'params>(
-        conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
         config: &BigIntSqlConfig<'params, T>,
         execute_params: &[(&str, &dyn ToSql)],
     ) {
@@ -990,7 +989,7 @@ mod tests {
     {
         fn update_with_overflow<'a>(
             &self,
-            _conn: Either<&dyn ConnectionWrapper, &dyn TransactionWrapper>,
+            _conn: Either<&dyn ConnectionWrapper, &SqliteTransactionWrapper>,
             _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDatabaseError> {
             self.update_with_overflow_params.lock().unwrap().push(());
@@ -1404,9 +1403,9 @@ mod tests {
         let wei_change = BigIntDivider::reconstitute(0, 30);
         let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
         let act = |conn: &mut dyn ConnectionWrapper| {
-            let mut tx = conn.transaction().unwrap();
+            let tx = conn.transaction().unwrap();
             let result = subject.execute(
-                Either::Right(tx.as_ref()),
+                Either::Right(&tx),
                 BigIntSqlConfig::new(
                     STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
                     "",

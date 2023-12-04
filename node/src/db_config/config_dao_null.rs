@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::TransactionWrapper;
+use crate::database::rusqlite_wrappers::{SqliteTransactionWrapper, TransactionWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -73,9 +73,9 @@ impl ConfigDao for ConfigDaoNull {
         Ok(())
     }
 
-    fn set_through_provided_transaction(
+    fn set_by_other_transaction(
         &self,
-        _txn: &mut dyn TransactionWrapper,
+        _txn: &mut SqliteTransactionWrapper,
         _name: &str,
         _value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -312,18 +312,19 @@ mod tests {
     }
 
     #[test]
-    fn set_through_provided_transaction_works_simple() {
+    fn set_by_other_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
-        let mut txn = TransactionWrapperMock::new();
+        let txn = Box::new(TransactionWrapperMock::new());
+        let mut txn = SqliteTransactionWrapper::new(txn);
 
         subject
-            .set_through_provided_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .set_by_other_transaction(&mut txn, "param1", Some("value1".to_string()))
             .unwrap();
         subject
-            .set_through_provided_transaction(&mut txn, "schema_version", None)
+            .set_by_other_transaction(&mut txn, "schema_version", None)
             .unwrap();
         subject
-            .set_through_provided_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .set_by_other_transaction(&mut txn, "schema_version", Some("456".to_string()))
             .unwrap();
 
         let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
