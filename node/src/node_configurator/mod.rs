@@ -128,25 +128,27 @@ fn replace_tilde(config_path: &Path, dirs_wrapper: &dyn DirsWrapper) -> Option<P
                 .to_str()
                 .expect("expected str home_dir")
                 .to_string();
-            Some(PathBuf::from(config_path
-                .display()
-                .to_string()
-                .replacen('~', home_dir_from_wrapper.as_str(), 1)))
+            Some(PathBuf::from(config_path.display().to_string().replacen(
+                '~',
+                home_dir_from_wrapper.as_str(),
+                1,
+            )))
         }
-        false => None
+        false => None,
     }
-
 }
 
 fn replace_dots(config_path: &Path, panic: &mut bool) -> Option<PathBuf> {
     match config_path.starts_with("./") || config_path.starts_with("../") {
         true => {
             *panic = false;
-            Some(current_dir()
-                .expect("expected current dir")
-                .join(config_path))
+            Some(
+                current_dir()
+                    .expect("expected current dir")
+                    .join(config_path),
+            )
         }
-        false => None
+        false => None,
     }
 }
 
@@ -166,8 +168,8 @@ fn replace_relative_path(
                 *panic = true;
                 Some(config_path.to_path_buf())
             }
-        }
-        false => None
+        },
+        false => None,
     }
 }
 
@@ -187,26 +189,22 @@ fn get_config_file_from_mc(
                 replace_relative_path(&config_path, data_directory_def, data_directory, &mut panic);
             let config_file_pth = match config_file_pth_tilde {
                 Some(path) => {
-                        panic = false;
-                        path
-                },
+                    panic = false;
+                    path
+                }
                 None => match config_file_pth_dot {
                     Some(config_path) => {
                         panic = false;
                         config_path
                     }
-                    None => {
-                        match config_file_pth_relative {
-                            Some(path_rel) => {
-                                path_rel
-                            }
-                            None => {
-                                panic = false;
-                                PathBuf::from("config.toml")
-                            }
+                    None => match config_file_pth_relative {
+                        Some(path_rel) => path_rel,
+                        None => {
+                            panic = false;
+                            PathBuf::from("config.toml")
                         }
-                    }
-                }
+                    },
+                },
             };
             if panic {
                 panic!(
