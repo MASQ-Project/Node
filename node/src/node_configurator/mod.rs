@@ -17,9 +17,12 @@ use core::option::Option;
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine};
+use masq_lib::multi_config::{
+    merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
+};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
+use nix::NixPath;
 use std::env::current_dir;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -28,11 +31,10 @@ pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
 }
 
-#[derive(Default)]
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct FieldPair<T> {
     pub(crate) item: T,
-    pub(crate) user_specified: bool
+    pub(crate) user_specified: bool,
 }
 
 impl<T> FieldPair<T> {
@@ -66,12 +68,7 @@ fn get_real_user_from_mc(
 ) -> FieldPair<RealUser> {
     let rel_user = value_m!(multi_config, "real-user", RealUser);
     match rel_user {
-        Some(user) => {
-            FieldPair::new(
-                user,
-                true,
-            )
-        }
+        Some(user) => FieldPair::new(user, true),
         None => {
             #[cfg(target_os = "windows")]
             {
@@ -108,7 +105,8 @@ fn get_data_directory_from_mc(
                     .expect("expected home dir")
                     .to_string();
                 let replaced_tilde_dir =
-                    data_dir.display()
+                    data_dir
+                        .display()
                         .to_string()
                         .replacen('~', home_dir_from_wrapper.as_str(), 1);
                 FieldPair::new(PathBuf::from(replaced_tilde_dir), true)
@@ -122,46 +120,95 @@ fn get_data_directory_from_mc(
     }
 }
 
+fn replace_tilde(config_path: &PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
+    let mut replaced_tilde_dir = "".to_string();
+    if config_path.starts_with("~") {
+        let home_dir_from_wrapper = dirs_wrapper
+            .home_dir()
+            .expect("expected users home_dir")
+            .to_str()
+            .expect("expected str home_dir")
+            .to_string();
+        replaced_tilde_dir =
+            config_path
+                .display()
+                .to_string()
+                .replacen('~', home_dir_from_wrapper.as_str(), 1);
+    };
+    PathBuf::from(replaced_tilde_dir)
+}
+
+fn replace_dots(config_path: &PathBuf, panic: &mut bool) -> PathBuf {
+    let origin_path = config_path.clone();
+    let mut new_path: PathBuf = Default::default();
+    if config_path.starts_with("./") || origin_path.starts_with("../") {
+        *panic = false;
+        new_path = current_dir()
+            .expect("expected current dir")
+            .join(origin_path.clone());
+    };
+    new_path
+}
+
+fn replace_relative_path(
+    config_path: &PathBuf,
+    data_directory_def: bool,
+    data_directory: &Path,
+    panic: &mut bool,
+) -> PathBuf {
+    let mut path = Default::default();
+    if config_path.is_relative() {
+        match data_directory_def {
+            true => {
+                *panic = false;
+                path = data_directory.join(config_path);
+            }
+            false => {
+                *panic = true;
+                path = config_path.to_path_buf();
+            }
+        }
+    };
+    path
+}
+
 fn get_config_file_from_mc(
     multi_config: &MultiConfig,
-    data_directory: &PathBuf,
+    data_directory: &Path,
     data_directory_def: bool,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> FieldPair<PathBuf> {
+    let mut panic: bool = false;
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {
         Some(config_path) => {
-            let path = match config_path.is_relative() {
-                true => {
-                    match config_path.file_name().expect("expected file name") == config_path {
-                        true => data_directory.join(PathBuf::from(config_path)),
-                        false => match config_path.starts_with("./") || config_path.starts_with("../") {
-                            true => current_dir().expect("expected current dir").join(config_path),
-                            false => match config_path.starts_with("~") {
-                                true => {
-                                    let home_dir_from_wrapper = dirs_wrapper
-                                        .home_dir()
-                                        .expect("expected users home_dir")
-                                        .to_str()
-                                        .expect("expected str home_dir")
-                                        .to_string();
-                                    let replaced_tilde_dir =
-                                        config_path.display()
-                                            .to_string()
-                                            .replacen('~', home_dir_from_wrapper.as_str(), 1);
-                                    PathBuf::from(replaced_tilde_dir)
-                                }
-                                false => match data_directory_def {
-                                    true => data_directory.join(config_path),
-                                    false => panic!("You need to define data-directory to define config file with naked directory {}.", config_path.to_string_lossy())
-                                }
-                            }
-                        }
+            let config_file_pth_tilde: PathBuf = replace_tilde(&config_path, dirs_wrapper);
+            let config_file_pth_dot = replace_dots(&config_path, &mut panic);
+            let config_file_pth_relative =
+                replace_relative_path(&config_path, data_directory_def, data_directory, &mut panic);
+            let config_file_pth = match config_file_pth_tilde.is_empty() {
+                true => match config_file_pth_dot.is_empty() {
+                    true => match config_file_pth_relative.is_empty() {
+                        true => PathBuf::from("config.toml"),
+                        false => config_file_pth_relative,
+                    },
+                    false => {
+                        panic = false;
+                        config_file_pth_dot
                     }
+                },
+                false => {
+                    panic = false;
+                    config_file_pth_tilde
                 }
-                false => config_path,
             };
-            FieldPair::new(path, true)
+            if panic {
+                panic!(
+                    "You need to define data-directory to define config file with naked directory {}.",
+                    config_file_pth.to_string_lossy()
+                );
+            }
+            FieldPair::new(config_file_pth, true)
         }
         None => {
             let path = data_directory.join(PathBuf::from("config.toml"));
@@ -208,10 +255,11 @@ pub fn determine_user_specific_data(
 ) -> Result<ConfigInitializationData, ConfiguratorError> {
     let orientation_args: Box<dyn VirtualCommandLine> = merge(
         Box::new(EnvironmentVcl::new(app)),
-        Box::new(CommandLineVcl::new(args.to_vec()))
+        Box::new(CommandLineVcl::new(args.to_vec())),
     );
     /* We create multiconfig to retrieve chain, real-user, data-directory and config file, to establish ConfigVcl */
-    let first_multi_config = make_new_multi_config(app, vec![orientation_args]).expect("expected MultiConfig");
+    let first_multi_config =
+        make_new_multi_config(app, vec![orientation_args]).expect("expected MultiConfig");
     let initialization_data =
         config_file_data_dir_real_user_chain_from_mc(dirs_wrapper, first_multi_config);
 
@@ -356,22 +404,24 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
-        let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
-            &app,
-            args_vec.as_slice(),
-        )
-        .unwrap();
+        let user_specific_data =
+            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
 
         assert_eq!(
             &format!(
                 "{}",
-                user_specific_data.config_file.item.parent().unwrap().display()
+                user_specific_data
+                    .config_file
+                    .item
+                    .parent()
+                    .unwrap()
+                    .display()
             ),
             &user_specific_data
-            .data_directory.item
-            .to_string_lossy()
-            .to_string(),
+                .data_directory
+                .item
+                .to_string_lossy()
+                .to_string(),
         );
         assert_eq!(
             "booga.toml",
@@ -395,19 +445,21 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
         let app = determine_config_file_path_app();
-        let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
-            &app,
-            args_vec.as_slice(),
-        )
-        .unwrap();
+        let user_specific_data =
+            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
         assert_eq!(
             format!(
                 "{}",
-                user_specific_data.config_file.item.parent().unwrap().display()
+                user_specific_data
+                    .config_file
+                    .item
+                    .parent()
+                    .unwrap()
+                    .display()
             ),
             user_specific_data
-                .data_directory.item
+                .data_directory
+                .item
                 .to_string_lossy()
                 .to_string(),
         );
@@ -415,10 +467,7 @@ mod tests {
             "booga.toml",
             user_specific_data.config_file.item.file_name().unwrap()
         );
-        assert_eq!(
-            user_specific_data.config_file.user_specified,
-            true
-        );
+        assert_eq!(user_specific_data.config_file.user_specified, true);
         assert_eq!(user_specific_data.real_user.user_specified, false); //all these assertions of 'real_user_specified' was incorrect, no idea how this tests could pass before
     }
 
@@ -432,17 +481,14 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let app = determine_config_file_path_app();
-        let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
-            &app,
-            args_vec.as_slice(),
-        )
-        .unwrap();
+        let user_specific_data =
+            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
 
         assert_eq!(
             "/tmp/booga.toml",
             &format!("{}", user_specific_data.config_file.item.display())
         );
+        assert_eq!(user_specific_data.config_file.user_specified, true);
         assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 
@@ -466,6 +512,7 @@ mod tests {
             r"\tmp\booga.toml",
             &format!("{}", user_specific_data.config_file.item.display())
         );
+        assert_eq!(user_specific_data.config_file.user_specified, true);
         assert_eq!(user_specific_data.real_user.user_specified, false);
     }
 

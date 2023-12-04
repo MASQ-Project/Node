@@ -497,6 +497,7 @@ impl SetupReporterReal {
             };
             let user_specific_data =
                 determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
+            println!("user_specific_data {:?}", &user_specific_data);
             let config_file_vcl = match ConfigFileVcl::new(
                 &user_specific_data.config_file.item,
                 user_specific_data.config_file.user_specified,
@@ -1298,7 +1299,7 @@ mod tests {
     fn everything_in_defaults_is_properly_constructed() {
         let result = SetupReporterReal::get_default_params();
 
-        assert_eq!(result.is_empty(), false, "{:?}", result); // if we don't have any defaults, let's get rid of all this
+        assert_eq!(result.is_empty(), true, "{:?}", result); // if we have any defaults, let's get back to false statement here and assert right value line below
         result.into_iter().for_each(|(name, value)| {
             assert_eq!(name, value.name);
             assert_eq!(value.status, Default);
@@ -1393,7 +1394,7 @@ mod tests {
             ),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
             (
@@ -1572,7 +1573,7 @@ mod tests {
             ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
             ("data-directory", chain_specific_data_dir.to_str().unwrap(), Set),
@@ -1645,7 +1646,7 @@ mod tests {
             ("blockchain-service-url", "https://example3.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Error", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -1795,7 +1796,7 @@ mod tests {
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "8877", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             (
                 "consuming-private-key",
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
@@ -1954,7 +1955,7 @@ mod tests {
             ("blockchain-service-url", "", Required),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -2633,10 +2634,7 @@ mod tests {
             .calculate_configured_setup(&setup, &data_directory)
             .0;
 
-        assert_eq!(
-            result.get("config-file").unwrap().value,
-            "config.toml".to_string()
-        );
+        assert_eq!(result.get("config-file").unwrap().value, "".to_string());
         assert_eq!(
             result.get("gas-price").unwrap().value,
             GasPrice {}

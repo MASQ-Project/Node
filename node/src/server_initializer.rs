@@ -48,7 +48,11 @@ impl ServerInitializer for ServerInitializerReal {
                     .as_mut()
                     .initialize_as_privileged(&multi_config),
             )
-            .combine_results(self.bootstrapper.as_mut().initialize_as_privileged(&multi_config));
+            .combine_results(
+                self.bootstrapper
+                    .as_mut()
+                    .initialize_as_privileged(&multi_config),
+            );
 
         self.privilege_dropper
             .chown(Path::new(data_directory.as_str()), &real_user);
