@@ -562,7 +562,7 @@ impl BlockchainBridge {
                 .map_err(|e| PayableTransactionError::TransactionCount(e))
                 .and_then(move |pending_nonce| {
                     send_payables_within_batch(
-                        &logger,
+                        logger,
                         chain,
                         batch_web3,
                         consuming_wallet_clone,

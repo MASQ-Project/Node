@@ -120,7 +120,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     return gas_limit;
 }
 // Result<SignedTransaction, PayableTransactionError>
-pub fn sign_transaction<T: BatchTransport>(
+pub fn sign_transaction<T: BatchTransport + 'static>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
     recipient_wallet: Wallet,
@@ -166,7 +166,7 @@ pub fn sign_transaction<T: BatchTransport>(
 }
 
 // Result<H256, PayableTransactionError>
-pub fn handle_new_transaction<T: BatchTransport>(
+pub fn handle_new_transaction<T: BatchTransport + 'static>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
     recipient_wallet: Wallet,
@@ -186,7 +186,7 @@ pub fn handle_new_transaction<T: BatchTransport>(
             gas_price,
         )
         .map_err(|e| e)
-        .and_then(|signed_tx| {
+        .and_then(move |signed_tx| {
             batch_web3
                 .eth()
                 .send_raw_transaction(signed_tx.raw_transaction);
@@ -215,14 +215,14 @@ pub fn handle_new_transaction<T: BatchTransport>(
 // HashAndAmountResult / Result<Vec<(H256, u128)>, PayableTransactionError>
 // HashesAndAmounts
 // TODO: GH-744 Rename and refactor this function after merging with Master
-pub fn sign_and_append_payment<T: BatchTransport>(
+pub fn sign_and_append_payment<T: BatchTransport + 'static>(
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price: u64,
-    account: &PayableAccount,
-) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError>> {
+    account: PayableAccount,
+) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static> {
     Box::new(
         handle_new_transaction(
             chain,
@@ -234,7 +234,7 @@ pub fn sign_and_append_payment<T: BatchTransport>(
             gas_price,
         )
         .map_err(|e| e)
-        .and_then(|new_hash| {
+        .and_then(move |new_hash| {
             Ok(HashAndAmount {
                 hash: new_hash,
                 amount: account.balance_wei,
@@ -273,17 +273,18 @@ pub fn handle_payable_account<T: BatchTransport>(
 }
 
 // HashAndAmountResult
-pub fn sign_and_append_multiple_payments<T: BatchTransport>(
-    logger: &Logger,
+pub fn sign_and_append_multiple_payments<T: BatchTransport + 'static>(
+    logger: Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
-    consuming_wallet: &Wallet,
+    consuming_wallet: Wallet,
     gas_price: u64,
     mut pending_nonce: U256,
-    accounts: &[PayableAccount],
-) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError>>> {
+    accounts: Vec<PayableAccount>,
+) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static>>
+{
     let mut payable_que = FuturesOrdered::new();
-    accounts.iter().for_each(|payable| {
+    accounts.into_iter().for_each(|payable| {
         debug!(
             logger,
             "Preparing payable future of {} wei to {} with nonce {}",
@@ -294,7 +295,7 @@ pub fn sign_and_append_multiple_payments<T: BatchTransport>(
 
         let payable_future = sign_and_append_payment(
             chain,
-            batch_web3,
+            batch_web3.clone(),
             consuming_wallet.clone(),
             pending_nonce,
             gas_price,
@@ -351,7 +352,7 @@ pub fn sign_and_append_multiple_payments<T: BatchTransport>(
     // result
 }
 pub fn send_payables_within_batch<T: BatchTransport + 'static>(
-    logger: &Logger,
+    logger: Logger,
     chain: Chain,
     batch_web3: Web3<Batch<T>>,
     consuming_wallet: Wallet,
@@ -359,7 +360,8 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
-) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
+) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
+{
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -400,20 +402,20 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 
     return Box::new(
         sign_and_append_multiple_payments(
-            logger,
+            logger.clone(),
             chain,
             batch_web3.clone(),
-            &consuming_wallet,
+            consuming_wallet,
             gas_price,
             pending_nonce,
-            &accounts,
+            accounts.clone(),
         )
         // .poll()
         // .collect()
         .collect()
         // .map_err(|e| err(e))
         // TODO: GH-744: Need to fix errors
-        .and_then(|hashes_and_paid_amounts| {
+        .and_then(move |hashes_and_paid_amounts| {
             let timestamp = SystemTime::now();
             let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
             let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
@@ -529,7 +531,7 @@ mod tests {
         let test_timestamp_before = SystemTime::now();
 
         let result = send_payables_within_batch(
-            &logger,
+            logger,
             TEST_DEFAULT_CHAIN,
             Web3::new(Batch::new(transport)),
             consuming_wallet,
@@ -763,7 +765,7 @@ mod tests {
         let nonce = U256::from(1);
 
         let result = send_payables_within_batch(
-            &Logger::new("test"),
+            Logger::new("test"),
             TEST_DEFAULT_CHAIN,
             Web3::new(Batch::new(transport)),
             incomplete_consuming_wallet,
@@ -808,7 +810,7 @@ mod tests {
         let nonce = U256::from(1);
 
         let result = send_payables_within_batch(
-            &Logger::new("test"),
+            Logger::new("test"),
             TEST_DEFAULT_CHAIN,
             Web3::new(Batch::new(transport)),
             consuming_wallet,
@@ -885,7 +887,7 @@ mod tests {
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
 
         let result = send_payables_within_batch(
-            &Logger::new("test"),
+            Logger::new("test"),
             Chain::PolyMumbai,
             Web3::new(Batch::new(transport)),
             consuming_wallet,
