@@ -53,6 +53,7 @@ pub fn merged_output_data(
     hashes_and_paid_amounts: Vec<HashAndAmount>,
     accounts: Vec<PayableAccount>,
 ) -> Vec<ProcessedPayableFallible> {
+    // TODO: GH-744 Hashes and paid amounts are now out of sync with accounts. Need to look into this.
     let iterator_with_all_data = responses
         .into_iter()
         .zip(hashes_and_paid_amounts.into_iter())
@@ -407,8 +408,11 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
             pending_nonce,
             &accounts,
         )
+        // .poll()
+        // .collect()
         .collect()
-        .map_err(|e| err(e))
+        // .map_err(|e| err(e))
+        // TODO: GH-744: Need to fix errors
         .and_then(|hashes_and_paid_amounts| {
             let timestamp = SystemTime::now();
             let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
@@ -642,7 +646,7 @@ mod tests {
         };
         let hash_and_amount_2 = HashAndAmount {
             hash: expected_hash_2,
-            amount: gwei_to_wei(123_456_789),
+            amount: gwei_to_wei(123_456_789_u64),
         };
         let hash_and_amount_3 = HashAndAmount {
             hash: expected_hash_3,
@@ -855,7 +859,8 @@ mod tests {
             444444,
             nonce,
             gas_price,
-        );
+        )
+        .wait();
 
         assert_eq!(
             result,
@@ -1212,6 +1217,7 @@ mod tests {
             nonce_correct_type,
             gas_price,
         )
+        .wait()
         .unwrap();
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;

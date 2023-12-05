@@ -3365,7 +3365,7 @@ mod tests {
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *insert_fingerprint_params,
-            vec![(vec![(hash_1, amount_1), (hash_2, amount_2)], timestamp)]
+            vec![(vec![hash_and_amount_1, hash_and_amount_2], timestamp)]
         );
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Saved new pending payable fingerprints for: \
@@ -3403,7 +3403,7 @@ mod tests {
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *insert_fingerprint_params,
-            vec![(vec![(transaction_hash, amount)], timestamp)]
+            vec![(vec![hash_and_amount], timestamp)]
         );
         TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to process \
          new pending payable fingerprints due to 'InsertionFailed(\"Crashed\")', disabling the automated \
