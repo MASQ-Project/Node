@@ -3,7 +3,7 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
-use crate::database::rusqlite_wrappers::{SqliteTransactionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
 use masq_lib::logger::Logger;
 use masq_lib::utils::to_string;
 use std::cell::RefCell;
@@ -43,7 +43,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.db_password_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&self) -> &SqliteTransactionWrapper {
+    fn transaction(&self) -> &SQLiteTransactionWrapper {
         unimplemented!("Not needed so far")
     }
 

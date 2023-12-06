@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
 };
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -60,7 +60,7 @@ impl TransactionWrapperMock {
     set_arbitrary_id_stamp_in_mock_impl!();
 }
 
-impl TransactionWrapper for TransactionWrapperMock {
+impl TransactionInnerWrapper for TransactionWrapperMock {
     fn prepare(&self, prod_code_query: &str) -> Result<Statement, Error> {
         self.prepare_params
             .lock()
@@ -141,7 +141,7 @@ struct SetupForStubbed<S> {
 struct SetupForBoth {
     prod_code_calls_conn_used_for_both: bool,
     prod_code_calls_conn: Box<dyn ConnectionWrapper>,
-    prod_code_calls_transaction_opt: Option<SqliteTransactionWrapper<'static>>,
+    prod_code_calls_transaction_opt: Option<SQLiteTransactionWrapper<'static>>,
     requested_preceding_prod_code_calls: usize,
     stubbed: SetupForStubbed<Option<String>>,
 }
@@ -370,7 +370,7 @@ impl PrepareMethodResults {
 
     fn resolve_choice_of_stubbed_conn(
         &self,
-    ) -> Either<&SqliteTransactionWrapper, &dyn ConnectionWrapper> {
+    ) -> Either<&SQLiteTransactionWrapper, &dyn ConnectionWrapper> {
         let setup = self.setup_for_both_or_panic_ref();
 
         if setup.prod_code_calls_conn_used_for_both {

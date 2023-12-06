@@ -14,7 +14,7 @@ use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
 };
 use masq_lib::logger::Logger;
 
@@ -126,7 +126,7 @@ impl DbMigratorReal {
 
     pub fn update_schema_version(
         name_of_given_table: &str,
-        transaction: &SqliteTransactionWrapper,
+        transaction: &SQLiteTransactionWrapper,
         update_to: usize,
     ) -> rusqlite::Result<()> {
         transaction

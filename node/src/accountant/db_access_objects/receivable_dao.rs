@@ -18,7 +18,7 @@ use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
 };
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -71,7 +71,7 @@ pub trait ReceivableDao {
         &mut self,
         now: SystemTime,
         transactions: &[BlockchainTransaction],
-    ) -> SqliteTransactionWrapper;
+    ) -> SQLiteTransactionWrapper;
 
     fn new_delinquencies(
         &self,
@@ -149,7 +149,7 @@ impl ReceivableDao for ReceivableDaoReal {
         &mut self,
         timestamp: SystemTime,
         received_payments: &[BlockchainTransaction],
-    ) -> SqliteTransactionWrapper<'_> {
+    ) -> SQLiteTransactionWrapper<'_> {
         match self
             .conn
             .transaction()
@@ -313,11 +313,11 @@ impl ReceivableDaoReal {
 
     fn run_processing_of_received_payments<'txn>(
         big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
-        txn: SqliteTransactionWrapper<'txn>,
+        txn: SQLiteTransactionWrapper<'txn>,
         received_payments: &[BlockchainTransaction],
         timestamp: SystemTime,
         logger: &Logger,
-    ) -> Result<SqliteTransactionWrapper<'txn>, ReceivableDaoError> {
+    ) -> Result<SQLiteTransactionWrapper<'txn>, ReceivableDaoError> {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
         // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
@@ -364,7 +364,7 @@ impl ReceivableDaoReal {
     }
 
     fn verify_possibly_unknown_wallet(
-        txn: &SqliteTransactionWrapper,
+        txn: &SQLiteTransactionWrapper,
         logger: &Logger,
         suspect: &BlockchainTransaction,
         all_received_payments: &[BlockchainTransaction],
@@ -390,7 +390,7 @@ impl ReceivableDaoReal {
     }
 
     // TODO you'd better check if there is a single row or more (meaning obviously terribly wrong)
-    fn check_row_presence(conn: &SqliteTransactionWrapper, wallet: &Wallet) -> bool {
+    fn check_row_presence(conn: &SQLiteTransactionWrapper, wallet: &Wallet) -> bool {
         conn.prepare("select wallet_address from receivable where wallet_address = ?")
             .expect("internal sqlite error")
             .exists(&[wallet])
@@ -1045,7 +1045,7 @@ mod tests {
                 .prepare_params(&prepare_params_arc)
                 .prepare_results(prepare_results),
         );
-        let mocked_transaction = SqliteTransactionWrapper::new(mocked_transaction);
+        let mocked_transaction = SQLiteTransactionWrapper::new(mocked_transaction);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);

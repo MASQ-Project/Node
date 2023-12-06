@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::database::rusqlite_wrappers::{SqliteTransactionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
@@ -253,7 +253,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut SqliteTransactionWrapper,
+        transaction: &mut SQLiteTransactionWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.set_start_block_from_txn_params
             .lock()

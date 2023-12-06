@@ -4,7 +4,7 @@ use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
 };
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
@@ -140,7 +140,7 @@ pub trait PersistentConfiguration {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut SqliteTransactionWrapper,
+        transaction: &mut SQLiteTransactionWrapper,
     ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
@@ -427,7 +427,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut SqliteTransactionWrapper,
+        transaction: &mut SQLiteTransactionWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.simple_set_method_from_provided_txn("start_block", value, transaction)
     }
@@ -571,7 +571,7 @@ impl PersistentConfigurationReal {
         &mut self,
         parameter_name: &str,
         value: T,
-        txn: &mut SqliteTransactionWrapper,
+        txn: &mut SQLiteTransactionWrapper,
     ) -> Result<(), PersistentConfigError> {
         Ok(self
             .dao
@@ -1551,7 +1551,7 @@ mod tests {
         );
         let txn_id = ArbitraryIdStamp::new();
         let txn = Box::new(TransactionWrapperMock::new().set_arbitrary_id_stamp(txn_id));
-        let mut txn = SqliteTransactionWrapper::new(txn);
+        let mut txn = SQLiteTransactionWrapper::new(txn);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block_from_txn(1234, &mut txn);

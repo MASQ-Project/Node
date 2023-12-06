@@ -32,7 +32,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::rusqlite_wrappers::{SqliteTransactionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
@@ -672,7 +672,7 @@ pub struct ReceivableDaoMock {
     more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
-    more_money_received_results: RefCell<Vec<SqliteTransactionWrapper<'static>>>,
+    more_money_received_results: RefCell<Vec<SQLiteTransactionWrapper<'static>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
@@ -700,7 +700,7 @@ impl ReceivableDao for ReceivableDaoMock {
         &mut self,
         now: SystemTime,
         transactions: &[BlockchainTransaction],
-    ) -> SqliteTransactionWrapper {
+    ) -> SQLiteTransactionWrapper {
         self.more_money_received_parameters
             .lock()
             .unwrap()
@@ -769,7 +769,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_result(self, result: SqliteTransactionWrapper<'static>) -> Self {
+    pub fn more_money_received_result(self, result: SQLiteTransactionWrapper<'static>) -> Self {
         self.more_money_received_results.borrow_mut().push(result);
         self
     }

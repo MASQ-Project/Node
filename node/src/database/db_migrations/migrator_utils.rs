@@ -3,7 +3,7 @@
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SqliteTransactionWrapper, TransactionWrapper,
+    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
 };
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 
 pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
-    fn transaction(&self) -> &SqliteTransactionWrapper;
+    fn transaction(&self) -> &SQLiteTransactionWrapper;
     fn execute_upon_transaction<'a>(
         &self,
         sql_statements: &[&'a dyn StatementObject],
@@ -37,7 +37,7 @@ pub trait DBMigrationUtilities {
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
-    root_transaction: Option<SqliteTransactionWrapper<'a>>,
+    root_transaction: Option<SQLiteTransactionWrapper<'a>>,
     db_migrator_configuration: DBMigratorInnerConfiguration,
 }
 
@@ -52,7 +52,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         })
     }
 
-    fn root_transaction_ref(&self) -> &SqliteTransactionWrapper {
+    fn root_transaction_ref(&self) -> &SQLiteTransactionWrapper {
         self.root_transaction.as_ref().expectv("root transaction")
     }
 }
@@ -100,14 +100,14 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 }
 
 struct DBMigDeclaratorReal<'a> {
-    root_transaction_ref: &'a SqliteTransactionWrapper<'a>,
+    root_transaction_ref: &'a SQLiteTransactionWrapper<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
 impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
-        root_transaction_ref: &'a SqliteTransactionWrapper,
+        root_transaction_ref: &'a SQLiteTransactionWrapper,
         external: &'a ExternalData,
         logger: &'a Logger,
     ) -> Self {
@@ -124,7 +124,7 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         self.external.db_password_opt.clone()
     }
 
-    fn transaction(&self) -> &SqliteTransactionWrapper {
+    fn transaction(&self) -> &SQLiteTransactionWrapper {
         self.root_transaction_ref
     }
 
@@ -157,17 +157,17 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
 }
 
 pub trait StatementObject: Display {
-    fn execute(&self, transaction: &SqliteTransactionWrapper) -> rusqlite::Result<()>;
+    fn execute(&self, transaction: &SQLiteTransactionWrapper) -> rusqlite::Result<()>;
 }
 
 impl StatementObject for &str {
-    fn execute(&self, transaction: &SqliteTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &SQLiteTransactionWrapper) -> rusqlite::Result<()> {
         transaction.execute(self, &[]).map(|_| ())
     }
 }
 
 impl StatementObject for String {
-    fn execute(&self, transaction: &SqliteTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &SQLiteTransactionWrapper) -> rusqlite::Result<()> {
         self.as_str().execute(transaction)
     }
 }
@@ -178,7 +178,7 @@ pub struct StatementWithRusqliteParams {
 }
 
 impl StatementObject for StatementWithRusqliteParams {
-    fn execute(&self, transaction: &SqliteTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &SQLiteTransactionWrapper) -> rusqlite::Result<()> {
         transaction
             .execute(
                 &self.sql_stm,

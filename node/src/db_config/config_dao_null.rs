@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::{SqliteTransactionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -75,7 +75,7 @@ impl ConfigDao for ConfigDaoNull {
 
     fn set_by_other_transaction(
         &self,
-        _txn: &mut SqliteTransactionWrapper,
+        _txn: &mut SQLiteTransactionWrapper,
         _name: &str,
         _value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -315,7 +315,7 @@ mod tests {
     fn set_by_other_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let txn = Box::new(TransactionWrapperMock::new());
-        let mut txn = SqliteTransactionWrapper::new(txn);
+        let mut txn = SQLiteTransactionWrapper::new(txn);
 
         subject
             .set_by_other_transaction(&mut txn, "param1", Some("value1".to_string()))
