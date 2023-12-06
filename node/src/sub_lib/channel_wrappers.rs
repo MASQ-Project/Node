@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use futures::sync::mpsc;
-use futures::sync::mpsc::SendError;
-use futures::sync::mpsc::UnboundedReceiver;
-use futures::sync::mpsc::UnboundedSender;
+// use futures::sync::mpsc;
+// use futures::sync::mpsc::SendError;
+// use futures::sync::mpsc::UnboundedReceiver;
+// use futures::sync::mpsc::UnboundedSender;
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use futures::channel::mpsc::{SendError, TrySendError, UnboundedReceiver, UnboundedSender};
 use tokio::prelude::Async;
 
 #[allow(clippy::result_unit_err)]
@@ -18,7 +19,7 @@ pub struct ReceiverWrapperReal<T> {
 
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
     fn poll(&mut self) -> Result<Async<Option<T>>, ()> {
-        self.delegate.poll()
+        self.delegate.poll_next()
     }
 }
 
@@ -29,7 +30,7 @@ impl<T: Send> ReceiverWrapperReal<T> {
 }
 
 pub trait SenderWrapper<T>: Debug + Send {
-    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>>;
+    fn unbounded_send(&self, data: T) -> Result<(), TrySendError<T>>;
     fn peer_addr(&self) -> SocketAddr;
     fn clone(&self) -> Box<dyn SenderWrapper<T>>;
 }
@@ -41,7 +42,7 @@ pub struct SenderWrapperReal<T> {
 }
 
 impl<T: 'static + Debug + Send> SenderWrapper<T> for SenderWrapperReal<T> {
-    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>> {
+    fn unbounded_send(&self, data: T) -> Result<(), TrySendError<T>> {
         self.delegate.unbounded_send(data)
     }
 
@@ -80,7 +81,7 @@ impl<T: 'static + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFacto
         &mut self,
         peer_addr: SocketAddr,
     ) -> (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>) {
-        let (tx, rx) = mpsc::unbounded();
+        let (tx, rx) = futures::channel::mpsc::unbounded();
         (
             Box::new(SenderWrapperReal::new(peer_addr, tx)),
             Box::new(ReceiverWrapperReal::new(rx)),
