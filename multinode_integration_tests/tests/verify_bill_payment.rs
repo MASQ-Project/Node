@@ -46,15 +46,14 @@ use web3::Web3;
 
 #[test]
 fn verify_bill_payment() {
-    // Note: besides the main objectives of this test, it relies on (and so
-    // it proves) the premise that each Node, when reaching its full connectivity
-    // (able to make a route), activates its accountancy module whereas it also
-    // begins the first cycle of the scanners immediately. That's why it might
-    // not be wise to take out the passages with starting a bunch of Nodes just
-    // in order to meet the condition even though the test could be rewritten
-    // into a simpler one by using directly the `scans` command from a UI through
-    // which we would achieve the same with less PCU work an in a shorter time.
-    // See the second test in this file.
+    // Note: besides the main objectives of this test, it relies on (and so it proves)
+    // the premise each Node, when reaching its full connectivity, becoming able to make a route,
+    // activates its accountancy module whereas it also unleashes the first cycle of the scanners
+    // immediately. That's why a consideration has been made not to take out the passages with
+    // intensive startups of bunch of Nodes, with the only reason to fulfill the above discussed
+    // condition, even though the test could be rewritten simpler using directly the `scans`
+    // command from a UI, with less PCU work and in a shorter time. (Such approach is implemented
+    // for another test in this file.)
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_500_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -370,7 +369,10 @@ fn transfer_service_fee_amount_to_address(
         .send_raw_transaction(signed_tx.raw_transaction)
         .wait()
     {
-        Ok(tx_hash) => eprintln!("Transaction {} was sent", tx_hash),
+        Ok(tx_hash) => eprintln!(
+            "Transaction {:?} of {} wei of MASQ was sent from wallet {:?} to {:?}",
+            tx_hash, amount_minor, from_wallet, to_wallet
+        ),
         Err(e) => panic!("Transaction for token transfer failed {:?}", e),
     }
 }
@@ -419,25 +421,28 @@ fn transfer_transaction_fee_amount_to_address(
         Ok(was_successful) => {
             if was_successful {
                 eprintln!(
-                    "Account {} unlocked for a single transaction",
+                    "Account {:?} unlocked for a single transaction",
                     from_wallet.address()
                 )
             } else {
                 panic!(
-                    "Couldn't unlock account {} for the purpose of signing the next transaction",
+                    "Couldn't unlock account {:?} for the purpose of signing the next transaction",
                     from_wallet.address()
                 )
             }
         }
         Err(e) => panic!(
-            "Attempt to unlock account {} failed at {:?}",
+            "Attempt to unlock account {:?} failed at {:?}",
             from_wallet.address(),
             e
         ),
     }
 
     match web3.eth().send_transaction(tx).wait() {
-        Ok(tx_hash) => eprintln!("Transaction {} was sent", tx_hash),
+        Ok(tx_hash) => eprintln!(
+            "Transaction {:?} of {} wei of ETH was sent from wallet {:?} to {:?}",
+            tx_hash, amount_minor, from_wallet, to_wallet
+        ),
         Err(e) => panic!("Transaction for token transfer failed {:?}", e),
     }
 }
