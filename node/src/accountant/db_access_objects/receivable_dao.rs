@@ -502,7 +502,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::transaction_wrapper_mock::{
-        PrepareMethodResults, TransactionWrapperMock,
+        PrepareResultsDispatcher, TransactionWrapperMock,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
@@ -1034,7 +1034,7 @@ mod tests {
             .unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = PrepareMethodResults::new_with_both_prod_code_and_stubbed_calls(
+        let prepare_results = PrepareResultsDispatcher::new_with_both_prod_code_and_stubbed_calls(
             prod_code_calls_conn,
             panic_causing_conn,
         )
