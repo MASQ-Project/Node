@@ -40,7 +40,7 @@ jobs:
           key: ${{ runner.os }}-cargo
       - name: Build ${{ matrix.target.os }}
         run: |
-          ./ci/node/ci/build.sh
+          ./node/ci/build.sh
           ./ci/multinode_integration_test.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
