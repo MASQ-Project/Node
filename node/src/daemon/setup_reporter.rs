@@ -497,7 +497,6 @@ impl SetupReporterReal {
             };
             let user_specific_data =
                 determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
-            println!("user_specific_data {:?}", &user_specific_data);
             let config_file_vcl = match ConfigFileVcl::new(
                 &user_specific_data.config_file.item,
                 user_specific_data.config_file.user_specified,

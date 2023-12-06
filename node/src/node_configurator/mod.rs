@@ -193,15 +193,15 @@ fn get_config_file_from_mc(
                     path
                 }
                 None => match config_file_pth_dot {
-                    Some(config_path) => {
+                    Some(config_path_dot) => {
                         panic = false;
-                        config_path
+                        config_path_dot
                     }
                     None => match config_file_pth_relative {
                         Some(path_rel) => path_rel,
                         None => {
                             panic = false;
-                            PathBuf::from("config.toml")
+                            config_path
                         }
                     },
                 },
