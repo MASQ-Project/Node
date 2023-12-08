@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::arbitrary_id_stamp_in_trait;
+use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
 use crate::masq_lib::utils::ExpectValue;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
@@ -70,9 +71,7 @@ impl ConnectionWrapper for ConnectionWrapperReal {
         self.conn.prepare(query)
     }
     fn transaction(&mut self) -> Result<TransactionWrapper, Error> {
-        self.conn
-            .transaction()
-            .map(|tx| TransactionWrapper::new(Box::new(TransactionInnerWrapperReal::new(tx))))
+        self.conn.transaction().map(TransactionWrapper::new)
     }
 }
 
@@ -108,9 +107,16 @@ pub struct TransactionWrapper<'conn_in_real_or_static_in_mock> {
 }
 
 impl<'a> TransactionWrapper<'a> {
-    pub fn new(inner: Box<dyn TransactionInnerWrapper + 'a>) -> Self {
+    pub fn new(txn: Transaction<'a>) -> Self {
         Self {
-            wrapped_inner: inner,
+            wrapped_inner: Box::new(TransactionInnerWrapperReal::new(txn)),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test_only(inner_wrapper_builder: TransactionInnerWrapperMockBuilder) -> Self {
+        Self {
+            wrapped_inner: inner_wrapper_builder.build(),
         }
     }
 
@@ -129,11 +135,6 @@ impl<'a> TransactionWrapper<'a> {
     #[cfg(test)]
     pub fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
         self.wrapped_inner.arbitrary_id_stamp()
-    }
-
-    #[cfg(test)]
-    pub fn new_test_only() -> Self{
-        todo!()
     }
 }
 

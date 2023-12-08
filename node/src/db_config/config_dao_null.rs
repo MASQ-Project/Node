@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn set_by_other_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
-        let txn = Box::new(TransactionInnerWrapperMock::new());
-        let mut txn = TransactionWrapper::new(txn);
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let mut txn = TransactionWrapper::new_test_only(txn_inner_builder);
 
         subject
             .set_by_other_transaction(&mut txn, "param1", Some("value1".to_string()))

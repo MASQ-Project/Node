@@ -616,7 +616,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -1548,8 +1548,9 @@ mod tests {
                 .set_by_other_transaction_result(Ok(())),
         );
         let txn_id = ArbitraryIdStamp::new();
-        let txn = Box::new(TransactionInnerWrapperMock::new().set_arbitrary_id_stamp(txn_id));
-        let mut txn = TransactionWrapper::new(txn);
+        let txn_inner_builder =
+            TransactionInnerWrapperMockBuilder::default().set_arbitrary_id_stamp(txn_id);
+        let mut txn = TransactionWrapper::new_test_only(txn_inner_builder);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block_from_txn(1234, &mut txn);

@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, TransactionWrapper, TransactionInnerWrapper,
+    ConnectionWrapper, TransactionInnerWrapper, TransactionWrapper,
 };
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -12,8 +12,10 @@ use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-#[derive(Default, Debug)]
-pub struct TransactionInnerWrapperMock {
+// This builder is the only interface you should use
+
+#[derive(Default)]
+pub struct TransactionInnerWrapperMockBuilder {
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
     commit_params: Arc<Mutex<Vec<()>>>,
@@ -21,19 +23,7 @@ pub struct TransactionInnerWrapperMock {
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-impl TransactionInnerWrapperMock {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn has_dual_setup_in_results_dispatcher(&self) -> bool {
-        if let Some(dispatcher) = self.prepare_results_dispatcher_opt.as_ref() {
-            dispatcher.setup.is_right()
-        } else {
-            false
-        }
-    }
-
+impl TransactionInnerWrapperMockBuilder {
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
         self.prepare_params = params.clone();
         self
@@ -54,7 +44,54 @@ impl TransactionInnerWrapperMock {
         self
     }
 
+    pub fn build(self) -> Box<dyn TransactionInnerWrapper> {
+        Box::new(TransactionInnerWrapperMock::new(
+            self.prepare_params,
+            self.prepare_results_dispatcher_opt,
+            self.commit_params,
+            self.commit_results,
+            self.arbitrary_id_stamp_opt,
+        ))
+    }
+
     set_arbitrary_id_stamp_in_mock_impl!();
+}
+
+// Don't change the visibility to `pub`!
+#[derive(Debug)]
+struct TransactionInnerWrapperMock {
+    prepare_params: Arc<Mutex<Vec<String>>>,
+    prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+    commit_params: Arc<Mutex<Vec<()>>>,
+    commit_results: RefCell<Vec<Result<(), Error>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+impl TransactionInnerWrapperMock {
+    // Don't use this method with `pub`!
+    fn new(
+        prepare_params: Arc<Mutex<Vec<String>>>,
+        prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+        commit_params: Arc<Mutex<Vec<()>>>,
+        commit_results: RefCell<Vec<Result<(), Error>>>,
+        arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+    ) -> Self {
+        Self {
+            prepare_params,
+            prepare_results_dispatcher_opt,
+            commit_params,
+            commit_results,
+            arbitrary_id_stamp_opt,
+        }
+    }
+
+    fn has_dual_setup_in_results_dispatcher(&self) -> bool {
+        if let Some(dispatcher) = self.prepare_results_dispatcher_opt.as_ref() {
+            dispatcher.setup.is_right()
+        } else {
+            false
+        }
+    }
 }
 
 impl TransactionInnerWrapper for TransactionInnerWrapperMock {

@@ -500,7 +500,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::transaction_wrapper_mock::{
-        PrepareResultsDispatcher, StubbedStatement, TransactionInnerWrapperMock,
+        PrepareResultsDispatcher, StubbedStatement, TransactionInnerWrapperMockBuilder,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
@@ -1035,12 +1035,10 @@ mod tests {
             Some(panic_causing_conn),
             vec![None, None, None, Some(StubbedStatement::ProdCodeOriginal)],
         );
-        let mocked_transaction = Box::new(
-            TransactionInnerWrapperMock::default()
-                .prepare_params(&prepare_params_arc)
-                .prepare_results(prepare_results),
-        );
-        let mocked_transaction = TransactionWrapper::new(mocked_transaction);
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
+            .prepare_params(&prepare_params_arc)
+            .prepare_results(prepare_results);
+        let mocked_transaction = TransactionWrapper::new_test_only(txn_inner_builder);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);

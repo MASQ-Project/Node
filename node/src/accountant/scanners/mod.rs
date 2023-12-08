@@ -1150,7 +1150,7 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionWrapper;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -3092,13 +3092,11 @@ mod tests {
         let set_start_block_from_txn_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_id = ArbitraryIdStamp::new();
-        let transaction = Box::new(
-            TransactionInnerWrapperMock::new()
-                .commit_params(&commit_params_arc)
-                .commit_result(Ok(()))
-                .set_arbitrary_id_stamp(transaction_id),
-        );
-        let transaction = TransactionWrapper::new(transaction);
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()))
+            .set_arbitrary_id_stamp(transaction_id);
+        let transaction = TransactionWrapper::new_test_only(txn_inner_builder);
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_from_txn_params(&set_start_block_from_txn_params_arc)
             .set_start_block_from_txn_result(Ok(()));
@@ -3162,8 +3160,8 @@ mod tests {
         init_test_logging();
         let test_name = "received_transactions_processed_but_start_block_setting_fails";
         let now = SystemTime::now();
-        let transaction = Box::new(TransactionInnerWrapperMock::new());
-        let transaction = TransactionWrapper::new(transaction);
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let transaction = TransactionWrapper::new_test_only(txn_inner_builder);
         let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
             Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
         );
@@ -3198,16 +3196,16 @@ mod tests {
         init_test_logging();
         let test_name = "transaction_for_balance_start_block_updates_fails_on_its_commit";
         let now = SystemTime::now();
-        let transaction = Box::new(TransactionInnerWrapperMock::new().commit_result(Err(
-            rusqlite::Error::SqliteFailure(
-                ffi::Error {
-                    code: ErrorCode::InternalMalfunction,
-                    extended_code: 0,
-                },
-                Some("blah".to_string()),
-            ),
-        )));
-        let transaction = TransactionWrapper::new(transaction);
+        let commit_err = Err(rusqlite::Error::SqliteFailure(
+            ffi::Error {
+                code: ErrorCode::InternalMalfunction,
+                extended_code: 0,
+            },
+            Some("blah".to_string()),
+        ));
+        let txn_inner_builder =
+            TransactionInnerWrapperMockBuilder::default().commit_result(commit_err);
+        let transaction = TransactionWrapper::new_test_only(txn_inner_builder);
         let persistent_config =
             PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);

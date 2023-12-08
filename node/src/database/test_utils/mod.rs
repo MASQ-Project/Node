@@ -36,10 +36,7 @@ impl<'conn> ConnectionWrapperMock<'conn> {
         self
     }
 
-    pub fn transaction_result(
-        self,
-        result: Result<TransactionWrapper<'conn>, Error>,
-    ) -> Self {
+    pub fn transaction_result(self, result: Result<TransactionWrapper<'conn>, Error>) -> Self {
         self.transaction_results.borrow_mut().push(result);
         self
     }
