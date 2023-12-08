@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
+use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use std::cell::RefCell;

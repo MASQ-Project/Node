@@ -10,7 +10,6 @@ use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_imp
 use itertools::Either;
 use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
-use std::ptr::drop_in_place;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
@@ -25,6 +24,14 @@ pub struct TransactionWrapperMock {
 impl TransactionWrapperMock {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn has_dual_setup_in_results_dispatcher(&self) -> bool {
+        if let Some(dispatcher) = self.prepare_results_dispatcher_opt.as_ref() {
+            dispatcher.setup.is_right()
+        } else {
+            false
+        }
     }
 
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
@@ -71,12 +78,21 @@ impl TransactionInnerWrapper for TransactionWrapperMock {
         self.commit_params.lock().unwrap().push(());
 
         let next_result = self.commit_results.borrow_mut().remove(0);
-        match (next_result.is_ok(), self.prepare_results_dispatcher_opt.as_mut()) {
-            (true, Some(prepared_results)) => match &mut prepared_results.chosen_setup {
-                Either::Left(for_both) => for_both.commit_prod_calls(),
-                Either::Right(_) => next_result,
-            },
-            _ => next_result,
+        // If the commit is meant to succeed we check for the transaction we may keep
+        // in the `PrepareResultsDispatcher` (design allowing for the initial database interactions
+        // in the test to be run with the genuine prod code statements), and thus all data changes these
+        // statements may claim to introduce (if called) will be recorded in the database and
+        // visible at the end of the test.
+        if next_result.is_ok() && self.has_dual_setup_in_results_dispatcher() {
+            self.prepare_results_dispatcher_opt
+                .as_mut()
+                .expect("presence just checked")
+                .setup
+                .as_mut()
+                .expect_right("dual setup just checked")
+                .commit_prod_code_stmts()
+        } else {
+            next_result
         }
     }
 
@@ -118,64 +134,85 @@ impl TransactionInnerWrapper for TransactionWrapperMock {
 // 'query_map'.
 
 #[derive(Debug)]
-struct SetupForStubbedSQL<S> {
-    stubbed_conn: Box<dyn ConnectionWrapper>,
-    stubbed_optional_statement_literals: Vec<S>,
+struct SQLsStubbedOnly {
+    conn: Box<dyn ConnectionWrapper>,
+    queue_of_statements_to_execute: RefCell<Vec<String>>,
 }
 
 #[derive(Debug)]
-struct SetupForProdCodeRealAndStubbedSQL {
-    prod_code_conn_used_by_both: bool,
+struct SQLsProdCodeAndStubbed {
     prod_code_conn: Box<dyn ConnectionWrapper>,
+    // This transaction must be here because otherwise all those
+    // successful SQL operations would not be written into the database
+    // persistently, even though some tests might expect those changes
+    // to be findable in the database
     prod_code_transaction_opt: Option<SQLiteTransactionWrapper<'static>>,
-
-    count_of_prod_code_sql_executed_before_stubbed_sql_used: usize,
-    stubbed_sql: SetupForStubbedSQL<Option<String>>,
+    queue_determining_use_of_prod_code_stm_or_stubbed_stmts: RefCell<Vec<Option<StubbedStatement>>>,
+    // This connection is usually the most important, but using just the primarily
+    // prod code conn should be also possible. Strategies are either to provide
+    // a connection pointing to an unrelated database, usually very simple, allowing
+    // a more straightforward way of producing a very specific error that our tested
+    // code is supposed to respond to, or another situation often found handy
+    // for asserting general errors can be achieved by a read-only connection used
+    // in statements that are supposed to change the state of the database
+    diff_conn_for_stubbed_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
 }
 
-impl SetupForProdCodeRealAndStubbedSQL {
-    fn commit_prod_calls(&mut self) -> Result<(), Error> {
-        let txn_opt = self.prod_code_transaction_opt.take();
-        let txn = txn_opt
-            .expect("missing prepared transaction in dual-setup in TransactionWrapperInnerMock");
-        txn.commit()
+impl SQLsProdCodeAndStubbed {
+    fn commit_prod_code_stmts(&mut self) -> Result<(), Error> {
+        self.prod_code_transaction_opt
+            .take()
+            .expect("dual setup in TransactionWrapperInnerMock without txn")
+            .commit()
     }
 }
 
-impl Drop for SetupForProdCodeRealAndStubbedSQL {
+impl Drop for SQLsProdCodeAndStubbed {
     fn drop(&mut self) {
-        // The real transaction ties up a safeness plain reference as made by casting
-        // from a raw pointer - which breaks the check mechanism for pointing to an invalid
-        // memory segment. We must make sure that this transactions deconstruct before
-        // the database Connection it was originally pointing to is gone
+        // The real transaction binds a reference that doesn't comply with safeness, it was made by
+        // a backward cast from a raw pointer, which breaks checks for referencing an invalid memory.
+        // We must make sure that this transaction deconstructs earlier than the database
+        // Connection it has been derived from, avoiding the OS segmentation error.
         drop(self.prod_code_transaction_opt.take())
     }
 }
 
 #[derive(Debug)]
 pub struct PrepareResultsDispatcher {
-    call_counter: RefCell<usize>,
-    chosen_setup: Either<SetupForProdCodeRealAndStubbedSQL, SetupForStubbedSQL<String>>,
+    setup: Either<SQLsStubbedOnly, SQLsProdCodeAndStubbed>,
 }
 
 impl PrepareResultsDispatcher {
-    pub fn new_with_both_prod_code_and_stubbed_calls(
-        prod_code_calls_conn: Box<dyn ConnectionWrapper>,
-        stubbed_calls_conn: Box<dyn ConnectionWrapper>,
+    pub fn new_with_stubbed_only(
+        conn: Box<dyn ConnectionWrapper>,
+        stubbed_stmts_queue: Vec<String>,
+    ) -> Self {
+        let setup = SQLsStubbedOnly {
+            conn,
+            queue_of_statements_to_execute: RefCell::new(stubbed_stmts_queue),
+        };
+
+        Self {
+            setup: Either::Left(setup),
+        }
+    }
+
+    pub fn new_with_prod_code_and_stubbed(
+        prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
+        stubbed_conn_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
+        stubbed_stmts_opt_queue: Vec<Option<StubbedStatement>>,
     ) -> Self {
         let setup = {
-            let ptr = Box::into_raw(prod_code_calls_conn);
+            let ptr = Box::into_raw(prod_code_stmts_conn);
             let conn = unsafe { Box::from_raw(ptr) };
 
-            let mut setup = SetupForProdCodeRealAndStubbedSQL {
-                prod_code_conn_used_by_both: false,
+            let mut setup = SQLsProdCodeAndStubbed {
                 prod_code_conn: conn,
                 prod_code_transaction_opt: None,
-                count_of_prod_code_sql_executed_before_stubbed_sql_used: 0,
-                stubbed_sql: SetupForStubbedSQL {
-                    stubbed_conn: stubbed_calls_conn,
-                    stubbed_optional_statement_literals: vec![],
-                },
+                queue_determining_use_of_prod_code_stm_or_stubbed_stmts: RefCell::new(
+                    stubbed_stmts_opt_queue,
+                ),
+                diff_conn_for_stubbed_stmts_opt: stubbed_conn_stmts_opt,
             };
 
             let conn = unsafe { ptr.as_mut().unwrap() };
@@ -183,218 +220,63 @@ impl PrepareResultsDispatcher {
 
             setup.prod_code_transaction_opt = Some(txn);
 
-            Either::Left(setup)
+            setup
         };
 
         Self {
-            call_counter: RefCell::new(0),
-            chosen_setup: setup,
+            setup: Either::Right(setup),
         }
     }
 
-    pub fn new_for_only_stubbed(stubbed_calls_conn: Box<dyn ConnectionWrapper>) -> Self {
-        let setup = Either::Right(SetupForStubbedSQL {
-            stubbed_conn: stubbed_calls_conn,
-            stubbed_optional_statement_literals: vec![],
-        });
-
-        Self {
-            call_counter: RefCell::new(0),
-            chosen_setup: setup,
+    fn produce_statement(&self, prod_code_original_stm: &str) -> Result<Statement, Error> {
+        match self.setup.as_ref() {
+            Either::Left(setup) => Self::handle_stm_for_stubbed_only(setup),
+            Either::Right(setup) => {
+                Self::handle_stm_for_prod_code_or_stubbed(setup, prod_code_original_stm)
+            }
         }
     }
 
-    pub fn count_of_initial_prod_code_calls(mut self, prod_code_calls: usize) -> Self {
-        let dual_setup = self.setup_for_both_or_panic_ref_mut();
-        if dual_setup.count_of_prod_code_sql_executed_before_stubbed_sql_used == 0 {
-            dual_setup.count_of_prod_code_sql_executed_before_stubbed_sql_used = prod_code_calls
-        } else {
-            panic!("Use only single call of \"number_of_prod_code_calls!\"")
-        }
-        self
+    fn handle_stm_for_stubbed_only(setup: &SQLsStubbedOnly) -> Result<Statement, Error> {
+        let stm = setup.queue_of_statements_to_execute.borrow_mut().remove(0);
+        setup.conn.prepare(&stm)
     }
 
-    pub fn prod_code_calls_conn_used_for_both(mut self) -> Self {
-        let dual_setup = self.setup_for_both_or_panic_ref_mut();
-        dual_setup.prod_code_conn_used_by_both = true;
-        self
-    }
-
-    pub fn add_single_stubbed_call_from_prod_code_statement(mut self) -> Self {
-        let single_setup = self.setup_for_both_or_panic_ref_mut();
-        single_setup
-            .stubbed_sql
-            .stubbed_optional_statement_literals
-            .push(None);
-        self
-    }
-
-    pub fn add_single_stubbed_call_statement(mut self, statement: &str) -> Self {
-        let single_setup = self.setup_for_both_or_panic_ref_mut();
-        single_setup
-            .stubbed_sql
-            .stubbed_optional_statement_literals
-            .push(Some(statement.to_string()));
-        self
-    }
-
-    fn dual_setup_mismatch() -> ! {
-        panic!(
-            "{}",
-            "This mock was construct as intended for the setup with both prod code and stubbed \
-            calls. Reconsider that step, if you think you will be using only the stubbed calls"
-        )
-    }
-
-    fn setup_for_both_or_panic_ref(&self) -> &SetupForProdCodeRealAndStubbedSQL {
-        match self.chosen_setup.as_ref() {
-            Either::Left(both) => both,
-            Either::Right(_) => Self::dual_setup_mismatch(),
-        }
-    }
-
-    fn setup_for_both_or_panic_ref_mut(&mut self) -> &mut SetupForProdCodeRealAndStubbedSQL {
-        match self.chosen_setup.as_mut() {
-            Either::Left(both) => both,
-            Either::Right(_) => Self::dual_setup_mismatch(),
-        }
-    }
-
-    fn determine_stubbed_queue_idx_opt(&self) -> Option<StubbedCallIndexInfo> {
-        let upcoming_call_idx = *self.call_counter.borrow();
-        if let Either::Left(for_both) = &self.chosen_setup {
-            if for_both.count_of_prod_code_sql_executed_before_stubbed_sql_used != 0 {
-                let preceding_prod_code_calls = for_both.count_of_prod_code_sql_executed_before_stubbed_sql_used;
-
-                if preceding_prod_code_calls > upcoming_call_idx {
-                    None
-                } else {
-                    Some(StubbedCallIndexInfo::new(preceding_prod_code_calls))
+    fn handle_stm_for_prod_code_or_stubbed<'conn>(
+        setup: &'conn SQLsProdCodeAndStubbed,
+        prod_code_original_stm: &str,
+    ) -> Result<Statement<'conn>, Error> {
+        let stm_opt = setup
+            .queue_determining_use_of_prod_code_stm_or_stubbed_stmts
+            .borrow_mut()
+            .remove(0);
+        match stm_opt {
+            None => setup.prod_code_conn.prepare(prod_code_original_stm),
+            Some(stubbed_stm) => {
+                let stm = match &stubbed_stm {
+                    StubbedStatement::ProdCodeOriginal => prod_code_original_stm,
+                    StubbedStatement::ProdCodeSubstitution { incident_statement } => {
+                        incident_statement.as_str()
+                    }
+                };
+                match setup.diff_conn_for_stubbed_stmts_opt.as_ref() {
+                    None => setup
+                        .prod_code_transaction_opt
+                        .as_ref()
+                        .expect("txn must be present")
+                        .prepare(stm),
+                    Some(special_conn) => special_conn.prepare(stm),
                 }
-            } else {
-                panic!(
-                    "You're using the dual setup but have ordered 0 preceding prod code calls. \
-                You should be using the single setup then"
-                )
             }
-        } else {
-            Some(StubbedCallIndexInfo::new(0))
-        }
-    }
-
-    fn produce_statement(&self, prod_code_stm: &str) -> Result<Statement, Error> {
-        let idx_opt = self.determine_stubbed_queue_idx_opt();
-
-        match idx_opt {
-            None => self.handle_prod_code_call(prod_code_stm),
-            Some(idx_info) => {
-                let stm = idx_info.handle_setup_for_stubbed_only(self, prod_code_stm);
-                Ok(stm)
-            }
-        }
-    }
-
-    fn handle_prod_code_call(&self, prod_code_stm: &str) -> Result<Statement, Error> {
-        if let Either::Left(for_both) = &self.chosen_setup {
-            let result = for_both.prod_code_conn.prepare(prod_code_stm);
-            self.increment_counter();
-            result
-        } else {
-            panic!(
-                "Idx info (on the left: for both) diverges from the setup variant (on the right: \
-            stubbed only), design mistake"
-            )
-        }
-    }
-
-    fn get_stubbed_statement(
-        &self,
-        idx_info: StubbedCallIndexInfo,
-        prod_code_stm: &str,
-    ) -> Statement {
-        let upcoming_call_idx = *self.call_counter.borrow();
-        let absolute_idx = idx_info.calculate_idx(upcoming_call_idx);
-        match &self.chosen_setup {
-            Either::Left(for_both) => self.get_from_for_both(for_both, absolute_idx, prod_code_stm),
-            Either::Right(stubbed_only) => Self::get_from_stubbed_only(stubbed_only, absolute_idx),
-        }
-    }
-
-    fn get_from_for_both(
-        &self,
-        setup: &SetupForProdCodeRealAndStubbedSQL,
-        absolute_idx: usize,
-        prod_code_stm: &str,
-    ) -> Statement {
-        let stm = match setup
-            .stubbed_sql
-            .stubbed_optional_statement_literals
-            .get(absolute_idx)
-            .unwrap()
-        {
-            Some(stubbed_stm) => stubbed_stm,
-            None => prod_code_stm,
-        };
-
-        let result = match self.resolve_choice_of_stubbed_conn() {
-            Either::Left(txn) => txn.prepare(stm),
-            Either::Right(conn) => conn.prepare(stm),
-        };
-        result.unwrap()
-    }
-
-    fn get_from_stubbed_only(setup: &SetupForStubbedSQL<String>, absolute_idx: usize) -> Statement {
-        let stm = setup
-            .stubbed_optional_statement_literals
-            .get(absolute_idx)
-            .unwrap();
-        setup.stubbed_conn.prepare(stm).unwrap()
-    }
-
-    fn increment_counter(&self) {
-        *self.call_counter.borrow_mut() += 1
-    }
-
-    fn resolve_choice_of_stubbed_conn(
-        &self,
-    ) -> Either<&SQLiteTransactionWrapper, &dyn ConnectionWrapper> {
-        let setup = self.setup_for_both_or_panic_ref();
-
-        if setup.prod_code_conn_used_by_both {
-            Either::Left(
-                setup
-                    .prod_code_transaction_opt
-                    .as_ref()
-                    .expect("Conn for prod code calls not available"),
-            )
-        } else {
-            Either::Right(setup.stubbed_sql.stubbed_conn.as_ref())
         }
     }
 }
 
-struct StubbedCallIndexInfo {
-    preceding_prod_code_calls: usize,
-}
-
-impl StubbedCallIndexInfo {
-    fn new(preceding_prod_code_calls: usize) -> Self {
-        Self {
-            preceding_prod_code_calls,
-        }
-    }
-
-    fn calculate_idx(&self, upcoming_call_idx: usize) -> usize {
-        upcoming_call_idx - self.preceding_prod_code_calls
-    }
-
-    fn handle_setup_for_stubbed_only<'a>(
-        self,
-        super_setup_structure: &'a PrepareResultsDispatcher,
-        prod_code_query: &str,
-    ) -> Statement<'a> {
-        let stm = super_setup_structure.get_stubbed_statement(self, prod_code_query);
-        super_setup_structure.increment_counter();
-        stm
-    }
+#[derive(Debug)]
+pub enum StubbedStatement {
+    // Used when you have an injected connection pointing to a different db
+    // and you don't want to devise a new statement but use the same as
+    // intended for the prod code
+    ProdCodeOriginal,
+    ProdCodeSubstitution { incident_statement: String },
 }

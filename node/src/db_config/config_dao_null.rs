@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
+use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};

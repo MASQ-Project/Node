@@ -3,7 +3,7 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
-use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
+use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
 use masq_lib::logger::Logger;
 use masq_lib::utils::to_string;
 use std::cell::RefCell;

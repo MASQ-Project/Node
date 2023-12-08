@@ -32,7 +32,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
+use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};

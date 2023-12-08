@@ -13,9 +13,7 @@ use crate::database::db_migrations::migrations::migration_8_to_9::Migrate_8_to_9
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use masq_lib::logger::Logger;
 
 pub trait DbMigrator {

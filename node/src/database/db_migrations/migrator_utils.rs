@@ -2,9 +2,7 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{to_string, ExpectValue};

@@ -17,9 +17,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -27,7 +25,7 @@ use indoc::indoc;
 use itertools::Either;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
@@ -502,7 +500,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::transaction_wrapper_mock::{
-        PrepareResultsDispatcher, TransactionWrapperMock,
+        PrepareResultsDispatcher, StubbedStatement, TransactionWrapperMock,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
@@ -814,7 +812,7 @@ mod tests {
             },
         ];
 
-        let mut txn = subject.more_money_received(payment_time, &transactions);
+        let txn = subject.more_money_received(payment_time, &transactions);
 
         txn.commit().unwrap();
         let status1 = subject.account_status(&debtor1).unwrap();
@@ -1027,19 +1025,16 @@ mod tests {
             .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let panic_causing_conn = {
-            let conn = Connection::open_with_flags(
-                &data_dir.join(DATABASE_FILE),
-                OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
+            let db_path = data_dir.join(DATABASE_FILE);
+            let flags = OpenFlags::SQLITE_OPEN_READ_ONLY;
+            let conn = Connection::open_with_flags(&db_path, flags).unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = PrepareResultsDispatcher::new_with_both_prod_code_and_stubbed_calls(
+        let prepare_results = PrepareResultsDispatcher::new_with_prod_code_and_stubbed(
             prod_code_calls_conn,
-            panic_causing_conn,
-        )
-        .count_of_initial_prod_code_calls(3)
-        .add_single_stubbed_call_from_prod_code_statement();
+            Some(panic_causing_conn),
+            vec![None, None, None, Some(StubbedStatement::ProdCodeOriginal)],
+        );
         let mocked_transaction = Box::new(
             TransactionWrapperMock::default()
                 .prepare_params(&prepare_params_arc)

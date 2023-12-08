@@ -4,9 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};

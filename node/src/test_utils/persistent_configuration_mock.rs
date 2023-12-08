@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::database::rusqlite_wrappers::{SQLiteTransactionWrapper, TransactionInnerWrapper};
+use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};

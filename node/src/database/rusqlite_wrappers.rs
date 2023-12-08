@@ -82,7 +82,6 @@ impl ConnectionWrapperReal {
     }
 }
 
-
 // Whole point of this outer wrapper common for both the real and mock transaction ( named as
 // TransactionInnerWrapper ) is to give us a chance to deconstruct the whole structure when we're
 // finishing the call of `commit()`. The classical mockable structure compounded of a trait object
@@ -156,10 +155,7 @@ impl<'a> TransactionInnerWrapperReal<'a> {
 
 impl<'a> TransactionInnerWrapper for TransactionInnerWrapperReal<'a> {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.txn_opt
-            .as_ref()
-            .expectv("rusqlite txn")
-            .prepare(query)
+        self.txn_opt.as_ref().expectv("rusqlite txn").prepare(query)
     }
 
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {

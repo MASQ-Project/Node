@@ -5,9 +5,7 @@
 use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDatabaseError, BigIntDatabaseProcessor, BigIntSqlConfig, TableNameDAO,
 };
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use itertools::Either;
 use std::cell::RefCell;
 

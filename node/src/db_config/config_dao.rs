@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::utils::DaoFactoryReal;
-use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
-};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
 use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
