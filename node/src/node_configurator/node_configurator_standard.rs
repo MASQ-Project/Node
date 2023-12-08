@@ -933,7 +933,9 @@ mod tests {
 
         let result =
             server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap_err();
-        let expected = ConfiguratorError::new(vec![ ParamError::new("config-file", "Couldn't open configuration file \"generated/test/node_configurator_standard/server_initializer_collected_params_handles_only_path_in_config_file_param/home/generated/test/node_configurator_standard/server_initializer_collected_params_handles_only_path_in_config_file_param/home\". Are you sure it exists?")]);
+
+        let result_path = format!("Couldn't open configuration file \"{}\". Are you sure it exists?", home_dir.as_path().join(home_dir.as_path()).to_str().unwrap());
+        let expected = ConfiguratorError::new(vec![ ParamError::new("config-file", result_path.as_str())]);
 
         assert_eq!(result, expected);
     }
@@ -994,7 +996,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_command_line/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
         );
     }
 
@@ -1052,7 +1054,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_environment/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
         );
     }
 
@@ -1084,8 +1086,8 @@ mod tests {
         #[cfg(target_os = "windows")]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param("--config-file", "~/masqhome\\config.toml")
-            .param("--data-directory", "~/masqhome");
+            .param("--config-file", "~\\masqhome\\config.toml")
+            .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir.to_path_buf()))
@@ -1249,8 +1251,13 @@ mod tests {
         running_test();
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
         let data_dir = home_dir.join("data_dir");
+        #[cfg(not(target_os = "windows"))]
         let args = ArgsBuilder::new()
             .param("--config-file", "/home/booga/booga.toml") // nonexistent config file: should return error because user-specified
+            .param("--chain", "polygon-mainnet");
+        #[cfg(target_os = "windows")]
+        let args = ArgsBuilder::new()
+            .param("--config-file", "C:\\home\\booga\\booga.toml") // nonexistent config file: should return error because user-specified
             .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()

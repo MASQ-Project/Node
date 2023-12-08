@@ -389,8 +389,8 @@ impl Display for ConfigFileVclError {
         match self {
             ConfigFileVclError::OpenError(path, _) => write!(
                 fmt,
-                "Couldn't open configuration file {:?}. Are you sure it exists?",
-                path
+                "Couldn't open configuration file \"{}\". Are you sure it exists?",
+                path.to_string_lossy()
             ),
             ConfigFileVclError::CorruptUtf8(path) => write!(
                 fmt,
