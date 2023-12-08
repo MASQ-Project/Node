@@ -57,7 +57,7 @@ use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction(&mut self) -> Result<SQLiteTransactionWrapper, rusqlite::Error>;
+    fn transaction(&mut self) -> Result<TransactionWrapper, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -69,10 +69,10 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-    fn transaction(&mut self) -> Result<SQLiteTransactionWrapper, Error> {
+    fn transaction(&mut self) -> Result<TransactionWrapper, Error> {
         self.conn
             .transaction()
-            .map(|tx| SQLiteTransactionWrapper::new(Box::new(TransactionInnerWrapperReal::new(tx))))
+            .map(|tx| TransactionWrapper::new(Box::new(TransactionInnerWrapperReal::new(tx))))
     }
 }
 
@@ -103,32 +103,37 @@ impl ConnectionWrapperReal {
 // [supposed db conn origin] --> WrappedConnectionMock<'a> -> WrappedTransactionMock<'a>.
 
 #[derive(Debug)]
-pub struct SQLiteTransactionWrapper<'conn_in_real_or_static_in_mock> {
-    wrapped_guts: Box<dyn TransactionInnerWrapper + 'conn_in_real_or_static_in_mock>,
+pub struct TransactionWrapper<'conn_in_real_or_static_in_mock> {
+    wrapped_inner: Box<dyn TransactionInnerWrapper + 'conn_in_real_or_static_in_mock>,
 }
 
-impl<'a> SQLiteTransactionWrapper<'a> {
+impl<'a> TransactionWrapper<'a> {
     pub fn new(inner: Box<dyn TransactionInnerWrapper + 'a>) -> Self {
         Self {
-            wrapped_guts: inner,
+            wrapped_inner: inner,
         }
     }
 
     pub fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.wrapped_guts.prepare(query)
+        self.wrapped_inner.prepare(query)
     }
 
     pub fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
-        self.wrapped_guts.execute(query, params)
+        self.wrapped_inner.execute(query, params)
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
-        self.wrapped_guts.commit()
+        self.wrapped_inner.commit()
     }
 
     #[cfg(test)]
     pub fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        self.wrapped_guts.arbitrary_id_stamp()
+        self.wrapped_inner.arbitrary_id_stamp()
+    }
+
+    #[cfg(test)]
+    pub fn new_test_only() -> Self{
+        todo!()
     }
 }
 
@@ -142,7 +147,7 @@ pub trait TransactionInnerWrapper: Debug {
 
 #[derive(Debug)]
 pub struct TransactionInnerWrapperReal<'a> {
-    txn_opt: Option<rusqlite::Transaction<'a>>,
+    txn_opt: Option<Transaction<'a>>,
 }
 
 impl<'a> TransactionInnerWrapperReal<'a> {

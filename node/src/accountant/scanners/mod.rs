@@ -1149,8 +1149,8 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::database::rusqlite_wrappers::TransactionWrapper;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMock;
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -3093,12 +3093,12 @@ mod tests {
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_id = ArbitraryIdStamp::new();
         let transaction = Box::new(
-            TransactionWrapperMock::new()
+            TransactionInnerWrapperMock::new()
                 .commit_params(&commit_params_arc)
                 .commit_result(Ok(()))
                 .set_arbitrary_id_stamp(transaction_id),
         );
-        let transaction = SQLiteTransactionWrapper::new(transaction);
+        let transaction = TransactionWrapper::new(transaction);
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_from_txn_params(&set_start_block_from_txn_params_arc)
             .set_start_block_from_txn_result(Ok(()));
@@ -3162,8 +3162,8 @@ mod tests {
         init_test_logging();
         let test_name = "received_transactions_processed_but_start_block_setting_fails";
         let now = SystemTime::now();
-        let transaction = Box::new(TransactionWrapperMock::new());
-        let transaction = SQLiteTransactionWrapper::new(transaction);
+        let transaction = Box::new(TransactionInnerWrapperMock::new());
+        let transaction = TransactionWrapper::new(transaction);
         let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
             Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
         );
@@ -3198,7 +3198,7 @@ mod tests {
         init_test_logging();
         let test_name = "transaction_for_balance_start_block_updates_fails_on_its_commit";
         let now = SystemTime::now();
-        let transaction = Box::new(TransactionWrapperMock::new().commit_result(Err(
+        let transaction = Box::new(TransactionInnerWrapperMock::new().commit_result(Err(
             rusqlite::Error::SqliteFailure(
                 ffi::Error {
                     code: ErrorCode::InternalMalfunction,
@@ -3207,7 +3207,7 @@ mod tests {
                 Some("blah".to_string()),
             ),
         )));
-        let transaction = SQLiteTransactionWrapper::new(transaction);
+        let transaction = TransactionWrapper::new(transaction);
         let persistent_config =
             PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);

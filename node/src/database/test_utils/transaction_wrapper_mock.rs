@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SQLiteTransactionWrapper, TransactionInnerWrapper,
+    ConnectionWrapper, TransactionWrapper, TransactionInnerWrapper,
 };
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
-pub struct TransactionWrapperMock {
+pub struct TransactionInnerWrapperMock {
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
     commit_params: Arc<Mutex<Vec<()>>>,
@@ -21,7 +21,7 @@ pub struct TransactionWrapperMock {
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-impl TransactionWrapperMock {
+impl TransactionInnerWrapperMock {
     pub fn new() -> Self {
         Self::default()
     }
@@ -57,7 +57,7 @@ impl TransactionWrapperMock {
     set_arbitrary_id_stamp_in_mock_impl!();
 }
 
-impl TransactionInnerWrapper for TransactionWrapperMock {
+impl TransactionInnerWrapper for TransactionInnerWrapperMock {
     fn prepare(&self, prod_code_query: &str) -> Result<Statement, Error> {
         self.prepare_params
             .lock()
@@ -146,7 +146,7 @@ struct SQLsProdCodeAndStubbed {
     // successful SQL operations would not be written into the database
     // persistently, even though some tests might expect those changes
     // to be findable in the database
-    prod_code_transaction_opt: Option<SQLiteTransactionWrapper<'static>>,
+    prod_code_transaction_opt: Option<TransactionWrapper<'static>>,
     queue_determining_use_of_prod_code_stm_or_stubbed_stmts: RefCell<Vec<Option<StubbedStatement>>>,
     // This connection is usually the most important, but using just the primarily
     // prod code conn should be also possible. Strategies are either to provide

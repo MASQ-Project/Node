@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::utils::DaoFactoryReal;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SQLiteTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
 use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
@@ -43,7 +43,7 @@ pub trait ConfigDao {
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
     fn set_by_other_transaction(
         &self,
-        txn: &mut SQLiteTransactionWrapper,
+        txn: &mut TransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError>;
@@ -77,7 +77,7 @@ impl ConfigDao for ConfigDaoReal {
 
     fn set_by_other_transaction(
         &self,
-        txn: &mut SQLiteTransactionWrapper,
+        txn: &mut TransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError> {

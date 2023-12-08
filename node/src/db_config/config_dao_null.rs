@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::SQLiteTransactionWrapper;
+use crate::database::rusqlite_wrappers::TransactionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -75,7 +75,7 @@ impl ConfigDao for ConfigDaoNull {
 
     fn set_by_other_transaction(
         &self,
-        _txn: &mut SQLiteTransactionWrapper,
+        _txn: &mut TransactionWrapper,
         _name: &str,
         _value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMock;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn set_by_other_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
-        let txn = Box::new(TransactionWrapperMock::new());
-        let mut txn = SQLiteTransactionWrapper::new(txn);
+        let txn = Box::new(TransactionInnerWrapperMock::new());
+        let mut txn = TransactionWrapper::new(txn);
 
         subject
             .set_by_other_transaction(&mut txn, "param1", Some("value1".to_string()))
