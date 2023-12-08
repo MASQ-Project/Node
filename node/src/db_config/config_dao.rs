@@ -41,7 +41,7 @@ pub trait ConfigDao {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
-    fn set_by_other_transaction(
+    fn set_by_guest_transaction(
         &self,
         txn: &mut TransactionWrapper,
         name: &str,
@@ -72,17 +72,17 @@ impl ConfigDao for ConfigDaoReal {
 
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
         let prepare_stm = |stm: &str| self.conn.prepare(stm);
-        Self::set(prepare_stm, name, value)
+        Self::set_value(prepare_stm, name, value)
     }
 
-    fn set_by_other_transaction(
+    fn set_by_guest_transaction(
         &self,
         txn: &mut TransactionWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
         let prepare_stm = |stm: &str| txn.prepare(stm);
-        Self::set(prepare_stm, name, value)
+        Self::set_value(prepare_stm, name, value)
     }
 }
 
@@ -91,13 +91,16 @@ impl ConfigDaoReal {
         ConfigDaoReal { conn }
     }
 
-    fn set<'a, P>(prepare: P, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>
+    fn set_value<'a, P>(
+        prepare_stm: P,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), ConfigDaoError>
     where
         P: FnOnce(&str) -> Result<Statement<'a>, rusqlite::Error> + 'a,
     {
-        let mut stmt = match prepare("update config set value = ? where name = ?") {
+        let mut stmt = match prepare_stm("update config set value = ? where name = ?") {
             Ok(stmt) => stmt,
-            // The following line is untested, because we don't know how to trigger it.
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
         let params: &[&dyn ToSql] = &[&value, &name];
@@ -179,6 +182,7 @@ mod tests {
     use crate::test_utils::assert_contains;
     use masq_lib::constants::{CURRENT_SCHEMA_VERSION, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::Connection;
     use std::path::Path;
 
     #[test]
@@ -287,16 +291,23 @@ mod tests {
     }
 
     #[test]
-    fn setting_by_started_transaction_works() {
+    fn set_by_guest_transaction_works() {
         let home_dir =
-            ensure_node_home_directory_exists("config_dao", "setting_by_started_transaction_works");
-        // To make the test even more convincing, let's create a useless "Connection".
+            ensure_node_home_directory_exists("config_dao", "set_by_guest_transaction_works");
+        // To make the test even more convincing, let's give a useless "Connection" to the hosting DAO object,
+        // while the guest connection will do the job
         let subject = ConfigDaoReal::new(Box::new(ConnectionWrapperMock::default()));
         let mut conn = initialize_conn(&home_dir);
         let mut txn = conn.transaction().unwrap();
+        let different_than_current_schema_version = CURRENT_SCHEMA_VERSION + 3;
+        let dif_schema_version_str = different_than_current_schema_version.to_string();
 
         subject
-            .set_by_other_transaction(&mut txn, "schema_version", Some("3".to_string()))
+            .set_by_guest_transaction(
+                &mut txn,
+                "schema_version",
+                Some(dif_schema_version_str.clone()),
+            )
             .unwrap();
 
         let assert_dao = make_subject(&home_dir);
@@ -311,11 +322,25 @@ mod tests {
         );
         txn.commit().unwrap();
         let result_after_commit = assert_dao.get("schema_version").unwrap();
-        assert_ne!(CURRENT_SCHEMA_VERSION, 3);
         assert_eq!(
             result_after_commit,
-            ConfigDaoRecord::new("schema_version", Some("3"), false)
+            ConfigDaoRecord::new("schema_version", Some(&dif_schema_version_str), false)
         );
+    }
+
+    #[test]
+    fn set_value_handles_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        let prepare_stm = |stm: &str| conn.prepare(stm);
+
+        let result = ConfigDaoReal::set_value(prepare_stm, "bubbles", None);
+
+        assert_eq!(
+            result,
+            Err(ConfigDaoError::DatabaseError(
+                "no such table: config".to_string()
+            ))
+        )
     }
 
     fn make_subject(home_dir: &Path) -> ConfigDaoReal {

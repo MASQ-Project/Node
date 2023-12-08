@@ -500,7 +500,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::transaction_wrapper_mock::{
-        PrepareResultsDispatcher, StubbedStatement, TransactionInnerWrapperMockBuilder,
+        ForgedStmtByOrigin, PrepareResultsDispatcher, TransactionInnerWrapperMockBuilder,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
@@ -1030,10 +1030,10 @@ mod tests {
             let conn = Connection::open_with_flags(&db_path, flags).unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = PrepareResultsDispatcher::new_with_prod_code_and_stubbed(
+        let prepare_results = PrepareResultsDispatcher::new_with_prod_code_and_forged_stmts(
             prod_code_calls_conn,
             Some(panic_causing_conn),
-            vec![None, None, None, Some(StubbedStatement::ProdCodeOriginal)],
+            vec![None, None, None, Some(ForgedStmtByOrigin::FromProdCode)],
         );
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)

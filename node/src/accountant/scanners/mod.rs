@@ -1114,14 +1114,12 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
     as_any_ref_in_trait_impl!();
     as_any_mut_in_trait_impl!();
 }
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayable, PendingPayableDaoError,
     };
-    use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoReal;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
@@ -1151,7 +1149,6 @@ mod tests {
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
-    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
@@ -1185,9 +1182,8 @@ mod tests {
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_result(PendingPayableDaoMock::new())
             .make_result(PendingPayableDaoMock::new());
-        let receivable_dao = ReceivableDaoReal::new(Box::new(ConnectionWrapperMock::new()));
-        let receivable_dao_factory =
-            ReceivableDaoFactoryMock::new().make_boxed_result(Box::new(receivable_dao));
+        let receivable_dao = ReceivableDaoMock::new();
+        let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(receivable_dao);
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao_mock = ConfigDaoMock::new()
@@ -3141,9 +3137,9 @@ mod tests {
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
-        let set_by_other_transaction_params = set_start_block_from_txn_params_arc.lock().unwrap();
+        let set_by_guest_transaction_params = set_start_block_from_txn_params_arc.lock().unwrap();
         assert_eq!(
-            *set_by_other_transaction_params,
+            *set_by_guest_transaction_params,
             vec![(7890123, transaction_id)]
         );
         let commit_params = commit_params_arc.lock().unwrap();

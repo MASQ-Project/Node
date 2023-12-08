@@ -441,11 +441,7 @@ impl ReceivableDaoFactoryMock {
     }
 
     pub fn make_result(self, result: ReceivableDaoMock) -> Self {
-        self.make_boxed_result(Box::new(result))
-    }
-
-    pub fn make_boxed_result(self, result: Box<dyn ReceivableDao>) -> Self {
-        self.make_results.borrow_mut().push(result);
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }

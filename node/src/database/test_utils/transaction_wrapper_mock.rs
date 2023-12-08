@@ -171,20 +171,20 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 // 'query_map'.
 
 #[derive(Debug)]
-struct SQLsStubbedOnly {
+struct OnlyForgedStmts {
     conn: Box<dyn ConnectionWrapper>,
-    queue_of_statements_to_execute: RefCell<Vec<String>>,
+    queue_of_statements: RefCell<Vec<String>>,
 }
 
 #[derive(Debug)]
-struct SQLsProdCodeAndStubbed {
-    prod_code_conn: Box<dyn ConnectionWrapper>,
+struct BothProdCodeAndForgedStmts {
+    prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
     // This transaction must be here because otherwise all those
     // successful SQL operations would not be written into the database
     // persistently, even though some tests might expect those changes
     // to be findable in the database
-    prod_code_transaction_opt: Option<TransactionWrapper<'static>>,
-    queue_determining_use_of_prod_code_stm_or_stubbed_stmts: RefCell<Vec<Option<StubbedStatement>>>,
+    transaction_bearing_prod_code_stmts_opt: Option<TransactionWrapper<'static>>,
+    queue_with_either_prod_code_or_forged_stmt: RefCell<Vec<Option<ForgedStmtByOrigin>>>,
     // This connection is usually the most important, but using just the primarily
     // prod code conn should be also possible. Strategies are either to provide
     // a connection pointing to an unrelated database, usually very simple, allowing
@@ -192,41 +192,41 @@ struct SQLsProdCodeAndStubbed {
     // code is supposed to respond to, or another situation often found handy
     // for asserting general errors can be achieved by a read-only connection used
     // in statements that are supposed to change the state of the database
-    diff_conn_for_stubbed_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
+    unique_conn_for_forged_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
 }
 
-impl SQLsProdCodeAndStubbed {
+impl BothProdCodeAndForgedStmts {
     fn commit_prod_code_stmts(&mut self) -> Result<(), Error> {
-        self.prod_code_transaction_opt
+        self.transaction_bearing_prod_code_stmts_opt
             .take()
-            .expect("dual setup in TransactionWrapperInnerMock without txn")
+            .expect("Dual setup in PrepareResultsDispatcher with missing txn; how possible?")
             .commit()
     }
 }
 
-impl Drop for SQLsProdCodeAndStubbed {
+impl Drop for BothProdCodeAndForgedStmts {
     fn drop(&mut self) {
         // The real transaction binds a reference that doesn't comply with safeness, it was made by
         // a backward cast from a raw pointer, which breaks checks for referencing an invalid memory.
         // We must make sure that this transaction deconstructs earlier than the database
         // Connection it has been derived from, avoiding the OS segmentation error.
-        drop(self.prod_code_transaction_opt.take())
+        drop(self.transaction_bearing_prod_code_stmts_opt.take())
     }
 }
 
 #[derive(Debug)]
 pub struct PrepareResultsDispatcher {
-    setup: Either<SQLsStubbedOnly, SQLsProdCodeAndStubbed>,
+    setup: Either<OnlyForgedStmts, BothProdCodeAndForgedStmts>,
 }
 
 impl PrepareResultsDispatcher {
-    pub fn new_with_stubbed_only(
+    pub fn new_with_forged_stmts_only(
         conn: Box<dyn ConnectionWrapper>,
-        stubbed_stmts_queue: Vec<String>,
+        forged_stmts_queue: Vec<String>,
     ) -> Self {
-        let setup = SQLsStubbedOnly {
+        let setup = OnlyForgedStmts {
             conn,
-            queue_of_statements_to_execute: RefCell::new(stubbed_stmts_queue),
+            queue_of_statements: RefCell::new(forged_stmts_queue),
         };
 
         Self {
@@ -234,28 +234,28 @@ impl PrepareResultsDispatcher {
         }
     }
 
-    pub fn new_with_prod_code_and_stubbed(
+    pub fn new_with_prod_code_and_forged_stmts(
         prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
-        stubbed_conn_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
-        stubbed_stmts_opt_queue: Vec<Option<StubbedStatement>>,
+        forged_stmts_conn_opt: Option<Box<dyn ConnectionWrapper>>,
+        stm_choice_determining_queue: Vec<Option<ForgedStmtByOrigin>>,
     ) -> Self {
         let setup = {
             let ptr = Box::into_raw(prod_code_stmts_conn);
             let conn = unsafe { Box::from_raw(ptr) };
 
-            let mut setup = SQLsProdCodeAndStubbed {
-                prod_code_conn: conn,
-                prod_code_transaction_opt: None,
-                queue_determining_use_of_prod_code_stm_or_stubbed_stmts: RefCell::new(
-                    stubbed_stmts_opt_queue,
+            let mut setup = BothProdCodeAndForgedStmts {
+                prod_code_stmts_conn: conn,
+                transaction_bearing_prod_code_stmts_opt: None,
+                queue_with_either_prod_code_or_forged_stmt: RefCell::new(
+                    stm_choice_determining_queue,
                 ),
-                diff_conn_for_stubbed_stmts_opt: stubbed_conn_stmts_opt,
+                unique_conn_for_forged_stmts_opt: forged_stmts_conn_opt,
             };
 
             let conn = unsafe { ptr.as_mut().unwrap() };
             let txn = conn.transaction().unwrap();
 
-            setup.prod_code_transaction_opt = Some(txn);
+            setup.transaction_bearing_prod_code_stmts_opt = Some(txn);
 
             setup
         };
@@ -267,38 +267,38 @@ impl PrepareResultsDispatcher {
 
     fn produce_statement(&self, prod_code_original_stm: &str) -> Result<Statement, Error> {
         match self.setup.as_ref() {
-            Either::Left(setup) => Self::handle_stm_for_stubbed_only(setup),
+            Either::Left(setup) => Self::handle_stm_for_forged_only(setup),
             Either::Right(setup) => {
-                Self::handle_stm_for_prod_code_or_stubbed(setup, prod_code_original_stm)
+                Self::handle_stm_for_prod_code_or_forged(setup, prod_code_original_stm)
             }
         }
     }
 
-    fn handle_stm_for_stubbed_only(setup: &SQLsStubbedOnly) -> Result<Statement, Error> {
-        let stm = setup.queue_of_statements_to_execute.borrow_mut().remove(0);
+    fn handle_stm_for_forged_only(setup: &OnlyForgedStmts) -> Result<Statement, Error> {
+        let stm = setup.queue_of_statements.borrow_mut().remove(0);
         setup.conn.prepare(&stm)
     }
 
-    fn handle_stm_for_prod_code_or_stubbed<'conn>(
-        setup: &'conn SQLsProdCodeAndStubbed,
+    fn handle_stm_for_prod_code_or_forged<'conn>(
+        setup: &'conn BothProdCodeAndForgedStmts,
         prod_code_original_stm: &str,
     ) -> Result<Statement<'conn>, Error> {
         let stm_opt = setup
-            .queue_determining_use_of_prod_code_stm_or_stubbed_stmts
+            .queue_with_either_prod_code_or_forged_stmt
             .borrow_mut()
             .remove(0);
         match stm_opt {
-            None => setup.prod_code_conn.prepare(prod_code_original_stm),
-            Some(stubbed_stm) => {
-                let stm = match &stubbed_stm {
-                    StubbedStatement::ProdCodeOriginal => prod_code_original_stm,
-                    StubbedStatement::ProdCodeSubstitution { incident_statement } => {
-                        incident_statement.as_str()
-                    }
+            None => setup.prod_code_stmts_conn.prepare(prod_code_original_stm),
+            Some(forged_stm) => {
+                let stm = match &forged_stm {
+                    ForgedStmtByOrigin::FromProdCode => prod_code_original_stm,
+                    ForgedStmtByOrigin::ProdCodeSubstitution {
+                        new_statement: incident_statement,
+                    } => incident_statement.as_str(),
                 };
-                match setup.diff_conn_for_stubbed_stmts_opt.as_ref() {
+                match setup.unique_conn_for_forged_stmts_opt.as_ref() {
                     None => setup
-                        .prod_code_transaction_opt
+                        .transaction_bearing_prod_code_stmts_opt
                         .as_ref()
                         .expect("txn must be present")
                         .prepare(stm),
@@ -310,10 +310,10 @@ impl PrepareResultsDispatcher {
 }
 
 #[derive(Debug)]
-pub enum StubbedStatement {
+pub enum ForgedStmtByOrigin {
     // Used when you have an injected connection pointing to a different db
     // and you don't want to devise a new statement but use the same as
     // intended for the prod code
-    ProdCodeOriginal,
-    ProdCodeSubstitution { incident_statement: String },
+    FromProdCode,
+    ProdCodeSubstitution { new_statement: String },
 }

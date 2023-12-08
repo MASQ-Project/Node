@@ -73,7 +73,7 @@ impl ConfigDao for ConfigDaoNull {
         Ok(())
     }
 
-    fn set_by_other_transaction(
+    fn set_by_guest_transaction(
         &self,
         _txn: &mut TransactionWrapper,
         _name: &str,
@@ -312,24 +312,24 @@ mod tests {
     }
 
     #[test]
-    fn set_by_other_transaction_works_simple() {
+    fn set_by_guest_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
         let mut txn = TransactionWrapper::new_test_only(txn_inner_builder);
+        let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
 
         subject
-            .set_by_other_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .set_by_guest_transaction(&mut txn, "param1", Some("value1".to_string()))
             .unwrap();
         subject
-            .set_by_other_transaction(&mut txn, "schema_version", None)
+            .set_by_guest_transaction(&mut txn, "schema_version", None)
             .unwrap();
         subject
-            .set_by_other_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .set_by_guest_transaction(&mut txn, "schema_version", Some("456".to_string()))
             .unwrap();
 
-        let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
-        let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
-        assert_eq!(subject_data_sorted, comparison_subject_data_sorted)
+        let subject_data_after_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_after_sorted, subject_data_before_sorted)
         // Test didn't blow up so no method from the txn wrapper was called,
         // therefore we don't even have to consider committing the transaction
     }

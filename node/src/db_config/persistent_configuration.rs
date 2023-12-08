@@ -573,7 +573,7 @@ impl PersistentConfigurationReal {
     ) -> Result<(), PersistentConfigError> {
         Ok(self
             .dao
-            .set_by_other_transaction(txn, parameter_name, Some(value.to_string()))?)
+            .set_by_guest_transaction(txn, parameter_name, Some(value.to_string()))?)
     }
 
     fn simple_get_method<T>(
@@ -1544,8 +1544,8 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .set_by_other_transaction_params(&set_params_arc)
-                .set_by_other_transaction_result(Ok(())),
+                .set_by_guest_transaction_params(&set_params_arc)
+                .set_by_guest_transaction_result(Ok(())),
         );
         let txn_id = ArbitraryIdStamp::new();
         let txn_inner_builder =
