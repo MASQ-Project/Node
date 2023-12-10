@@ -934,8 +934,16 @@ mod tests {
         let result =
             server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap_err();
 
-        let result_path = format!("Couldn't open configuration file \"{}\". Are you sure it exists?", home_dir.as_path().join(home_dir.as_path()).to_str().unwrap());
-        let expected = ConfiguratorError::new(vec![ ParamError::new("config-file", result_path.as_str())]);
+        let result_path = format!(
+            "Couldn't open configuration file \"{}\". Are you sure it exists?",
+            home_dir
+                .as_path()
+                .join(home_dir.as_path())
+                .to_str()
+                .unwrap()
+        );
+        let expected =
+            ConfiguratorError::new(vec![ParamError::new("config-file", result_path.as_str())]);
 
         assert_eq!(result, expected);
     }
