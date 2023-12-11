@@ -28,6 +28,7 @@ use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
+use std::net::Ipv4Addr;
 use std::thread;
 use std::time::Duration;
 
@@ -265,6 +266,39 @@ fn dns_resolution_failure_with_real_nodes() {
             &b"<h3>Subtitle: Exit Nodes couldn't resolve \"www.nonexistent.com\"</h3>"[..]
         )
         .is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
+    );
+}
+
+#[test]
+fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let exit_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .chain(cluster.chain)
+            .dns_servers(vec![Ipv4Addr::new(1, 1, 1, 3).into()])
+            .build(),
+    );
+
+    let originating_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(exit_node.node_reference())
+            .consuming_wallet_info(make_consuming_wallet_info("last_node"))
+            .chain(cluster.chain)
+            .min_hops(Hops::OneHop)
+            .build(),
+    );
+
+    thread::sleep(Duration::from_millis(2000));
+
+    let mut client = originating_node.make_client(8080, 20_000);
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.xvideos.com\r\n\r\n");
+    let response = client.wait_for_chunk();
+
+    assert_eq!(
+        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
