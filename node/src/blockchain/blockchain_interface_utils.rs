@@ -127,25 +127,17 @@ pub fn sign_transaction<T: BatchTransport + 'static>(
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
-    gas_price: u64,
+    gas_price_in_gwei: u64,
 ) -> Box<dyn Future<Item = SignedTransaction, Error = PayableTransactionError>> {
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
-
-    let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-        serde_json::to_value(nonce).expect("Internal error"),
-    )
-    .expect("Internal error");
-    let gas_price = serde_json::from_value::<ethereum_types::U256>(
-        serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-    )
-    .expect("Internal error");
+    let gas_price_in_wei = to_wei(gas_price_in_gwei);
 
     let transaction_parameters = TransactionParameters {
-        nonce: Some(converted_nonce), // TODO: GH-744 Change this to None and let the BlockChain figure out the correct Nonce instead.
-        to: Some(H160(chain.rec().contract.0)),
+        nonce: Some(nonce), // TODO: GH-744 Change this to None and let the BlockChain figure out the correct Nonce instead.
+        to: Some(chain.rec().contract),
         gas: gas_limit,
-        gas_price: Some(gas_price), // TODO: GH-744 Talk about this.
+        gas_price: Some(gas_price_in_wei), // TODO: GH-744 Talk about this.
         value: ethereum_types::U256::zero(),
         data: Bytes(data.to_vec()),
         chain_id: Some(chain.rec().num_chain_id),
@@ -855,36 +847,20 @@ mod tests {
     fn sign_transaction_just_works() {
         let transport = TestTransport::default();
         let web3 = Web3::new(transport.clone());
-        // let chain = DEFAULT_CHAIN;
-        let chain = Chain::EthMainnet;
+        let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
-        let gas_price = 123000000000_u64;
+        let gas_price_in_gwei = 123000000000_u64;
         let nonce = U256::from(5);
-        let consuming_wallet_secret = b"consuming_wallet_0123456789abcde";
-        let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
-        let recipient_wallet = make_wallet("creditor123");
+        let recipient_wallet = make_wallet("recipient_wallet");
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let consuming_wallet_secret_key = consuming_wallet.prepare_secp256k1_secret().unwrap();
         let data = sign_transaction_data(amount, recipient_wallet.clone());
 
-        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(nonce).expect("Internal error"),
-        )
-        .unwrap();
-
-        let converted_gas_price = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-        )
-        .unwrap();
-
-        // let secret_key =
-        //     (&Bip32EncryptionKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
-
-        let secret_key = consuming_wallet.prepare_secp256k1_secret().unwrap();
-
         let tx_parameters = TransactionParameters {
-            nonce: Some(converted_nonce),
-            to: Some(H160(chain.rec().contract.0)), // Some(chain.rec().contract),
-            gas: gas_limit(data, chain),            //  U256::from(56_552),
-            gas_price: Some(converted_gas_price),
+            nonce: Some(nonce),
+            to: Some(chain.rec().contract),
+            gas: gas_limit(data, chain),
+            gas_price: Some(to_wei(gas_price_in_gwei)),
             value: U256::zero(),
             data: Bytes(data.to_vec()),
             chain_id: Some(chain.rec().num_chain_id),
@@ -897,17 +873,15 @@ mod tests {
             consuming_wallet,
             amount,
             nonce,
-            gas_price,
+            gas_price_in_gwei,
         )
         .wait();
 
         let signed_transaction = web3
             .accounts()
-            .sign_transaction(tx_parameters, &secret_key)
+            .sign_transaction(tx_parameters, &consuming_wallet_secret_key)
             .wait()
             .unwrap();
-
-        // assert!(result.is_ok());
 
         assert_eq!(result, Ok(signed_transaction));
     }
