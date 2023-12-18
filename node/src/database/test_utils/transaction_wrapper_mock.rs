@@ -61,7 +61,7 @@ struct TransactionInnerWrapperMock {
     // This field hosts a logical unit able to make the correct
     // result that seems to be requested to go out based on
     // the test's setup instructions where the programmer may
-    // have decided to use this advanced test procedure 
+    // have decided to use this advanced test procedure
     prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
@@ -172,7 +172,7 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 #[derive(Debug)]
 struct SetupForOnlyAlteredStmts {
     conn: Box<dyn ConnectionWrapper>,
-    queue_of_statements: RefCell<Vec<String>>,
+    queue_of_statements: RefCell<Vec<AlteredStmtByOrigin>>,
 }
 
 #[derive(Debug)]
@@ -206,7 +206,7 @@ impl SetupForProdCodeAndAlteredStmts {
             .commit()
     }
 
-    fn make_altered_stmt(&self, altered_stm: &str) ->Result<Statement, Error>{
+    fn make_altered_stmt(&self, altered_stm: &str) -> Result<Statement, Error> {
         match self.unique_conn_for_altered_stmts_opt.as_ref() {
             None => self
                 .txn_aggregating_prod_code_stmts_opt
@@ -236,7 +236,7 @@ pub struct PrepareResultsDispatcher {
 impl PrepareResultsDispatcher {
     pub fn new_with_altered_stmts_only(
         conn: Box<dyn ConnectionWrapper>,
-        altered_stmts_queue: Vec<String>,
+        altered_stmts_queue: Vec<AlteredStmtByOrigin>,
     ) -> Self {
         let setup = SetupForOnlyAlteredStmts {
             conn,
@@ -260,9 +260,7 @@ impl PrepareResultsDispatcher {
             let mut setup = SetupForProdCodeAndAlteredStmts {
                 prod_code_stmts_conn: conn,
                 txn_aggregating_prod_code_stmts_opt: None,
-                queue_with_prod_code_and_altered_stmts: RefCell::new(
-                    stm_determining_queue,
-                ),
+                queue_with_prod_code_and_altered_stmts: RefCell::new(stm_determining_queue),
                 unique_conn_for_altered_stmts_opt: altered_stmts_conn_opt,
             };
 
@@ -279,39 +277,37 @@ impl PrepareResultsDispatcher {
         }
     }
 
-    fn produce_statement(&self, prod_code_original_stm: &str) -> Result<Statement, Error> {
+    fn produce_statement(&self, prod_code_stmt: &str) -> Result<Statement, Error> {
         match self.setup.as_ref() {
-            Either::Left(setup) => Self::handle_stmt_for_only_altered(setup),
+            Either::Left(setup) => Self::handle_stmt_for_only_altered(setup, prod_code_stmt),
             Either::Right(setup) => {
-                Self::handle_stmt_for_prod_code_and_altered(setup, prod_code_original_stm)
+                Self::handle_stmt_for_prod_code_and_altered(setup, prod_code_stmt)
             }
         }
     }
 
-    fn handle_stmt_for_only_altered(setup: &SetupForOnlyAlteredStmts) -> Result<Statement, Error> {
-        let stm = setup.queue_of_statements.borrow_mut().remove(0);
-        setup.conn.prepare(&stm)
+    fn handle_stmt_for_only_altered<'conn>(
+        setup: &'conn SetupForOnlyAlteredStmts,
+        prod_code_stmt: &str,
+    ) -> Result<Statement<'conn>, Error> {
+        let stmt_by_origin = setup.queue_of_statements.borrow_mut().remove(0);
+        let altered_stmt = stmt_by_origin.resolve_stm_to_use(prod_code_stmt);
+        setup.conn.prepare(altered_stmt)
     }
 
     fn handle_stmt_for_prod_code_and_altered<'conn>(
         setup: &'conn SetupForProdCodeAndAlteredStmts,
-        prod_code_original_stm: &str,
+        prod_code_stmt: &str,
     ) -> Result<Statement<'conn>, Error> {
-        let altered_stm_opt = setup
+        let altered_stmt_opt = setup
             .queue_with_prod_code_and_altered_stmts
             .borrow_mut()
             .remove(0);
 
-        match altered_stm_opt {
-            None => setup.prod_code_stmts_conn.prepare(prod_code_original_stm),
+        match altered_stmt_opt {
+            None => setup.prod_code_stmts_conn.prepare(prod_code_stmt),
             Some(altered_stm) => {
-                let altered_stm_str = match &altered_stm {
-                    AlteredStmtByOrigin::ProdCode => prod_code_original_stm,
-                    AlteredStmtByOrigin::SQLSubstitution {
-                        substitution_stmt: incident_statement,
-                    } => incident_statement.as_str(),
-                };
-
+                let altered_stm_str = altered_stm.resolve_stm_to_use(prod_code_stmt);
                 setup.make_altered_stmt(altered_stm_str)
             }
         }
@@ -325,4 +321,15 @@ pub enum AlteredStmtByOrigin {
     // intended for the prod code
     ProdCode,
     SQLSubstitution { substitution_stmt: String },
+}
+
+impl AlteredStmtByOrigin {
+    fn resolve_stm_to_use<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
+        match self {
+            AlteredStmtByOrigin::ProdCode => prod_code_stm,
+            AlteredStmtByOrigin::SQLSubstitution {
+                substitution_stmt: incident_statement,
+            } => incident_statement.as_str(),
+        }
+    }
 }
