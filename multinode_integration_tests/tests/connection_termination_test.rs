@@ -136,6 +136,17 @@ fn actual_server_drop() {
         stream_key,
         return_route_id,
     );
+    let index: u64 = 2;
+    request_server_payload(
+        index,
+        &cluster,
+        &real_node,
+        &mock_node,
+        &mut server,
+        &masquerader,
+        stream_key,
+        return_route_id,
+    );
     server.wait_for_chunk(Duration::from_secs(2)).unwrap();
     server.send_chunk(HTTP_RESPONSE);
     mock_node
