@@ -216,10 +216,12 @@ fn reported_client_drop() {
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
+    let index: u64 = 0;
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
             create_request_icp(
+                index,
                 &mock_node,
                 &real_node,
                 stream_key,
