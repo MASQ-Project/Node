@@ -20,7 +20,7 @@ use futures::future::Future;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::io;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -347,6 +347,15 @@ impl StreamHandlerPoolReal {
             }
             Ok(lookup_ip) => lookup_ip.iter().collect(),
         };
+
+        if ip_addrs[0] == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
+            error!(
+                    logger,
+                    "Found wildcard IP addresses for host {}: {:?}", target_hostname, &ip_addrs
+                );
+            return Err(io::Error::from(io::ErrorKind::NotFound));
+        }
+
         debug!(
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
@@ -528,6 +537,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::thread::Thread;
     use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveErrorKind;
@@ -1230,6 +1240,114 @@ mod tests {
                 data: vec![],
             }
         );
+    }
+
+    #[test]
+    fn wildcard_ip_resolves_in_dns_failure() {
+        init_test_logging();
+        let test_name = "wildcard_ip_resolves_in_dns_failure";
+        let cryptde = main_cryptde();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        thread::spawn(move || {
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let client_request_payload = ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: b"These are the times".to_vec(),
+                    sequence_number: 0,
+                    last_data: false,
+                },
+                target_hostname: Some(String::from("blockedwebsite.com")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: originator_key,
+            };
+            let package = ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![
+                    IpAddr::from_str("0.0.0.0").unwrap(),
+                ]);
+            let proxy_client_sub = peer_actors
+                .proxy_client_opt
+                .clone()
+                .unwrap()
+                .inbound_server_data;
+            let mut subject = StreamHandlerPoolReal::new(
+                Box::new(resolver),
+                cryptde,
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client_opt.clone().unwrap(),
+                100,
+                200,
+            );
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            subject.stream_killer_rx = stream_killer_rx;
+            let inner_clone = Arc::clone(&subject.inner);
+            let handle = thread::spawn(move || {
+                let mut inner = inner_clone.lock().unwrap();
+                inner.logger = Logger::new(test_name);
+            });
+            handle.join().unwrap();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let establisher = StreamEstablisher {
+                cryptde,
+                stream_adder_tx,
+                stream_killer_tx,
+                stream_connector: Box::new(
+                    StreamConnectorMock::new()
+                        .connect_pair_result(Err(Error::from(ErrorKind::Other))),
+                ),
+                proxy_client_sub,
+                logger: subject.inner.lock().unwrap().logger.clone(),
+                channel_factory: Box::new(FuturesChannelFactoryReal {}),
+            };
+
+            subject.inner.lock().unwrap().establisher_factory =
+                Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                });
+
+            run_process_package_in_actix(subject, package);
+        });
+
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![],
+            }
+        );
+
+        // proxy_client_awaiter.await_message_count(2);
+        // let recording = proxy_client_recording_arc.lock().unwrap();
+        // assert_eq!(
+        //     recording.get_record::<InboundServerData>(1),
+        //     &InboundServerData {
+        //         stream_key,
+        //         last_data: true,
+        //         sequence_number: 0,
+        //         source: error_socket_addr(),
+        //         data: vec![],
+        //     }
+        // );
+
+
+        TestLogHandler::new().await_log_containing(&format!("ERROR: {test_name}: Found wildcard IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
     }
 
     #[test]
