@@ -146,8 +146,11 @@ pub trait TransactionInnerWrapper: Debug {
     arbitrary_id_stamp_in_trait!();
 }
 
+// Should be only understood as an internal component to the 'TransactionWrapper',
+// therefore keep the visibility constrained to this file
+
 #[derive(Debug)]
-pub struct TransactionInnerWrapperReal<'a> {
+struct TransactionInnerWrapperReal<'a> {
     txn_opt: Option<Transaction<'a>>,
 }
 
