@@ -3,9 +3,9 @@
 #![cfg(test)]
 
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDatabaseError, BigIntDatabaseProcessor, BigIntSqlConfig, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntSqlConfig, TableNameDAO,
 };
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
 use itertools::Either;
 use std::cell::RefCell;
 
@@ -33,17 +33,17 @@ pub(in crate::accountant::db_big_integer) mod restricted {
 }
 
 #[derive(Default, Debug)]
-pub struct BigIntDatabaseProcessorMock {
+pub struct BigIntDbProcessorMock {
     execute_results: RefCell<Vec<Result<(), BigIntDatabaseError>>>,
 }
 
-impl<T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorMock
+impl<T> BigIntDbProcessor<T> for BigIntDbProcessorMock
 where
     T: TableNameDAO,
 {
     fn execute<'a>(
         &self,
-        _conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+        _conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
         _config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDatabaseError> {
         // You can implement a params capture here but so far it hasn't been needed,
@@ -52,7 +52,7 @@ where
     }
 }
 
-impl BigIntDatabaseProcessorMock {
+impl BigIntDbProcessorMock {
     pub fn execute_result(self, result: Result<(), BigIntDatabaseError>) -> Self {
         self.execute_results.borrow_mut().push(result);
         self

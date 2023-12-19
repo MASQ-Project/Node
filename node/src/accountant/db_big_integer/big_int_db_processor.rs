@@ -4,7 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};
@@ -13,29 +13,29 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
 
-pub trait BigIntDatabaseProcessor<T>: Debug + Send
-where
-    T: TableNameDAO,
-{
-    fn execute<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDatabaseError>;
-}
-
-#[derive(Debug)]
-pub struct BigIntDatabaseProcessorReal<T: TableNameDAO> {
-    overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
-}
-
-impl<T> BigIntDatabaseProcessor<T> for BigIntDatabaseProcessorReal<T>
+pub trait BigIntDbProcessor<T>: Debug + Send
 where
     T: TableNameDAO,
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        config: BigIntSqlConfig<'params, T>,
+    ) -> Result<(), BigIntDatabaseError>;
+}
+
+#[derive(Debug)]
+pub struct BigIntDbProcessorReal<T: TableNameDAO> {
+    overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
+}
+
+impl<T> BigIntDbProcessor<T> for BigIntDbProcessorReal<T>
+where
+    T: TableNameDAO,
+{
+    fn execute<'params>(
+        &self,
+        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
@@ -64,17 +64,17 @@ where
     }
 }
 
-impl<T: TableNameDAO + 'static> Default for BigIntDatabaseProcessorReal<T> {
-    fn default() -> BigIntDatabaseProcessorReal<T> {
+impl<T: TableNameDAO + 'static> Default for BigIntDbProcessorReal<T> {
+    fn default() -> BigIntDbProcessorReal<T> {
         Self {
             overflow_handler: Box::new(UpdateOverflowHandlerReal::default()),
         }
     }
 }
 
-impl<T: TableNameDAO> BigIntDatabaseProcessorReal<T> {
+impl<T: TableNameDAO> BigIntDbProcessorReal<T> {
     fn prepare_statement<'params>(
-        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params TransactionWrapper>,
+        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params SecureTransactionWrapper>,
         sql: &'params str,
     ) -> Statement<'params> {
         match form_of_conn {
@@ -91,7 +91,7 @@ where
 {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -112,7 +112,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -147,7 +147,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         };
 
         let select_sql = config.select_sql();
-        let mut select_stm = BigIntDatabaseProcessorReal::<T>::prepare_statement(conn, &select_sql);
+        let mut select_stm = BigIntDbProcessorReal::<T>::prepare_statement(conn, &select_sql);
         match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
             Err(e) => Err(BigIntDatabaseError::General(format!(
@@ -164,16 +164,13 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'params>(
-        conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
         config: &BigIntSqlConfig<'params, T>,
-        execute_params: &[(&str, &dyn ToSql)],
+        sql_params: &[(&str, &dyn ToSql)],
     ) {
-        match BigIntDatabaseProcessorReal::<T>::prepare_statement(
-            conn,
-            config.overflow_update_clause,
-        )
-        .execute(execute_params)
-        .expect("logic broken given the previous non-overflow call accepted right")
+        match BigIntDbProcessorReal::<T>::prepare_statement(conn, config.overflow_update_clause)
+            .execute(sql_params)
+            .expect("logic broken given the previous non-overflow call accepted right")
         {
             1 => (),
             x => panic!(
@@ -987,7 +984,7 @@ mod tests {
     {
         fn update_with_overflow<'a>(
             &self,
-            _conn: Either<&dyn ConnectionWrapper, &TransactionWrapper>,
+            _conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
             _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDatabaseError> {
             self.update_with_overflow_params.lock().unwrap().push(());
@@ -1030,7 +1027,7 @@ mod tests {
         let overflow_handler = UpdateOverflowHandlerMock::default()
             .update_with_overflow_params(&update_with_overflow_params_arc)
             .update_with_overflow_result(Ok(()));
-        let mut subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
+        let mut subject = BigIntDbProcessorReal::<DummyDao>::default();
         subject.overflow_handler = Box::new(overflow_handler);
 
         let act = |conn: &mut dyn ConnectionWrapper| {
@@ -1399,7 +1396,7 @@ mod tests {
     fn update_alone_works_also_for_transaction_instead_of_connection() {
         let initial = BigIntDivider::reconstitute(10, 20);
         let wei_change = BigIntDivider::reconstitute(0, 30);
-        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
+        let subject = BigIntDbProcessorReal::<DummyDao>::default();
         let act = |conn: &mut dyn ConnectionWrapper| {
             let tx = conn.transaction().unwrap();
             let result = subject.execute(
@@ -1442,7 +1439,7 @@ mod tests {
             "big_int_db_processor",
             "main_sql_clause_error_handled",
         );
-        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
+        let subject = BigIntDbProcessorReal::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_wrong_a, :balance_wrong_b) on conflict (name) do \
@@ -1472,7 +1469,7 @@ mod tests {
             "big_int_db_processor",
             "different_count_of_changed_rows_than_expected_with_update_only_configuration",
         );
-        let subject = BigIntDatabaseProcessorReal::<DummyDao>::default();
+        let subject = BigIntDbProcessorReal::<DummyDao>::default();
         let balance_change = Addition("balance", 12345);
         let config = BigIntSqlConfig::new(
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
@@ -1511,7 +1508,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
+        let result = BigIntDbProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(&*conn), update_config);
 
@@ -1613,7 +1610,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
+        let result = BigIntDbProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 
@@ -1650,7 +1647,7 @@ mod tests {
                 .build(),
         );
 
-        let _ = BigIntDatabaseProcessorReal::<DummyDao>::default()
+        let _ = BigIntDbProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
     }
@@ -1680,7 +1677,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDatabaseProcessorReal::<DummyDao>::default()
+        let result = BigIntDbProcessorReal::<DummyDao>::default()
             .overflow_handler
             .update_with_overflow(Either::Left(conn.as_ref()), update_config);
 

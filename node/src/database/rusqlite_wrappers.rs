@@ -58,7 +58,7 @@ use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction(&mut self) -> Result<TransactionWrapper, rusqlite::Error>;
+    fn transaction(&mut self) -> Result<SecureTransactionWrapper, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -70,8 +70,8 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-    fn transaction(&mut self) -> Result<TransactionWrapper, Error> {
-        self.conn.transaction().map(TransactionWrapper::new)
+    fn transaction(&mut self) -> Result<SecureTransactionWrapper, Error> {
+        self.conn.transaction().map(SecureTransactionWrapper::new)
     }
 }
 
@@ -81,60 +81,63 @@ impl ConnectionWrapperReal {
     }
 }
 
-// Whole point of this outer wrapper common for both the real and mock transaction ( named as
-// TransactionInnerWrapper ) is to give us a chance to deconstruct the whole structure when we're
-// finishing the call of `commit()`. The classical mockable structure compounded of a trait object
-// doesn't allow to be consumed by itself because of the rules given to trait objects saying clearly
-// we can ever access one only by a reference, while for consuming of anything we need to have the
-// full ownership.
+// Whole point of this outer wrapper that is common for both real and mock transactions is to give
+// us a chance to deconstruct this whole code structure in place when we've called `commit()` on it.
+// The standard sort of mock that embraces the use of trait objects doesn't allow to be consumed
+// by calling self because of the rules surrounding trait objects that say clearly we can never
+// access one otherwise but via a reference, while for consuming anything in Rust we need to possess
+// the full ownership of it.
 //
-// Leaving around an already used, committed, transaction would expose us to risks as in somebody
-// trying to use it again, while the actual transaction is gone (but the trait object wrapper lives
-// on) and nothing usable has been left there.
+// Leaving around an already enclosed, committed, transaction would expose us to a risk. Let's
+// imagine somebody trying to use the second time, while the actual connective element was took
+// away and deconstructed, the trait object wrapper, the interface we approach it through, still
+// lives on, having noting usable inside.
 //
-// Second, we want to be exact and careful about the mock version because it hides a hard-to-debug
-// segmentation error raised from the OS if we don't deconstruct the unsafely kept reference pointing
-// back inside the same `struct` where we also cater an extra, but identical to the original one,
-// connection to the database.
+// Second, we want to go about carefully about the mock because it hides a potential, hard-to-debug
+// segmentation error that might be raised from the OS if we fail to be early deconstructing
+// the transaction kept inside. It has an unsafe reference pointing back inside the same object where
+// another field hosts an extra connection to the database. If the connection deconstructs
+// and disappears before the transaction does, we are in trouble.
 //
-// All this is a bit dirty trick to avoid difficulties at writing a system of gradually referenced
-// mocks like here:
-// [supposed db conn origin] --> WrappedConnectionMock<'a> -> WrappedTransactionMock<'a>.
+// This whole thing is a slightly dirty trick, thanks to which, however, we can actually avoid
+// difficulties that we would've been given by a series of gradually referenced mocks like:
+//
+// [supposed db conn origin]<'a> --> WrappedConnectionMock<'a> -> WrappedTransactionMock<'a>.
 
 #[derive(Debug)]
-pub struct TransactionWrapper<'conn_in_real_or_static_in_mock> {
-    wrapped_inner: Box<dyn TransactionInnerWrapper + 'conn_in_real_or_static_in_mock>,
+pub struct SecureTransactionWrapper<'conn_if_real_or_static_if_mock> {
+    inner: Box<dyn TransactionInnerWrapper + 'conn_if_real_or_static_if_mock>,
 }
 
-impl<'a> TransactionWrapper<'a> {
+impl<'a> SecureTransactionWrapper<'a> {
     pub fn new(txn: Transaction<'a>) -> Self {
         Self {
-            wrapped_inner: Box::new(TransactionInnerWrapperReal::new(txn)),
+            inner: Box::new(TransactionInnerWrapperReal::new(txn)),
         }
     }
 
     #[cfg(test)]
     pub fn new_test_only(inner_wrapper_builder: TransactionInnerWrapperMockBuilder) -> Self {
         Self {
-            wrapped_inner: inner_wrapper_builder.build(),
+            inner: inner_wrapper_builder.build(),
         }
     }
 
     pub fn prepare(&self, query: &str) -> Result<Statement, Error> {
-        self.wrapped_inner.prepare(query)
+        self.inner.prepare(query)
     }
 
     pub fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<usize, Error> {
-        self.wrapped_inner.execute(query, params)
+        self.inner.execute(query, params)
     }
 
     pub fn commit(mut self) -> Result<(), Error> {
-        self.wrapped_inner.commit()
+        self.inner.commit()
     }
 
     #[cfg(test)]
     pub fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        self.wrapped_inner.arbitrary_id_stamp()
+        self.inner.arbitrary_id_stamp()
     }
 }
 

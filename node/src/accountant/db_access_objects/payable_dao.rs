@@ -6,7 +6,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDatabaseProcessor, BigIntDatabaseProcessorReal, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
@@ -87,7 +87,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: BigIntDatabaseProcessorReal<Self>,
+    big_int_db_processor: BigIntDbProcessorReal<Self>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -303,7 +303,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor: BigIntDatabaseProcessorReal::default(),
+            big_int_db_processor: BigIntDbProcessorReal::default(),
         }
     }
 

@@ -10,14 +10,14 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDatabaseError, BigIntDatabaseProcessor, BigIntDatabaseProcessorReal, BigIntSqlConfig,
-    Param, SQLParamsBuilder, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, Param,
+    SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -69,7 +69,7 @@ pub trait ReceivableDao {
         &mut self,
         now: SystemTime,
         transactions: &[BlockchainTransaction],
-    ) -> TransactionWrapper;
+    ) -> SecureTransactionWrapper;
 
     fn new_delinquencies(
         &self,
@@ -110,7 +110,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: Box<dyn BigIntDatabaseProcessor<Self>>,
+    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
     logger: Logger,
 }
 
@@ -147,7 +147,7 @@ impl ReceivableDao for ReceivableDaoReal {
         &mut self,
         timestamp: SystemTime,
         received_payments: &[BlockchainTransaction],
-    ) -> TransactionWrapper<'_> {
+    ) -> SecureTransactionWrapper<'_> {
         match self
             .conn
             .transaction()
@@ -304,18 +304,18 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor: Box::new(BigIntDatabaseProcessorReal::default()),
+            big_int_db_processor: Box::new(BigIntDbProcessorReal::default()),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
 
     fn run_processing_of_received_payments<'txn>(
-        big_int_db_processor: &dyn BigIntDatabaseProcessor<ReceivableDaoReal>,
-        txn: TransactionWrapper<'txn>,
+        big_int_db_processor: &dyn BigIntDbProcessor<ReceivableDaoReal>,
+        txn: SecureTransactionWrapper<'txn>,
         received_payments: &[BlockchainTransaction],
         timestamp: SystemTime,
         logger: &Logger,
-    ) -> Result<TransactionWrapper<'txn>, ReceivableDaoError> {
+    ) -> Result<SecureTransactionWrapper<'txn>, ReceivableDaoError> {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
         // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
@@ -357,7 +357,7 @@ impl ReceivableDaoReal {
     }
 
     fn verify_possibly_unknown_wallet(
-        txn: &TransactionWrapper,
+        txn: &SecureTransactionWrapper,
         logger: &Logger,
         suspect: &BlockchainTransaction,
     ) -> Result<(), ReceivableDaoError> {
@@ -386,7 +386,7 @@ impl ReceivableDaoReal {
         Ok(())
     }
 
-    fn row_count_for_address(conn: &TransactionWrapper, wallet: &Wallet) -> usize {
+    fn row_count_for_address(conn: &SecureTransactionWrapper, wallet: &Wallet) -> usize {
         conn.prepare("select count(*) from receivable where wallet_address = ?")
             .expect("internal sqlite error")
             .query_row([wallet], |row| row.get::<usize, usize>(0))
@@ -1041,7 +1041,7 @@ mod tests {
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)
             .prepare_results(prepare_results);
-        let mocked_transaction = TransactionWrapper::new_test_only(txn_inner_builder);
+        let mocked_transaction = SecureTransactionWrapper::new_test_only(txn_inner_builder);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);
@@ -1192,7 +1192,7 @@ mod tests {
         );
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().prepare_results(results);
-        let txn = TransactionWrapper::new_test_only(txn_inner_builder);
+        let txn = SecureTransactionWrapper::new_test_only(txn_inner_builder);
         let suspect = BlockchainTransaction {
             block_number: 1234,
             from: wallet,
