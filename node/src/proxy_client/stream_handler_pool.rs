@@ -311,12 +311,13 @@ impl StreamHandlerPoolReal {
                 .expect("Stream handler pool is poisoned")
                 .resolver
                 .lookup_ip(&fqdn)
-                .map_err(move |err| {
-                    dns_resolve_failed_sub
-                        .try_send(DnsResolveFailure_0v1::new(stream_key))
-                        .expect("ProxyClient is poisoned");
-                    err
-                })
+                // .map_err(move |err| {
+                //     todo!("Are we being hit?");
+                //     // dns_resolve_failed_sub
+                //     //     .try_send(DnsResolveFailure_0v1::new(stream_key))
+                //     //     .expect("ProxyClient is poisoned");
+                //     err
+                // })
                 .then(move |lookup_result| {
                     Self::handle_lookup_ip(
                         target_hostname.to_string(),
@@ -326,7 +327,14 @@ impl StreamHandlerPoolReal {
                         &mut establisher,
                     )
                 })
-                .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
+                .map_err(move |io_error| {
+                    eprintln!("Error: {:?}", io_error);
+                    // todo!("I am being hit, why");
+                    dns_resolve_failed_sub
+                        .try_send(DnsResolveFailure_0v1::new(stream_key))
+                        .expect("ProxyClient is poisoned");
+                    format!("Could not establish stream: {:?}", io_error)
+                }),
         )
     }
 
@@ -350,9 +358,9 @@ impl StreamHandlerPoolReal {
 
         if ip_addrs[0] == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
             error!(
-                    logger,
-                    "Found wildcard IP addresses for host {}: {:?}", target_hostname, &ip_addrs
-                );
+                logger,
+                "Found wildcard IP addresses for host {}: {:?}", target_hostname, &ip_addrs
+            );
             return Err(io::Error::from(io::ErrorKind::NotFound));
         }
 
@@ -537,7 +545,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::thread::Thread;
     use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveErrorKind;
@@ -1274,9 +1281,7 @@ mod tests {
             );
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("0.0.0.0").unwrap(),
-                ]);
+                .lookup_ip_success(vec![IpAddr::from_str("0.0.0.0").unwrap()]);
             let proxy_client_sub = peer_actors
                 .proxy_client_opt
                 .clone()
@@ -1320,10 +1325,14 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
 
-        proxy_client_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(2);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
+            proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
+            &DnsResolveFailure_0v1 { stream_key }
+        );
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
                 stream_key,
                 last_data: true,
@@ -1332,22 +1341,9 @@ mod tests {
                 data: vec![],
             }
         );
-
-        // proxy_client_awaiter.await_message_count(2);
-        // let recording = proxy_client_recording_arc.lock().unwrap();
-        // assert_eq!(
-        //     recording.get_record::<InboundServerData>(1),
-        //     &InboundServerData {
-        //         stream_key,
-        //         last_data: true,
-        //         sequence_number: 0,
-        //         source: error_socket_addr(),
-        //         data: vec![],
-        //     }
-        // );
-
-
-        TestLogHandler::new().await_log_containing(&format!("ERROR: {test_name}: Found wildcard IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.await_log_containing(&format!("ERROR: {test_name}: Found wildcard IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
+        test_log_handler.await_log_containing(&format!("ERROR: {test_name}: Couldn't process request from CORES package: Could not establish stream: Kind(NotFound)"), 10_000);
     }
 
     #[test]
