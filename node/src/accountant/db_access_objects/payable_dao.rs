@@ -6,7 +6,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamPairByClause, SQLParamsBuilder, TableNameDAO};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
@@ -100,22 +100,22 @@ impl PayableDao for PayableDaoReal {
         let main_sql = "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) \
                 values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do update set \
                 balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet";
-        let overflow_update_clause = "update payable set \
+        let update_clause_with_compensated_overflow = "update payable set \
                 balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet";
 
         let last_paid_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
             .wei_change(Addition("balance", amount))
-            .other_params(vec![Param::MainClauseLimited((
-                ":last_paid_timestamp",
-                &last_paid_timestamp,
-            ))])
+            .other_params(vec![ParamPairByClause::MainOnly {
+                name: ":last_paid_timestamp",
+                value: &last_paid_timestamp,
+            }])
             .build();
 
         Ok(self.big_int_db_processor.execute(
             Either::Left(self.conn.as_ref()),
-            BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
+            BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
         )?)
     }
 
@@ -151,7 +151,7 @@ impl PayableDao for PayableDaoReal {
             let main_sql = "update payable set \
                     balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
                     last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
-            let overflow_update_clause = "update payable set \
+            let update_clause_with_compensated_overflow = "update payable set \
                     balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
                     pending_payable_rowid = null where pending_payable_rowid = :rowid";
 
@@ -160,12 +160,12 @@ impl PayableDao for PayableDaoReal {
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
                 .wei_change(Subtraction("balance", pending_payable_fingerprint.amount))
-                .other_params(vec![Param::BothClauses((":last_paid", &last_paid))])
+                .other_params(vec![ParamPairByClause::Both{ name: ":last_paid", value: &last_paid}])
                 .build();
 
             Ok(self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
-                overflow_update_clause,
+                update_clause_with_compensated_overflow,
                 params))?)
         })
     }

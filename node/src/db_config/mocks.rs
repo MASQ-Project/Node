@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::rusqlite_wrappers::SecureTransactionWrapper;
+use crate::database::rusqlite_wrappers::TransactionSecureWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use std::cell::RefCell;
@@ -37,7 +37,7 @@ impl ConfigDao for ConfigDaoMock {
 
     fn set_by_guest_transaction(
         &self,
-        txn: &mut SecureTransactionWrapper,
+        txn: &mut TransactionSecureWrapper,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError> {

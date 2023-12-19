@@ -2,7 +2,7 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{to_string, ExpectValue};
@@ -11,7 +11,7 @@ use std::fmt::{Display, Formatter};
 
 pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
-    fn transaction(&self) -> &SecureTransactionWrapper;
+    fn transaction(&self) -> &TransactionSecureWrapper;
     fn execute_upon_transaction<'a>(
         &self,
         sql_statements: &[&'a dyn StatementObject],
@@ -35,7 +35,7 @@ pub trait DBMigrationUtilities {
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
-    root_transaction: Option<SecureTransactionWrapper<'a>>,
+    root_transaction: Option<TransactionSecureWrapper<'a>>,
     db_migrator_configuration: DBMigratorInnerConfiguration,
 }
 
@@ -50,7 +50,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         })
     }
 
-    fn root_transaction_ref(&self) -> &SecureTransactionWrapper {
+    fn root_transaction_ref(&self) -> &TransactionSecureWrapper {
         self.root_transaction.as_ref().expectv("root transaction")
     }
 }
@@ -98,14 +98,14 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 }
 
 struct DBMigDeclaratorReal<'a> {
-    root_transaction_ref: &'a SecureTransactionWrapper<'a>,
+    root_transaction_ref: &'a TransactionSecureWrapper<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
 impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
-        root_transaction_ref: &'a SecureTransactionWrapper,
+        root_transaction_ref: &'a TransactionSecureWrapper,
         external: &'a ExternalData,
         logger: &'a Logger,
     ) -> Self {
@@ -122,7 +122,7 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         self.external.db_password_opt.clone()
     }
 
-    fn transaction(&self) -> &SecureTransactionWrapper {
+    fn transaction(&self) -> &TransactionSecureWrapper {
         self.root_transaction_ref
     }
 
@@ -155,17 +155,17 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
 }
 
 pub trait StatementObject: Display {
-    fn execute(&self, transaction: &SecureTransactionWrapper) -> rusqlite::Result<()>;
+    fn execute(&self, transaction: &TransactionSecureWrapper) -> rusqlite::Result<()>;
 }
 
 impl StatementObject for &str {
-    fn execute(&self, transaction: &SecureTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &TransactionSecureWrapper) -> rusqlite::Result<()> {
         transaction.execute(self, &[]).map(|_| ())
     }
 }
 
 impl StatementObject for String {
-    fn execute(&self, transaction: &SecureTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &TransactionSecureWrapper) -> rusqlite::Result<()> {
         self.as_str().execute(transaction)
     }
 }
@@ -176,7 +176,7 @@ pub struct StatementWithRusqliteParams {
 }
 
 impl StatementObject for StatementWithRusqliteParams {
-    fn execute(&self, transaction: &SecureTransactionWrapper) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &TransactionSecureWrapper) -> rusqlite::Result<()> {
         transaction
             .execute(
                 &self.sql_stm,

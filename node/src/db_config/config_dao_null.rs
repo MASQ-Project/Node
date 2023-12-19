@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::SecureTransactionWrapper;
+use crate::database::rusqlite_wrappers::TransactionSecureWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -75,7 +75,7 @@ impl ConfigDao for ConfigDaoNull {
 
     fn set_by_guest_transaction(
         &self,
-        _txn: &mut SecureTransactionWrapper,
+        _txn: &mut TransactionSecureWrapper,
         _name: &str,
         _value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -315,7 +315,7 @@ mod tests {
     fn set_by_guest_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
-        let mut txn = SecureTransactionWrapper::new_test_only(txn_inner_builder);
+        let mut txn = TransactionSecureWrapper::new_test_only(txn_inner_builder);
         let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
 
         subject

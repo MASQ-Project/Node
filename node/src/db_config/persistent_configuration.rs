@@ -3,7 +3,7 @@
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
@@ -138,7 +138,7 @@ pub trait PersistentConfiguration {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut SecureTransactionWrapper,
+        transaction: &mut TransactionSecureWrapper,
     ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
@@ -425,7 +425,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_start_block_from_txn(
         &mut self,
         value: u64,
-        transaction: &mut SecureTransactionWrapper,
+        transaction: &mut TransactionSecureWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.simple_set_method_from_provided_txn("start_block", value, transaction)
     }
@@ -569,7 +569,7 @@ impl PersistentConfigurationReal {
         &mut self,
         parameter_name: &str,
         value: T,
-        txn: &mut SecureTransactionWrapper,
+        txn: &mut TransactionSecureWrapper,
     ) -> Result<(), PersistentConfigError> {
         Ok(self
             .dao
@@ -1550,7 +1550,7 @@ mod tests {
         let txn_id = ArbitraryIdStamp::new();
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().set_arbitrary_id_stamp(txn_id);
-        let mut txn = SecureTransactionWrapper::new_test_only(txn_inner_builder);
+        let mut txn = TransactionSecureWrapper::new_test_only(txn_inner_builder);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block_from_txn(1234, &mut txn);

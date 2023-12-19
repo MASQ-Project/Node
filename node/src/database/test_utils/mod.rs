@@ -5,7 +5,7 @@ pub mod transaction_wrapper_mock;
 
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
 use rusqlite::{Error, Statement};
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 pub struct ConnectionWrapperMock<'conn> {
     prepare_params: Arc<Mutex<Vec<String>>>,
     prepare_results: RefCell<Vec<Result<Statement<'conn>, Error>>>,
-    transaction_results: RefCell<Vec<Result<SecureTransactionWrapper<'conn>, Error>>>,
+    transaction_results: RefCell<Vec<Result<TransactionSecureWrapper<'conn>, Error>>>,
 }
 
 unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
@@ -38,7 +38,7 @@ impl<'conn> ConnectionWrapperMock<'conn> {
 
     pub fn transaction_result(
         self,
-        result: Result<SecureTransactionWrapper<'conn>, Error>,
+        result: Result<TransactionSecureWrapper<'conn>, Error>,
     ) -> Self {
         self.transaction_results.borrow_mut().push(result);
         self
@@ -54,7 +54,7 @@ impl ConnectionWrapper for ConnectionWrapperMock<'_> {
         self.prepare_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&mut self) -> Result<SecureTransactionWrapper, Error> {
+    fn transaction(&mut self) -> Result<TransactionSecureWrapper, Error> {
         self.transaction_results.borrow_mut().remove(0)
     }
 }

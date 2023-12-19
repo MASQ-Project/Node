@@ -10,14 +10,14 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, Param,
-    SQLParamsBuilder, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig,
+    ParamPairByClause, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -69,7 +69,7 @@ pub trait ReceivableDao {
         &mut self,
         now: SystemTime,
         transactions: &[BlockchainTransaction],
-    ) -> SecureTransactionWrapper;
+    ) -> TransactionSecureWrapper;
 
     fn new_delinquencies(
         &self,
@@ -124,22 +124,22 @@ impl ReceivableDao for ReceivableDaoReal {
         let main_sql = "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values \
         (:wallet, :balance_high_b, :balance_low_b, :last_received_timestamp) on conflict (wallet_address) do update set \
         balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b";
-        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
+        let update_clause_with_compensated_overflow = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
         where wallet_address = :wallet";
 
         let last_received_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
             .wei_change(Addition("balance", amount))
-            .other_params(vec![Param::MainClauseLimited((
-                ":last_received_timestamp",
-                &last_received_timestamp,
-            ))])
+            .other_params(vec![ParamPairByClause::MainOnly {
+                name: ":last_received_timestamp",
+                value: &last_received_timestamp,
+            }])
             .build();
 
         Ok(self.big_int_db_processor.execute(
             Either::Left(self.conn.as_ref()),
-            BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
+            BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
         )?)
     }
 
@@ -147,7 +147,7 @@ impl ReceivableDao for ReceivableDaoReal {
         &mut self,
         timestamp: SystemTime,
         received_payments: &[BlockchainTransaction],
-    ) -> SecureTransactionWrapper<'_> {
+    ) -> TransactionSecureWrapper<'_> {
         match self
             .conn
             .transaction()
@@ -311,17 +311,18 @@ impl ReceivableDaoReal {
 
     fn run_processing_of_received_payments<'txn>(
         big_int_db_processor: &dyn BigIntDbProcessor<ReceivableDaoReal>,
-        txn: SecureTransactionWrapper<'txn>,
+        txn: TransactionSecureWrapper<'txn>,
         received_payments: &[BlockchainTransaction],
         timestamp: SystemTime,
         logger: &Logger,
-    ) -> Result<SecureTransactionWrapper<'txn>, ReceivableDaoError> {
+    ) -> Result<TransactionSecureWrapper<'txn>, ReceivableDaoError> {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
         // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
                  balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received \
                  where wallet_address = :wallet";
-        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, \
+        let update_clause_with_compensated_overflow =
+            "update receivable set balance_high_b = :balance_high_b, \
                  balance_low_b = :balance_low_b, last_received_timestamp = :last_received \
                  where wallet_address = :wallet";
 
@@ -330,15 +331,15 @@ impl ReceivableDaoReal {
             let params = SQLParamsBuilder::default()
                 .key(WalletAddress(&received_payment.from))
                 .wei_change(Subtraction("balance", received_payment.wei_amount))
-                .other_params(vec![Param::BothClauses((
-                    ":last_received",
-                    &last_received_timestamp,
-                ))])
+                .other_params(vec![ParamPairByClause::Both {
+                    name: ":last_received",
+                    value: &last_received_timestamp,
+                }])
                 .build();
 
             let result = big_int_db_processor.execute(
                 Either::Right(&txn),
-                BigIntSqlConfig::new(main_sql, overflow_update_clause, params),
+                BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
             );
 
             match result {
@@ -357,7 +358,7 @@ impl ReceivableDaoReal {
     }
 
     fn verify_possibly_unknown_wallet(
-        txn: &SecureTransactionWrapper,
+        txn: &TransactionSecureWrapper,
         logger: &Logger,
         suspect: &BlockchainTransaction,
     ) -> Result<(), ReceivableDaoError> {
@@ -386,7 +387,7 @@ impl ReceivableDaoReal {
         Ok(())
     }
 
-    fn row_count_for_address(conn: &SecureTransactionWrapper, wallet: &Wallet) -> usize {
+    fn row_count_for_address(conn: &TransactionSecureWrapper, wallet: &Wallet) -> usize {
         conn.prepare("select count(*) from receivable where wallet_address = ?")
             .expect("internal sqlite error")
             .query_row([wallet], |row| row.get::<usize, usize>(0))
@@ -1041,7 +1042,7 @@ mod tests {
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)
             .prepare_results(prepare_results);
-        let mocked_transaction = SecureTransactionWrapper::new_test_only(txn_inner_builder);
+        let mocked_transaction = TransactionSecureWrapper::new_test_only(txn_inner_builder);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);
@@ -1170,17 +1171,17 @@ mod tests {
         let wallet = make_wallet("blah");
         let home_dir = ensure_node_home_directory_exists("receivables", test_name);
         let db_file_path = home_dir.join(DATABASE_FILE);
-        let mut unrelated_conn = Connection::open(db_file_path).unwrap();
+        let unrelated_conn = Connection::open(db_file_path).unwrap();
         unrelated_conn
             .prepare("create table receivable (wallet_address string, balance integer)")
             .unwrap()
             .execute([])
             .unwrap();
         let insert_record = |balance: i64| {
-            unrelated_conn
+            let _ = unrelated_conn
                 .prepare("insert into receivable (wallet_address, balance) values (?,?)")
                 .unwrap()
-                .execute([&wallet as &dyn ToSql, &balance])
+                .execute([&wallet as &dyn ToSql, &balance]);
         };
         insert_record(1111);
         insert_record(2222);
@@ -1192,7 +1193,7 @@ mod tests {
         );
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().prepare_results(results);
-        let txn = SecureTransactionWrapper::new_test_only(txn_inner_builder);
+        let txn = TransactionSecureWrapper::new_test_only(txn_inner_builder);
         let suspect = BlockchainTransaction {
             block_number: 1234,
             from: wallet,

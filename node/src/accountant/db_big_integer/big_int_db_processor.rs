@@ -4,7 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, SecureTransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};
@@ -19,7 +19,7 @@ where
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -35,7 +35,7 @@ where
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
@@ -43,7 +43,7 @@ where
         let params = config
             .params
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
-        match stm.execute(params.as_slice()) {
+        match stm.execute(<Vec<RusqliteNativePrimitivePair>>::from_iter(params).as_slice()) {
             Ok(1) => Ok(()),
             Ok(x) => Err(BigIntDatabaseError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed: x}),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -74,7 +74,7 @@ impl<T: TableNameDAO + 'static> Default for BigIntDbProcessorReal<T> {
 
 impl<T: TableNameDAO> BigIntDbProcessorReal<T> {
     fn prepare_statement<'params>(
-        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params SecureTransactionWrapper>,
+        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params TransactionSecureWrapper>,
         sql: &'params str,
     ) -> Statement<'params> {
         match form_of_conn {
@@ -91,7 +91,7 @@ where
 {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -112,7 +112,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -127,19 +127,26 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
                         former_low_bytes,
                         requested_wei_change,
                     );
-                    let wei_update_array: [(&str, &dyn ToSql); 2] = [
-                        (
-                            requested_wei_change.high.name.as_str(),
-                            &high_bytes_corrected,
-                        ),
-                        (requested_wei_change.low.name.as_str(), &low_bytes_corrected),
+                    let wei_update_array: [RusqliteParamPair; 2] = [
+                        RusqliteParamPair {
+                            name: requested_wei_change.high.name.as_str(),
+                            value: &high_bytes_corrected,
+                        },
+                        RusqliteParamPair {
+                            name: requested_wei_change.low.name.as_str(),
+                            value: &low_bytes_corrected,
+                        },
                     ];
 
                     let execute_params = config
                         .params
                         .merge_other_and_wei_params_with_conditional_participants(wei_update_array);
 
-                    Self::execute_update(conn, &config, &execute_params);
+                    Self::execute_update(
+                        conn,
+                        &config,
+                        <Vec<RusqliteNativePrimitivePair>>::from_iter(execute_params).as_slice(),
+                    );
                     Ok(())
                 }
                 array_of_results => Self::return_first_error(array_of_results),
@@ -164,14 +171,16 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'params>(
-        conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
         config: &BigIntSqlConfig<'params, T>,
         sql_params: &[(&str, &dyn ToSql)],
     ) {
         match BigIntDbProcessorReal::<T>::prepare_statement(conn, config.overflow_update_clause)
             .execute(sql_params)
-            .expect("logic broken given the previous non-overflow call accepted right")
-        {
+            .expect(
+                "Logic problem in params selection for the SQL taking values with \
+            an already compensated overflow",
+            ) {
             1 => (),
             x => panic!(
                 "Broken code: this code was written to handle one changed row a time, not {}",
@@ -236,8 +245,8 @@ impl<'params, T: TableNameDAO> BigIntSqlConfig<'params, T> {
         )
     }
 
-    fn key_param_value(&self) -> &'params dyn DisplayableParamValue {
-        self.params.params_except_wei_change[0].param_pair().1
+    fn key_param_value(&'params self) -> &'params dyn DisplayableParamValue {
+        <DisplayableRusqliteParamPair>::from(&self.params.params_except_wei_change[0]).value
     }
 
     fn balance_change(&self) -> i128 {
@@ -271,26 +280,47 @@ impl<'params, T: TableNameDAO> BigIntSqlConfig<'params, T> {
 }
 
 // This is a native Rusqlite format for data supply to their interface
-type RusqliteParamPair<'params> = (&'params str, &'params dyn ToSql);
-// This is a representation of the above, plus providing a way to display the values (not possible natively)
-type DisplayableRusqliteParamPair<'params> = (&'params str, &'params dyn DisplayableParamValue);
+// (<param_name_str>, <param_value_behind_reference>)
+pub struct RusqliteParamPair<'params> {
+    pub name: &'params str,
+    pub value: &'params dyn ToSql,
+}
+
+type RusqliteNativePrimitivePair<'params> = (&'params str, &'params dyn ToSql);
+impl<'params> FromIterator<RusqliteParamPair<'params>>
+    for Vec<RusqliteNativePrimitivePair<'params>>
+{
+    fn from_iter<T: IntoIterator<Item = RusqliteParamPair<'params>>>(iter: T) -> Self {
+        iter.into_iter()
+            .map(RusqliteNativePrimitivePair::from)
+            .collect()
+    }
+}
+
+impl<'params> From<RusqliteParamPair<'params>> for RusqliteNativePrimitivePair<'params> {
+    fn from(rusqlite_pair: RusqliteParamPair<'params>) -> Self {
+        (rusqlite_pair.name, rusqlite_pair.value)
+    }
+}
+
+// This is a representation of the above, but with displayable values
+pub struct DisplayableRusqliteParamPair<'params> {
+    pub name: &'params str,
+    pub value: &'params dyn DisplayableParamValue,
+}
 
 // To be able to display things that implement ToSql
 pub trait DisplayableParamValue: ToSql + Display {}
 
-macro_rules! implement_displayable_param_value {
-    ($($implementer: ty),+) => {
-        $(impl DisplayableParamValue for $implementer {})+
-    }
-}
-
-implement_displayable_param_value!(i64, &str, Wallet);
+impl DisplayableParamValue for i64 {}
+impl DisplayableParamValue for &str {}
+impl DisplayableParamValue for Wallet {}
 
 #[derive(Default)]
 pub struct SQLParamsBuilder<'params> {
     key_spec_opt: Option<TableUniqueKey<'params>>,
     wei_change_spec_opt: Option<WeiChange>,
-    other_params: Vec<Param<'params>>,
+    other_params: Vec<ParamPairByClause<'params>>,
 }
 
 impl<'params> SQLParamsBuilder<'params> {
@@ -309,7 +339,7 @@ impl<'params> SQLParamsBuilder<'params> {
         self
     }
 
-    pub fn other_params(mut self, params: Vec<Param<'params>>) -> Self {
+    pub fn other_params(mut self, params: Vec<ParamPairByClause<'params>>) -> Self {
         self.other_params = params;
         self
     }
@@ -323,10 +353,12 @@ impl<'params> SQLParamsBuilder<'params> {
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of wei change"));
         let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
             Self::expand_wei_params(wei_change_spec);
-        let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
-        let params = once(Param::BothClauses(key_as_the_first_param))
-            .chain(self.other_params.into_iter())
-            .collect();
+        let params = once(ParamPairByClause::Both {
+            name: key_spec.substitution_name_in_sql,
+            value: key_spec.value_itself,
+        })
+        .chain(self.other_params.into_iter())
+        .collect();
         SQLParams {
             table_unique_key_name: key_spec.definition_name,
             wei_change_params: WeiChangeAsHighAndLowBytes {
@@ -415,7 +447,7 @@ impl Display for ByteMagnitude {
 pub struct SQLParams<'params> {
     table_unique_key_name: &'params str,
     wei_change_params: WeiChangeAsHighAndLowBytes,
-    params_except_wei_change: Vec<Param<'params>>,
+    params_except_wei_change: Vec<ParamPairByClause<'params>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -436,30 +468,52 @@ impl StdNumParamFormNamed {
     }
 }
 
-pub enum Param<'params> {
-    BothClauses(DisplayableRusqliteParamPair<'params>),
-    MainClauseLimited(DisplayableRusqliteParamPair<'params>),
+pub enum ParamPairByClause<'params> {
+    Both {
+        name: &'params str,
+        value: &'params dyn DisplayableParamValue,
+    },
+    MainOnly {
+        name: &'params str,
+        value: &'params dyn DisplayableParamValue,
+    },
 }
 
-impl<'params> Param<'params> {
-    fn param_pair(&self) -> &DisplayableRusqliteParamPair<'params> {
-        match self {
-            Param::BothClauses(pair) => pair,
-            Param::MainClauseLimited(pair) => pair,
+impl<'params> From<&'params ParamPairByClause<'params>> for DisplayableRusqliteParamPair<'params> {
+    fn from(param_pair: &'params ParamPairByClause) -> Self {
+        match param_pair {
+            ParamPairByClause::Both { name, value } => DisplayableRusqliteParamPair {
+                name,
+                value: *value,
+            },
+            ParamPairByClause::MainOnly { name, value } => DisplayableRusqliteParamPair {
+                name,
+                value: *value,
+            },
         }
     }
+}
 
-    fn as_rusqlite_param_pair(&'params self) -> RusqliteParamPair<'params> {
-        let pair = self.param_pair();
-        (pair.0, &pair.1 as &dyn ToSql)
+impl<'params> From<&'params ParamPairByClause<'params>> for RusqliteParamPair<'params> {
+    fn from(param_pair_by_clause: &'params ParamPairByClause<'params>) -> Self {
+        match param_pair_by_clause {
+            ParamPairByClause::Both { name, value } => RusqliteParamPair { name, value },
+            ParamPairByClause::MainOnly { name, value } => RusqliteParamPair { name, value },
+        }
     }
 }
 
 impl<'params> From<&'params WeiChangeAsHighAndLowBytes> for [RusqliteParamPair<'params>; 2] {
     fn from(wei_change: &'params WeiChangeAsHighAndLowBytes) -> Self {
         [
-            (wei_change.high.name.as_str(), &wei_change.high.value),
-            (wei_change.low.name.as_str(), &wei_change.low.value),
+            RusqliteParamPair {
+                name: wei_change.high.name.as_str(),
+                value: &wei_change.high.value,
+            },
+            RusqliteParamPair {
+                name: wei_change.low.name.as_str(),
+                value: &wei_change.low.value,
+            },
         ]
     }
 }
@@ -479,16 +533,16 @@ impl<'params> SQLParams<'params> {
         let other_params_selection = self
             .params_except_wei_change
             .iter()
-            .filter(|param| matches!(param, Param::BothClauses(_)));
+            .filter(|param| matches!(param, ParamPairByClause::Both { .. }));
         Self::merge_params(other_params_selection, wei_change_params)
     }
 
     fn merge_params(
-        params: impl Iterator<Item = &'params Param<'params>>,
+        params: impl Iterator<Item = &'params ParamPairByClause<'params>>,
         wei_change_params: [RusqliteParamPair<'params>; 2],
     ) -> Vec<RusqliteParamPair<'params>> {
         params
-            .map(|param| param.as_rusqlite_param_pair())
+            .map(RusqliteParamPair::from)
             .chain(wei_change_params.into_iter())
             .collect()
     }
@@ -657,16 +711,23 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other_params(vec![Param::BothClauses(("other_thing", &46565))]);
+            .other_params(vec![ParamPairByClause::Both {
+                name: "other_thing",
+                value: &46565,
+            }]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
         let key_spec = result.key_spec_opt.unwrap();
         assert_eq!(key_spec.definition_name, "some_key");
         assert_eq!(key_spec.substitution_name_in_sql, ":some_key");
         assert_eq!(key_spec.value_itself.to_string(), "blah".to_string());
+        let param_pair = DisplayableRusqliteParamPair::from(&result.other_params[0]);
         assert!(matches!(
-            result.other_params[0].param_pair(),
-            ("other_thing", _)
+            param_pair,
+            DisplayableRusqliteParamPair {
+                name: "other_thing",
+                ..
+            }
         ));
         assert_eq!(result.other_params.len(), 1)
     }
@@ -682,7 +743,10 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other_params(vec![Param::BothClauses((":other_thing", &11111))])
+            .other_params(vec![ParamPairByClause::Both {
+                name: ":other_thing",
+                value: &11111,
+            }])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -693,28 +757,12 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898)
             }
         );
-        assert_eq!(
-            result.params_except_wei_change[0].param_pair().0,
-            ":some_key"
-        );
-        assert_eq!(
-            result.params_except_wei_change[0]
-                .param_pair()
-                .1
-                .to_string(),
-            "blah".to_string()
-        );
-        assert_eq!(
-            result.params_except_wei_change[1].param_pair().0,
-            ":other_thing"
-        );
-        assert_eq!(
-            result.params_except_wei_change[1]
-                .param_pair()
-                .1
-                .to_string(),
-            "11111".to_string()
-        );
+        let param_pair = DisplayableRusqliteParamPair::from(&result.params_except_wei_change[0]);
+        assert_eq!(param_pair.name, ":some_key");
+        assert_eq!(param_pair.value.to_string(), "blah".to_string());
+        let param_pair = DisplayableRusqliteParamPair::from(&result.params_except_wei_change[1]);
+        assert_eq!(param_pair.name, ":other_thing");
+        assert_eq!(param_pair.value.to_string(), "11111".to_string());
         assert_eq!(result.params_except_wei_change.len(), 2)
     }
 
@@ -729,7 +777,10 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"wooow",
             })
-            .other_params(vec![Param::BothClauses((":other_thing", &46565))])
+            .other_params(vec![ParamPairByClause::Both {
+                name: ":other_thing",
+                value: &46565,
+            }])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -740,28 +791,12 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
             }
         );
-        assert_eq!(
-            result.params_except_wei_change[0].param_pair().0,
-            ":some_key"
-        );
-        assert_eq!(
-            result.params_except_wei_change[0]
-                .param_pair()
-                .1
-                .to_string(),
-            "wooow".to_string()
-        );
-        assert_eq!(
-            result.params_except_wei_change[1].param_pair().0,
-            ":other_thing"
-        );
-        assert_eq!(
-            result.params_except_wei_change[1]
-                .param_pair()
-                .1
-                .to_string(),
-            "46565".to_string()
-        );
+        let param_pair = DisplayableRusqliteParamPair::from(&result.params_except_wei_change[1]);
+        assert_eq!(param_pair.name, ":some_key");
+        assert_eq!(param_pair.value.to_string(), "wooow".to_string());
+        let param_pair = DisplayableRusqliteParamPair::from(&result.params_except_wei_change[1]);
+        assert_eq!(param_pair.name, ":other_thing");
+        assert_eq!(param_pair.value.to_string(), "46565".to_string());
         assert_eq!(result.params_except_wei_change.len(), 2)
     }
 
@@ -772,7 +807,10 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .other_params(vec![Param::BothClauses(("laughter", &"hahaha"))])
+            .other_params(vec![ParamPairByClause::Both {
+                name: "laughter",
+                value: &"hahaha",
+            }])
             .build();
     }
 
@@ -787,7 +825,10 @@ mod tests {
                 sub_name: ":wallet",
                 val: &make_wallet("wallet"),
             })
-            .other_params(vec![Param::BothClauses(("other_thing", &46565))])
+            .other_params(vec![ParamPairByClause::Both {
+                name: "other_thing",
+                value: &46565,
+            }])
             .build();
     }
 
@@ -808,16 +849,6 @@ mod tests {
     #[test]
     fn merge_other_and_wei_params_with_conditional_participants_can_filter_out_just_update_params()
     {
-        let tuple_matrix = [
-            ("blah", &456_i64 as &dyn DisplayableParamValue),
-            ("super key", &"abcxy"),
-            ("time", &779988),
-            ("error", &"no threat"),
-        ];
-        let update_positive_1 = tuple_matrix[0];
-        let update_positive_2 = tuple_matrix[1];
-        let update_negative_1 = tuple_matrix[2];
-        let update_negative_2 = tuple_matrix[3];
         let subject = SQLParams {
             table_unique_key_name: "",
             wei_change_params: WeiChangeAsHighAndLowBytes {
@@ -831,22 +862,40 @@ mod tests {
                 },
             },
             params_except_wei_change: vec![
-                Param::BothClauses(update_positive_2),
-                Param::MainClauseLimited(update_negative_1),
-                Param::BothClauses(update_positive_1),
-                Param::MainClauseLimited(update_negative_2),
+                ParamPairByClause::Both {
+                    name: "blah",
+                    value: &456_i64,
+                },
+                ParamPairByClause::MainOnly {
+                    name: "super key",
+                    value: &"abcxy",
+                },
+                ParamPairByClause::Both {
+                    name: "time",
+                    value: &779988,
+                },
+                ParamPairByClause::MainOnly {
+                    name: "error",
+                    value: &"no threat",
+                },
             ],
         };
 
         let result = subject.merge_other_and_wei_params_with_conditional_participants([
-            ("always_present_1", &12),
-            ("always_present_2", &77),
+            RusqliteParamPair {
+                name: "always_present_1",
+                value: &12,
+            },
+            RusqliteParamPair {
+                name: "always_present_2",
+                value: &77,
+            },
         ]);
 
-        assert_eq!(result[0].0, update_positive_2.0);
-        assert_eq!(result[1].0, update_positive_1.0);
-        assert_eq!(result[2].0, "always_present_1");
-        assert_eq!(result[3].0, "always_present_2")
+        assert_eq!(result[0].name, "super key");
+        assert_eq!(result[1].name, "blah");
+        assert_eq!(result[2].name, "always_present_1");
+        assert_eq!(result[3].name, "always_present_2")
     }
 
     #[test]
@@ -984,7 +1033,7 @@ mod tests {
     {
         fn update_with_overflow<'a>(
             &self,
-            _conn: Either<&dyn ConnectionWrapper, &SecureTransactionWrapper>,
+            _conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
             _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDatabaseError> {
             self.update_with_overflow_params.lock().unwrap().push(());

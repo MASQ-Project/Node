@@ -58,7 +58,7 @@ use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
-    fn transaction(&mut self) -> Result<SecureTransactionWrapper, rusqlite::Error>;
+    fn transaction(&mut self) -> Result<TransactionSecureWrapper, rusqlite::Error>;
 }
 
 #[derive(Debug)]
@@ -70,8 +70,8 @@ impl ConnectionWrapper for ConnectionWrapperReal {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.conn.prepare(query)
     }
-    fn transaction(&mut self) -> Result<SecureTransactionWrapper, Error> {
-        self.conn.transaction().map(SecureTransactionWrapper::new)
+    fn transaction(&mut self) -> Result<TransactionSecureWrapper, Error> {
+        self.conn.transaction().map(TransactionSecureWrapper::new)
     }
 }
 
@@ -105,11 +105,11 @@ impl ConnectionWrapperReal {
 // [supposed db conn origin]<'a> --> WrappedConnectionMock<'a> -> WrappedTransactionMock<'a>.
 
 #[derive(Debug)]
-pub struct SecureTransactionWrapper<'conn_if_real_or_static_if_mock> {
+pub struct TransactionSecureWrapper<'conn_if_real_or_static_if_mock> {
     inner: Box<dyn TransactionInnerWrapper + 'conn_if_real_or_static_if_mock>,
 }
 
-impl<'a> SecureTransactionWrapper<'a> {
+impl<'a> TransactionSecureWrapper<'a> {
     pub fn new(txn: Transaction<'a>) -> Self {
         Self {
             inner: Box::new(TransactionInnerWrapperReal::new(txn)),

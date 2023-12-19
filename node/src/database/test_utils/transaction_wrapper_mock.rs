@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::database::rusqlite_wrappers::{
-    ConnectionWrapper, SecureTransactionWrapper, TransactionInnerWrapper,
+    ConnectionWrapper, TransactionInnerWrapper, TransactionSecureWrapper,
 };
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -182,7 +182,7 @@ struct SetupForProdCodeAndAlteredStmts {
     // successful SQL operations would not be written into the database
     // persistently, even though some tests might expect those changes
     // to be findable in the database
-    txn_aggregating_prod_code_stmts_opt: Option<SecureTransactionWrapper<'static>>,
+    txn_aggregating_prod_code_stmts_opt: Option<TransactionSecureWrapper<'static>>,
     queue_with_prod_code_and_altered_stmts: RefCell<Vec<Option<AlteredStmtByOrigin>>>,
     // This connection is usually the most important, but using just the primary
     // connection used in executing the prod-code should be also possible.

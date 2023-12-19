@@ -1011,7 +1011,7 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
-    use crate::database::rusqlite_wrappers::SecureTransactionWrapper;
+    use crate::database::rusqlite_wrappers::TransactionSecureWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
@@ -1888,7 +1888,7 @@ mod tests {
             .commit_params(&commit_params_arc)
             .commit_result(Ok(()))
             .set_arbitrary_id_stamp(transaction_id);
-        let transaction = SecureTransactionWrapper::new_test_only(txn_inner_builder);
+        let transaction = TransactionSecureWrapper::new_test_only(txn_inner_builder);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(transaction);
