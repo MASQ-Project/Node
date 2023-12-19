@@ -370,7 +370,7 @@ impl ReceivableDaoReal {
             1 => {
                 return Err(RusqliteError(format!(
                     "Update for received payment with {amount} wei ran without producing a change \
-                    in the database, despite a record for wallet {address} exists."
+                    in the database, despite the record for wallet {address} exists."
                 )))
             }
             x => return Err(RusqliteError(format!(
@@ -1031,7 +1031,12 @@ mod tests {
         let prepare_results = PrepareResultsDispatcher::new_with_prod_code_and_altered_stmts(
             prod_code_calls_conn,
             Some(panic_causing_conn),
-            vec![None, None, None, Some(AlteredStmtByOrigin::ProdCode)],
+            vec![
+                None,
+                None,
+                None,
+                Some(AlteredStmtByOrigin::IdenticalWithProdCode),
+            ],
         );
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)
@@ -1096,32 +1101,41 @@ mod tests {
             789123     0x0000000000000000000000000000000000646566 111222            \n\
             TOTAL                                                 156900"
         ));
-        // The test framework used in here, the TransactionWrapperMock, is really a smart tool. It
-        // allows  to simulate errors thrown from Statements that come from our watched transaction
-        // acting a main role in the test. That goes along with the standard purposes of mocks. One
-        // of the extra features, though, is a simulation of how a transaction would behave in
-        // reality, especially concerning the commit time or a drop of the object, not having
-        // involved itself in an explicit call of 'commit', there a situation that should leave the
-        // database unmodified (using the roll-back strategy).
-        // Why is it important to think about? You should know that the mocked wrapper based on having
-        // its own transaction that can be used for any number of initial calls done on this single
-        // piece of it, if not also interacting with a real transaction, would all be persistently
-        // written into the database. In order to be faithful to the various distinct operations
-        // that take place in our code, we do care really a lot about the terminal stage of the
-        // transaction. If we don't make it to the 'commit' call for an issue having stepped in before,
-        // the staged changes will not engrave into the database. Which is exactly you can watch in
-        // this test.
+        // The test framework of TransactionWrapperInnerMock with its PrepareResultsDispatcher is
+        // one of the smarter tools you can meet.
         //
-        // Another proof about the correct course of events is that even though we hadn't prepared
-        // a result for the mocked 'commit' method, the test didn't panic because of that. Besides
-        // that, if it had been committing each transaction separately we would've come across at
-        // least one call of 'commit' (and crashed), yet we didn't.
+        // It allows to stimulate a certain error to be thrown out at the execution of
+        // this given Statement (with all the supplied parameters if any) that we make sure will be
+        // made inside the test tool at the right time and pushed out into the ongoing
+        // operation requiring it by the prod code, but given the conditions, causing an error right
+        // in the next moment. This way, the reaction is medium by which we can control the course
+        // of the code flow.
+        //
+        // As far as that it hasn't been a big deal. There is an extra concern though. If and how
+        // we can follow the real life behaviour given every transaction needs to be eventually
+        // committed by a function call in our code.
+        //
+        // Why is this important? You should know that the mocked wrapper has its foundation in
+        // its own transaction it carries around with it and that is supposed to follow how we work
+        // with the standard one: it can be used for any number of operations but the final step,
+        // the commit, must come in place, otherwise all those operations, even if succeeding
+        // on its own, will be discarded and have no impact on the database. We need to stay true to
+        // this because there might be tests, like this one, which are interested in the final state,
+        // looking into the database and wanting to see no changes there, because that is exactly
+        // what we would've seen with the pure version of the code.
+        //
+        // Another proof of the correct course of events in here is that even though we hadn't
+        // given any prepared result for the 'commit()' method, the test did not panic demanding
+        // a result to be used by the mock. Besides that, another way of looking at the evidence
+        // given by this test is that if the code had been supposed to commit the transactions
+        // separately, while the first one is proper and therefore it would've allowed that, we
+        // would necessarily have come across this call of 'commit()', crushing, yet we didn't.
     }
 
     #[test]
-    fn verify_possibly_unknown_wallet_is_fatal_when_the_row_for_this_wallet_exists() {
+    fn verify_possibly_unknown_wallet_returns_error_when_the_row_for_this_wallet_exists() {
         let test_name =
-            "verify_possibly_unknown_wallet_is_fatal_when_the_row_for_this_wallet_exists";
+            "verify_possibly_unknown_wallet_returns_error_when_the_row_for_this_wallet_exists";
         let home_dir = ensure_node_home_directory_exists("receivable", test_name);
         let mut conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -1145,19 +1159,14 @@ mod tests {
         let result = ReceivableDaoReal::verify_possibly_unknown_wallet(&txn, &logger, &suspect);
 
         let expected_panic_msg = "Update for received payment with 1000000000 wei ran \
-        without producing a change in the database, despite a record for wallet \
+        without producing a change in the database, despite the record for wallet \
         0x00000000000000000000000000000000626c6168 exists.";
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::RusqliteError(
-                expected_panic_msg.to_string()
-            ))
-        )
+        assert_eq!(result, Err(RusqliteError(expected_panic_msg.to_string())))
     }
 
     #[test]
-    fn verify_possibly_unknown_wallet_finds_more_than_just_one_record() {
-        let test_name = "verify_possibly_unknown_wallet_finds_more_than_just_one_record";
+    fn verify_possibly_unknown_wallet_returns_error_finding_duplicated_records_for_single_wallet() {
+        let test_name = "verify_possibly_unknown_wallet_returns_error_finding_duplicated_records_for_single_wallet";
         let wallet = make_wallet("blah");
         let home_dir = ensure_node_home_directory_exists("receivables", test_name);
         let db_file_path = home_dir.join(DATABASE_FILE);
@@ -1179,7 +1188,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(unrelated_conn);
         let results = PrepareResultsDispatcher::new_with_altered_stmts_only(
             Box::new(wrapped_conn),
-            vec![AlteredStmtByOrigin::ProdCode],
+            vec![AlteredStmtByOrigin::IdenticalWithProdCode],
         );
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().prepare_results(results);
@@ -1198,12 +1207,7 @@ mod tests {
         producing a change in the database. At the same time, it's been found that wallet address \
         0x00000000000000000000000000000000626c6168 refers to 3 records while it always should have \
         none or one.";
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::RusqliteError(
-                expected_panic_msg.to_string()
-            ))
-        )
+        assert_eq!(result, Err(RusqliteError(expected_panic_msg.to_string())))
     }
 
     #[test]

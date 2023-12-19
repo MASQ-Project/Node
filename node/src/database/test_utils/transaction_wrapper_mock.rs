@@ -319,16 +319,16 @@ pub enum AlteredStmtByOrigin {
     // Used when you have an injected connection pointing to a different db
     // and you don't want to devise a new statement but use the same as
     // intended for the prod code
-    ProdCode,
-    SQLSubstitution { substitution_stmt: String },
+    IdenticalWithProdCode,
+    FromSubstitution { new_stmt: String },
 }
 
 impl AlteredStmtByOrigin {
     fn resolve_stm_to_use<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
         match self {
-            AlteredStmtByOrigin::ProdCode => prod_code_stm,
-            AlteredStmtByOrigin::SQLSubstitution {
-                substitution_stmt: incident_statement,
+            AlteredStmtByOrigin::IdenticalWithProdCode => prod_code_stm,
+            AlteredStmtByOrigin::FromSubstitution {
+                new_stmt: incident_statement,
             } => incident_statement.as_str(),
         }
     }
