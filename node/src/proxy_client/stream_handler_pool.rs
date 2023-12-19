@@ -311,13 +311,6 @@ impl StreamHandlerPoolReal {
                 .expect("Stream handler pool is poisoned")
                 .resolver
                 .lookup_ip(&fqdn)
-                // .map_err(move |err| {
-                //     todo!("Are we being hit?");
-                //     // dns_resolve_failed_sub
-                //     //     .try_send(DnsResolveFailure_0v1::new(stream_key))
-                //     //     .expect("ProxyClient is poisoned");
-                //     err
-                // })
                 .then(move |lookup_result| {
                     Self::handle_lookup_ip(
                         target_hostname.to_string(),
@@ -328,8 +321,10 @@ impl StreamHandlerPoolReal {
                     )
                 })
                 .map_err(move |io_error| {
-                    eprintln!("Error: {:?}", io_error);
-                    // todo!("I am being hit, why");
+                    // We are sending this message;
+                    // 1. DNS fails to resolve an IP
+                    // 2. DNS resolves a wildcard IP E.G. [0.0.0.0]
+                    // 3. An exit nodes fails to establish a stream
                     dns_resolve_failed_sub
                         .try_send(DnsResolveFailure_0v1::new(stream_key))
                         .expect("ProxyClient is poisoned");
@@ -1235,10 +1230,14 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
 
-        proxy_client_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(2);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
+            proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
+            &DnsResolveFailure_0v1 { stream_key }
+        );
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
                 stream_key,
                 last_data: true,

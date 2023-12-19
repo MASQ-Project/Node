@@ -274,15 +274,15 @@ fn dns_resolution_failure_with_real_nodes() {
 
 #[test]
 fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
+    let dns_server_that_fails = Ipv4Addr::new(1, 1, 1, 3).into();
     let mut cluster = MASQNodeCluster::start().unwrap();
     let exit_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .chain(cluster.chain)
             .consuming_wallet_info(make_consuming_wallet_info("exit_node"))
-            .dns_servers(vec![Ipv4Addr::new(1, 1, 1, 3).into()])
+            .dns_servers(vec![dns_server_that_fails])
             .build(),
     );
-
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(exit_node.node_reference())
@@ -292,14 +292,19 @@ fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
             .build(),
     );
 
-    thread::sleep(Duration::from_millis(2000));
-
-    let mut client = originating_node.make_client(8080, 20_000);
+    thread::sleep(Duration::from_millis(1000));
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.xvideos.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        index_of(&response, &b"<h2>Title: DNS Resolution Problem</h2>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response.clone()).unwrap()
+    );
+    assert_eq!(
+        index_of(&response, &b"<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address www.xvideos.com</p>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
