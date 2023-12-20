@@ -208,7 +208,9 @@ pub fn sign_and_append_payment<T: BatchTransport + 'static>(
             nonce,
             gas_price,
         )
-        .map_err(|e| e)
+        .map_err(|e| {
+            return e;
+        })
         .and_then(move |new_hash| {
             Ok(HashAndAmount {
                 hash: new_hash,
@@ -684,6 +686,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
+        // TODO: GH-744 After we merge in master rename this test to: send_payables_within_batch_does_not_send_a_message_to_accountant_if_consuming_wallet_is_badly_prepared
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
@@ -712,8 +715,9 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq!(result,
-                   Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
+        assert_eq!(
+            result,
+            Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0)
@@ -887,12 +891,77 @@ mod tests {
     }
 
     #[test]
+    fn sign_and_append_payment_fails_on_badly_prepared_consuming_wallet_without_secret() {
+        let transport = TestTransport::default();
+        let incomplete_consuming_wallet =
+            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let system = System::new("test");
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+            make_wallet("blah123"),
+            9000,
+            None,
+        );
+        let gas_price = 123;
+        let nonce = U256::from(1);
+
+        let result = sign_and_append_payment(
+            TEST_DEFAULT_CHAIN,
+            Web3::new(Batch::new(transport)),
+            incomplete_consuming_wallet,
+            nonce,
+            gas_price,
+            account,
+        )
+        .wait();
+
+        System::current().stop();
+        system.run();
+        assert_eq!(
+            result,
+            Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
+        );
+    }
+
+    #[test]
+    fn sign_and_append_payment_just_works() {
+        let transport = TestTransport::default();
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let system = System::new("test");
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+            make_wallet("blah123"),
+            9000,
+            None,
+        );
+        let gas_price = 123;
+        let nonce = U256::from(1);
+
+        let result = sign_and_append_payment(
+            TEST_DEFAULT_CHAIN,
+            Web3::new(Batch::new(transport)),
+            consuming_wallet,
+            nonce,
+            gas_price,
+            account,
+        )
+        .wait()
+        .unwrap();
+
+        System::current().stop();
+        system.run();
+        let expected_hash =
+            H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
+                .unwrap();
+        assert_eq!(result.hash, expected_hash);
+        assert_eq!(result.amount, 9000);
+    }
+
+    #[test]
     fn web3_interface_send_payables_within_batch_components_are_used_together_properly() {
         // todo!("Fix this later");
         // TODO: GH-744: Will need to re-wright this test using Ganache in multi node integration test. -
-        // let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        // let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
-        // let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
+        // let sign_transaction_params_arc = Arc::new(Mutex::new(vec![])); // Done
+        // let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![])); // Done
+        // let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![])); // TODO
         //
         // let submit_batch_params_arc: Arc<Mutex<Vec<Web3<Batch<TestTransport>>>>> =
         //     Arc::new(Mutex::new(vec![]));
