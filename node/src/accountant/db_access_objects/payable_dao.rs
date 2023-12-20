@@ -6,7 +6,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamPairByClause, SQLParamsBuilder, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamByUse, SQLParamsBuilder, TableNameDAO};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
@@ -106,8 +106,11 @@ impl PayableDao for PayableDaoReal {
         let last_paid_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
-            .wei_change(Addition("balance", amount))
-            .other_params(vec![ParamPairByClause::MainOnly {
+            .wei_change(Addition {
+                name_without_suffix: "balance",
+                amount_to_add: amount,
+            })
+            .other_params(vec![ParamByUse::BeforeOverflowOnly {
                 name: ":last_paid_timestamp",
                 value: &last_paid_timestamp,
             }])
@@ -159,8 +162,8 @@ impl PayableDao for PayableDaoReal {
             let last_paid = to_time_t(pending_payable_fingerprint.timestamp);
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
-                .wei_change(Subtraction("balance", pending_payable_fingerprint.amount))
-                .other_params(vec![ParamPairByClause::Both{ name: ":last_paid", value: &last_paid}])
+                .wei_change(Subtraction{name_without_suffix: "balance", amount_to_subtract: pending_payable_fingerprint.amount})
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow { name: ":last_paid", value: &last_paid}])
                 .build();
 
             Ok(self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(

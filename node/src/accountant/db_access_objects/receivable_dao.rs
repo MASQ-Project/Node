@@ -10,8 +10,8 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig,
-    ParamPairByClause, SQLParamsBuilder, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamByUse,
+    SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
@@ -130,8 +130,11 @@ impl ReceivableDao for ReceivableDaoReal {
         let last_received_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
-            .wei_change(Addition("balance", amount))
-            .other_params(vec![ParamPairByClause::MainOnly {
+            .wei_change(Addition {
+                name_without_suffix: "balance",
+                amount_to_add: amount,
+            })
+            .other_params(vec![ParamByUse::BeforeOverflowOnly {
                 name: ":last_received_timestamp",
                 value: &last_received_timestamp,
             }])
@@ -330,8 +333,11 @@ impl ReceivableDaoReal {
             let last_received_timestamp = to_time_t(timestamp);
             let params = SQLParamsBuilder::default()
                 .key(WalletAddress(&received_payment.from))
-                .wei_change(Subtraction("balance", received_payment.wei_amount))
-                .other_params(vec![ParamPairByClause::Both {
+                .wei_change(Subtraction {
+                    name_without_suffix: "balance",
+                    amount_to_subtract: received_payment.wei_amount,
+                })
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow {
                     name: ":last_received",
                     value: &last_received_timestamp,
                 }])

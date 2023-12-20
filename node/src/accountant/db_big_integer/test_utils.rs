@@ -25,9 +25,9 @@ pub(in crate::accountant::db_big_integer) mod restricted {
 
     pub fn test_database_key<'a>(val: &'a dyn DisplayableParamValue) -> KeyVariants<'a> {
         TestKey {
-            var_name: "name",
-            sub_name: ":name",
-            val,
+            column_name: "name",
+            substitution_name: ":name",
+            value: val,
         }
     }
 }
