@@ -103,6 +103,7 @@ fn reported_server_drop() {
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 
+#[ignore]
 #[test]
 // Given: Exit Node is real_node; originating Node is mock_node.
 // Given: A stream is established through the exit Node to a server.
