@@ -856,30 +856,31 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
     fn finish_scan(
         &mut self,
-        message: ReceivedPayments,
+        msg: ReceivedPayments,
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
-        if message.payments.is_empty() {
+        if msg.payments.is_empty() {
             info!(
                 logger,
                 "No received payments were newly detected during the scanning process."
             );
+
             match self
                 .persistent_configuration
-                .set_start_block(message.new_start_block)
+                .set_start_block(msg.new_start_block)
             {
-                Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
+                Ok(()) => debug!(logger, "Start block updated to {}", msg.new_start_block),
                 Err(e) => panic!(
                     "Attempt to set new start block to {} failed due to: {:?}",
-                    message.new_start_block, e
+                    msg.new_start_block, e
                 ),
             }
         } else {
-            self.handle_new_received_payments(&message, logger)
+            self.handle_new_received_payments(&msg, logger)
         }
 
         self.mark_as_ended(logger);
-        message
+        msg
             .response_skeleton_opt
             .map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
