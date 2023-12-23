@@ -23,7 +23,7 @@ pub struct ConnectionWrapperMock<'conn> {
 // attributes of `Connection` which lacks the Send marker. This unsafe instructs the compiler
 // we don't care because it is a test utility and as far as we know it hasn't bitten us yet
 
-unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
+unsafe impl<'conn> Send for ConnectionWrapperMock<'conn> {}
 
 impl<'conn> ConnectionWrapperMock<'conn> {
     pub fn new() -> Self {
