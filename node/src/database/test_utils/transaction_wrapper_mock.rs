@@ -84,14 +84,6 @@ impl TransactionInnerWrapperMock {
             arbitrary_id_stamp_opt,
         }
     }
-
-    fn has_dual_setup_in_results_dispatcher(&self) -> bool {
-        if let Some(dispatcher) = self.prepare_results_dispatcher_opt.as_ref() {
-            dispatcher.setup.is_right()
-        } else {
-            false
-        }
-    }
 }
 
 impl TransactionInnerWrapper for TransactionInnerWrapperMock {
@@ -120,17 +112,15 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
         // in the test to be run with the genuine prod code statements), and thus all data changes these
         // statements may claim to introduce (if called) will be recorded in the database and
         // visible at the end of the test.
-        if next_result.is_ok() && self.has_dual_setup_in_results_dispatcher() {
-            self.prepare_results_dispatcher_opt
-                .as_mut()
-                .expect("presence just checked")
-                .setup
-                .as_mut()
-                .expect_right("dual setup just checked")
-                .commit_prod_code_stmts()
-        } else {
-            next_result
+        if next_result.is_ok() {
+            if let Some(prepared_results) = self.prepare_results_dispatcher_opt.as_mut() {
+                if let Either::Right(for_both) = &mut prepared_results.setup {
+                    return for_both.commit_prod_code_stmts();
+                }
+            }
         }
+
+        next_result
     }
 
     arbitrary_id_stamp_in_trait_impl!();
@@ -291,7 +281,7 @@ impl PrepareResultsDispatcher {
         prod_code_stmt: &str,
     ) -> Result<Statement<'conn>, Error> {
         let stmt_by_origin = setup.queue_of_statements.borrow_mut().remove(0);
-        let altered_stmt = stmt_by_origin.resolve_stm_to_use(prod_code_stmt);
+        let altered_stmt = stmt_by_origin.str_stmt(prod_code_stmt);
         setup.conn.prepare(altered_stmt)
     }
 
@@ -307,7 +297,7 @@ impl PrepareResultsDispatcher {
         match altered_stmt_opt {
             None => setup.prod_code_stmts_conn.prepare(prod_code_stmt),
             Some(altered_stm) => {
-                let altered_stm_str = altered_stm.resolve_stm_to_use(prod_code_stmt);
+                let altered_stm_str = altered_stm.str_stmt(prod_code_stmt);
                 setup.make_altered_stmt(altered_stm_str)
             }
         }
@@ -324,7 +314,7 @@ pub enum AlteredStmtByOrigin {
 }
 
 impl AlteredStmtByOrigin {
-    fn resolve_stm_to_use<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
+    fn str_stmt<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
         match self {
             AlteredStmtByOrigin::IdenticalWithProdCode => prod_code_stm,
             AlteredStmtByOrigin::FromSubstitution {
