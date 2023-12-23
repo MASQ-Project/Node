@@ -4,7 +4,7 @@ use crate::accountant::checked_conversion;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::PayableDaoError;
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSecureWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::{Error, Row, Statement, ToSql};
@@ -19,7 +19,7 @@ where
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSafeWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -35,7 +35,7 @@ where
 {
     fn execute<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSafeWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let main_sql = config.main_sql;
@@ -45,7 +45,7 @@ where
             .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(<Vec<RusqliteNativePrimitivePair>>::from_iter(params).as_slice()) {
             Ok(1) => Ok(()),
-            Ok(x) => Err(BigIntDatabaseError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed: x}),
+            Ok(detected_count_changed) => Err(BigIntDatabaseError::RowChangeMismatch{row_key: config.key_param_value().to_string(),detected_count_changed}),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
@@ -74,7 +74,7 @@ impl<T: TableNameDAO + 'static> Default for BigIntDbProcessorReal<T> {
 
 impl<T: TableNameDAO> BigIntDbProcessorReal<T> {
     fn prepare_statement<'params>(
-        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params TransactionSecureWrapper>,
+        form_of_conn: Either<&'params dyn ConnectionWrapper, &'params TransactionSafeWrapper>,
         sql: &'params str,
     ) -> Statement<'params> {
         match form_of_conn {
@@ -91,7 +91,7 @@ where
 {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSafeWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError>;
 }
@@ -112,7 +112,7 @@ impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
     fn update_with_overflow<'params>(
         &self,
-        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSafeWrapper>,
         config: BigIntSqlConfig<'params, T>,
     ) -> Result<(), BigIntDatabaseError> {
         let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
@@ -171,7 +171,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn execute_update<'params>(
-        conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
+        conn: Either<&dyn ConnectionWrapper, &TransactionSafeWrapper>,
         config: &BigIntSqlConfig<'params, T>,
         sql_params: &[(&str, &dyn ToSql)],
     ) {
@@ -631,10 +631,10 @@ mod tests {
     use crate::accountant::db_big_integer::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };
+    use crate::accountant::db_big_integer::test_utils::UpdateOverflowHandlerMock;
     use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
     use rusqlite::{Connection, ToSql};
-    use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
     #[derive(Debug)]
@@ -1049,38 +1049,6 @@ mod tests {
         .unwrap()
         .execute(params.as_slice())
         .unwrap();
-    }
-
-    #[derive(Debug, Default)]
-    struct UpdateOverflowHandlerMock {
-        update_with_overflow_params: Arc<Mutex<Vec<()>>>,
-        update_with_overflow_results: RefCell<Vec<Result<(), BigIntDatabaseError>>>,
-    }
-
-    impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock
-    where
-        T: TableNameDAO,
-    {
-        fn update_with_overflow<'a>(
-            &self,
-            _conn: Either<&dyn ConnectionWrapper, &TransactionSecureWrapper>,
-            _config: BigIntSqlConfig<'a, T>,
-        ) -> Result<(), BigIntDatabaseError> {
-            self.update_with_overflow_params.lock().unwrap().push(());
-            self.update_with_overflow_results.borrow_mut().remove(0)
-        }
-    }
-
-    impl UpdateOverflowHandlerMock {
-        fn update_with_overflow_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.update_with_overflow_params = params.clone();
-            self
-        }
-
-        fn update_with_overflow_result(self, result: Result<(), BigIntDatabaseError>) -> Self {
-            self.update_with_overflow_results.borrow_mut().push(result);
-            self
-        }
     }
 
     #[derive(Debug, PartialEq)]
