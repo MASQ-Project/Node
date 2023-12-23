@@ -81,12 +81,12 @@ impl DbMigratorReal {
         ]
     }
 
-    fn initiate_migrations<'a>(
+    fn initiate_migrations<'conn>(
         &self,
         obsolete_schema: usize,
         target_version: usize,
-        mut migration_utilities: Box<dyn DBMigrationUtilities + 'a>,
-        list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
+        mut migration_utilities: Box<dyn DBMigrationUtilities + 'conn>,
+        list_of_migrations: Vec<Box<dyn DatabaseMigration + 'conn>>,
     ) -> Result<(), String> {
         let migrations_to_process = Self::select_migrations_to_process(
             obsolete_schema,
@@ -105,11 +105,11 @@ impl DbMigratorReal {
         migration_utilities.commit()
     }
 
-    fn migrate_semi_automated<'a>(
+    fn migrate_semi_automated<'conn>(
         &self,
         record: &dyn DatabaseMigration,
-        migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
-        logger: &'a Logger,
+        migration_utilities: Box<dyn DBMigrationUtilities + 'conn>,
+        logger: &Logger,
     ) -> rusqlite::Result<()> {
         info!(
             &self.logger,
@@ -137,23 +137,19 @@ impl DbMigratorReal {
         Ok(())
     }
 
-    fn select_migrations_to_process<'a>(
+    fn select_migrations_to_process<'conn>(
         obsolete_schema: usize,
-        list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
+        list_of_migrations: Vec<Box<dyn DatabaseMigration + 'conn>>,
         target_version: usize,
         mig_utils: &dyn DBMigrationUtilities,
-    ) -> Vec<&'a (dyn DatabaseMigration + 'a)> {
+    ) -> Vec<Box<dyn DatabaseMigration + 'conn>> {
         mig_utils.too_high_schema_panics(obsolete_schema);
         list_of_migrations
             .iter()
             .skip_while(|entry| entry.old_version() != obsolete_schema)
             .take_while(|entry| entry.old_version() < target_version)
-            .map(Self::deref)
-            .collect::<Vec<&(dyn DatabaseMigration + 'a)>>()
-    }
-
-    fn deref<'a, T: ?Sized>(value: &'a &T) -> &'a T {
-        *value
+            .map(|entry| entry.as_ref())
+            .collect::<Vec<Box<dyn DatabaseMigration + 'conn>>>()
     }
 
     fn dispatch_bad_news(

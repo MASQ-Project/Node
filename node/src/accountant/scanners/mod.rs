@@ -860,12 +860,22 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
         if message.payments.is_empty() {
-            self.update_start_block_while_no_received_transactions_found(
-                message.new_start_block,
+            info!(
                 logger,
-            )
+                "No received payments were newly detected during the scanning process."
+            );
+            match self
+                .persistent_configuration
+                .set_start_block(message.new_start_block)
+            {
+                Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
+                Err(e) => panic!(
+                    "Attempt to set new start block to {} failed due to: {:?}",
+                    message.new_start_block, e
+                ),
+            }
         } else {
-            self.update_account_balances_start_block_and_stats(&message, logger)
+            self.handle_new_received_payments(&message, logger)
         }
 
         self.mark_as_ended(logger);
@@ -902,32 +912,7 @@ impl ReceivableScanner {
         }
     }
 
-    fn update_start_block_while_no_received_transactions_found(
-        &mut self,
-        new_start_block: u64,
-        logger: &Logger,
-    ) {
-        info!(
-            logger,
-            "No new received payments were detected during the scanning process."
-        );
-        match self
-            .persistent_configuration
-            .set_start_block(new_start_block)
-        {
-            Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
-            Err(e) => panic!(
-                "Attempt to set new start block to {} failed due to: {:?}",
-                new_start_block, e
-            ),
-        }
-    }
-
-    fn update_account_balances_start_block_and_stats(
-        &mut self,
-        msg: &ReceivedPayments,
-        logger: &Logger,
-    ) {
+    fn handle_new_received_payments(&mut self, msg: &ReceivedPayments, logger: &Logger) {
         let mut txn = self
             .receivable_dao
             .as_mut()
