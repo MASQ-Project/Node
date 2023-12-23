@@ -81,12 +81,12 @@ impl DbMigratorReal {
         ]
     }
 
-    fn initiate_migrations<'conn>(
+    fn initiate_migrations<'a>(
         &self,
         obsolete_schema: usize,
         target_version: usize,
-        mut migration_utilities: Box<dyn DBMigrationUtilities + 'conn>,
-        list_of_migrations: Vec<Box<dyn DatabaseMigration + 'conn>>,
+        mut migration_utilities: Box<dyn DBMigrationUtilities + 'a>,
+        list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
     ) -> Result<(), String> {
         let migrations_to_process = Self::select_migrations_to_process(
             obsolete_schema,
@@ -105,10 +105,10 @@ impl DbMigratorReal {
         migration_utilities.commit()
     }
 
-    fn migrate_semi_automated<'conn>(
+    fn migrate_semi_automated<'a>(
         &self,
         record: &dyn DatabaseMigration,
-        migration_utilities: Box<dyn DBMigrationUtilities + 'conn>,
+        migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
         logger: &Logger,
     ) -> rusqlite::Result<()> {
         info!(
@@ -137,19 +137,19 @@ impl DbMigratorReal {
         Ok(())
     }
 
-    fn select_migrations_to_process<'conn>(
+    fn select_migrations_to_process<'a>(
         obsolete_schema: usize,
-        list_of_migrations: Vec<Box<dyn DatabaseMigration + 'conn>>,
+        list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
         target_version: usize,
         mig_utils: &dyn DBMigrationUtilities,
-    ) -> Vec<Box<dyn DatabaseMigration + 'conn>> {
+    ) -> Vec<&'a (dyn DatabaseMigration + 'a)> {
         mig_utils.too_high_schema_panics(obsolete_schema);
         list_of_migrations
             .iter()
             .skip_while(|entry| entry.old_version() != obsolete_schema)
             .take_while(|entry| entry.old_version() < target_version)
-            .map(|entry| entry.as_ref())
-            .collect::<Vec<Box<dyn DatabaseMigration + 'conn>>>()
+            .copied()
+            .collect::<Vec<&'a (dyn DatabaseMigration + 'a)>>()
     }
 
     fn dispatch_bad_news(

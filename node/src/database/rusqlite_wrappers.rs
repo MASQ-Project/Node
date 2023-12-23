@@ -1,9 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#[cfg(test)]
+test_only_use!(
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;,
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+);
 use crate::arbitrary_id_stamp_in_trait;
-use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
 use crate::masq_lib::utils::ExpectValue;
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 

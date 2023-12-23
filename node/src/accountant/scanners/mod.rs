@@ -854,15 +854,11 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         })
     }
 
-    fn finish_scan(
-        &mut self,
-        msg: ReceivedPayments,
-        logger: &Logger,
-    ) -> Option<NodeToUiMessage> {
+    fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
         if msg.payments.is_empty() {
             info!(
                 logger,
-                "No received payments were newly detected during the scanning process."
+                "No newly received payments were detected during the scanning process."
             );
 
             match self
@@ -880,8 +876,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         }
 
         self.mark_as_ended(logger);
-        msg
-            .response_skeleton_opt
+        msg.response_skeleton_opt
             .map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
                 body: UiScanResponse {}.tmb(response_skeleton.context_id),
@@ -3036,7 +3031,7 @@ mod tests {
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![4321]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: No new received payments were detected during the scanning process."
+            "INFO: {test_name}: No newly received payments were detected during the scanning process."
         ));
     }
 
