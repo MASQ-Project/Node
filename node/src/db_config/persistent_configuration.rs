@@ -1550,7 +1550,7 @@ mod tests {
         let txn_id = ArbitraryIdStamp::new();
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().set_arbitrary_id_stamp(txn_id);
-        let mut txn = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block_from_txn(1234, &mut txn);

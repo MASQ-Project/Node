@@ -315,7 +315,7 @@ mod tests {
     fn set_by_guest_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
-        let mut txn = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
 
         subject

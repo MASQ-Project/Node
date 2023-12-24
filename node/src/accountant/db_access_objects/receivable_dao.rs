@@ -1044,7 +1044,7 @@ mod tests {
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)
             .prepare_results(prepare_results);
-        let mocked_transaction = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let mocked_transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let mocked_conn =
             Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
         let mut subject = ReceivableDaoReal::new(mocked_conn);
@@ -1196,7 +1196,7 @@ mod tests {
         );
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().prepare_results(results);
-        let txn = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let suspect = BlockchainTransaction {
             block_number: 1234,
             from: wallet,

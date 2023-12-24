@@ -3073,7 +3073,7 @@ mod tests {
             .commit_params(&commit_params_arc)
             .commit_result(Ok(()))
             .set_arbitrary_id_stamp(transaction_id);
-        let transaction = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_from_txn_params(&set_start_block_from_txn_params_arc)
             .set_start_block_from_txn_result(Ok(()));
@@ -3138,7 +3138,7 @@ mod tests {
         let test_name = "received_transactions_processed_but_start_block_setting_fails";
         let now = SystemTime::now();
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
-        let transaction = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
             Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
         );
@@ -3182,7 +3182,7 @@ mod tests {
         ));
         let txn_inner_builder =
             TransactionInnerWrapperMockBuilder::default().commit_result(commit_err);
-        let transaction = TransactionSafeWrapper::new_test_only(txn_inner_builder);
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let persistent_config =
             PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);

@@ -12,6 +12,17 @@ use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
+// The qualities of this builder are in its own unrestricted usability contrasting with how it
+// creates an encapsulated environment in which it configures and eventually builds the mock. All
+// that in order to minimize the exposure of the mock
+// to the outer scope. While a wrapped transaction is being created, and we need it to be tamed in
+// a test, this mock is supposed to become its inner wrapper of the supposed real world transaction.
+// The inner wrapper ever needs to stay private. Then there is the outer, public one, that anyone
+// can manipulate with.
+//
+// You can read more about the safeness reasons for this onion structure in comments nearby these
+// wrappers.
+
 #[derive(Default)]
 pub struct TransactionInnerWrapperMockBuilder {
     prepare_params: Arc<Mutex<Vec<String>>>,
@@ -54,6 +65,8 @@ impl TransactionInnerWrapperMockBuilder {
 
     set_arbitrary_id_stamp_in_mock_impl!();
 }
+
+// Keep as a private class, seek a builder of it instead
 
 #[derive(Debug)]
 struct TransactionInnerWrapperMock {
@@ -127,37 +140,37 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 }
 
 // Trying to store a rusqlite 'Statement' inside the TransactionWrapperMock and then placing this
-// combination into the ConnectionWrapperMock was a difficult test of our Rust knowledge. This
+// combination into the ConnectionWrapperMock became a thorough test of our Rust knowledge. This
 // approach led to complex problems related to object lifetimes. We tried many times to fix these
-// issues, but success, yet not guaranteed, seemed to depend on introducing numerous new explicit
-// lifetimes. Some of these lifetimes required strict hierarchical relationships with others.
-// There is also a hypothesis that the language may not let you maintain such relationships between
-// objects at all.
+// issues, but success, while never guaranteed, seemed to depend on introduction of numerous new
+// explicit lifetimes. Some of these lifetimes required strict hierarchical relationships with
+// others. A hypothesis exists that the way the language is designed maintaining such relationships
+// between objects cannot be achieved.
 
-// Eventually, we decided to take a different approach. The only solution that sparked some chance,
-// even though by brute force, was to reduce the excessive use of borrowed references. To achieve
-// this, we had to make the mock smarter by giving it its own database connection. This connection
-// acts as a source for creating native rusqlite Statements. This was necessary because we couldn't
-// find any alternative to letting the rusqlite library build the 'Statement' using their methods
-// unexposed to the public interface. Additionally, our attempts to create StatementWrapper failed
-// due to solid compilation problems. These problems arose from the way generic arguments were
-// spread across the original 'Statement' implementation, which we couldn't replicate in our
-// wrapper. Also, we couldn't bypass these generics. In Rust, a trait with generics in its methods
-// isn't valid as long as we insist on using a trait object.
+// Eventually, we decided to take a different approach. The only solution that sparked some chances
+// was to radically reduce the excessive use of borrowed references. We had to make the mock much
+// smarter by giving it its own database connection, or sometimes even two. This connection acts as
+// a source for creating native rusqlite Statements. This was unavoidable because we couldn't
+// find any alternative to having the rusqlite library build the 'Statement' using their internal
+// methods. Additionally, our attempts to create a StatementWrapper failed due to solid compilation
+// problems. These problems arose from the way generic arguments were spread across the methods
+// in the 'Statement' implementation, of which there is quite a lot of those that we use too.
+// We couldn't replicate that in our wrapper. In Rust, no one can write a trait with generics in
+// the methods as long as it is meant to be used as a trait object.
 
-// With that said, we're relieved to have a working solution now. The most challenging aspect of
-// this mock system is the 'prepare' method. Usually, you won't need an error to occur in this
-// method because the production code often handles the results from 'prepare' using 'expect'. As
-// you might know, we don't require using 'expect' for writing new tests. Therefore, there's nearly
-// no point in causing an error that would only trigger a panic due to 'expect'.
+// With that said, we're relieved to have at least one working solution now. The most challenging
+// aspect of this mock is the 'prepare' method. Usually, you won't need an error to occur in this
+// method because the production code often handles the results using simply 'expect'. As you might
+// know, we don't require writing new tests for using 'expect'. There's nearly no point
+// in exercising an error that would only trigger a panic due to 'expect' in a place where,
+// fundamentally, we'd never expect an error.
 
-// From the above, it's clear that we don't need to worry about generating errors in the 'prepare'
-// method's return. Our focus should be on the Statement produced by this method. Although it might
-// seem trivial at first, the 'prepare' method can significantly influence the result of the next
-// function call made using this Statement. Fortunately, despite some challenges, we can indirectly
-// shape this to meet our requirements.
-// This indirectly prepared Statement can then lead to a useful error, simplifying our test writing.
-// For instance, consider how this applies to methods like 'execute', 'query_row', or 'query_map'.
+// Our focus must be on the Statement produced by this method. It needs to be understood that
+// the 'prepare' method has a crucial influence to the result of the following function call taking
+// the Statement as an argument. Fortunately, despite some challenges being always around, we can
+// indirectly steer the course of that future procedure to have the very result we want to happen
+// in the test. This approach can be applied to various methods such as 'execute', 'query_row',
+// or 'query_map'.
 
 #[derive(Debug)]
 struct SetupForOnlyAlteredStmts {
@@ -168,40 +181,44 @@ struct SetupForOnlyAlteredStmts {
 #[derive(Debug)]
 struct SetupForProdCodeAndAlteredStmts {
     prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
-    // This transaction must be here because otherwise all those
-    // successful SQL operations would not be written into the database
-    // persistently, even though some tests might expect those changes
-    // to be findable in the database
-    txn_aggregating_prod_code_stmts_opt: Option<TransactionSafeWrapper<'static>>,
+    // This transaction must be carried along because otherwise all those
+    // successful SQL operations would be written into the database right away,
+    // which is not how the reality works. On the other hand we do want them to
+    // affect the database persistently if the commit point is reached, so that
+    // the test can laid assertions that can be faithful to the expected changes
+    // happening inside the database.
+    txn_bearing_prod_code_stmts_opt: Option<TransactionSafeWrapper<'static>>,
     queue_with_prod_code_and_altered_stmts: RefCell<Vec<Option<AlteredStmtByOrigin>>>,
-    // This connection is usually the most important, but using just the primary
-    // connection used in executing the prod-code should be also possible.
+    // This connection is usually the most important, but using just the prod code
+    // connection meant primarily for the prod-code statements should be also possible.
     //
-    // Common strategies for this additional connection:
+    // Common strategies to use this additional connection:
     //
-    // a) provide a connection pointing to an unrelated database,
-    //    usually very simple, allowing a clearer way of provoking
-    //    a very specific error that our tested code is supposed to respond to,
+    // a) provide a connection pointing to another database, usually declared
+    //    very simple, that allows a simplified, more direct way of stimulation
+    //    of a special and often quite unusual error that our tested code should
+    //    respond to,
     //
-    // b) asserting general errors from a read-only connection used during
-    //    running statements whose purpose is changing the state of the database
+    // b) assert on general, unspecific errors while using a connection with
+    //    only the read rights for statements whose task is to change the state
+    //    of the database
     unique_conn_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
 }
 
 impl SetupForProdCodeAndAlteredStmts {
     fn commit_prod_code_stmts(&mut self) -> Result<(), Error> {
-        self.txn_aggregating_prod_code_stmts_opt
+        self.txn_bearing_prod_code_stmts_opt
             .take()
-            .expect("Dual setup in PrepareResultsDispatcher with missing txn; how possible?")
+            .expect("Dual setup with a missing txn should never happen")
             .commit()
     }
 
     fn make_altered_stmt(&self, altered_stm: &str) -> Result<Statement, Error> {
         match self.unique_conn_for_altered_stmts_opt.as_ref() {
             None => self
-                .txn_aggregating_prod_code_stmts_opt
+                .txn_bearing_prod_code_stmts_opt
                 .as_ref()
-                .expect("txn must be present")
+                .expect("The txn must be present")
                 .prepare(altered_stm),
             Some(special_conn) => special_conn.prepare(altered_stm),
         }
@@ -210,11 +227,12 @@ impl SetupForProdCodeAndAlteredStmts {
 
 impl Drop for SetupForProdCodeAndAlteredStmts {
     fn drop(&mut self) {
-        // The real transaction binds a reference that doesn't comply with safeness, it was made by
-        // a backward cast from a raw pointer, which breaks checks for referencing an invalid memory.
-        // We must make sure that this transaction deconstructs earlier than the database
-        // Connection it has been derived from, avoiding the OS segmentation error.
-        drop(self.txn_aggregating_prod_code_stmts_opt.take())
+        // The real transaction borne in this object binds to a reference that doesn't comply with
+        // safeness anymore, it has gone through backward cast from a raw pointer, which
+        // automatically breaks the check mechanism for referencing an invalid memory. We must make
+        // sure by having this Drop implementation that this transaction deconstructs earlier than
+        // the database Connection by which it was produced, avoiding an OS segmentation error.
+        drop(self.txn_bearing_prod_code_stmts_opt.take())
     }
 }
 
@@ -249,7 +267,7 @@ impl PrepareResultsDispatcher {
 
             let mut setup = SetupForProdCodeAndAlteredStmts {
                 prod_code_stmts_conn: conn,
-                txn_aggregating_prod_code_stmts_opt: None,
+                txn_bearing_prod_code_stmts_opt: None,
                 queue_with_prod_code_and_altered_stmts: RefCell::new(stm_determining_queue),
                 unique_conn_for_altered_stmts_opt: altered_stmts_conn_opt,
             };
@@ -257,7 +275,7 @@ impl PrepareResultsDispatcher {
             let conn = unsafe { ptr.as_mut().unwrap() };
             let txn = conn.transaction().unwrap();
 
-            setup.txn_aggregating_prod_code_stmts_opt = Some(txn);
+            setup.txn_bearing_prod_code_stmts_opt = Some(txn);
 
             setup
         };
@@ -306,9 +324,9 @@ impl PrepareResultsDispatcher {
 
 #[derive(Debug)]
 pub enum AlteredStmtByOrigin {
-    // Used when you have an injected connection pointing to a different db
-    // and you don't want to devise a new statement but use the same as
-    // intended for the prod code
+    // Use this when you plan to have a connection pointing to a different db, but at the same time,
+    // you don't want to go through devising a new statement but to use the same one as in the prod
+    // code
     IdenticalWithProdCode,
     FromSubstitution { new_stmt: String },
 }

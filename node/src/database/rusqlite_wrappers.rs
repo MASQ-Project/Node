@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
 test_only_use!(
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;,
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -113,15 +112,15 @@ pub struct TransactionSafeWrapper<'conn_if_real_or_static_if_mock> {
     inner: Box<dyn TransactionInnerWrapper + 'conn_if_real_or_static_if_mock>,
 }
 
-impl<'a> TransactionSafeWrapper<'a> {
-    pub fn new(txn: Transaction<'a>) -> Self {
+impl<'conn> TransactionSafeWrapper<'conn> {
+    pub fn new(txn: Transaction<'conn>) -> Self {
         Self {
             inner: Box::new(TransactionInnerWrapperReal::new(txn)),
         }
     }
 
     #[cfg(test)]
-    pub fn new_test_only(inner_wrapper_builder: TransactionInnerWrapperMockBuilder) -> Self {
+    pub fn new_with_builder(inner_wrapper_builder: TransactionInnerWrapperMockBuilder) -> Self {
         Self {
             inner: inner_wrapper_builder.build(),
         }
@@ -153,16 +152,16 @@ pub trait TransactionInnerWrapper: Debug {
     arbitrary_id_stamp_in_trait!();
 }
 
-// Should be only understood as an internal component to the 'TransactionWrapper',
-// therefore keep the visibility constrained to this file
+// Should be understood as an internal component to the 'TransactionWrapper'.
+// Please keep the visibility constrained to this file
 
 #[derive(Debug)]
-struct TransactionInnerWrapperReal<'a> {
-    txn_opt: Option<Transaction<'a>>,
+struct TransactionInnerWrapperReal<'conn> {
+    txn_opt: Option<Transaction<'conn>>,
 }
 
-impl<'a> TransactionInnerWrapperReal<'a> {
-    fn new(transaction: Transaction<'a>) -> TransactionInnerWrapperReal<'a> {
+impl<'conn> TransactionInnerWrapperReal<'conn> {
+    fn new(transaction: Transaction<'conn>) -> TransactionInnerWrapperReal<'conn> {
         Self {
             txn_opt: Some(transaction),
         }
