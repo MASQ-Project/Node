@@ -9,54 +9,50 @@ use crate::masq_lib::utils::ExpectValue;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 
-// We've had tasks to device mocks allowing us to two testing complicated data structures leaping
-// in our lap from `rusqlite`, the Connection, that came first, and Transaction, added much later.
-// Of these two only the former follows the standard policy we've developed for mocks design.
+// We've come across new challenges to device mocks for testing stubborn, hard to tame, data
+// structures originated in the 'rusqlite' library. There are two of them, the Connection, that came
+// first, and the Transaction, drawn in much later. Only the former, though, is aligned with our
+// standard policy for mocks design.
 //
-// The delay up to launching the second one, even though we would've needed it earlier, was caused
-// by vacuum of ideas on how we could write a mock of this kind to be accepted by the compiler.
-// Finally, we've been able to come up with at least a hybrid. Paying the considerably high price
-// of having to give up on simplicity heavily.
+// The delay until the creation of the second one, even though we would've appreciated to have it
+// earlier, was caused by a vacuum of ideas on how we could write a mock of these parameters and
+// have it accepted by the compiler. Passing a lot of time, we were finally able to come up with
+// a hybrid at least. In change for a considerably high price of having to give up on simplicity.
 //
-// The actual blocker has always rooted in the hardly understandable relationships of a series
-// of lifetimes affecting each other. While the choices can be found reasonable for the third-party
-// code, ensuring that the database connection will always be around as long as anything depending
-// on it stays usable, practically related to Transactions` and `Statements` exclusively.
+// The actual blocker has always rooted in the hardly graspable relationships of serialized
+// lifetimes affecting each other. The choices made beyond the third-party library can be found
+// reasonable, like those ensuring that the database connection must stay alive as long as there
+// are any active 'Transactions' or 'Statements'.
 //
-// The use of an explicit, object-like `rusqlite` transaction is very rare in our code. That's
-// probably why we managed to live so long without bumping into this a lot. If we did write some
-// code using it, we acknowledged we must have left that piece of logic untested. The actual problem
-// with a mocked transaction has been that we usually need to combine it with the connection while
-// that one is mocked as well. The transaction is split off from the connection. The need to stick
-// this object strictly depending on a reference into another mock leads into a fragile relationship
-// of lifetimes, growing in a count during one's chase after what the compiler asks for.
+// The use of an explicit, object-like transaction from 'rusqlite' is rare in our code. That's
+// probably why we'd managed to live so long without feeling the need for this new mock. While we
+// did write some code using it, we always acknowledged we had to leave that piece of logic untested.
+// The actual problem with a mocked transaction has been that we usually need to combine it with
+// an also mocked connection. The transaction is springs from the connection. The need to put
+// this object, strictly depending on a reference, into another mock makes us face a nontrivial
+// relationship of lifetimes, growing in their count as a chase after what the compiler asks of is
+// unwinding.
 //
-// It's safe to say that any mock is hard to deal with if it is supposed to wear a lifetime from its
-// inside stored results: the lifetime causes the mock to be more restricted, what is more,
-// any object that comes into contact with this mock will have gain a responsibility to deal
-// with the vexing lifetime as well and its own way. While there still may be more troubles to come.
+// The interface have three methods of which the one causing troubles is 'prepare'. It returns
+// `Statement`, a 'rusqlite' original structure always referenced back to the connection.
 //
-// The interface is a set of three methods of which the devil sits astride on `prepare()`.
-// That method returns `Statement`, a `rusqlite` original structure, also keeping a reference back
-// to the connection.
+// There isn't any vision of how we could put an end to using this method, despite how much tempting
+// it is. In theory, we could replace it fully by the existing 'execute' method, able to circumvent
+// any places where we are forced to manipulate with the 'Statement' because 'execute' returns only
+// simple data structures, instead, easily to be stored in a mock. Regardless the boldness of this
+// plan, new design issues, from smaller to larger, are anticipated.
 //
-// There isn't any good vision of how we could manage to stop using this method, even though it
-// is tempting. In theory, we could substitute it fully by the existing `execute()` method,
-// able to circumvent any place where we are now forced to manipulate the `Statement`, a fairly
-// hard controllable structure, because `execute()`, unlike to `prepare()`, returns only simple
-// data structures easily to be stored in a mock. Whatever bold this plan would be, new design
-// issues, from smaller to larger, can be anticipated.
+// One may think of a potential solution if another class existed to wrap the `Statement` up, that
+// we've said about that it causes these serious troubles. Also that's been tested out but we've
+// met insurmountable obstacles, whereupon the steeply increasing difficulty ended the efforts.
 //
-// One may also think that there may be a solution if another class existed, wrapping the `Statement`
-// about which we've said it causes serious troubles. It's been tested out but we've found
-// insurmountable obstacles, whereupon steeply increasing difficulty ended the efforts.
+// It is fair to admit our mock is poor at elegance and simplicity. Especially when it takes more
+// complex tests. However, compensation for that needs to be seen in the good portion of
+// possibilities it opens up for advance, thorough testing in those rare places where we do rely on
+// an explicit 'rusqlite' transaction and also let's keep in mind it used to seem undoable not so
+// far ago.
 //
-// It is okay to admit the mock wrapper we have is poor at elegance and simplicity. Especially when
-// it takes more complex tests. However, the compensation needs to be seen in the good portion of
-// possibilities created for thorough, advance testing in those rare places where we do rely on
-// an explicit SQLite transaction, keeping in mind that this used to seem undoable.
-//
-// (See an additional explanation at the code of the mock)
+// (See more explanation at the code of the mock)
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -83,29 +79,27 @@ impl ConnectionWrapperReal {
     }
 }
 
-// Whole point of this outer wrapper that is shard between both the real and mock transactions is to
-// give one a chance to deconstruct this whole code structure in place, receiving a call of
-// `commit()` on it. A normally written mock with the direct use of a trait object doesn't allow to
-// be consumed by one of its methods because of the rules declared for trait objects that say
-// clearly that we can never access one otherwise than via a reference. However, to let a thing be
-// consumed by itself we need to be possessing the full ownership of it.
+// Whole point of this outer wrapper that is common in both the real and mock transactions is to
+// make a chance to deconstruct this whole code structure in place. It plays a crucial role in
+// the call of 'commit'. Note that a normally written mock with the direct use of a trait object
+// doesn't allow to be consumed by any of its methods because of the rules declared for trait
+// objects in Rust. They say clearly that we can never access one otherwise than via a reference.
+// However, to have a thing be consumed by itself we need to be possessing the full ownership.
 //
-// Leaving around an already enclosed, committed, transaction would expose us to a risk. Let's
-// imagine somebody trying to use the second time, while the actual connective element was took
-// away and deconstructed, the trait object wrapper, the interface we approach it through, still
-// lives on, having noting usable inside.
+// Leaving an already enclosed, committed, transaction around would expose us to a risk. Let's
+// imagine somebody trying to use it the second time, while the actual element providing
+// the connection has been taken away and deconstructed, then this wrapper could still live on,
+// having noting to use inside.
 //
-// Second, we want to go about carefully because it hides a potential, hard-to-debug segmentation
-// error that might be raised from the OS if we fail to be early deconstructing the transaction
-// kept inside. It has an unsafe reference pointing back inside the same object whose another field
-// hosts an extra connection to a database. If the connection deconstructs and disappears before
-// the transaction does, we are in trouble.
+// Second, caution is much desirable here because the wrapper hides a potential, hard-to-debug,
+// segmentation error that might the OS might raise if we fail to be early deconstructing
+// the transaction we created and put inside. It has an unsafe reference pointing back in to
+// the same object, to a field that hosts its own, extra, database connection that it can freely
+// carry around. If the connection deconstructs and is gone before the transaction does, troubles
+// come.
 //
-// This whole thing converges to dirty tricks, true, however it can be also a big help as we can
-// actually avoid difficulties that we would've been given by a series of gradually referenced mocks
-// like:
-//
-// [supposed db conn origin]<'a> --> WrappedConnectionMock<'a> -> WrappedTransactionMock<'a>.
+// The bottom line is that this outer wrapper is designed so that it deconstructs immediately and
+// with its every bit when a commit of the transaction processes.
 
 #[derive(Debug)]
 pub struct TransactionSafeWrapper<'conn_if_real_or_static_if_mock> {
@@ -152,8 +146,7 @@ pub trait TransactionInnerWrapper: Debug {
     arbitrary_id_stamp_in_trait!();
 }
 
-// Should be understood as an internal component to the 'TransactionWrapper'.
-// Please keep the visibility constrained to this file
+// Please note that this structure is meant to stay private
 
 #[derive(Debug)]
 struct TransactionInnerWrapperReal<'conn> {
