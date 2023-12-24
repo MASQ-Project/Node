@@ -117,7 +117,6 @@ impl StreamReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
@@ -172,7 +171,7 @@ mod tests {
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             proxy_client_sub,
             stream,
             stream_killer,
@@ -188,7 +187,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
@@ -198,7 +197,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 1,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
@@ -208,7 +207,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(2),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 2,
                 source: SocketAddr::from_str("8.7.4.3:50").unwrap(),
@@ -216,7 +215,10 @@ mod tests {
             },
         );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
-        assert_eq!(stream_killer_parameters, (make_meaningless_stream_key(), 3));
+        assert_eq!(
+            stream_killer_parameters,
+            (StreamKey::make_meaningless_stream_key(), 3)
+        );
     }
 
     #[test]
@@ -252,7 +254,7 @@ mod tests {
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
@@ -269,7 +271,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
@@ -279,7 +281,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 1,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
@@ -289,7 +291,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(2),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 2,
                 source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
@@ -300,14 +302,17 @@ mod tests {
         let kill_stream_msg = stream_killer_params
             .try_recv()
             .expect("stream was not killed");
-        assert_eq!(kill_stream_msg, (make_meaningless_stream_key(), 3));
+        assert_eq!(
+            kill_stream_msg,
+            (StreamKey::make_meaningless_stream_key(), 3)
+        );
         assert!(stream_killer_params.try_recv().is_err());
     }
 
     #[test]
     fn receiving_0_bytes_kills_stream() {
         init_test_logging();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
@@ -342,7 +347,7 @@ mod tests {
     fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![
@@ -387,7 +392,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
