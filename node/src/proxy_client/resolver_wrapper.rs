@@ -1,15 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use tokio::prelude::Future;
-use trust_dns_resolver::config::ResolverConfig;
-use trust_dns_resolver::config::ResolverOpts;
-use trust_dns_resolver::error::ResolveError;
-use trust_dns_resolver::lookup_ip::LookupIp;
-use trust_dns_resolver::AsyncResolver;
-
-pub type WrappedLookupIpFuture = dyn Future<Item = LookupIp, Error = ResolveError> + Send;
+use hickory_resolver::config::ResolverConfig;
+use hickory_resolver::config::ResolverOpts;
+use hickory_resolver::error::ResolveError;
+use hickory_resolver::lookup_ip::LookupIp;
+use hickory_resolver::{AsyncResolver, TokioAsyncResolver};
+use hickory_resolver::name_server::TokioRuntimeProvider;
 
 pub trait ResolverWrapper: Send {
-    fn lookup_ip(&self, host: &str) -> Box<WrappedLookupIpFuture>;
+    async fn lookup_ip(&self, host: &str) -> Result<LookupIp, ResolveError>;
 }
 
 pub trait ResolverWrapperFactory {
@@ -17,22 +15,20 @@ pub trait ResolverWrapperFactory {
 }
 
 pub struct ResolverWrapperReal {
-    delegate: Box<AsyncResolver>,
+    delegate: Box<AsyncResolver<TokioRuntimeProvider>>,
 }
 
 impl ResolverWrapper for ResolverWrapperReal {
-    fn lookup_ip(&self, host: &str) -> Box<WrappedLookupIpFuture> {
-        Box::new(self.delegate.lookup_ip(host))
+    async fn lookup_ip(&self, host: &str) -> Result<LookupIp, ResolveError> {
+        self.delegate.lookup_ip(host)
     }
 }
 
 pub struct ResolverWrapperFactoryReal;
 impl ResolverWrapperFactory for ResolverWrapperFactoryReal {
     fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
-        let (resolver, background_worker) = AsyncResolver::new(config, options);
-        tokio::spawn(background_worker);
-        let delegate = Box::new(resolver);
-
-        Box::new(ResolverWrapperReal { delegate })
+        let runtime_provider = TokioRuntimeProvider::new();
+        let resolver = AsyncResolver::new(config, options, runtime_provider);
+        Box::new(ResolverWrapperReal { delegate: Box::new(resolver) })
     }
 }

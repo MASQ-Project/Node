@@ -3,8 +3,8 @@ use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use masq_lib::command::StdStreams;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
+use std::pin::Pin;
+use futures::future::Future;
 
 const DNS_PORT: u16 = 53;
 
@@ -14,37 +14,38 @@ use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
+use futures::task::Context;
+use futures::task::Poll;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
+    logger: Logger,
     buf: [u8; 65536],
 }
 
 impl Future for DnsSocketServer {
-    type Item = ();
-    type Error = ();
+    type Output = ();
 
-    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        let logger = Logger::new("EntryDnsServer");
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             let mut buffer = self.buf;
             let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer) {
-                Ok(Async::Ready((len, socket_addr))) => (len, socket_addr),
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Poll::Ready((len, socket_addr))) => (len, socket_addr),
+                Ok(Poll::Pending) => return Poll::Pending,
                 Err(e) => {
                     error!(
-                        logger,
+                        self.logger,
                         "Unrecoverable error receiving from UdpSocket: {}", e
                     );
                     return Err(());
                 }
             };
-            let response_length = processing::process(&mut buffer, len, &socket_addr, &logger);
+            let response_length = processing::process(&mut buffer, len, &socket_addr, &self.logger);
             if let Err(e) = self
                 .socket_wrapper
                 .send_to(&buffer[0..response_length], socket_addr)
             {
-                error!(logger, "Unrecoverable error sending to UdpSocket: {}", e);
+                error!(self.logger, "Unrecoverable error sending to UdpSocket: {}", e);
                 return Err(());
             }
         }
@@ -69,6 +70,7 @@ impl ConfiguredByPrivilege for DnsSocketServer {
         _streams: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         self.buf = [0; 65536];
+        self.logger = Logger::new("EntryDnsServer");
         Ok(())
     }
 }

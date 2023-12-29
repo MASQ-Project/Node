@@ -18,6 +18,7 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
+use std::future::Future;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -60,7 +61,7 @@ pub trait DumpConfigRunnerFactory {
     fn make(&self) -> Box<dyn DumpConfigRunner>;
 }
 pub trait ServerInitializerFactory {
-    fn make(&self) -> Box<dyn ServerInitializer<Item = (), Error = ()>>;
+    fn make(&self) -> Box<dyn ServerInitializer>;
 }
 pub trait DaemonInitializerFactory {
     fn make(&self, args: &[String]) -> Result<Box<dyn DaemonInitializer>, ConfiguratorError>;
@@ -71,8 +72,9 @@ pub trait DumpConfigRunner {
     declare_as_any!();
 }
 
-pub trait ServerInitializer: futures::Future {
+pub trait ServerInitializer {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
+    fn spawn_futures(self);
     declare_as_any!();
 }
 
@@ -90,7 +92,7 @@ impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
 }
 
 impl ServerInitializerFactory for ServerInitializerFactoryReal {
-    fn make(&self) -> Box<dyn ServerInitializer<Item = (), Error = ()>> {
+    fn make(&self) -> Box<dyn ServerInitializer> {
         Box::new(ServerInitializerReal::default())
     }
 }
@@ -251,12 +253,12 @@ pub mod mocks {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
-    use futures::{Async, Future};
     use masq_lib::command::StdStreams;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+    use tokio::task::JoinSet;
 
     pub fn test_clustered_params() -> DIClusteredParams {
         DIClusteredParams {
@@ -299,7 +301,7 @@ pub mod mocks {
     }
 
     impl ServerInitializerFactory for ServerInitializerFactoryMock {
-        fn make(&self) -> Box<dyn ServerInitializer<Item = (), Error = ()>> {
+        fn make(&self) -> Box<dyn ServerInitializer> {
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -384,14 +386,15 @@ pub mod mocks {
 
     #[derive(Default)]
     pub struct ServerInitializerMock {
-        go_result: RefCell<Vec<Result<(), ConfiguratorError>>>,
         go_params: Arc<Mutex<Vec<Vec<String>>>>,
-        poll_result: RefCell<Vec<Result<Async<<Self as Future>::Item>, <Self as Future>::Error>>>,
+        go_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
+        spawn_futures_params: Arc<Mutex<Vec<()>>>,
+        spawn_futures_results: RefCell<Vec<JoinSet<()>>>,
     }
 
     impl ServerInitializerMock {
         pub fn go_result(self, result: Result<(), ConfiguratorError>) -> Self {
-            self.go_result.borrow_mut().push(result);
+            self.go_results.borrow_mut().push(result);
             self
         }
 
@@ -400,11 +403,13 @@ pub mod mocks {
             self
         }
 
-        pub fn poll_result(
-            self,
-            result: Result<Async<<Self as Future>::Item>, <Self as Future>::Error>,
-        ) -> Self {
-            self.poll_result.borrow_mut().push(result);
+        pub fn spawn_futures_result(self, result: JoinSet<()>) -> Self {
+            self.spawn_futures_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn spawn_futures_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.spawn_futures_params = params.clone();
             self
         }
     }
@@ -412,16 +417,12 @@ pub mod mocks {
     impl ServerInitializer for ServerInitializerMock {
         fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
-            self.go_result.borrow_mut().remove(0)
+            self.go_results.borrow_mut().remove(0)
         }
-    }
 
-    impl Future for ServerInitializerMock {
-        type Item = ();
-        type Error = ();
-
-        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-            self.poll_result.borrow_mut().remove(0)
+        fn spawn_futures(self) -> JoinSet<()> {
+            self.spawn_futures_params.lock().unwrap().push(());
+            self.spawn_futures_results.borrow_mut().remove(0)
         }
     }
 

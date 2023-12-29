@@ -6,12 +6,11 @@ use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
-use crate::sub_lib::socket_server::ConfiguredByPrivilege;
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfigurerFuture};
 use backtrace::Backtrace;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
-use futures::try_ready;
 use lazy_static::lazy_static;
 use log::{log, Level};
 use masq_lib::command::StdStreams;
@@ -20,16 +19,19 @@ use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
+use std::future::Future;
 use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use time::OffsetDateTime;
-use tokio::prelude::{Async, Future};
+use tokio::task;
+use tokio::task::{JoinHandle, JoinSet};
+use websocket::futures::try_ready;
 
 pub struct ServerInitializerReal {
-    dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
-    bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
+    dns_socket_server: Box<dyn ConfigurerFuture<Output = ()>>,
+    bootstrapper: Box<dyn ConfigurerFuture<Output = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -67,21 +69,15 @@ impl ServerInitializer for ServerInitializerReal {
                     .initialize_as_unprivileged(&params.multi_config, streams),
             )
     }
-    implement_as_any!();
-}
 
-impl Future for ServerInitializerReal {
-    type Item = ();
-    type Error = ();
-
-    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(self
-            .dns_socket_server
-            .as_mut()
-            .join(self.bootstrapper.as_mut())
-            .poll());
-        Ok(Async::Ready(()))
+    fn spawn_futures(self) -> JoinSet<()> {
+        let mut join_set = JoinSet::new();
+        let _ = join_set.spawn(self.dns_socket_server);
+        let _ = join_set.spawn(self.bootstrapper);
+        join_set
     }
+
+    implement_as_any!();
 }
 
 impl Default for ServerInitializerReal {
@@ -115,16 +111,16 @@ impl ResultsCombiner for RunModeResult {
     }
 }
 
-pub struct GatheredParams<'a> {
-    pub multi_config: MultiConfig<'a>,
+pub struct GatheredParams {
+    pub multi_config: MultiConfig,
     pub config_file_path: PathBuf,
     pub real_user: RealUser,
     pub data_directory: PathBuf,
 }
 
-impl<'a> GatheredParams<'a> {
+impl GatheredParams {
     pub fn new(
-        multi_config: MultiConfig<'a>,
+        multi_config: MultiConfig,
         config_file_path: PathBuf,
         real_user: RealUser,
         data_directory: PathBuf,
@@ -169,7 +165,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
                 .module("mio", LevelFilter::Off)
                 .build(),
         )
-        .log_to_file()
+        // .log_to_file()
         .directory(file_path.clone())
         .print_message()
         .duplicate_to_stderr(Duplicate::Info)
@@ -178,7 +174,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         .rotate(
             Criterion::Size(100_000_000),
             Naming::Numbers,
-            Cleanup::KeepZipFiles(50),
+            Cleanup::KeepCompressedFiles(50),
         );
         if let Some(discriminant) = discriminant_opt {
             logger = logger.discriminant(discriminant);
@@ -210,7 +206,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
 
 impl LoggerInitializerWrapperReal {
     pub fn get_logfile_name() -> PathBuf {
-        let path: &Path = &(*(Self::logfile_name_guard()).clone());
+        let path: &Path = &(*Self::logfile_name_guard().clone());
         path.to_path_buf()
     }
 
@@ -220,10 +216,7 @@ impl LoggerInitializerWrapperReal {
     }
 
     fn logfile_name_guard<'a>() -> MutexGuard<'a, PathBuf> {
-        match LOGFILE_NAME.lock() {
-            Ok(guard) => guard,
-            Err(poison_err) => poison_err.into_inner(),
-        }
+        LOGFILE_NAME.lock().unwrap_or_else(|poison_err| poison_err.into_inner())
     }
 }
 
@@ -446,15 +439,6 @@ pub mod tests {
         initialize_as_privileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
         initialize_as_unprivileged_params: Arc<Mutex<Vec<MultiConfigExtractedValues>>>,
         initialize_as_unprivileged_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-    }
-
-    impl Future for ConfiguredByPrivilegeMock {
-        type Item = ();
-        type Error = ();
-
-        fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-            intentionally_blank!()
-        }
     }
 
     pub fn ingest_values_from_multi_config(
@@ -721,27 +705,10 @@ pub mod tests {
         subject
             .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
-        let res = subject.wait();
+
+        let res = subject.spawn_futures();
 
         assert!(res.is_err());
-    }
-
-    #[test]
-    fn server_initializer_as_a_future() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
-        let privilege_dropper = PrivilegeDropperMock::new();
-        let dirs_wrapper = DirsWrapperMock::new();
-
-        let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(dns_socket_server),
-            bootstrapper: Box::new(bootstrapper),
-            privilege_dropper: Box::new(privilege_dropper),
-            dirs_wrapper: Box::new(dirs_wrapper),
-        };
-
-        let result = subject.poll();
-        assert_eq!(result, Ok(Async::Ready(())))
     }
 
     #[test]
@@ -761,7 +728,7 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let _ = subject.poll();
+        let _ = subject.spawn_futures();
     }
 
     #[test]
@@ -780,7 +747,7 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let _ = subject.poll();
+        let _ = subject.spawn_futures();
     }
 
     #[test]

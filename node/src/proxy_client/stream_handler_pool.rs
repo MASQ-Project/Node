@@ -776,7 +776,7 @@ mod tests {
                 0,
             );
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_params(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
@@ -885,7 +885,7 @@ mod tests {
                 0,
             );
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_params(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
@@ -1061,7 +1061,7 @@ mod tests {
                 0,
             );
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_params(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
@@ -1174,7 +1174,7 @@ mod tests {
                 0,
             );
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_params(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
@@ -1266,7 +1266,7 @@ mod tests {
             );
 
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_params(&lookup_ip_parameters)
                 .lookup_ip_success(vec![
                     IpAddr::from_str("2.3.4.5").unwrap(),
                     IpAddr::from_str("3.4.5.6").unwrap(),
@@ -1379,7 +1379,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&mut lookup_ip_parameters)
+                .lookup_ip_params(&mut lookup_ip_parameters)
                 .lookup_ip_failure(ResolveErrorKind::Io.into());
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),

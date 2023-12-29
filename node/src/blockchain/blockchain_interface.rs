@@ -23,7 +23,7 @@ use std::iter::once;
 use thousands::Separable;
 use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
-use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::transports::{Batch, Http};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
     TransactionReceipt, H160, H256, U256,

@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod local_test_utils;
 mod resolver_wrapper;
-mod stream_establisher_new;
 mod stream_establisher;
 mod stream_handler_pool;
 mod stream_handler_pool_new;
@@ -43,10 +42,7 @@ use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::SystemTime;
-use trust_dns_resolver::config::NameServerConfig;
-use trust_dns_resolver::config::Protocol;
-use trust_dns_resolver::config::ResolverConfig;
-use trust_dns_resolver::config::ResolverOpts;
+use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -85,6 +81,8 @@ impl Handler<BindMessage> for ProxyClient {
                 socket_addr: *dns_server_ref,
                 protocol: Protocol::Udp,
                 tls_dns_name: None,
+                trust_negative_responses: true,
+                bind_addr: None,
             })
         }
         let opts = ResolverOpts::default();
@@ -368,6 +366,7 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::SystemTime;
+    use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 
     #[test]
     fn constants_have_correct_values() {
@@ -573,7 +572,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let mut resolver_wrapper_new_parameters =
             resolver_wrapper_new_parameters_arc.lock().unwrap();
@@ -587,11 +586,15 @@ mod tests {
                     socket_addr: SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                     protocol: Protocol::Udp,
                     tls_dns_name: None,
+                    trust_negative_responses: true,
+                    bind_addr: None,
                 },
                 NameServerConfig {
                     socket_addr: SocketAddr::from_str("5.4.3.2:5432").unwrap(),
                     protocol: Protocol::Udp,
                     tls_dns_name: None,
+                    trust_negative_responses: true,
+                    bind_addr: None,
                 },
             ]
         );
@@ -636,7 +639,7 @@ mod tests {
         subject_addr.try_send(package).unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
     }
 
     #[test]
@@ -663,7 +666,7 @@ mod tests {
                 .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
-            system.run();
+            system.run().unwrap();
         });
         TestLogHandler::new().await_log_containing(
             &format!(
@@ -719,7 +722,7 @@ mod tests {
                 .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
                 .unwrap();
 
-            system.run();
+            system.run().unwrap();
         });
 
         hopper_awaiter.await_message_count(1);
@@ -796,7 +799,7 @@ mod tests {
         subject_addr.try_send(package).unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, Some(make_wallet("consuming")),));
     }
@@ -853,9 +856,9 @@ mod tests {
         subject_addr.try_send(package).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         assert_eq!(0, process_package_parameters.lock().unwrap().len());
-        TestLogHandler::new().exists_log_containing(format!("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet").as_str());
+        TestLogHandler::new().exists_log_containing("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet");
     }
 
     #[test]
@@ -920,7 +923,7 @@ mod tests {
         subject_addr.try_send(package).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, None,));
     }
@@ -996,7 +999,7 @@ mod tests {
             .unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1167,7 +1170,7 @@ mod tests {
             .unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1249,7 +1252,7 @@ mod tests {
             })
             .unwrap();
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let after = SystemTime::now();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, paying_wallet_opt) = process_package_params.remove(0);

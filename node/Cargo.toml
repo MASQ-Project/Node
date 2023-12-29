@@ -59,7 +59,7 @@ tokio = "1.34.0"
 tokio-core = "0.1.18"
 toml = "0.8.8"
 trust-dns = "0.23.2"
-trust-dns-resolver = "0.23.2"
+hickory-resolver = "0.24.0"
 unindent = "0.2.3"
 variant_count = "1.1.0"
 web3 = {version = "0.19.0", default-features = false, features = ["http", "http-tls"]}

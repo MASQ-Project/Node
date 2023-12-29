@@ -35,7 +35,6 @@ use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
-use futures::try_ready;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
@@ -55,10 +54,6 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
-use tokio::prelude::stream::futures_unordered::FuturesUnordered;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
-use tokio::prelude::Stream;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -778,9 +773,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tokio;
-    use tokio::executor::current_thread::CurrentThread;
-    use tokio::prelude::stream::FuturesUnordered;
-    use tokio::prelude::Async;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);

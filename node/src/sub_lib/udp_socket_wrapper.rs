@@ -3,7 +3,6 @@ use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
-use tokio::prelude::Async;
 
 pub trait UdpSocketWrapperTrait: Sync + Send {
     fn bind(&mut self, addr: SocketAddr) -> io::Result<bool>;

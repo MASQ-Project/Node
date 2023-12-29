@@ -1349,7 +1349,7 @@ mod tests {
         TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other error", 1000);
         neighborhood_awaiter.await_message_count(1);
         let remove_neighbor_msg =
-            Recording::get::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);
+            Recording::get_clone::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);
         assert_eq!(remove_neighbor_msg.public_key, expected_key);
 
         let connect_pair_params = connect_pair_params_arc_a.lock().unwrap();
@@ -1434,7 +1434,7 @@ mod tests {
         neighborhood_awaiter.await_message_count(1);
         let target_ip_addr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5));
         let node_query_msg =
-            Recording::get::<DispatcherNodeQueryMessage>(&neighborhood_recording_arc, 0);
+            Recording::get_clone::<DispatcherNodeQueryMessage>(&neighborhood_recording_arc, 0);
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
@@ -1471,7 +1471,7 @@ mod tests {
 
         neighborhood_awaiter.await_message_count(2);
         let connection_progress_message =
-            Recording::get::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
+            Recording::get_clone::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
         assert_eq!(
             connection_progress_message,
             ConnectionProgressMessage {
@@ -1548,7 +1548,7 @@ mod tests {
             .unwrap();
 
         awaiter.await_message_count(1);
-        let node_query_msg = Recording::get::<DispatcherNodeQueryMessage>(&recording_arc, 0);
+        let node_query_msg = Recording::get_clone::<DispatcherNodeQueryMessage>(&recording_arc, 0);
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
@@ -1915,7 +1915,7 @@ mod tests {
 
         neighborhood_awaiter.await_message_count(1);
         let connection_progress_message =
-            Recording::get::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
+            Recording::get_clone::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
         assert_eq!(
             connection_progress_message,
             ConnectionProgressMessage {

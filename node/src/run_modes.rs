@@ -10,6 +10,7 @@ use crate::run_modes_factories::{
 use actix::System;
 use clap::Error;
 use futures::future::Future;
+use tokio::{task, task_local};
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -47,11 +48,13 @@ impl RunModes {
             Leave(exit_code) => return exit_code,
         };
 
-        match match mode {
+        let run_result = match mode {
             Mode::DumpConfig => self.runner.dump_config(args, streams),
             Mode::Initialization => self.runner.run_daemon(args, streams),
             Mode::Service => self.runner.run_node(args, streams),
-        } {
+        };
+
+        match run_result {
             Ok(_) => 0,
             Err(RunnerError::Numeric(e_num)) => e_num,
             Err(RunnerError::Configurator(conf_e)) => {
@@ -82,18 +85,18 @@ impl RunModes {
         mode: &Mode,
         streams: &mut StdStreams<'_>,
     ) -> Leaving {
-        match match match Self::is_help_or_version(args) {
+        let is_help_or_version = match Self::is_help_or_version(args) {
             false => return Not,
             true => mode,
-        } {
+        };
+        let command = match is_help_or_version {
             Mode::DumpConfig => app_config_dumper(),
             Mode::Initialization => app_daemon(),
             Mode::Service => app_node(),
-        }
-        .get_matches_from_safe(args)
-        {
+        };
+        match command.try_get_matches_from(args) {
             Err(e) => Self::clap_error_to_likely_contain_help_or_version(e, streams),
-            x => unreachable!("sieve for 'help' or 'version' has flaws {:?}", x),
+            x => unreachable!("sieve for 'help' or 'version' has flaws: {:?}", x),
         }
     }
 
@@ -102,8 +105,8 @@ impl RunModes {
         streams: &mut StdStreams<'_>,
     ) -> Leaving {
         match clap_error {
-            err if err.kind == clap::ErrorKind::HelpDisplayed
-                || err.kind == clap::ErrorKind::VersionDisplayed =>
+            err if err.kind() == clap::error::ErrorKind::DisplayHelp
+                || err.kind() == clap::error::ErrorKind::DisplayVersion =>
             {
                 short_writeln!(streams.stdout, "{}", err.message);
                 ExitCode(0)
@@ -237,12 +240,16 @@ impl Runner for RunnerReal {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
-        actix::spawn(server_initializer.map_err(|_| {
-            System::current().stop_with_code(1);
-        }));
+        let _ = task::spawn(async {
+            let result = server_initializer.await;
+            match result {
+                Ok(x) => panic! ("DNS server was never supposed to stop, but terminated with {:?}", x),
+                Err(_) => System::current().stop_with_code(1), // TODO: Maybe log this error?
+            }
+        });
         match system.run() {
-            0 => Ok(()),
-            num_e => Err(RunnerError::Numeric(num_e)),
+            Ok(()) => Ok(()),
+            Err(e) => RunnerError::blah
         }
     }
 
@@ -749,6 +756,7 @@ parm2 - msg2\n"
     //TODO fix the functionality by upgrading Clap;
     // it should be the card GH-460
     // or eventually transform this into an integration test
+    // TODO: Don't forget to investigate this
     #[ignore]
     #[test]
     fn daemon_and_node_modes_version_call() {

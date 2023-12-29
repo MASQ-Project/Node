@@ -255,7 +255,7 @@ impl Recording {
         self.len() == 0
     }
 
-    pub fn get<T: Any + Send + Clone + Message>(
+    pub fn get_clone<T: Any + Send + Clone + Message>(
         recording_arc: &Arc<Mutex<Recording>>,
         index: usize,
     ) -> T {

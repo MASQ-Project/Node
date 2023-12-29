@@ -1109,17 +1109,17 @@ mod tests {
         System::current().stop();
         system.run();
         thread::sleep(Duration::from_millis(100));
-        Recording::get::<BindMessage>(&recordings.dispatcher, 0);
-        Recording::get::<BindMessage>(&recordings.hopper, 0);
-        Recording::get::<BindMessage>(&recordings.proxy_client, 0);
-        Recording::get::<BindMessage>(&recordings.proxy_server, 0);
-        Recording::get::<BindMessage>(&recordings.neighborhood, 0);
-        Recording::get::<BindMessage>(&recordings.accountant, 0);
-        Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
-        Recording::get::<BindMessage>(&recordings.blockchain_bridge, 0);
-        Recording::get::<BindMessage>(&recordings.configurator, 0);
-        Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
-        Recording::get::<StartMessage>(&recordings.neighborhood, 1);
+        Recording::get_clone::<BindMessage>(&recordings.dispatcher, 0);
+        Recording::get_clone::<BindMessage>(&recordings.hopper, 0);
+        Recording::get_clone::<BindMessage>(&recordings.proxy_client, 0);
+        Recording::get_clone::<BindMessage>(&recordings.proxy_server, 0);
+        Recording::get_clone::<BindMessage>(&recordings.neighborhood, 0);
+        Recording::get_clone::<BindMessage>(&recordings.accountant, 0);
+        Recording::get_clone::<BindMessage>(&recordings.ui_gateway, 0);
+        Recording::get_clone::<BindMessage>(&recordings.blockchain_bridge, 0);
+        Recording::get_clone::<BindMessage>(&recordings.configurator, 0);
+        Recording::get_clone::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
+        Recording::get_clone::<StartMessage>(&recordings.neighborhood, 1);
     }
 
     #[test]
@@ -1772,7 +1772,7 @@ mod tests {
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
-        let bind_message = Recording::get::<BindMessage>(recording, 0);
+        let bind_message = Recording::get_clone::<BindMessage>(recording, 0);
         assert_eq!(
             format!("{:?}", bind_message.peer_actors.neighborhood),
             "NeighborhoodSubs"
@@ -1814,11 +1814,11 @@ mod tests {
     }
 
     fn check_start_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
-        let _start_message = Recording::get::<StartMessage>(recording, idx);
+        let _start_message = Recording::get_clone::<StartMessage>(recording, idx);
     }
 
     fn check_new_ip_message(recording: &Arc<Mutex<Recording>>, new_ip: IpAddr, idx: usize) {
-        let new_ip_message = Recording::get::<NewPublicIp>(recording, idx);
+        let new_ip_message = Recording::get_clone::<NewPublicIp>(recording, idx);
         assert_eq!(new_ip_message.new_ip, new_ip);
     }
 

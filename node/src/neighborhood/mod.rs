@@ -4940,7 +4940,7 @@ mod tests {
         });
 
         awaiter.await_message_count(1);
-        let message = Recording::get::<DispatcherNodeQueryResponse>(&recording_arc, 0);
+        let message = Recording::get_clone::<DispatcherNodeQueryResponse>(&recording_arc, 0);
         assert_eq!(
             message.result.unwrap(),
             NodeQueryResponseMetadata::new(
@@ -5071,7 +5071,7 @@ mod tests {
         });
 
         awaiter.await_message_count(1);
-        let message = Recording::get::<DispatcherNodeQueryResponse>(&recording_arc, 0);
+        let message = Recording::get_clone::<DispatcherNodeQueryResponse>(&recording_arc, 0);
 
         assert_eq!(
             message.result.unwrap(),
