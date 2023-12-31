@@ -13,7 +13,7 @@ use crate::database::db_migrations::migrations::migration_8_to_9::Migrate_8_to_9
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::logger::Logger;
 
 pub trait DbMigrator {
@@ -109,7 +109,7 @@ impl DbMigratorReal {
         &self,
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
-        logger: &'a Logger,
+        logger: &Logger,
     ) -> rusqlite::Result<()> {
         info!(
             &self.logger,
@@ -124,7 +124,7 @@ impl DbMigratorReal {
 
     pub fn update_schema_version(
         name_of_given_table: &str,
-        transaction: &dyn TransactionWrapper,
+        transaction: &TransactionSafeWrapper,
         update_to: usize,
     ) -> rusqlite::Result<()> {
         transaction
@@ -148,12 +148,8 @@ impl DbMigratorReal {
             .iter()
             .skip_while(|entry| entry.old_version() != obsolete_schema)
             .take_while(|entry| entry.old_version() < target_version)
-            .map(Self::deref)
-            .collect::<Vec<&(dyn DatabaseMigration + 'a)>>()
-    }
-
-    fn deref<'a, T: ?Sized>(value: &'a &T) -> &'a T {
-        *value
+            .copied()
+            .collect::<Vec<&'a (dyn DatabaseMigration + 'a)>>()
     }
 
     fn dispatch_bad_news(

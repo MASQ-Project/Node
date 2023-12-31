@@ -2,7 +2,9 @@
 
 #![cfg(test)]
 
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{
+    ConnectionWrapper, TransactionInnerWrapper, TransactionSafeWrapper,
+};
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use itertools::Either;
@@ -10,27 +12,34 @@ use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-#[derive(Default, Debug)]
-pub struct TransactionWrapperMock {
+// The qualities of this builder are in its own unrestricted usability contrasting with how it
+// creates an encapsulated environment in which it configures and eventually builds the mock. All
+// that in order to minimize the exposure of the mock
+// to the outer scope. While a wrapped transaction is being created, and we need it to be tamed in
+// a test, this mock is supposed to become its inner wrapper of the supposed real world transaction.
+// The inner wrapper ever needs to stay private. Then there is the outer, public one, that anyone
+// can manipulate with.
+//
+// You can read more about the safeness reasons for this onion structure in comments nearby these
+// wrappers.
+
+#[derive(Default)]
+pub struct TransactionInnerWrapperMockBuilder {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results_opt: Option<PrepareMethodResults>,
+    prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-impl TransactionWrapperMock {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+impl TransactionInnerWrapperMockBuilder {
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
         self.prepare_params = params.clone();
         self
     }
 
-    pub fn prepare_results(mut self, results: PrepareMethodResults) -> Self {
-        self.prepare_results_opt = Some(results);
+    pub fn prepare_results(mut self, results: PrepareResultsDispatcher) -> Self {
+        self.prepare_results_dispatcher_opt = Some(results);
         self
     }
 
@@ -44,17 +53,60 @@ impl TransactionWrapperMock {
         self
     }
 
+    pub fn build(self) -> Box<dyn TransactionInnerWrapper> {
+        Box::new(TransactionInnerWrapperMock::new(
+            self.prepare_params,
+            self.prepare_results_dispatcher_opt,
+            self.commit_params,
+            self.commit_results,
+            self.arbitrary_id_stamp_opt,
+        ))
+    }
+
     set_arbitrary_id_stamp_in_mock_impl!();
 }
 
-impl TransactionWrapper for TransactionWrapperMock {
+// Keep as a private class, seek a builder of it instead
+
+#[derive(Debug)]
+struct TransactionInnerWrapperMock {
+    prepare_params: Arc<Mutex<Vec<String>>>,
+    // This field hosts a logical unit able to make the correct
+    // result that seems to be requested to go out based on
+    // the test's setup instructions where the programmer may
+    // have decided to use this advanced test procedure
+    prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+    commit_params: Arc<Mutex<Vec<()>>>,
+    commit_results: RefCell<Vec<Result<(), Error>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+impl TransactionInnerWrapperMock {
+    fn new(
+        prepare_params: Arc<Mutex<Vec<String>>>,
+        prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+        commit_params: Arc<Mutex<Vec<()>>>,
+        commit_results: RefCell<Vec<Result<(), Error>>>,
+        arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+    ) -> Self {
+        Self {
+            prepare_params,
+            prepare_results_dispatcher_opt,
+            commit_params,
+            commit_results,
+            arbitrary_id_stamp_opt,
+        }
+    }
+}
+
+impl TransactionInnerWrapper for TransactionInnerWrapperMock {
     fn prepare(&self, prod_code_query: &str) -> Result<Statement, Error> {
         self.prepare_params
             .lock()
             .unwrap()
             .push(prod_code_query.to_string());
 
-        self.prepare_results_opt
+        self.prepare_results_dispatcher_opt
             .as_ref()
             .unwrap()
             .produce_statement(prod_code_query)
@@ -66,329 +118,226 @@ impl TransactionWrapper for TransactionWrapperMock {
 
     fn commit(&mut self) -> Result<(), Error> {
         self.commit_params.lock().unwrap().push(());
+
         let next_result = self.commit_results.borrow_mut().remove(0);
-        match (next_result.is_ok(), self.prepare_results_opt.as_mut()) {
-            (true, Some(prepared_results)) => match &mut prepared_results.setup {
-                Either::Left(for_both) => for_both.commit_prod_calls(),
-                Either::Right(_) => next_result,
-            },
-            _ => next_result,
+        // If the commit is meant to succeed we check for the transaction we may keep
+        // in the `PrepareResultsDispatcher` (design allowing for the initial database interactions
+        // in the test to be run with the genuine prod code statements), and thus all data changes these
+        // statements may claim to introduce (if called) will be recorded in the database and
+        // visible at the end of the test.
+        if next_result.is_ok() {
+            if let Some(prepared_results) = self.prepare_results_dispatcher_opt.as_mut() {
+                if let Either::Right(for_both) = &mut prepared_results.setup {
+                    return for_both.commit_prod_code_stmts();
+                }
+            }
         }
+
+        next_result
     }
 
     arbitrary_id_stamp_in_trait_impl!();
 }
 
-// TODO curate this text (probably not up to date)
-// The idea to store a rusqlite 'Statement' in the TransactionWrapperMock and put this compound into
-// the ConnectionWrapperMock did not turn out well. It allured lifetime issues. A fair amount of
-// attempts was made to get those right but a success was conditioned by a creation of lot of new
-// explicit lifetimes out of which some were calling for strict hierarchical relations between one
-// and another.
-// Having given up, the only practicable way to make this mock do what it should was to simplify
-// the high usage of borrows.
-// In order to see it done we necessarily had to have the mock much smarter and give it its own
-// DB connection serving as a future on-demand producer of a native rusqlite Statement, because
-// there really hasn't been an option left than having the rusqlite library construct the Statement
-// by itself, using their standard API, and secondly, because all our attempts to write
-// a StatementWrapper had failed for solid compilation issues where (statically determined) generic
-// arguments lies spread across the original implementation of the Statement which could not be
-// replicable with our wrapper, and we also could not avoid them. A trait using generics in its
-// methods isn't valid in Rust, while trait objects are the technology we otherwise exclusively use.
+// Trying to store a rusqlite 'Statement' inside the TransactionWrapperMock and then placing this
+// combination into the ConnectionWrapperMock became a thorough test of our Rust knowledge. This
+// approach led to complex problems related to object lifetimes. We tried many times to fix these
+// issues, but success, while never guaranteed, seemed to depend on introduction of numerous new
+// explicit lifetimes. Some of these lifetimes required strict hierarchical relationships with
+// others. A hypothesis exists that the way the language is designed maintaining such relationships
+// between objects cannot be achieved.
 
-// That having said, we are glad to finally have at least something to use. The most difficult part
-// of the mocking system below, though, is in the 'prepare' method. Notice that most of time, if not
-// always, you're not going to need an error to turn up in there. That's because the production code
-// usually treats the returned results by 'prepare' with the use of 'expect'. As you may know, we
-// do not consider 'expect' usages a requirement for writing new tests. There is therefore little to
-// none value in stimulating an error which would only stimulate a panic on that 'expect'.
+// Eventually, we decided to take a different approach. The only solution that sparked some chances
+// was to radically reduce the excessive use of borrowed references. We had to make the mock much
+// smarter by giving it its own database connection, or sometimes even two. This connection acts as
+// a source for creating native rusqlite Statements. This was unavoidable because we couldn't
+// find any alternative to having the rusqlite library build the 'Statement' using their internal
+// methods. Additionally, our attempts to create a StatementWrapper failed due to solid compilation
+// problems. These problems arose from the way generic arguments were spread across the methods
+// in the 'Statement' implementation, of which there is quite a lot of those that we use too.
+// We couldn't replicate that in our wrapper. In Rust, no one can write a trait with generics in
+// the methods as long as it is meant to be used as a trait object.
 
-// The previous paragraph clears up that we do not need to care about a mechanism to deliver errors
-// on the return of the 'prepare' method. The place worth our interest, though, is the produced
-// Statement coming out from this method. Even though looking perhaps a little nonsensical at first,
-// the 'prepare' method can have a strong impact on the result returned from the next, upstream
-// function call, to happen on top of this Statement, and which, luckily for us (despite certain
-// difficulties), can be indirectly shaped this way towards our requirements.
-// This distantly prepared Statement can then cause a certainly useful error, easing our test
-// writing. For some examples let's consider the following methods 'execute', 'query_row' or
-// 'query_map'.
+// With that said, we're relieved to have at least one working solution now. The most challenging
+// aspect of this mock is the 'prepare' method. Usually, you won't need an error to occur in this
+// method because the production code often handles the results using simply 'expect'. As you might
+// know, we don't require writing new tests for using 'expect'. There's nearly no point
+// in exercising an error that would only trigger a panic due to 'expect' in a place where,
+// fundamentally, we'd never expect an error.
+
+// Our focus must be on the Statement produced by this method. It needs to be understood that
+// the 'prepare' method has a crucial influence to the result of the following function call taking
+// the Statement as an argument. Fortunately, despite some challenges being always around, we can
+// indirectly steer the course of that future procedure to have the very result we want to happen
+// in the test. This approach can be applied to various methods such as 'execute', 'query_row',
+// or 'query_map'.
 
 #[derive(Debug)]
-struct SetupForStubbed<S> {
-    stubbed_calls_conn: Box<dyn ConnectionWrapper>,
-    stubbed_calls_optional_statements_literals: Vec<S>,
+struct SetupForOnlyAlteredStmts {
+    conn: Box<dyn ConnectionWrapper>,
+    queue_of_statements: RefCell<Vec<AlteredStmtByOrigin>>,
 }
 
 #[derive(Debug)]
-struct SetupForBoth {
-    prod_code_calls_conn_used_for_both: bool,
-    prod_code_calls_conn: Box<dyn ConnectionWrapper>,
-    prod_code_calls_transaction_opt: Option<Box<dyn TransactionWrapper>>,
-    requested_preceding_prod_code_calls: usize,
-    stubbed: SetupForStubbed<Option<String>>,
+struct SetupForProdCodeAndAlteredStmts {
+    prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
+    // This transaction must be carried along because otherwise all those
+    // successful SQL operations would be written into the database right away,
+    // which is not how the reality works. On the other hand we do want them to
+    // affect the database persistently if the commit point is reached, so that
+    // the test can laid assertions that can be faithful to the expected changes
+    // happening inside the database.
+    txn_bearing_prod_code_stmts_opt: Option<TransactionSafeWrapper<'static>>,
+    queue_with_prod_code_and_altered_stmts: RefCell<Vec<Option<AlteredStmtByOrigin>>>,
+    // This connection is usually the most important, but using just the prod code
+    // connection meant primarily for the prod-code statements should be also possible.
+    //
+    // Common strategies to use this additional connection:
+    //
+    // a) provide a connection pointing to another database, usually declared
+    //    very simple, that allows a simplified, more direct way of stimulation
+    //    of a special and often quite unusual error that our tested code should
+    //    respond to,
+    //
+    // b) assert on general, unspecific errors while using a connection with
+    //    only the read rights for statements whose task is to change the state
+    //    of the database
+    unique_conn_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
 }
 
-impl SetupForBoth {
-    fn commit_prod_calls(&mut self) -> Result<(), Error> {
-        let txn_opt = self.prod_code_calls_transaction_opt.take();
-        let mut txn = txn_opt
-            .expect("Error: missing transaction in setup for both prod code and stubbed calls");
-        txn.commit()
+impl SetupForProdCodeAndAlteredStmts {
+    fn commit_prod_code_stmts(&mut self) -> Result<(), Error> {
+        self.txn_bearing_prod_code_stmts_opt
+            .take()
+            .expect("Dual setup with a missing txn should never happen")
+            .commit()
+    }
+
+    fn make_altered_stmt(&self, altered_stm: &str) -> Result<Statement, Error> {
+        match self.unique_conn_for_altered_stmts_opt.as_ref() {
+            None => self
+                .txn_bearing_prod_code_stmts_opt
+                .as_ref()
+                .expect("The txn must be present")
+                .prepare(altered_stm),
+            Some(special_conn) => special_conn.prepare(altered_stm),
+        }
     }
 }
 
-impl Drop for SetupForBoth {
+impl Drop for SetupForProdCodeAndAlteredStmts {
     fn drop(&mut self) {
-        // Making sure that the referenced transaction will deconstruct
-        // before the connection it was pointing to
-        drop(self.prod_code_calls_transaction_opt.take())
+        // The real transaction borne in this object binds to a reference that doesn't comply with
+        // safeness anymore, it has gone through backward cast from a raw pointer, which
+        // automatically breaks the check mechanism for referencing an invalid memory. We must make
+        // sure by having this Drop implementation that this transaction deconstructs earlier than
+        // the database Connection by which it was produced, avoiding an OS segmentation error.
+        drop(self.txn_bearing_prod_code_stmts_opt.take())
     }
 }
 
 #[derive(Debug)]
-pub struct PrepareMethodResults {
-    calls_counter: RefCell<usize>,
-    setup: Either<SetupForBoth, SetupForStubbed<String>>,
+pub struct PrepareResultsDispatcher {
+    setup: Either<SetupForOnlyAlteredStmts, SetupForProdCodeAndAlteredStmts>,
 }
 
-impl PrepareMethodResults {
-    pub fn new_with_both_prod_code_and_stubbed_calls(
-        prod_code_calls_conn: Box<dyn ConnectionWrapper>,
-        stubbed_calls_conn: Box<dyn ConnectionWrapper>,
+impl PrepareResultsDispatcher {
+    pub fn new_with_altered_stmts_only(
+        conn: Box<dyn ConnectionWrapper>,
+        altered_stmts_queue: Vec<AlteredStmtByOrigin>,
+    ) -> Self {
+        let setup = SetupForOnlyAlteredStmts {
+            conn,
+            queue_of_statements: RefCell::new(altered_stmts_queue),
+        };
+
+        Self {
+            setup: Either::Left(setup),
+        }
+    }
+
+    pub fn new_with_prod_code_and_altered_stmts(
+        prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
+        altered_stmts_conn_opt: Option<Box<dyn ConnectionWrapper>>,
+        stm_determining_queue: Vec<Option<AlteredStmtByOrigin>>,
     ) -> Self {
         let setup = {
-            let ptr = Box::into_raw(prod_code_calls_conn);
+            let ptr = Box::into_raw(prod_code_stmts_conn);
             let conn = unsafe { Box::from_raw(ptr) };
 
-            let mut setup = SetupForBoth {
-                prod_code_calls_conn_used_for_both: false,
-                prod_code_calls_conn: conn,
-                prod_code_calls_transaction_opt: None,
-                requested_preceding_prod_code_calls: 0,
-                stubbed: SetupForStubbed {
-                    stubbed_calls_conn,
-                    stubbed_calls_optional_statements_literals: vec![],
-                },
+            let mut setup = SetupForProdCodeAndAlteredStmts {
+                prod_code_stmts_conn: conn,
+                txn_bearing_prod_code_stmts_opt: None,
+                queue_with_prod_code_and_altered_stmts: RefCell::new(stm_determining_queue),
+                unique_conn_for_altered_stmts_opt: altered_stmts_conn_opt,
             };
 
             let conn = unsafe { ptr.as_mut().unwrap() };
             let txn = conn.transaction().unwrap();
 
-            setup.prod_code_calls_transaction_opt = Some(txn);
+            setup.txn_bearing_prod_code_stmts_opt = Some(txn);
 
-            Either::Left(setup)
+            setup
         };
 
         Self {
-            calls_counter: RefCell::new(0),
-            setup,
+            setup: Either::Right(setup),
         }
     }
 
-    pub fn new_for_only_stubbed(stubbed_calls_conn: Box<dyn ConnectionWrapper>) -> Self {
-        let setup = Either::Right(SetupForStubbed {
-            stubbed_calls_conn,
-            stubbed_calls_optional_statements_literals: vec![],
-        });
-
-        Self {
-            calls_counter: RefCell::new(0),
-            setup,
-        }
-    }
-
-    pub fn count_of_initial_prod_code_calls(mut self, prod_code_calls: usize) -> Self {
-        let dual_setup = self.setup_for_both_or_panic_ref_mut();
-        if dual_setup.requested_preceding_prod_code_calls == 0 {
-            dual_setup.requested_preceding_prod_code_calls = prod_code_calls
-        } else {
-            panic!("Use only single call of \"number_of_prod_code_calls!\"")
-        }
-        self
-    }
-
-    pub fn prod_code_calls_conn_used_for_both(mut self) -> Self {
-        let dual_setup = self.setup_for_both_or_panic_ref_mut();
-        dual_setup.prod_code_calls_conn_used_for_both = true;
-        self
-    }
-
-    pub fn add_single_stubbed_call_from_prod_code_statement(mut self) -> Self {
-        let single_setup = self.setup_for_both_or_panic_ref_mut();
-        single_setup
-            .stubbed
-            .stubbed_calls_optional_statements_literals
-            .push(None);
-        self
-    }
-
-    pub fn add_single_stubbed_call_statement(mut self, statement: &str) -> Self {
-        let single_setup = self.setup_for_both_or_panic_ref_mut();
-        single_setup
-            .stubbed
-            .stubbed_calls_optional_statements_literals
-            .push(Some(statement.to_string()));
-        self
-    }
-
-    fn dual_setup_mismatch() -> ! {
-        panic!(
-            "{}",
-            "This mock was construct as intended for the setup with both prod code and stubbed \
-            calls. Reconsider that step, if you think you will be using only the stubbed calls"
-        )
-    }
-
-    fn setup_for_both_or_panic_ref(&self) -> &SetupForBoth {
+    fn produce_statement(&self, prod_code_stmt: &str) -> Result<Statement, Error> {
         match self.setup.as_ref() {
-            Either::Left(both) => both,
-            Either::Right(_) => Self::dual_setup_mismatch(),
-        }
-    }
-
-    fn setup_for_both_or_panic_ref_mut(&mut self) -> &mut SetupForBoth {
-        match self.setup.as_mut() {
-            Either::Left(both) => both,
-            Either::Right(_) => Self::dual_setup_mismatch(),
-        }
-    }
-
-    fn determine_stubbed_queue_idx_opt(&self) -> Option<StubbedCallIndexInfo> {
-        let upcoming_call_idx = *self.calls_counter.borrow();
-        if let Either::Left(for_both) = &self.setup {
-            if for_both.requested_preceding_prod_code_calls != 0 {
-                let preceding_prod_code_calls = for_both.requested_preceding_prod_code_calls;
-
-                if preceding_prod_code_calls > upcoming_call_idx {
-                    None
-                } else {
-                    Some(StubbedCallIndexInfo::new(preceding_prod_code_calls))
-                }
-            } else {
-                panic!(
-                    "You're using the dual setup but have ordered 0 preceding prod code calls. \
-                You should be using the single setup then"
-                )
-            }
-        } else {
-            Some(StubbedCallIndexInfo::new(0))
-        }
-    }
-
-    fn produce_statement(&self, prod_code_stm: &str) -> Result<Statement, Error> {
-        let idx_opt = self.determine_stubbed_queue_idx_opt();
-
-        match idx_opt {
-            None => self.handle_prod_code_call(prod_code_stm),
-            Some(idx_info) => {
-                let stm = idx_info.handle_setup_for_stubbed_only(self, prod_code_stm);
-                Ok(stm)
+            Either::Left(setup) => Self::handle_stmt_for_only_altered(setup, prod_code_stmt),
+            Either::Right(setup) => {
+                Self::handle_stmt_for_prod_code_and_altered(setup, prod_code_stmt)
             }
         }
     }
 
-    fn handle_prod_code_call(&self, prod_code_stm: &str) -> Result<Statement, Error> {
-        if let Either::Left(for_both) = &self.setup {
-            let result = for_both.prod_code_calls_conn.prepare(prod_code_stm);
-            self.increment_counter();
-            result
-        } else {
-            panic!(
-                "Idx info (on the left: for both) diverges from the setup variant (on the right: \
-            stubbed only), design mistake"
-            )
-        }
+    fn handle_stmt_for_only_altered<'conn>(
+        setup: &'conn SetupForOnlyAlteredStmts,
+        prod_code_stmt: &str,
+    ) -> Result<Statement<'conn>, Error> {
+        let stmt_by_origin = setup.queue_of_statements.borrow_mut().remove(0);
+        let altered_stmt = stmt_by_origin.str_stmt(prod_code_stmt);
+        setup.conn.prepare(altered_stmt)
     }
 
-    fn get_stubbed_statement(
-        &self,
-        idx_info: StubbedCallIndexInfo,
-        prod_code_stm: &str,
-    ) -> Statement {
-        let upcoming_call_idx = *self.calls_counter.borrow();
-        let absolute_idx = idx_info.calculate_idx(upcoming_call_idx);
-        match &self.setup {
-            Either::Left(for_both) => self.get_from_for_both(for_both, absolute_idx, prod_code_stm),
-            Either::Right(stubbed_only) => Self::get_from_stubbed_only(stubbed_only, absolute_idx),
-        }
-    }
+    fn handle_stmt_for_prod_code_and_altered<'conn>(
+        setup: &'conn SetupForProdCodeAndAlteredStmts,
+        prod_code_stmt: &str,
+    ) -> Result<Statement<'conn>, Error> {
+        let altered_stmt_opt = setup
+            .queue_with_prod_code_and_altered_stmts
+            .borrow_mut()
+            .remove(0);
 
-    fn get_from_for_both(
-        &self,
-        setup: &SetupForBoth,
-        absolute_idx: usize,
-        prod_code_stm: &str,
-    ) -> Statement {
-        let stm = match setup
-            .stubbed
-            .stubbed_calls_optional_statements_literals
-            .get(absolute_idx)
-            .unwrap()
-        {
-            Some(stubbed_stm) => stubbed_stm,
-            None => prod_code_stm,
-        };
-
-        let result = match self.resolve_choice_of_stubbed_conn() {
-            Either::Left(txn) => txn.prepare(stm),
-            Either::Right(conn) => conn.prepare(stm),
-        };
-        result.unwrap()
-    }
-
-    fn get_from_stubbed_only(setup: &SetupForStubbed<String>, absolute_idx: usize) -> Statement {
-        let stm = setup
-            .stubbed_calls_optional_statements_literals
-            .get(absolute_idx)
-            .unwrap();
-        setup.stubbed_calls_conn.prepare(stm).unwrap()
-    }
-
-    fn increment_counter(&self) {
-        *self.calls_counter.borrow_mut() += 1
-    }
-
-    fn resolve_choice_of_stubbed_conn(
-        &self,
-    ) -> Either<&dyn TransactionWrapper, &dyn ConnectionWrapper> {
-        let setup = self.setup_for_both_or_panic_ref();
-
-        if setup.prod_code_calls_conn_used_for_both {
-            Either::Left(
-                setup
-                    .prod_code_calls_transaction_opt
-                    .as_ref()
-                    .expect("Conn for prod code calls not available")
-                    .as_ref(),
-            )
-        } else {
-            Either::Right(setup.stubbed.stubbed_calls_conn.as_ref())
+        match altered_stmt_opt {
+            None => setup.prod_code_stmts_conn.prepare(prod_code_stmt),
+            Some(altered_stm) => {
+                let altered_stm_str = altered_stm.str_stmt(prod_code_stmt);
+                setup.make_altered_stmt(altered_stm_str)
+            }
         }
     }
 }
 
-struct StubbedCallIndexInfo {
-    preceding_prod_code_calls: usize,
+#[derive(Debug)]
+pub enum AlteredStmtByOrigin {
+    // Use this when you plan to have a connection pointing to a different db, but at the same time,
+    // you don't want to go through devising a new statement but to use the same one as in the prod
+    // code
+    IdenticalWithProdCode,
+    FromSubstitution { new_stmt: String },
 }
 
-impl StubbedCallIndexInfo {
-    fn new(preceding_prod_code_calls: usize) -> Self {
-        Self {
-            preceding_prod_code_calls,
+impl AlteredStmtByOrigin {
+    fn str_stmt<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
+        match self {
+            AlteredStmtByOrigin::IdenticalWithProdCode => prod_code_stm,
+            AlteredStmtByOrigin::FromSubstitution {
+                new_stmt: incident_statement,
+            } => incident_statement.as_str(),
         }
-    }
-
-    fn calculate_idx(&self, upcoming_call_idx: usize) -> usize {
-        upcoming_call_idx - self.preceding_prod_code_calls
-    }
-
-    fn handle_setup_for_stubbed_only<'a>(
-        self,
-        super_setup_structure: &'a PrepareMethodResults,
-        prod_code_query: &str,
-    ) -> Statement<'a> {
-        let stm = super_setup_structure.get_stubbed_statement(self, prod_code_query);
-        super_setup_structure.increment_counter();
-        stm
     }
 }

@@ -1,12 +1,11 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #![cfg(test)]
-
 pub mod transaction_wrapper_mock;
 
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, InitializationError};
-use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionWrapper};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use rusqlite::{Error, Statement};
 use std::cell::RefCell;
 use std::fmt::Debug;
@@ -14,15 +13,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
-pub struct ConnectionWrapperMock<'a> {
+pub struct ConnectionWrapperMock<'conn> {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-    transaction_results: RefCell<Vec<Result<Box<dyn TransactionWrapper + 'a>, Error>>>,
+    prepare_results: RefCell<Vec<Result<Statement<'conn>, Error>>>,
+    transaction_results: RefCell<Vec<Result<TransactionSafeWrapper<'conn>, Error>>>,
 }
 
-unsafe impl<'a> Send for ConnectionWrapperMock<'a> {}
+// We don't know better how to deal with the third-party code for `Statement` that takes on
+// attributes of `Connection` which lacks the Send marker. This unsafe instructs the compiler
+// we don't care because it is a test utility and as far as we know it hasn't bitten us yet
 
-impl<'a> ConnectionWrapperMock<'a> {
+unsafe impl<'conn> Send for ConnectionWrapperMock<'conn> {}
+
+impl<'conn> ConnectionWrapperMock<'conn> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -32,21 +35,18 @@ impl<'a> ConnectionWrapperMock<'a> {
         self
     }
 
-    pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
+    pub fn prepare_result(self, result: Result<Statement<'conn>, Error>) -> Self {
         self.prepare_results.borrow_mut().push(result);
         self
     }
 
-    pub fn transaction_result(
-        self,
-        result: Result<Box<dyn TransactionWrapper + 'a>, Error>,
-    ) -> Self {
+    pub fn transaction_result(self, result: Result<TransactionSafeWrapper<'conn>, Error>) -> Self {
         self.transaction_results.borrow_mut().push(result);
         self
     }
 }
 
-impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
+impl ConnectionWrapper for ConnectionWrapperMock<'_> {
     fn prepare(&self, query: &str) -> Result<Statement, Error> {
         self.prepare_params
             .lock()
@@ -55,7 +55,7 @@ impl<'a> ConnectionWrapper for ConnectionWrapperMock<'a> {
         self.prepare_results.borrow_mut().remove(0)
     }
 
-    fn transaction<'b>(&'b mut self) -> Result<Box<dyn TransactionWrapper + 'b>, Error> {
+    fn transaction(&mut self) -> Result<TransactionSafeWrapper, Error> {
         self.transaction_results.borrow_mut().remove(0)
     }
 }

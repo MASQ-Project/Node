@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
-use crate::database::rusqlite_wrappers::TransactionWrapper;
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -73,9 +73,9 @@ impl ConfigDao for ConfigDaoNull {
         Ok(())
     }
 
-    fn set_through_provided_transaction(
+    fn set_by_guest_transaction(
         &self,
-        _txn: &mut dyn TransactionWrapper,
+        _txn: &mut TransactionSafeWrapper,
         _name: &str,
         _value: Option<String>,
     ) -> Result<(), ConfigDaoError> {
@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
@@ -312,23 +312,24 @@ mod tests {
     }
 
     #[test]
-    fn set_through_provided_transaction_works_simple() {
+    fn set_by_guest_transaction_works_simple() {
         let subject = ConfigDaoNull::default();
-        let mut txn = TransactionWrapperMock::new();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
 
         subject
-            .set_through_provided_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .set_by_guest_transaction(&mut txn, "param1", Some("value1".to_string()))
             .unwrap();
         subject
-            .set_through_provided_transaction(&mut txn, "schema_version", None)
+            .set_by_guest_transaction(&mut txn, "schema_version", None)
             .unwrap();
         subject
-            .set_through_provided_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .set_by_guest_transaction(&mut txn, "schema_version", Some("456".to_string()))
             .unwrap();
 
-        let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
-        let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
-        assert_eq!(subject_data_sorted, comparison_subject_data_sorted)
+        let subject_data_after_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_after_sorted, subject_data_before_sorted)
         // Test didn't blow up so no method from the txn wrapper was called,
         // therefore we don't even have to consider committing the transaction
     }

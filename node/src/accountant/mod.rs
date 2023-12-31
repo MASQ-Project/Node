@@ -1011,7 +1011,8 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
-    use crate::database::test_utils::transaction_wrapper_mock::TransactionWrapperMock;
+    use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1869,7 +1870,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let set_through_provided_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1883,16 +1884,17 @@ mod tests {
             wei_amount: 10000,
         };
         let transaction_id = ArbitraryIdStamp::new();
-        let transaction = TransactionWrapperMock::default()
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .commit_params(&commit_params_arc)
             .commit_result(Ok(()))
             .set_arbitrary_id_stamp(transaction_id);
+        let wrapped_transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_params(&more_money_received_params_arc)
-            .more_money_received_result(Box::new(transaction));
+            .more_money_received_result(wrapped_transaction);
         let config_dao = ConfigDaoMock::new()
-            .set_through_provided_transaction_params(&set_through_provided_transaction_params_arc)
-            .set_through_provided_transaction_result(Ok(()));
+            .set_by_guest_transaction_params(&set_by_guest_transaction_params_arc)
+            .set_by_guest_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
@@ -1919,10 +1921,9 @@ mod tests {
         );
         let commit_params = commit_params_arc.lock().unwrap();
         assert_eq!(*commit_params, vec![()]);
-        let set_through_provided_transaction_params =
-            set_through_provided_transaction_params_arc.lock().unwrap();
+        let set_by_guest_transaction_params = set_by_guest_transaction_params_arc.lock().unwrap();
         assert_eq!(
-            *set_through_provided_transaction_params,
+            *set_by_guest_transaction_params,
             vec![(
                 transaction_id,
                 "start_block".to_string(),
