@@ -333,6 +333,13 @@ impl StreamHandlerPoolReal {
         )
     }
 
+    fn filter_wildcard_ips(ip_addrs: Vec<IpAddr>) -> Vec<IpAddr> {
+        ip_addrs
+            .into_iter()
+            .filter(|&ip_addr| ip_addr != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))
+            .collect()
+    }
+
     fn handle_lookup_ip(
         target_hostname: String,
         payload: &ClientRequestPayload_0v1,
@@ -351,19 +358,21 @@ impl StreamHandlerPoolReal {
             Ok(lookup_ip) => lookup_ip.iter().collect(),
         };
 
-        if ip_addrs[0] == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-            error!(
+        let filtered_ip_addrs = StreamHandlerPoolReal::filter_wildcard_ips(ip_addrs.clone());
+
+        if filtered_ip_addrs.is_empty() {
+            info!(
                 logger,
-                "Found wildcard IP addresses for host {}: {:?}", target_hostname, &ip_addrs
+                "Unable to find valid IP addresses for host {}: {:?}", target_hostname, &ip_addrs
             );
             return Err(io::Error::from(io::ErrorKind::NotFound));
         }
 
         debug!(
             logger,
-            "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
+            "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        establisher.establish_stream(payload, ip_addrs, target_hostname)
+        establisher.establish_stream(payload, filtered_ip_addrs, target_hostname)
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -1249,6 +1258,37 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_ips_are_filtered_out() {
+        let ip_list_1 = vec![
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+        ];
+        let ip_list_2 = vec![IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))];
+        let ip_list_3 = vec![
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        ];
+
+        let remaining_ips_1 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_1);
+        let remaining_ips_2 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_2);
+        let remaining_ips_3 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_3);
+
+        assert_eq!(
+            remaining_ips_1,
+            vec![
+                IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+                IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))
+            ]
+        );
+        assert!(remaining_ips_2.is_empty());
+        assert!(remaining_ips_3.is_empty());
+    }
+
+    #[test]
     fn wildcard_ip_resolves_in_dns_failure() {
         init_test_logging();
         let test_name = "wildcard_ip_resolves_in_dns_failure";
@@ -1296,12 +1336,9 @@ mod tests {
             );
             let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
-            let inner_clone = Arc::clone(&subject.inner);
-            let handle = thread::spawn(move || {
-                let mut inner = inner_clone.lock().unwrap();
-                inner.logger = Logger::new(test_name);
-            });
-            handle.join().unwrap();
+            {
+                subject.inner.lock().unwrap().logger = Logger::new(test_name);
+            }
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
                 cryptde,
@@ -1341,7 +1378,7 @@ mod tests {
             }
         );
         let test_log_handler = TestLogHandler::new();
-        test_log_handler.await_log_containing(&format!("ERROR: {test_name}: Found wildcard IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
+        test_log_handler.await_log_containing(&format!("INFO: {test_name}: Unable to find valid IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
         test_log_handler.await_log_containing(&format!("ERROR: {test_name}: Couldn't process request from CORES package: Could not establish stream: Kind(NotFound)"), 10_000);
     }
 
