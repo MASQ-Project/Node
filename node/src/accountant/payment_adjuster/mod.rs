@@ -32,7 +32,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{compute_fractional_numbers_preventing_mul_coefficient, criteria_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, drop_criteria_and_leave_naked_affordable_accounts, keep_only_transaction_fee_affordable_accounts_and_drop_the_rest, sort_in_descendant_order_by_criteria_sums, sum_as};
-use crate::accountant::payment_adjuster::possibility_verifier::MasqAdjustmentPossibilityVerifier;
+use crate::accountant::payment_adjuster::possibility_verifier::TransactionFeeAdjustmentPossibilityVerifier;
 use crate::diagnostics;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
@@ -154,47 +154,65 @@ impl PaymentAdjusterReal {
 
     fn determine_transaction_count_limit_by_transaction_fee(
         agent: &dyn BlockchainAgent,
-        number_of_accounts: usize,
+        number_of_qualified_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, PaymentAdjusterError> {
+        fn max_possible_tx_count(
+            cw_transaction_fee_balance_minor: U256,
+            tx_fee_requirement_per_tx_minor: u128,
+        ) -> u128 {
+            let max_possible_tx_count_u256 =
+                cw_transaction_fee_balance_minor / U256::from(tx_fee_requirement_per_tx_minor);
+            u128::try_from(max_possible_tx_count_u256).unwrap_or_else(|e| {
+                panic!(
+                    "Transaction fee balance {} wei in the consuming wallet cases panic given \
+            estimated transaction fee per tx {} wei and resulting ratio {}, that should fit in \
+            u128, respectively: \"{}\"",
+                    cw_transaction_fee_balance_minor,
+                    tx_fee_requirement_per_tx_minor,
+                    max_possible_tx_count_u256,
+                    e
+                )
+            })
+        }
+
+        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
         let per_transaction_requirement_minor =
             agent.estimated_transaction_fee_per_transaction_minor();
 
-        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
+        let max_possible_tx_count = max_possible_tx_count(
+            cw_transaction_fee_balance_minor,
+            per_transaction_requirement_minor,
+        );
 
-        let max_possible_tx_count = u128::try_from(
-            cw_transaction_fee_balance_minor / U256::from(per_transaction_requirement_minor),
-        )
-        .expect("consuming wallet with too a big balance for the transaction fee");
-
-        let (max_possible_tx_count_u16, required_tx_count_u16) =
-            Self::big_unsigned_integers_under_u16_ceiling(
+        let (max_tx_count_we_can_afford_u16, required_tx_count_u16) =
+            Self::u16_ceiling_for_accounts_to_be_processed_at_a_time(
                 max_possible_tx_count,
-                number_of_accounts,
+                number_of_qualified_accounts,
             );
 
-        if max_possible_tx_count_u16 == 0 {
+        if max_tx_count_we_can_afford_u16 == 0 {
             Err(
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts,
+                    number_of_accounts: number_of_qualified_accounts,
                     per_transaction_requirement_minor,
                     cw_transaction_fee_balance_minor,
                 },
             )
-        } else if max_possible_tx_count_u16 >= required_tx_count_u16 {
+        } else if max_tx_count_we_can_afford_u16 >= required_tx_count_u16 {
             Ok(None)
         } else {
             log_insufficient_transaction_fee_balance(
                 logger,
                 required_tx_count_u16,
                 cw_transaction_fee_balance_minor,
-                max_possible_tx_count_u16,
+                max_tx_count_we_can_afford_u16,
             );
-            Ok(Some(max_possible_tx_count_u16))
+            Ok(Some(max_tx_count_we_can_afford_u16))
         }
     }
 
-    fn big_unsigned_integers_under_u16_ceiling(
+    fn u16_ceiling_for_accounts_to_be_processed_at_a_time(
         max_possible_tx_count: u128,
         number_of_accounts: usize,
     ) -> (u16, u16) {
@@ -225,8 +243,11 @@ impl PaymentAdjusterReal {
         if cw_service_fee_balance_minor >= required_service_fee_sum {
             Ok(false)
         } else {
-            MasqAdjustmentPossibilityVerifier {}
-                .verify_adjustment_possibility(&qualified_payables, cw_service_fee_balance_minor)?;
+            TransactionFeeAdjustmentPossibilityVerifier {}
+                .verify_lowest_detectable_adjustment_possibility(
+                    &qualified_payables,
+                    cw_service_fee_balance_minor,
+                )?;
 
             log_adjustment_by_service_fee_is_required(
                 logger,
@@ -267,6 +288,7 @@ impl PaymentAdjusterReal {
             qualified_accounts,
             TransactionAndServiceFeeRunner {},
         )?;
+
         match accounts {
             Either::Left(non_exhausted_accounts) => {
                 let affordable_accounts_by_fully_exhausted_cw = exhaust_cw_till_the_last_drop(
@@ -287,16 +309,15 @@ impl PaymentAdjusterReal {
     where
         A: AdjustmentRunner<ReturnType = R>,
     {
-        collection_diagnostics(
+        diagnostics!(
             "\nUNRESOLVED QUALIFIED ACCOUNTS:",
-            &unresolved_qualified_accounts,
+            &unresolved_qualified_accounts
         );
 
         if unresolved_qualified_accounts.len() == 1 {
             return adjustment_runner
                 .adjust_last_one(self, unresolved_qualified_accounts.remove(0));
         }
-
         let accounts_with_individual_criteria_sorted =
             self.calculate_criteria_sums_for_accounts(unresolved_qualified_accounts);
 
@@ -306,7 +327,7 @@ impl PaymentAdjusterReal {
         adjustment_runner.adjust_multiple(self, accounts_with_individual_criteria_sorted)
     }
 
-    fn begin_adjustment_by_transaction_fee(
+    fn begin_by_adjustment_by_transaction_fee(
         &mut self,
         criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
         already_known_affordable_transaction_count: u16,
@@ -373,7 +394,7 @@ impl PaymentAdjusterReal {
         let merged: Vec<AdjustedAccountBeforeFinalization> =
             here_decided_iter.chain(downstream_decided_iter).collect();
 
-        collection_diagnostics("\nFINAL ADJUSTED ACCOUNTS:", &merged);
+        diagnostics!("\nFINAL ADJUSTED ACCOUNTS:", &merged);
 
         merged
     }
@@ -695,6 +716,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use thousands::Separable;
     use web3::types::U256;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -947,13 +969,45 @@ mod tests {
     }
 
     #[test]
+    fn tx_fee_check_panics_on_ration_between_tx_fee_balance_and_estimated_tx_fee_bigger_than_u128()
+    {
+        let deadly_ratio = U256::from(u128::MAX) + 1;
+        let estimated_transaction_fee_per_one_tx_minor = 123_456_789;
+        let critical_wallet_balance =
+            deadly_ratio * U256::from(estimated_transaction_fee_per_one_tx_minor);
+        let blockchain_agent = BlockchainAgentMock::default()
+            .estimated_transaction_fee_per_transaction_minor_result(
+                estimated_transaction_fee_per_one_tx_minor,
+            )
+            .transaction_fee_balance_minor_result(critical_wallet_balance);
+
+        let panic_err = catch_unwind(AssertUnwindSafe(|| {
+            PaymentAdjusterReal::determine_transaction_count_limit_by_transaction_fee(
+                &blockchain_agent,
+                123,
+                &Logger::new("test"),
+            )
+        }))
+        .unwrap_err();
+
+        let err_msg = panic_err.downcast_ref::<String>().unwrap();
+        let expected_panic = format!(
+            "Transaction fee balance {} wei in the consuming wallet cases panic given estimated \
+            transaction fee per tx {} wei and resulting ratio {}, that should fit in u128, \
+            respectively: \"integer overflow when casting to u128\"",
+            critical_wallet_balance, estimated_transaction_fee_per_one_tx_minor, deadly_ratio
+        );
+        assert_eq!(err_msg, &expected_panic)
+    }
+
+    #[test]
     fn there_is_u16_ceiling_for_possible_tx_count() {
         let result = [-3_i8, -1, 0, 1, 10]
             .into_iter()
             .map(|correction| plus_minus_correction_of_u16_max(correction) as u128)
             .map(|max_possible_tx_count| {
                 let (doable_txs_count, _) =
-                    PaymentAdjusterReal::big_unsigned_integers_under_u16_ceiling(
+                    PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
                         max_possible_tx_count,
                         123,
                     );
@@ -974,7 +1028,7 @@ mod tests {
             .map(|correction| plus_minus_correction_of_u16_max(correction))
             .map(|required_tx_count_usize| {
                 let (_, required_tx_count) =
-                    PaymentAdjusterReal::big_unsigned_integers_under_u16_ceiling(
+                    PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
                         123,
                         required_tx_count_usize,
                     );

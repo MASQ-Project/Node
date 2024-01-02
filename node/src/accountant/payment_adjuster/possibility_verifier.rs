@@ -7,19 +7,17 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use itertools::Itertools;
 
-pub struct MasqAdjustmentPossibilityVerifier {}
+pub struct TransactionFeeAdjustmentPossibilityVerifier {}
 
-impl MasqAdjustmentPossibilityVerifier {
-    pub fn verify_adjustment_possibility(
+impl TransactionFeeAdjustmentPossibilityVerifier {
+    // We cannot do much in this area, only step in if the balance can be zero or nearly zero by
+    // assumption we make about the smallest debt in the set and the disqualification limit applied
+    // on it. If so, we don't want to bother payment adjuster and so we will abort instead.
+    pub fn verify_lowest_detectable_adjustment_possibility(
         &self,
         accounts: &[&PayableAccount],
         cw_service_fee_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
-        // The idea stands as the adjustment algorithm will have to proceed in each iteration by
-        // eliminating the biggest account there as it always finds an account to disqualify,
-        // reaching out the smallest one eventually; if the smallest one reduced by
-        // the disqualification margin turns out to be still possibly paid out we can be sure
-        // that this Node is going to realize at least one blockchain transaction
         let sorted = accounts
             .iter()
             .sorted_by(|account_a, account_b| {
@@ -49,7 +47,7 @@ impl MasqAdjustmentPossibilityVerifier {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
-    use crate::accountant::payment_adjuster::possibility_verifier::MasqAdjustmentPossibilityVerifier;
+    use crate::accountant::payment_adjuster::possibility_verifier::TransactionFeeAdjustmentPossibilityVerifier;
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
     use crate::accountant::test_utils::make_payable_account;
 
@@ -59,10 +57,12 @@ mod tests {
     ) {
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
-        let subject = MasqAdjustmentPossibilityVerifier {};
+        let subject = TransactionFeeAdjustmentPossibilityVerifier {};
 
-        let result =
-            subject.verify_adjustment_possibility(&accounts_in_expected_format, cw_masq_balance);
+        let result = subject.verify_lowest_detectable_adjustment_possibility(
+            &accounts_in_expected_format,
+            cw_masq_balance,
+        );
 
         assert_eq!(result, Ok(()))
     }
@@ -104,10 +104,12 @@ mod tests {
         let original_accounts = vec![account_1, account_2, account_3];
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
-        let subject = MasqAdjustmentPossibilityVerifier {};
+        let subject = TransactionFeeAdjustmentPossibilityVerifier {};
 
-        let result =
-            subject.verify_adjustment_possibility(&accounts_in_expected_format, cw_masq_balance);
+        let result = subject.verify_lowest_detectable_adjustment_possibility(
+            &accounts_in_expected_format,
+            cw_masq_balance,
+        );
 
         assert_eq!(
             result,

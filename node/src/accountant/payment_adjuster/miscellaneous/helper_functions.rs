@@ -110,9 +110,8 @@ pub fn find_largest_nominated_account<'a>(
             ) {
                 Ordering::Less => largest_so_far,
                 Ordering::Greater => current,
-                Ordering::Equal =>
-                // Greater value means younger
-                {
+                Ordering::Equal => {
+                    // Greater value means younger
                     if current.original_account.last_paid_timestamp
                         > largest_so_far.original_account.last_paid_timestamp
                     {

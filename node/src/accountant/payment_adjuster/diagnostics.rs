@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
 const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
@@ -8,18 +9,26 @@ pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
 #[macro_export]
 macro_rules! diagnostics {
-    ($description: literal, $($arg: tt)*) => {
-        diagnostics(None::<fn()->String>, $description, || format!($($arg)*))
+    // Display a brief description and values from a collection
+    ($description: literal, $debuggable_collection: expr) => {
+        collection_diagnostics($description, $debuggable_collection)
     };
-    ($wallet_ref: expr, $description: expr,  $($arg: tt)*) => {
+    // Display a brief description and formatted literal with arguments
+    ($description: literal, $($formatted_values: tt)*) => {
+        diagnostics(None::<fn()->String>, $description, || format!($($formatted_values)*))
+    };
+    // Display an account by wallet address, brief description and formatted literal with arguments
+    ($wallet_ref: expr, $description: expr,  $($formatted_values: tt)*) => {
         diagnostics(
             Some(||$wallet_ref.to_string()),
             $description,
-            || format!($($arg)*)
+            || format!($($formatted_values)*)
         )
     };
 }
 
+// Intended to be used through the overloaded macro diagnostics!() for better clearness
+// and differentiation from the primary functionality
 pub fn diagnostics<F1, F2>(subject_renderer_opt: Option<F1>, description: &str, value_renderer: F2)
 where
     F1: Fn() -> String,
@@ -36,12 +45,14 @@ where
             subject,
             description,
             value_renderer(),
-            subject_column_length = 42,
+            subject_column_length = WALLET_ADDRESS_LENGTH,
             length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
         )
     }
 }
 
+// Intended to be used through the overloaded macro diagnostics!() for better clearness
+// and differentiation from the primary functionality
 pub fn collection_diagnostics<D: Debug>(label: &str, accounts: &[D]) {
     if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
         eprintln!("{}", label);
@@ -166,15 +177,16 @@ pub mod formulas_progressive_characteristics {
     use std::sync::{Mutex, Once};
     use thousands::Separable;
 
-    // Only for debugging; in order to see the characteristic values of distinct parameter
+    // For debugging and tuning up purposes. It lets you see the curve of calculated criterion
+    // in dependence to different values of a distinct parameter
     pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = false;
-    // Preserve the 'static' keyword
+    // You must preserve the 'static' keyword
     static SUMMARIES_OF_FORMULA_CHARACTERISTICS_FOR_EACH_PARAMETER: Mutex<Vec<String>> =
         Mutex::new(vec![]);
-    // Preserve the 'static' keyword
+    // You must preserve the 'static' keyword
     //
-    // The singleton ensures that we print the characteristics always only once, no matter how many
-    // tests are running
+    // The singleton ensures that the characteristics are always displayed only once, no matter
+    // how many tests requested
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
     pub struct DiagnosticsAxisX<A> {

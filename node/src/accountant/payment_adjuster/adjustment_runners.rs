@@ -8,23 +8,24 @@ use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterR
 use itertools::Either;
 use std::vec;
 
-// There are just two runners. Different by the required adjustment,
-// either capable of adjusting by the transaction fee and also the service fee,
-// or only by the transaction fee. The idea is that only in the initial iteration
-// of the possible recursion the adjustment by the transaction fee could be performed.
-// In any of those next iterations this feature becomes useless.
-// The more featured one also allows to short-circuit for an adjustment with no need
-// to adjust accounts by the service fee, therefore each runner can return slightly
-// different data types, even though the resulting type of the service fee adjustment
-// is always the same.
+// There are just two runners. Different by the adjustment they can perform, either adjusting by
+// both the transaction fee and service fee, or exclusively by the transaction fee. The idea is
+// that the adjustment by the transaction fee may ever appear in the initial iteration of
+// the recursion. In any of the next iterations, if it proceed that far, this feature would be
+// staying around useless. Therefor the runner with more features is used only at the beginning.
+// Its speciality is that it allows also to short-circuit the weights computation for accounts,
+// because it can detect that after some dropped accounts due to the transaction fee scarcity
+// another adjustment, by the service fee, is not needed and therefore there is no point in going
+// through any extra assessment. Mostly for the things just described each runner provides
+// a different result type.
 pub trait AdjustmentRunner {
     type ReturnType;
 
-    // This special method:
-    // a) helps with writing tests aimed at edge cases,
-    // b) avoids performing an unnecessary computation for an obvious result,
-    // c) makes the condition in the initial check for adjustment possibility achievable
-    // in its pureness
+    // This specialized method:
+    // a) helps with writing tests that target edge cases,
+    // b) allows to avoid performing unnecessary computation for an evident result,
+    // c) the initial check for adjustment possibility is built upon a condition that can be
+    // realized in its pureness by having this
     fn adjust_last_one(
         &self,
         payment_adjuster: &PaymentAdjusterReal,
@@ -64,7 +65,7 @@ impl AdjustmentRunner for TransactionAndServiceFeeRunner {
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
-                return payment_adjuster.begin_adjustment_by_transaction_fee(
+                return payment_adjuster.begin_by_adjustment_by_transaction_fee(
                     criteria_and_accounts_in_descending_order,
                     limit,
                 )
