@@ -65,8 +65,8 @@ fn get_real_user_from_mc(
     multi_config: &MultiConfig,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> FieldPair<RealUser> {
-    let rel_user = value_m!(multi_config, "real-user", RealUser);
-    match rel_user {
+    let real_user = value_m!(multi_config, "real-user", RealUser);
+    match real_user {
         Some(user) => FieldPair::new(user, true),
         None => {
             #[cfg(target_os = "windows")]
@@ -119,57 +119,49 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde(config_path: &Path, dirs_wrapper: &dyn DirsWrapper) -> Option<PathBuf> {
+fn replace_tilde<'a>(config_path: PathBuf, dirs_wrapper: &'a dyn DirsWrapper) -> PathBuf {
     match config_path.starts_with("~") {
         true => {
-            let home_dir_from_wrapper = dirs_wrapper
-                .home_dir()
-                .expect("expected users home_dir")
-                .to_str()
-                .expect("expected str home_dir")
-                .to_string();
-            Some(PathBuf::from(config_path.display().to_string().replacen(
-                '~',
-                home_dir_from_wrapper.as_str(),
-                1,
-            )))
-        }
-        false => None,
-    }
-}
-
-fn replace_dots(config_path: &Path, panic: &mut bool) -> Option<PathBuf> {
-    match config_path.starts_with("./") || config_path.starts_with("../") {
-        true => {
-            *panic = false;
-            Some(
-                current_dir()
-                    .expect("expected current dir")
-                    .join(config_path),
+            let home_dir_from_wrapper = dirs_wrapper.home_dir();
+            PathBuf::from(
+                config_path.display().to_string().replacen(
+                    '~',
+                    home_dir_from_wrapper
+                        .expect("expected users home_dir")
+                        .to_str()
+                        .expect("expected str home_dir"),
+                    1,
+                ),
             )
         }
-        false => None,
+        false => config_path,
     }
 }
 
-fn replace_relative_path(
-    config_path: &Path,
+fn replace_dots(config_path: PathBuf) -> PathBuf {
+    match config_path.starts_with("./") || config_path.starts_with("../") {
+        true => current_dir()
+            .expect("expected current dir")
+            .join(config_path),
+        false => config_path,
+    }
+}
+
+fn replace_relative_path<'a>(
+    config_path: PathBuf,
     data_directory_def: bool,
     data_directory: &Path,
     panic: &mut bool,
-) -> Option<PathBuf> {
+) -> PathBuf {
     match config_path.is_relative() {
         true => match data_directory_def {
-            true => {
-                *panic = false;
-                Some(data_directory.join(config_path))
-            }
+            true => data_directory.join(config_path),
             false => {
                 *panic = true;
-                Some(config_path.to_path_buf())
+                config_path
             }
         },
-        false => None,
+        false => config_path,
     }
 }
 
@@ -183,36 +175,17 @@ fn get_config_file_from_mc(
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {
         Some(config_path) => {
-            let config_file_pth_tilde = replace_tilde(&config_path, dirs_wrapper);
-            let config_file_pth_dot = replace_dots(&config_path, &mut panic);
-            let config_file_pth_relative =
-                replace_relative_path(&config_path, data_directory_def, data_directory, &mut panic);
-            let config_file_pth = match config_file_pth_tilde {
-                Some(path) => {
-                    panic = false;
-                    path
-                }
-                None => match config_file_pth_dot {
-                    Some(config_path_dot) => {
-                        panic = false;
-                        config_path_dot
-                    }
-                    None => match config_file_pth_relative {
-                        Some(path_rel) => path_rel,
-                        None => {
-                            panic = false;
-                            config_path
-                        }
-                    },
-                },
-            };
+            let config_path = replace_tilde(config_path, dirs_wrapper);
+            let config_path = replace_dots(config_path);
+            let config_path =
+                replace_relative_path(config_path, data_directory_def, data_directory, &mut panic);
             if panic {
                 panic!(
-                    "You need to define data-directory to define config file with naked directory {}.",
-                    config_file_pth.to_string_lossy()
+                    "If the config file is given with a naked relative path ({}), the data directory must be given to serve as the root for the config-file path.",
+                    config_path.to_string_lossy()
                 );
             }
-            FieldPair::new(config_file_pth, true)
+            FieldPair::new(config_path.to_path_buf(), true)
         }
         None => {
             let path = data_directory.join(PathBuf::from("config.toml"));

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
+use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
 use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -11,7 +11,7 @@ use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 
-use clap::{value_t, App};
+use clap::value_t;
 use log::LevelFilter;
 
 use crate::apps::app_node;
@@ -136,28 +136,31 @@ fn collect_externals_from_multi_config(
 }
 
 fn extract_values_vcl_fill_multiconfig_vec(
-    multi_config_vec: Vec<Box<dyn VirtualCommandLine>>,
+    full_multi_config: MultiConfig,
     initialization_data: ConfigInitializationData,
-    app: &App,
-) -> (Vec<String>, Vec<String>) {
-    let full_multi_config =
-        make_new_multi_config(app, multi_config_vec).expect("expected multi_config");
-    let config_file_specified = initialization_data.config_file.user_specified;
+) -> Vec<String> {
     let config_file_path = initialization_data.config_file.item;
-    let check_value_from_mc = |value: Option<String>, var: &str, spec: bool| match value {
-        Some(arg) => (arg, true),
-        None => (var.to_string(), spec),
-    };
-    let (cf_real_user, cf_real_user_specified) = check_value_from_mc(
+    let check_value_from_mc =
+        |multi_config_value: Option<String>,
+         initialization_data_val: &str,
+         initialization_data_spec: bool| match multi_config_value {
+            Some(arg) => FieldPair {
+                item: arg,
+                user_specified: true,
+            },
+            None => FieldPair {
+                item: initialization_data_val.to_string(),
+                user_specified: initialization_data_spec,
+            },
+        };
+    let cf_real_user = check_value_from_mc(
         value_m!(full_multi_config, "real-user", String),
         initialization_data.real_user.item.to_string().as_str(),
         initialization_data.real_user.user_specified,
     );
-    let mut unspecified_vec: Vec<String> = vec!["".to_string()];
     let mut specified_vec: Vec<String> = vec!["".to_string()];
-
     let fill_the_box =
-        |key: &str, value: &str, contains: bool, vec: &mut Vec<String>| match contains {
+        |key: &str, value: &str, vec: &mut Vec<String>| match vec.contains(&key.to_string()) {
             true => {
                 let index = vec
                     .iter()
@@ -171,41 +174,27 @@ fn extract_values_vcl_fill_multiconfig_vec(
                 vec.push(value.to_string());
             }
         };
-    let mut fill_specified_or_unspecified_box =
-        |key: &str, value: &str, specified: bool| match value.is_empty() {
-            true => (),
-            false => match specified {
-                true => fill_the_box(
-                    key,
-                    value,
-                    specified_vec.contains(&key.to_string()),
-                    &mut specified_vec,
-                ),
-                false => fill_the_box(
-                    key,
-                    value,
-                    unspecified_vec.contains(&key.to_string()),
-                    &mut unspecified_vec,
-                ),
-            },
-        };
-    fill_specified_or_unspecified_box(
+    fill_the_box(
         "--config-file",
         config_file_path.as_path().to_string_lossy().as_ref(),
-        config_file_specified,
+        &mut specified_vec,
     );
-    fill_specified_or_unspecified_box(
+    fill_the_box(
         "--data-directory",
         initialization_data
             .data_directory
             .item
             .to_string_lossy()
             .as_ref(),
-        initialization_data.data_directory.user_specified,
+        &mut specified_vec,
     );
-    fill_specified_or_unspecified_box("--real-user", cf_real_user.as_str(), cf_real_user_specified);
+    fill_the_box(
+        "--real-user",
+        cf_real_user.item.as_str(),
+        &mut specified_vec,
+    );
 
-    (unspecified_vec, specified_vec)
+    specified_vec
 }
 
 pub fn server_initializer_collected_params<'a>(
@@ -224,25 +213,28 @@ pub fn server_initializer_collected_params<'a>(
 
     let environment_vcl = EnvironmentVcl::new(&app);
     let commandline_vcl = CommandLineVcl::new(args.to_vec());
-    let (unspecified_vec, specified_vec) = extract_values_vcl_fill_multiconfig_vec(
+    let multiconfig_for_values_extraction = make_new_multi_config(
+        &app,
         vec![
             Box::new(config_file_vcl.clone()),
             Box::new(EnvironmentVcl::new(&app)),
             Box::new(CommandLineVcl::new(commandline_vcl.args())),
         ],
+    )
+    .expect("expexted MultiConfig");
+    let specified_vec = extract_values_vcl_fill_multiconfig_vec(
+        multiconfig_for_values_extraction,
         initialization_data,
-        &app,
     );
     let mut multi_config_args_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(config_file_vcl),
         Box::new(environment_vcl),
         Box::new(commandline_vcl),
     ];
-    multi_config_args_vec.push(Box::new(CommandLineVcl::new(unspecified_vec)));
     multi_config_args_vec.push(Box::new(CommandLineVcl::new(specified_vec)));
 
     let full_multi_config = make_new_multi_config(&app, multi_config_args_vec)?;
-    //println!("full_multi_config: {:#?}", full_multi_config);
+
     Ok(full_multi_config)
 }
 
@@ -882,14 +874,12 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let env_multiconfig = result.unwrap();
 
-        // assert_eq!(env_multiconfig.is_user_specified("--config-file"), true);
         assert_eq!(
             value_m!(env_multiconfig, "dns-servers", String).unwrap(),
             "5.6.7.8".to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {
-            // assert_eq!(env_multiconfig.is_user_specified("--real-user"), true);
             assert_eq!(
                 value_m!(env_multiconfig, "real-user", String).unwrap(),
                 "1002:1002:/home/wooga".to_string()
@@ -935,8 +925,9 @@ mod tests {
             server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap_err();
 
         let result_path = format!(
-            "Couldn't open configuration file \"{}\". Are you sure it exists?",
-            home_dir
+            "The permissions on configuration file \"{}\" make it unreadable.",
+            current_dir()
+                .expect("expected current dir")
                 .as_path()
                 .join(home_dir.as_path())
                 .to_str()
@@ -958,11 +949,9 @@ mod tests {
             "server_initializer_collected_params_rewrite_config_files_parameters_from_command_line",
         );
         let data_dir = &home_dir.join("data_dir");
-        let config_file_relative = File::create(PathBuf::from("./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_command_line").join("config.toml")).unwrap();
+        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
-        let env_vec_array = vec![
-            ("MASQ_CONFIG_FILE", "./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_command_line/config.toml"),
-        ];
+        let env_vec_array = vec![("MASQ_CONFIG_FILE", home_dir.join("config.toml"))];
         env_vec_array
             .clone()
             .into_iter()
@@ -981,22 +970,19 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let env_multiconfig = result.unwrap();
 
-        // assert_eq!(env_multiconfig.is_user_specified("--data-directory"), false);
         #[cfg(not(target_os = "windows"))]
-        {
-            assert_eq!(
-                value_m!(env_multiconfig, "blockchain-service-url", String).unwrap(),
-                "https://www.mainnet0.com".to_string()
-            );
-            assert_eq!(
-                value_m!(env_multiconfig, "real-user", String).unwrap(),
-                "9999:9999:/home/booga".to_string()
-            );
-            assert_eq!(
-                value_m!(env_multiconfig, "config-file", String).unwrap(),
-                current_dir().unwrap().join(PathBuf::from( "./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_command_line/config.toml")).to_string_lossy().to_string()
-            );
-        }
+        assert_eq!(
+            value_m!(env_multiconfig, "real-user", String).unwrap(),
+            "9999:9999:/home/booga".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "config-file", String).unwrap(),
+            home_dir.join("config.toml").display().to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "blockchain-service-url", String).unwrap(),
+            "https://www.mainnet0.com".to_string()
+        );
         assert_eq!(
             value_m!(env_multiconfig, "ip", String).unwrap(),
             "8.5.7.6".to_string()
@@ -1018,16 +1004,21 @@ mod tests {
             "server_initializer_collected_params_rewrite_config_files_parameters_from_environment",
         );
         let data_dir = &home_dir.join("data_dir");
-        let config_file_relative = File::create(PathBuf::from("./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_environment").join("config.toml")).unwrap();
+        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
-            ("MASQ_CONFIG_FILE", "./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_environment/config.toml"),
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet0.com"),
-            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
-            ("MASQ_IP", "8.5.7.6"),
+            (
+                "MASQ_CONFIG_FILE",
+                home_dir.clone().join("config.toml").display().to_string(),
+            ),
+            (
+                "MASQ_BLOCKCHAIN_SERVICE_URL",
+                "https://www.mainnet0.com".to_string(),
+            ),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga".to_string()),
+            ("MASQ_IP", "8.5.7.6".to_string()),
         ];
         env_vec_array
-            .clone()
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
         let args = ArgsBuilder::new();
@@ -1039,18 +1030,15 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let env_multiconfig = result.unwrap();
 
-        // assert_eq!(env_multiconfig.is_user_specified("--data-directory"), false);
         #[cfg(not(target_os = "windows"))]
-        {
-            assert_eq!(
-                value_m!(env_multiconfig, "real-user", String).unwrap(),
-                "9999:9999:/home/booga".to_string()
-            );
-            assert_eq!(
-                value_m!(env_multiconfig, "config-file", String).unwrap(),
-                current_dir().unwrap().join(PathBuf::from( "./generated/test/node_configurator_standard/server_initializer_collected_params_rewrite_config_files_parameters_from_environment/config.toml")).to_string_lossy().to_string()
-            );
-        }
+        assert_eq!(
+            value_m!(env_multiconfig, "real-user", String).unwrap(),
+            "9999:9999:/home/booga".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "config-file", String).unwrap(),
+            home_dir.join("config.toml").display().to_string()
+        );
         assert_eq!(
             value_m!(env_multiconfig, "blockchain-service-url", String).unwrap(),
             "https://www.mainnet0.com".to_string()
@@ -1104,20 +1092,17 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
-        // assert_eq!(multiconfig.is_user_specified("--data-directory"), true);
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
             data_dir.to_string_lossy().to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {
-            // assert_eq!(multiconfig.is_user_specified("--real-user"), true);
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "9999:9999:booga"
             );
         }
-        // assert_eq!(multiconfig.is_user_specified("--config-file"), true);
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
             data_dir
@@ -1163,7 +1148,6 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
-        // assert_eq!(multiconfig.is_user_specified("--data-directory"), true);
         assert_eq!(
             &value_m!(multiconfig, "data-directory", String).unwrap(),
             &home_dir.to_string_lossy().to_string()
@@ -1178,13 +1162,13 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "You need to define data-directory to define config file with naked directory config/config.toml."
+        expected = "If the config file is given with a naked relative path (config/config.toml), the data directory must be given to serve as the root for the config-file path."
     )]
     fn server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_path_started_by_dot");
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory");
 
         let data_dir = &home_dir.join("data_dir");
         vec![("MASQ_CONFIG_FILE", "config/config.toml")]
@@ -1240,7 +1224,6 @@ mod tests {
                 value_m!(multiconfig, "config-file", String).unwrap(),
                 current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home/booga.toml").to_string_lossy().to_string()
             );
-            // assert_eq!(multiconfig.is_user_specified("--real-user"), true);
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "1001:1001:cooga".to_string()
@@ -1251,7 +1234,6 @@ mod tests {
             value_m!(multiconfig, "config-file", String).unwrap(),
             current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home\\booga.toml").to_string_lossy().to_string()
         );
-        // assert_eq!(multiconfig.is_user_specified("--data-directory"), true);
     }
 
     #[test]
