@@ -119,7 +119,7 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde<'a>(config_path: PathBuf, dirs_wrapper: &'a dyn DirsWrapper) -> PathBuf {
+fn replace_tilde(config_path: PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
     match config_path.starts_with("~") {
         true => {
             let home_dir_from_wrapper = dirs_wrapper.home_dir();
@@ -147,7 +147,7 @@ fn replace_dots(config_path: PathBuf) -> PathBuf {
     }
 }
 
-fn replace_relative_path<'a>(
+fn replace_relative_path(
     config_path: PathBuf,
     data_directory_def: bool,
     data_directory: &Path,
@@ -185,7 +185,7 @@ fn get_config_file_from_mc(
                     config_path.to_string_lossy()
                 );
             }
-            FieldPair::new(config_path.to_path_buf(), true)
+            FieldPair::new(config_path, true)
         }
         None => {
             let path = data_directory.join(PathBuf::from("config.toml"));
