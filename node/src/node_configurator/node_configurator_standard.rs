@@ -386,7 +386,7 @@ mod tests {
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
     use std::env::current_dir;
-    use std::fs::{create_dir_all, File};
+    use std::fs::{canonicalize, create_dir_all, File};
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
@@ -905,6 +905,7 @@ mod tests {
             "node_configurator_standard",
             "server_initializer_collected_params_handles_only_path_in_config_file_param",
         );
+        let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("data_dir");
 
         let args = ArgsBuilder::new()
@@ -948,6 +949,7 @@ mod tests {
             "node_configurator_standard",
             "server_initializer_collected_params_rewrite_config_files_parameters_from_command_line",
         );
+        let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("data_dir");
         let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
@@ -1003,6 +1005,7 @@ mod tests {
             "node_configurator_standard",
             "server_initializer_collected_params_rewrite_config_files_parameters_from_environment",
         );
+        let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("data_dir");
         let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
@@ -1061,6 +1064,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file");
+        let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("masqhome");
         let _create_data_dir = create_dir_all(data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();

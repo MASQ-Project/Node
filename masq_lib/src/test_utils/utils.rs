@@ -2,7 +2,6 @@
 
 use crate::blockchains::chains::Chain;
 use crate::test_utils::environment_guard::EnvironmentGuard;
-use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -13,13 +12,7 @@ pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
-    let home_dir_string = format!(
-        "{}/{}/{}/{}/home",
-        current_dir().expect("expected current dir").display(),
-        BASE_TEST_DIR,
-        module,
-        name
-    );
+    let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
     PathBuf::from(home_dir_string.as_str())
 }
 
