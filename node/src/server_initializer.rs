@@ -71,7 +71,7 @@ impl ServerInitializer for ServerInitializerReal {
                     .initialize_as_unprivileged(&multi_config, streams),
             )
     }
-    implement_as_any!();
+    as_any_in_trait_impl!();
 }
 
 impl Future for ServerInitializerReal {

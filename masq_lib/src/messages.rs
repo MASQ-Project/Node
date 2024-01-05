@@ -4,6 +4,7 @@ use crate::messages::UiMessageError::{DeserializationError, PayloadError, Unexpe
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
+use crate::utils::to_string;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -243,7 +244,7 @@ impl UiSetupRequest {
                 .into_iter()
                 .map(|(name, value)| UiSetupRequestValue {
                     name: name.to_string(),
-                    value: value.map(|v| v.to_string()),
+                    value: value.map(to_string),
                 })
                 .collect(),
         }
@@ -484,6 +485,8 @@ pub struct UiConfigurationResponse {
     pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "gasPrice")]
     pub gas_price: u64,
+    #[serde(rename = "maxBlockCount")]
+    pub max_block_count_opt: Option<u64>,
     #[serde(rename = "neighborhoodMode")]
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
@@ -775,7 +778,7 @@ conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ScanType {
     Payables,
     Receivables,

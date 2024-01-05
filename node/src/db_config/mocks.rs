@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
+use masq_lib::utils::to_string;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -27,7 +28,7 @@ impl ConfigDao for ConfigDaoMock {
         self.set_params
             .lock()
             .unwrap()
-            .push((name.to_string(), value.map(|x| x.to_string())));
+            .push((name.to_string(), value.map(to_string)));
         self.set_results.borrow_mut().remove(0)
     }
 }

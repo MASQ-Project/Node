@@ -40,13 +40,14 @@ fn handle_help_or_version_if_required<'a>(args: &[String]) -> ArgMatches<'a> {
 mod tests {
     use super::*;
     use masq_lib::constants::DEFAULT_UI_PORT;
+    use masq_lib::utils::to_string;
 
     #[test]
     fn non_interactive_clap_real_produces_default_value_for_ui_port() {
         let result = NonInteractiveClapReal.non_interactive_initial_clap_operations(
             &vec!["masq", "setup", "--chain"]
                 .iter()
-                .map(|str| str.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>(),
         );
 
@@ -58,7 +59,7 @@ mod tests {
         let result = NonInteractiveClapReal.non_interactive_initial_clap_operations(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
                 .iter()
-                .map(|str| str.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>(),
         );
 

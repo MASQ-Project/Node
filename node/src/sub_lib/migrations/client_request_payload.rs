@@ -124,8 +124,6 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
-    use std::net::SocketAddr;
-    use std::str::FromStr;
 
     #[test]
     fn can_migrate_from_the_future() {
@@ -141,10 +139,7 @@ mod tests {
             pub yet_another_field: u64,
         }
         let expected_crp = ClientRequestPayload_0v1 {
-            stream_key: StreamKey::new(
-                PublicKey::new(&[1, 2, 3, 4]),
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            ),
+            stream_key: StreamKey::make_meaningful_stream_key("All Things Must Pass"),
             sequenced_packet: SequencedPacket::new(vec![4, 3, 2, 1], 4321, false),
             target_hostname: Some("target.hostname.com".to_string()),
             target_port: 1234,

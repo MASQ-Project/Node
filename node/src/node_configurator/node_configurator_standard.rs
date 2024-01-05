@@ -357,7 +357,7 @@ fn configure_database(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
@@ -610,7 +610,8 @@ mod tests {
 
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
         let consuming_keypair =
-            Bip32ECKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref()).unwrap();
+            Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key_bytes.as_ref())
+                .unwrap();
         assert_eq!(
             bootstrapper_config.consuming_wallet_opt,
             Some(Wallet::from(consuming_keypair)),
@@ -1582,6 +1583,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         running_test();
+        let _guard = EnvironmentGuard::new();
         let home_dir = Path::new("/home/cooga");
         let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
         let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");

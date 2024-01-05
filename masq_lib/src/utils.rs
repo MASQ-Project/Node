@@ -321,10 +321,7 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
-    slice
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<String>>()
+    slice.iter().map(to_string).collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -389,6 +386,14 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
+// A handy function for closures
+pub fn to_string<D>(displayable: D) -> String
+where
+    D: Display,
+{
+    displayable.to_string()
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -407,10 +412,10 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! declare_as_any {
+macro_rules! as_any_in_trait {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             use masq_lib::intentionally_blank;
             intentionally_blank!()
         }
@@ -418,11 +423,40 @@ macro_rules! declare_as_any {
 }
 
 #[macro_export]
-macro_rules! implement_as_any {
+macro_rules! as_any_in_trait_impl {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! test_only_use {
+    ($($use_clause: item),+) => {
+      $(
+        #[cfg(test)]
+        $use_clause
+      )+
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! hashmap {
+    () => {
+        ::std::collections::HashMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        hashmap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _hm = ::std::collections::HashMap::new();
+            $(
+                let _ = _hm.insert($key, $value);
+            )*
+            _hm
         }
     };
 }
@@ -430,6 +464,7 @@ macro_rules! implement_as_any {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
@@ -750,5 +785,38 @@ mod tests {
     fn type_name_of_works() {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
+    }
+
+    #[test]
+    fn hashmap_macro_works() {
+        let empty_hashmap: HashMap<i32, i32> = hashmap!();
+        let hashmap_with_one_element = hashmap!(1 => 2);
+        let hashmap_with_multiple_elements = hashmap!(1 => 2, 10 => 20, 12 => 42);
+        let hashmap_with_trailing_comma = hashmap!(1 => 2, 10 => 20,);
+        let hashmap_of_string = hashmap!("key" => "val");
+
+        let expected_empty_hashmap: HashMap<i32, i32> = HashMap::new();
+        let mut expected_hashmap_with_one_element = HashMap::new();
+        expected_hashmap_with_one_element.insert(1, 2);
+        let mut expected_hashmap_with_multiple_elements = HashMap::new();
+        expected_hashmap_with_multiple_elements.insert(1, 2);
+        expected_hashmap_with_multiple_elements.insert(10, 20);
+        expected_hashmap_with_multiple_elements.insert(12, 42);
+        let mut expected_hashmap_with_trailing_comma = HashMap::new();
+        expected_hashmap_with_trailing_comma.insert(1, 2);
+        expected_hashmap_with_trailing_comma.insert(10, 20);
+        let mut expected_hashmap_of_string = HashMap::new();
+        expected_hashmap_of_string.insert("key", "val");
+        assert_eq!(empty_hashmap, expected_empty_hashmap);
+        assert_eq!(hashmap_with_one_element, expected_hashmap_with_one_element);
+        assert_eq!(
+            hashmap_with_multiple_elements,
+            expected_hashmap_with_multiple_elements
+        );
+        assert_eq!(
+            hashmap_with_trailing_comma,
+            expected_hashmap_with_trailing_comma
+        );
+        assert_eq!(hashmap_of_string, expected_hashmap_of_string);
     }
 }

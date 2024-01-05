@@ -24,7 +24,7 @@ use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ExpectedService, UpdateNodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
@@ -33,7 +33,6 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{AddReturnRouteMessage, AddRouteMessage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
@@ -61,7 +60,7 @@ struct ProxyServerOutSubs {
     hopper: Recipient<IncipientCoresPackage>,
     accountant: Recipient<ReportServicesConsumedMessage>,
     route_source: Recipient<RouteQueryMessage>,
-    update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
     add_route: Recipient<AddRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -105,21 +104,6 @@ impl Handler<BindMessage> for ProxyServer {
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
         };
         self.subs = Some(subs);
-    }
-}
-
-//TODO comes across as basically dead code
-// I think the idea was to supply the wallet if wallets hadn't been generated until recently, without the need to kill the Node
-// I also found out that there is a test for this, but it changes nothing on it's normally unused
-impl Handler<SetConsumingWalletMessage> for ProxyServer {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        _msg: SetConsumingWalletMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.consuming_wallet_balance = Some(0);
     }
 }
 
@@ -247,16 +231,16 @@ impl ProxyServer {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "dns resolve failure") {
+                Some(rri) => rri,
+                None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
+            };
         let exit_public_key = {
             // ugly, ugly
             let self_public_key = self.main_cryptde.public_key();
@@ -283,7 +267,7 @@ impl ProxyServer {
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
                         .update_node_record_metadata
-                        .try_send(NodeRecordMetadataMessage {
+                        .try_send(UpdateNodeRecordMetadataMessage {
                             public_key: exit_public_key.clone(),
                             metadata_change: NRMetadataChange::AddUnreachableHost {
                                 hostname: server_name,
@@ -342,10 +326,11 @@ impl ProxyServer {
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
             response.stream_key, response.sequenced_packet.sequence_number, response.sequenced_packet.data.len()
         );
-        let return_route_info = match self.get_return_route_info(&msg.remaining_route) {
-            Some(rri) => rri,
-            None => return,
-        };
+        let return_route_info =
+            match self.get_return_route_info(&msg.remaining_route, "client response") {
+                Some(rri) => rri,
+                None => return,
+            };
         self.report_response_services_consumed(
             &return_route_info,
             response.sequenced_packet.data.len(),
@@ -399,7 +384,7 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.make_stream_key(msg);
+                let stream_key = self.find_or_generate_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -481,7 +466,7 @@ impl ProxyServer {
         }
     }
 
-    fn make_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
+    fn find_or_generate_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => {
                 debug!(
@@ -493,9 +478,7 @@ impl ProxyServer {
                 stream_key
             }
             None => {
-                let stream_key = self
-                    .stream_key_factory
-                    .make(self.main_cryptde.public_key(), ibcd.peer_addr);
+                let stream_key = self.stream_key_factory.make();
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
@@ -755,7 +738,11 @@ impl ProxyServer {
         }
     }
 
-    fn get_return_route_info(&self, remaining_route: &Route) -> Option<Rc<AddReturnRouteMessage>> {
+    fn get_return_route_info(
+        &self,
+        remaining_route: &Route,
+        source: &str,
+    ) -> Option<Rc<AddReturnRouteMessage>> {
         let mut mut_remaining_route = remaining_route.clone();
         mut_remaining_route
             .shift(self.main_cryptde)
@@ -770,7 +757,7 @@ impl ProxyServer {
         match self.route_ids_to_return_routes.get(&return_route_id) {
             Some(rri) => Some(rri),
             None => {
-                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {}. Ignoring", return_route_id);
+                error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                 None
             }
         }
@@ -884,7 +871,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.make_stream_key(&msg);
+        let stream_key = proxy.find_or_generate_stream_key(&msg);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => payload,
@@ -1008,15 +995,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey;
+    fn make(&self) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
-        // TODO: Replace this implementation
-        StreamKey::new(public_key.clone(), peer_addr)
+    fn make(&self) -> StreamKey {
+        StreamKey::new()
     }
 }
 
@@ -1045,6 +1031,7 @@ mod tests {
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::make_paying_wallet;
+    use crate::test_utils::make_request_payload;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1053,7 +1040,6 @@ mod tests {
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_meaningless_route};
-    use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1083,7 +1069,7 @@ mod tests {
             hopper: recipient!(addr, IncipientCoresPackage),
             accountant: recipient!(addr, ReportServicesConsumedMessage),
             route_source: recipient!(addr, RouteQueryMessage),
-            update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             add_route: recipient!(addr, AddRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
@@ -1091,16 +1077,13 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+        make_parameters: Arc<Mutex<Vec<()>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, key: &PublicKey, peer_addr: SocketAddr) -> StreamKey {
-            self.make_parameters
-                .lock()
-                .unwrap()
-                .push((key.clone(), peer_addr));
+        fn make(&self) -> StreamKey {
+            self.make_parameters.lock().unwrap().push(());
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1113,10 +1096,7 @@ mod tests {
             }
         }
 
-        fn make_parameters(
-            mut self,
-            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
-        ) -> StreamKeyFactoryMock {
+        fn make_parameters(mut self, params: &Arc<Mutex<Vec<()>>>) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
         }
@@ -1212,7 +1192,7 @@ mod tests {
         }));
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1278,10 +1258,7 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(record, &expected_pkg);
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
-        assert_eq!(
-            make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
-        );
+        assert_eq!(make_parameters.remove(0), ());
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
@@ -1311,7 +1288,7 @@ mod tests {
         let route = Route { hops: vec![] };
         let (dispatcher_mock, _, dispatcher_recording_arc) = make_recorder();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1393,10 +1370,7 @@ mod tests {
         let dispatcher_record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(dispatcher_record, &expected_tdm);
         let mut make_parameters = make_parameters_arc.lock().unwrap();
-        assert_eq!(
-            make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
-        );
+        assert_eq!(make_parameters.remove(0), ());
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let hopper_record = hopper_recording.get_record::<IncipientCoresPackage>(0);
@@ -1427,7 +1401,7 @@ mod tests {
             false,
         );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
@@ -1504,7 +1478,7 @@ mod tests {
         ));
 
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1576,7 +1550,7 @@ mod tests {
         ));
 
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1644,7 +1618,7 @@ mod tests {
         let (neighborhood, _, neighborhood_log_arc) = make_recorder();
         let (dispatcher, _, dispatcher_log_arc) = make_recorder();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1704,7 +1678,7 @@ mod tests {
         let (neighborhood, _, neighborhood_log_arc) = make_recorder();
         let (dispatcher, _, dispatcher_log_arc) = make_recorder();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1763,7 +1737,7 @@ mod tests {
         let expected_data = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n".to_vec();
         let expected_data_inner = expected_data.clone();
         let expected_route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde);
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (hopper, hopper_awaiter, hopper_log_arc) = make_recorder();
         let neighborhood = Recorder::new().route_query_response(Some(expected_route.clone()));
         let neighborhood_log_arc = neighborhood.get_recording();
@@ -1843,7 +1817,7 @@ mod tests {
         let expected_data = b"Fake TLS request".to_vec();
         let expected_data_inner = expected_data.clone();
         let expected_route = zero_hop_route_response(main_cryptde.public_key(), main_cryptde);
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (hopper, hopper_awaiter, hopper_log_arc) = make_recorder();
         let neighborhood = Recorder::new().route_query_response(Some(expected_route.clone()));
         let neighborhood_log_arc = neighborhood.get_recording();
@@ -1933,7 +1907,7 @@ mod tests {
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1987,86 +1961,6 @@ mod tests {
 
             subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-            system.run();
-        });
-
-        hopper_awaiter.await_message_count(1);
-        let recording = hopper_log_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record, &expected_pkg);
-    }
-
-    #[test]
-    fn proxy_server_applies_late_wallet_information() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let hopper_mock = Recorder::new();
-        let hopper_log_arc = hopper_mock.get_recording();
-        let hopper_awaiter = hopper_mock.get_awaiter();
-        let destination_key = PublicKey::from(&b"our destination"[..]);
-        let route_query_response = RouteQueryResponse {
-            route: Route { hops: vec![] },
-            expected_services: ExpectedServices::RoundTrip(
-                vec![make_exit_service_from_key(destination_key.clone())],
-                vec![],
-                1234,
-            ),
-        };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let expected_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(0),
-            last_data: true,
-            is_clandestine: false,
-            data: expected_data.clone(),
-        };
-        let expected_http_request = PlainData::new(http_request);
-        let route = route_query_response.route.clone();
-        let expected_payload = ClientRequestPayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket {
-                data: expected_http_request.into(),
-                sequence_number: 0,
-                last_data: true,
-            },
-            target_hostname: Some(String::from("nowhere.com")),
-            target_port: HTTP_PORT,
-            protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
-        };
-        let expected_pkg = IncipientCoresPackage::new(
-            main_cryptde,
-            route,
-            expected_payload.into(),
-            &destination_key,
-        )
-        .unwrap();
-        thread::spawn(move || {
-            let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
-            let system = System::new("proxy_server_applies_late_wallet_information");
-            let mut subject = ProxyServer::new(main_cryptde, alias_cryptde, true, None, false);
-            subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject
-                .stream_key_routes
-                .insert(stream_key, route_query_response);
-            let subject_addr: Addr<ProxyServer> = subject.start();
-            let mut peer_actors = peer_actors_builder().hopper(hopper_mock).build();
-            peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-            subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            subject_addr
-                .try_send(SetConsumingWalletMessage {
-                    wallet: make_wallet("Consuming wallet"),
-                })
-                .unwrap();
-
-            subject_addr.try_send(msg_from_dispatcher).unwrap();
             system.run();
         });
 
@@ -2133,7 +2027,7 @@ mod tests {
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -2213,7 +2107,7 @@ mod tests {
         let neighborhood_mock =
             neighborhood_mock.route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -2279,7 +2173,7 @@ mod tests {
         };
         let (hopper_mock, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -2399,7 +2293,7 @@ mod tests {
             ),
         };
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let system =
             System::new("proxy_server_sends_message_to_accountant_for_all_services_consumed");
@@ -2486,7 +2380,7 @@ mod tests {
             ),
         };
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let system =
             System::new("proxy_server_sends_message_to_accountant_for_routing_service_consumed");
@@ -2565,7 +2459,7 @@ mod tests {
         let neighborhood_mock =
             neighborhood_mock.route_query_response(Some(route_query_response.clone()));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
@@ -2739,7 +2633,7 @@ mod tests {
             ]),
         };
         let payload = ClientRequestPayload_0v1 {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: vec![],
                 sequence_number: 0,
@@ -2916,7 +2810,7 @@ mod tests {
                 1234,
             ),
         }));
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
@@ -3002,7 +2896,7 @@ mod tests {
                 1234,
             ),
         }));
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
@@ -3068,6 +2962,7 @@ mod tests {
     #[test]
     fn proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper(
     ) {
+        let test_name = "proxy_server_receives_tls_packet_other_than_handshake_from_dispatcher_then_sends_cores_package_to_hopper";
         let tls_request = &[
             0xFF, // content_type: don't care, just not Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -3086,12 +2981,12 @@ mod tests {
                 1234,
             ),
         }));
-        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = StreamKey::new(main_cryptde.public_key().clone(), source_addr);
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: source_addr.clone(),
+            peer_addr: client_addr,
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3120,14 +3015,15 @@ mod tests {
         )
         .unwrap();
         thread::spawn(move || {
-            let subject = ProxyServer::new(
+            let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
-            let system = System::new("proxy_server_receives_tls_client_hello_from_dispatcher_then_sends_cores_package_to_hopper");
+            subject.keys_and_addrs.insert(stream_key, client_addr);
+            let system = System::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let mut peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
@@ -3236,7 +3132,7 @@ mod tests {
             false,
         );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
@@ -3296,7 +3192,7 @@ mod tests {
         );
         subject.subs = Some(make_proxy_server_out_subs());
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -3357,7 +3253,7 @@ mod tests {
             false,
         );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
         subject
             .keys_and_addrs
@@ -3564,7 +3460,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
         // subject.keys_and_addrs contains no browser stream
         let incoming_route_d_wallet = make_wallet("D Earning");
@@ -3665,7 +3561,7 @@ mod tests {
             false,
         );
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -3732,7 +3628,7 @@ mod tests {
             false,
         );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
         subject
             .keys_and_addrs
@@ -3837,7 +3733,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -3878,10 +3774,10 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
-        let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
+        let record = neighborhood_recording.get_record::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(
             record,
-            &NodeRecordMetadataMessage {
+            &UpdateNodeRecordMetadataMessage {
                 public_key: exit_public_key,
                 metadata_change: NRMetadataChange::AddUnreachableHost {
                     hostname: "server.com".to_string()
@@ -3903,7 +3799,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -3942,7 +3838,8 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
+        let record_opt =
+            neighborhood_recording.get_record_opt::<UpdateNodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
     }
 
@@ -3959,7 +3856,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let return_route_id = 1234;
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
@@ -4029,7 +3926,7 @@ mod tests {
             false,
         );
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let return_route_id = 1234;
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
@@ -4115,7 +4012,7 @@ mod tests {
             peer_actors.neighborhood.update_node_record_metadata;
         subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -4163,7 +4060,7 @@ mod tests {
         let system = System::new("panics_if_dispatcher_is_unbound");
         let cryptde = main_cryptde();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut subject = ProxyServer::new(
             cryptde,
             alias_cryptde(),
@@ -4254,7 +4151,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         subject
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
@@ -4285,7 +4182,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
+        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -4305,7 +4202,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         subject
             .keys_and_addrs
             .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
@@ -4349,7 +4246,7 @@ mod tests {
     fn return_route_ids_expire_when_instructed() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let (tx, rx) = unbounded();
         thread::spawn(move || {
@@ -4404,15 +4301,14 @@ mod tests {
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring", 1000);
     }
 
     #[test]
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), unaffected_socket_addr);
+        let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4458,11 +4354,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), unaffected_socket_addr);
+        let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
+        let affected_stream_key = StreamKey::make_meaningful_stream_key("affected");
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4581,11 +4475,9 @@ mod tests {
             false,
         );
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), unaffected_socket_addr);
+        let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
+        let affected_stream_key = StreamKey::make_meaningful_stream_key("affected");
         let affected_cryptde = CryptDENull::from(&PublicKey::new(b"affected"), TEST_DEFAULT_CHAIN);
         subject
             .keys_and_addrs
@@ -4691,11 +4583,9 @@ mod tests {
     fn handle_stream_shutdown_msg_does_not_report_to_counterpart_when_unnecessary() {
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
-        let unaffected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), unaffected_socket_addr);
+        let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         let affected_socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let affected_stream_key =
-            StreamKey::new(main_cryptde().public_key().clone(), affected_socket_addr);
+        let affected_stream_key = StreamKey::make_meaningful_stream_key("affected");
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
@@ -4757,7 +4647,7 @@ mod tests {
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
         subject.inbound_client_data_helper_opt = Some(Box::new(helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
-        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
+        let stream_key = StreamKey::make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let msg = StreamShutdownMsg {
             peer_addr: socket_addr,
@@ -4782,7 +4672,7 @@ mod tests {
             .handle_normal_client_data_result(Ok(()));
         subject.inbound_client_data_helper_opt = Some(Box::new(icd_helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
+        let stream_key = StreamKey::make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         subject.stream_key_routes.insert(
             stream_key,
