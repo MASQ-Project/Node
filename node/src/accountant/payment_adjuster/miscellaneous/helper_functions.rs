@@ -18,6 +18,7 @@ use masq_lib::logger::Logger;
 use std::cmp::Ordering;
 use std::iter::successors;
 use std::ops::Not;
+use web3::types::U256;
 
 const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
@@ -36,37 +37,40 @@ where
     collection.iter().map(arranger).sum::<u128>().into()
 }
 
-pub fn criteria_total(accounts_with_individual_criteria: &[(u128, PayableAccount)]) -> u128 {
-    sum_as(accounts_with_individual_criteria, |(criteria, _)| *criteria)
+pub fn weights_total(weights_and_accounts: &[(u128, PayableAccount)]) -> u128 {
+    sum_as(weights_and_accounts, |(weight, _)| *weight)
 }
 
-pub fn keep_only_transaction_fee_affordable_accounts_and_drop_the_rest(
-    criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+pub fn drop_accounts_that_cannot_be_afforded_due_to_service_fee(
+    weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     affordable_transaction_count: u16,
 ) -> Vec<(u128, PayableAccount)> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "keeping {} out of {} accounts",
         affordable_transaction_count,
-        criteria_and_accounts_in_descending_order.len()
+        weights_and_accounts_in_descending_order.len()
     );
-    criteria_and_accounts_in_descending_order
+    weights_and_accounts_in_descending_order
         .into_iter()
         .take(affordable_transaction_count as usize)
         .collect()
 }
 
-pub fn compute_fractional_numbers_preventing_mul_coefficient(
+// TODO U256 possible + test for extreme input fed??
+pub fn compute_mul_coefficient_preventing_fractional_numbers(
     cw_masq_balance_minor: u128,
-    account_criteria_sum: u128,
-) -> u128 {
-    let criteria_sum_digits_count = log_10(account_criteria_sum);
+    account_weight: u128,
+) -> U256 {
+    let weight_digits_count = log_10(account_weight);
     let cw_balance_digits_count = log_10(cw_masq_balance_minor);
-    let positive_difference = criteria_sum_digits_count.saturating_sub(cw_balance_digits_count);
+    let positive_difference = weight_digits_count.saturating_sub(cw_balance_digits_count);
     let safe_mul_coefficient = positive_difference + EMPIRIC_PRECISION_COEFFICIENT;
-    10_u128
-        .checked_pow(safe_mul_coefficient as u32)
-        .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
+    U256::from(10)
+        .checked_pow(safe_mul_coefficient.into())
+        // .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
+        //     TODO fix me in the test
+        .unwrap_or_else(|| U256::MAX)
 }
 
 pub fn possibly_outweighed_accounts_fold_guts(
@@ -278,20 +282,18 @@ impl CwExhaustingStatus {
     }
 }
 
-pub fn sort_in_descendant_order_by_criteria_sums(
+pub fn sort_in_descendant_order_by_weights(
     unsorted: impl Iterator<Item = (u128, PayableAccount)>,
 ) -> Vec<(u128, PayableAccount)> {
     unsorted
-        .sorted_by(|(criteria_sum_a, _), (criteria_sum_b, _)| {
-            Ord::cmp(criteria_sum_b, criteria_sum_a)
-        })
+        .sorted_by(|(weight_a, _), (weight_b, _)| Ord::cmp(weight_b, weight_a))
         .collect()
 }
 
-pub fn drop_criteria_and_leave_naked_affordable_accounts(
-    criteria_and_accounts: Vec<(u128, PayableAccount)>,
+pub fn isolate_accounts_from_weights(
+    weights_and_accounts: Vec<(u128, PayableAccount)>,
 ) -> Vec<PayableAccount> {
-    criteria_and_accounts
+    weights_and_accounts
         .into_iter()
         .map(|(_, account)| account)
         .collect()
@@ -378,11 +380,11 @@ mod tests {
         AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        calculate_disqualification_edge, compute_fractional_numbers_preventing_mul_coefficient,
-        criteria_total, exhaust_cw_till_the_last_drop, find_largest_nominated_account,
+        calculate_disqualification_edge, compute_mul_coefficient_preventing_fractional_numbers,
+        exhaust_cw_till_the_last_drop, find_largest_nominated_account,
         list_accounts_nominated_for_disqualification, log_10, log_2,
         possibly_outweighed_accounts_fold_guts,
-        try_finding_an_account_to_disqualify_in_this_iteration, CwExhaustingStatus,
+        try_finding_an_account_to_disqualify_in_this_iteration, weights_total, CwExhaustingStatus,
         ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
         MAX_EXPONENT_FOR_10_IN_U128,
     };
@@ -395,6 +397,7 @@ mod tests {
     use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
     use std::time::{Duration, SystemTime};
+    use web3::types::U256;
 
     #[test]
     fn constants_are_correct() {
@@ -447,7 +450,7 @@ mod tests {
 
     #[test]
     fn multiplication_coefficient_can_give_numbers_preventing_fractional_numbers() {
-        let final_criteria_sum = 5_000_000_000_000_u128;
+        let final_weight = 5_000_000_000_000_u128;
         let cw_balances = vec![
             222_222_222_222_u128,
             100_000,
@@ -461,29 +464,27 @@ mod tests {
             .clone()
             .into_iter()
             .map(|cw_balance| {
-                compute_fractional_numbers_preventing_mul_coefficient(
-                    cw_balance,
-                    final_criteria_sum,
-                )
+                compute_mul_coefficient_preventing_fractional_numbers(cw_balance, final_weight)
             })
-            .collect::<Vec<u128>>();
+            .collect::<Vec<U256>>();
 
-        assert_eq!(
-            result,
-            vec![
-                1_000_000_000,
-                1_000_000_000_000_000,
-                1_000_000_000_000,
-                100_000_000,
-                100_000_000,
-                100_000_000
-            ]
-        )
+        let expected_result = vec![
+            1_000_000_000_u128,
+            1_000_000_000_000_000,
+            1_000_000_000_000,
+            100_000_000,
+            100_000_000,
+            100_000_000,
+        ]
+        .into_iter()
+        .map(U256::from)
+        .collect::<Vec<U256>>();
+        assert_eq!(result, expected_result)
     }
 
     #[test]
     fn multiplication_coefficient_extreme_feeding_and_safety_ceiling() {
-        // We cannot say by heart which of the evaluated criteria sums from
+        // We cannot say by heart which of the evaluated weights from
         // these parameters below will be bigger than another and therefore
         // we cannot line them up in an order
         let accounts_as_months_and_balances = vec![
@@ -495,81 +496,80 @@ mod tests {
             (1200, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
             (1200, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR * 1000),
         ];
-        let (
-            accounts_with_their_criteria_sums,
-            reserved_initial_accounts_order_according_to_wallets,
-        ) = get_extreme_criteria_and_initial_accounts_order(accounts_as_months_and_balances);
+        let (accounts_with_their_weights, reserved_initial_accounts_order_according_to_wallets) =
+            get_extreme_weights_and_initial_accounts_order(accounts_as_months_and_balances);
         let cw_balance_in_minor = 1;
 
-        let results = accounts_with_their_criteria_sums
+        let results = accounts_with_their_weights
             .into_iter()
-            .map(|(criteria_sum, account)| {
+            .map(|(weight, account)| {
                 // Scenario simplification: we assume there is always just one account to process in a time
-                let computed_coefficient = compute_fractional_numbers_preventing_mul_coefficient(
+                let computed_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
                     cw_balance_in_minor,
-                    criteria_sum,
+                    weight,
                 );
-                (computed_coefficient, account.wallet, criteria_sum)
+                (computed_coefficient, account.wallet, weight)
             })
-            .collect::<Vec<(u128, Wallet, u128)>>();
+            .collect::<Vec<(U256, Wallet, u128)>>();
 
         let reserved_initial_accounts_order_according_to_wallets_iter =
             reserved_initial_accounts_order_according_to_wallets
                 .iter()
                 .enumerate();
-        let mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs = results
+        let mul_coefficients_and_weights_in_the_same_order_as_original_inputs = results
             .into_iter()
-            .map(
-                |(computed_coefficient, account_wallet, account_criteria_sum)| {
-                    let (idx, _) = reserved_initial_accounts_order_according_to_wallets_iter
-                        .clone()
-                        .find(|(_, wallet_ordered)| wallet_ordered == &&account_wallet)
-                        .unwrap();
-                    (idx, computed_coefficient, account_criteria_sum)
-                },
-            )
+            .map(|(computed_coefficient, account_wallet, account_weight)| {
+                let (idx, _) = reserved_initial_accounts_order_according_to_wallets_iter
+                    .clone()
+                    .find(|(_, wallet_ordered)| wallet_ordered == &&account_wallet)
+                    .unwrap();
+                (idx, computed_coefficient, account_weight)
+            })
             .sorted_by(|(idx_a, _, _), (idx_b, _, _)| Ord::cmp(&idx_b, &idx_a))
-            .map(|(_, coefficient, criteria_sum)| (coefficient, criteria_sum))
-            .collect::<Vec<(u128, u128)>>();
+            .map(|(_, coefficient, weight)| (coefficient, weight))
+            .collect::<Vec<(U256, u128)>>();
         let templates_for_coefficients = vec![
-            100000000000000000000000000000000000000,
+            100000000000000000000000000000000000000_u128,
             100000000000000000000000000000000000,
             100000000000000000000000000000000000,
             100000000000000000000000000000000,
             10000000000000000000000000000000,
             10000000000000000000000000000000,
             100000000000000000000000000000000000,
-        ];
+        ]
+        .into_iter()
+        .map(U256::from)
+        .collect::<Vec<U256>>();
         // I was trying to write these assertions so that it wouldn't require us to rewrite
         // the expected values everytime someone pokes into the formulas.
-        check_relation_to_computed_criteria_sum_fairly_but_with_enough_benevolence(
-            &mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs,
+        check_relation_to_computed_weight_fairly_but_with_enough_benevolence(
+            &mul_coefficients_and_weights_in_the_same_order_as_original_inputs,
         );
         compare_coefficients_to_templates(
-            &mul_coefficients_and_criteria_sums_in_the_same_order_as_original_inputs,
+            &mul_coefficients_and_weights_in_the_same_order_as_original_inputs,
             &templates_for_coefficients,
         );
     }
 
-    fn check_relation_to_computed_criteria_sum_fairly_but_with_enough_benevolence(
-        output: &[(u128, u128)],
+    fn check_relation_to_computed_weight_fairly_but_with_enough_benevolence(
+        output: &[(U256, u128)],
     ) {
-        output.iter().for_each(|(coefficient, corresponding_criteria_sum)| {
-            let coefficient_num_decimal_length = log_10(*coefficient);
-            let criteria_sum_decimal_length = log_10(*corresponding_criteria_sum);
-            assert_eq!(coefficient_num_decimal_length, criteria_sum_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
+        output.iter().for_each(|(coefficient, corresponding_weight)| {
+            let coefficient_num_decimal_length = log_10(coefficient.as_u128());
+            let weight_decimal_length = log_10(*corresponding_weight);
+            assert_eq!(coefficient_num_decimal_length, weight_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
                        "coefficient with bad safety margin; should be {} but was {}, as one of this set {:?}",
                        coefficient_num_decimal_length,
-                       criteria_sum_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
+                       weight_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
                        output
             );
 
             let expected_division_by_10_if_wrong = 10_u128.pow(coefficient_num_decimal_length as u32 - 1);
-            let experiment_result = corresponding_criteria_sum / 10;
+            let experiment_result = corresponding_weight / 10;
             match experiment_result == expected_division_by_10_if_wrong {
                 false => (),
-                true => match corresponding_criteria_sum % 10 {
-                    0 => panic!("the criteria sum is a pure power of ten, too a suspicious result, \
+                true => match corresponding_weight % 10 {
+                    0 => panic!("the weight is a pure power of ten, such a suspicious result, \
                                 check it in {:?}", output),
                     _ => ()
                 }
@@ -577,7 +577,7 @@ mod tests {
         })
     }
 
-    fn compare_coefficients_to_templates(outputs: &[(u128, u128)], templates: &[u128]) {
+    fn compare_coefficients_to_templates(outputs: &[(U256, u128)], templates: &[U256]) {
         assert_eq!(
             outputs.len(),
             templates.len(),
@@ -758,13 +758,11 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(7_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let accounts_with_individual_criteria = subject
-            .calculate_criteria_sums_for_accounts(vec![account_1, account_2, account_3, account_4]);
-        let criteria_total = criteria_total(&accounts_with_individual_criteria);
-        let non_finalized_adjusted_accounts = subject.compute_adjusted_but_non_finalized_accounts(
-            accounts_with_individual_criteria,
-            criteria_total,
-        );
+        let weights_and_accounts = subject
+            .calculate_weights_for_accounts(vec![account_1, account_2, account_3, account_4]);
+        let weights_total = weights_total(&weights_and_accounts);
+        let non_finalized_adjusted_accounts = subject
+            .compute_adjusted_but_non_finalized_accounts(weights_and_accounts, weights_total);
 
         let result = try_finding_an_account_to_disqualify_in_this_iteration(
             &non_finalized_adjusted_accounts,
@@ -962,7 +960,7 @@ mod tests {
         assert_eq!(result, expected_disqualified_accounts)
     }
 
-    fn get_extreme_criteria_and_initial_accounts_order(
+    fn get_extreme_weights_and_initial_accounts_order(
         months_of_debt_and_balances: Vec<(usize, u128)>,
     ) -> (Vec<(u128, PayableAccount)>, Vec<Wallet>) {
         let now = SystemTime::now();
@@ -972,9 +970,9 @@ mod tests {
             .map(|account| account.wallet.clone())
             .collect();
         let subject = make_initialized_subject(now, None, None);
-        // The initial order is remembered because when the criteria are applied the collection the collection
+        // The initial order is remembered because when the weight are applied the collection the collection
         // also gets sorted and will not necessarily have to match the initial order
-        let criteria_and_accounts = subject.calculate_criteria_sums_for_accounts(accounts);
-        (criteria_and_accounts, wallets_in_order)
+        let weights_and_accounts = subject.calculate_weights_for_accounts(accounts);
+        (weights_and_accounts, wallets_in_order)
     }
 }

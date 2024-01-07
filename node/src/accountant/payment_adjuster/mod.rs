@@ -14,24 +14,21 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
 };
-use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculators};
-use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::non_finalized_adjusted_accounts_diagnostics;
+use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculatorIterators};
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
 use crate::accountant::payment_adjuster::log_fns::{
-    before_and_after_debug_msg, log_adjustment_by_service_fee_is_required,
+    accounts_before_and_after_debug, log_adjustment_by_service_fee_is_required,
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
     log_insufficient_transaction_fee_balance,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution,
-};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{compute_fractional_numbers_preventing_mul_coefficient, criteria_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, drop_criteria_and_leave_naked_affordable_accounts, keep_only_transaction_fee_affordable_accounts_and_drop_the_rest, sort_in_descendant_order_by_criteria_sums, sum_as};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, TransactionCountsWithin16bits, ProposedAdjustmentResolution};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
 use crate::accountant::payment_adjuster::possibility_verifier::TransactionFeeAdjustmentPossibilityVerifier;
 use crate::diagnostics;
 use crate::masq_lib::utils::ExpectValue;
@@ -47,6 +44,7 @@ use thousands::Separable;
 use web3::types::U256;
 #[cfg(test)]
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::render_formulas_characteristics_for_diagnostics_if_enabled;
+use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::proposed_adjusted_balance_diagnostics;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 
@@ -100,7 +98,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             service_fee_balance_minor,
         ) {
             Ok(false) => Ok(None),
-            Ok(true) => Ok(Some(Adjustment::MasqToken)),
+            Ok(true) => Ok(Some(Adjustment::ByServiceFee)),
             Err(e) => Err(e),
         }
     }
@@ -118,14 +116,17 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         self.initialize_inner(initial_service_fee_balance_minor, required_adjustment, now);
 
-        let debug_info_opt = self.debug_info_opt(&qualified_payables);
+        let sketched_debug_info_opt = self.sketch_debug_info_opt(&qualified_payables);
 
         let affordable_accounts = self.run_adjustment(qualified_payables)?;
 
         debug!(
             self.logger,
             "{}",
-            before_and_after_debug_msg(debug_info_opt.expectv("debug info"), &affordable_accounts)
+            accounts_before_and_after_debug(
+                sketched_debug_info_opt.expectv("debug info"),
+                &affordable_accounts
+            )
         );
 
         Ok(OutboundPaymentsInstructions {
@@ -185,11 +186,13 @@ impl PaymentAdjusterReal {
             per_transaction_requirement_minor,
         );
 
-        let (max_tx_count_we_can_afford_u16, required_tx_count_u16) =
-            Self::u16_ceiling_for_accounts_to_be_processed_at_a_time(
-                max_possible_tx_count,
-                number_of_qualified_accounts,
-            );
+        let detected_tx_counts = Self::u16_ceiling_for_accounts_to_be_processed_at_a_time(
+            max_possible_tx_count,
+            number_of_qualified_accounts,
+        );
+
+        let max_tx_count_we_can_afford_u16 = detected_tx_counts.affordable;
+        let required_tx_count_u16 = detected_tx_counts.required;
 
         if max_tx_count_we_can_afford_u16 == 0 {
             Err(
@@ -215,11 +218,11 @@ impl PaymentAdjusterReal {
     fn u16_ceiling_for_accounts_to_be_processed_at_a_time(
         max_possible_tx_count: u128,
         number_of_accounts: usize,
-    ) -> (u16, u16) {
-        (
-            u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
-            u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
-        )
+    ) -> TransactionCountsWithin16bits {
+        TransactionCountsWithin16bits {
+            affordable: u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
+            required: u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
+        }
     }
 
     fn check_need_of_adjustment_by_service_fee(
@@ -229,7 +232,7 @@ impl PaymentAdjusterReal {
     ) -> Result<bool, PaymentAdjusterError> {
         let qualified_payables: Vec<&PayableAccount> = match payables {
             Either::Left(accounts) => accounts.iter().collect(),
-            Either::Right(criteria_and_accounts) => criteria_and_accounts
+            Either::Right(weights_and_accounts) => weights_and_accounts
                 .iter()
                 .map(|(_, account)| account)
                 .collect(),
@@ -268,7 +271,7 @@ impl PaymentAdjusterReal {
             Adjustment::TransactionFeeInPriority {
                 affordable_transaction_count,
             } => Some(affordable_transaction_count),
-            Adjustment::MasqToken => None,
+            Adjustment::ByServiceFee => None,
         };
 
         let inner = PaymentAdjusterInnerReal::new(
@@ -301,13 +304,13 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn calculate_criteria_and_propose_adjustments_recursively<A, R>(
+    fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
         mut unresolved_qualified_accounts: Vec<PayableAccount>,
-        adjustment_runner: A,
-    ) -> R
+        adjustment_runner: AR,
+    ) -> RT
     where
-        A: AdjustmentRunner<ReturnType = R>,
+        AR: AdjustmentRunner<ReturnType = RT>,
     {
         diagnostics!(
             "\nUNRESOLVED QUALIFIED ACCOUNTS:",
@@ -318,16 +321,15 @@ impl PaymentAdjusterReal {
             return adjustment_runner
                 .adjust_last_one(self, unresolved_qualified_accounts.remove(0));
         }
-        let accounts_with_individual_criteria_sorted =
-            self.calculate_criteria_sums_for_accounts(unresolved_qualified_accounts);
 
+        let weights_and_accounts_sorted =
+            self.calculate_weights_for_accounts(unresolved_qualified_accounts);
         #[cfg(test)]
         render_formulas_characteristics_for_diagnostics_if_enabled();
-
-        adjustment_runner.adjust_multiple(self, accounts_with_individual_criteria_sorted)
+        adjustment_runner.adjust_multiple(self, weights_and_accounts_sorted)
     }
 
-    fn begin_by_adjustment_by_transaction_fee(
+    fn begin_with_adjustment_by_transaction_fee(
         &mut self,
         criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
         already_known_affordable_transaction_count: u16,
@@ -336,7 +338,7 @@ impl PaymentAdjusterReal {
         PaymentAdjusterError,
     > {
         let accounts_with_criteria_affordable_by_transaction_fee =
-            keep_only_transaction_fee_affordable_accounts_and_drop_the_rest(
+            drop_accounts_that_cannot_be_afforded_due_to_service_fee(
                 criteria_and_accounts_in_descending_order,
                 already_known_affordable_transaction_count,
             );
@@ -363,7 +365,7 @@ impl PaymentAdjusterReal {
                 Ok(Either::Left(adjustment_result_before_verification))
             }
             false => {
-                let finalized_accounts = drop_criteria_and_leave_naked_affordable_accounts(
+                let finalized_accounts = isolate_accounts_from_weights(
                     accounts_with_criteria_affordable_by_transaction_fee,
                 );
                 Ok(Either::Right(finalized_accounts))
@@ -371,20 +373,20 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn calculate_criteria_sums_for_accounts(
+    fn calculate_weights_for_accounts(
         &self,
         accounts: Vec<PayableAccount>,
     ) -> Vec<(u128, PayableAccount)> {
-        let accounts_with_zero_criteria = Self::initialize_zero_criteria(accounts);
-        self.apply_criteria(accounts_with_zero_criteria)
+        let zero_weights_accounts = Self::initialize_zero_weights(accounts);
+        self.apply_criteria(zero_weights_accounts)
     }
 
     fn propose_possible_adjustment_recursively(
         &mut self,
-        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        weights_and_accounts: Vec<(u128, PayableAccount)>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
         let adjustment_iteration_result =
-            self.perform_masq_adjustment(accounts_with_individual_criteria);
+            self.perform_adjustment_by_service_fee(weights_and_accounts);
 
         let (here_decided_accounts, downstream_decided_accounts) =
             self.resolve_iteration_result(adjustment_iteration_result);
@@ -441,40 +443,38 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn initialize_zero_criteria(
+    fn initialize_zero_weights(
         qualified_payables: Vec<PayableAccount>,
     ) -> impl Iterator<Item = (u128, PayableAccount)> {
-        fn only_zero_criteria_iterator(accounts_count: usize) -> impl Iterator<Item = u128> {
+        fn zero_weights_iterator(accounts_count: usize) -> impl Iterator<Item = u128> {
             let one_element = once(0_u128);
             let endlessly_repeated = one_element.into_iter().cycle();
             endlessly_repeated.take(accounts_count)
         }
 
         let accounts_count = qualified_payables.len();
-        let criteria_iterator = only_zero_criteria_iterator(accounts_count);
-        criteria_iterator.zip(qualified_payables.into_iter())
+        let weights_iterator = zero_weights_iterator(accounts_count);
+        weights_iterator.zip(qualified_payables.into_iter())
     }
 
     fn apply_criteria(
         &self,
-        accounts_with_zero_criteria: impl Iterator<Item = (u128, PayableAccount)>,
+        zero_weights_accounts: impl Iterator<Item = (u128, PayableAccount)>,
     ) -> Vec<(u128, PayableAccount)> {
-        let criteria_and_accounts = accounts_with_zero_criteria
+        let weights_and_accounts = zero_weights_accounts
             .calculate_age_criteria(self)
             .calculate_balance_criteria();
 
-        sort_in_descendant_order_by_criteria_sums(criteria_and_accounts)
+        sort_in_descendant_order_by_weights(weights_and_accounts)
     }
 
-    fn perform_masq_adjustment(
+    fn perform_adjustment_by_service_fee(
         &self,
-        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
+        weights_and_accounts: Vec<(u128, PayableAccount)>,
     ) -> AdjustmentIterationResult {
-        let criteria_total = criteria_total(&accounts_with_individual_criteria);
-        let non_finalized_adjusted_accounts = self.compute_adjusted_but_non_finalized_accounts(
-            accounts_with_individual_criteria,
-            criteria_total,
-        );
+        let weights_total = weights_total(&weights_and_accounts);
+        let non_finalized_adjusted_accounts =
+            self.compute_adjusted_but_non_finalized_accounts(weights_and_accounts, weights_total);
 
         let still_unchecked_for_disqualified =
             match self.handle_possibly_outweighed_accounts(non_finalized_adjusted_accounts) {
@@ -495,55 +495,56 @@ impl PaymentAdjusterReal {
 
     fn compute_adjusted_but_non_finalized_accounts(
         &self,
-        accounts_with_individual_criteria: Vec<(u128, PayableAccount)>,
-        criteria_total: u128,
+        weights_with_accounts: Vec<(u128, PayableAccount)>,
+        weights_total: u128,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
-        let cw_masq_balance = self.inner.unallocated_cw_service_fee_balance_minor();
-        let cpm_coeff =
-            compute_fractional_numbers_preventing_mul_coefficient(cw_masq_balance, criteria_total);
-        let multiplication_coeff_u256 = U256::from(cpm_coeff);
+        let cw_service_fee_balance = self.inner.unallocated_cw_service_fee_balance_minor();
 
-        let proportional_fragment_of_cw_balance = Self::compute_proportional_fragment(
-            cw_masq_balance,
-            criteria_total,
-            multiplication_coeff_u256,
+        let multiplication_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
+            cw_service_fee_balance,
+            weights_total,
         );
 
-        let turn_account_into_adjusted_account_before_finalization =
-            |(criteria_sum, account): (u128, PayableAccount)| {
-                let proposed_adjusted_balance = (U256::from(criteria_sum)
-                    * proportional_fragment_of_cw_balance
-                    / multiplication_coeff_u256)
-                    .as_u128();
+        let balanced_fragment_of_cw_balance = Self::compute_balanced_cw_fragment(
+            cw_service_fee_balance,
+            weights_total,
+            multiplication_coefficient,
+        );
 
-                non_finalized_adjusted_accounts_diagnostics(&account, proposed_adjusted_balance);
+        let compute_proposed_adjusted_balance = |weight: u128| {
+            u128::try_from(
+                U256::from(weight) * balanced_fragment_of_cw_balance / multiplication_coefficient,
+            )
+            .expect("mul coefficient computation worked, this must too")
+        };
 
-                AdjustedAccountBeforeFinalization::new(account, proposed_adjusted_balance)
-            };
-
-        accounts_with_individual_criteria
+        weights_with_accounts
             .into_iter()
-            .map(turn_account_into_adjusted_account_before_finalization)
+            .map(|(weight, account)| (account, compute_proposed_adjusted_balance(weight)))
+            .map(|(account, proposed_adjusted_balance)| {
+                proposed_adjusted_balance_diagnostics(&account, proposed_adjusted_balance);
+                AdjustedAccountBeforeFinalization::new(account, proposed_adjusted_balance)
+            })
             .collect()
     }
 
-    fn compute_proportional_fragment(
-        cw_masq_balance: u128,
-        criteria_total: u128,
-        multiplication_coeff: U256,
+    fn compute_balanced_cw_fragment(
+        cw_service_fee_balance: u128,
+        weights_total: u128,
+        multiplication_coefficient: U256,
     ) -> U256 {
-        let cw_masq_balance_u256 = U256::from(cw_masq_balance);
-        let criteria_total_u256 = U256::from(criteria_total);
+        let cw_service_fee_balance = U256::from(cw_service_fee_balance);
+        let weights_total = U256::from(weights_total);
 
-        cw_masq_balance_u256
-            .checked_mul(multiplication_coeff)
+        cw_service_fee_balance
+            .checked_mul(multiplication_coefficient)
             .unwrap_or_else(|| {
                 panic!(
                     "mul overflow from {} * {}",
-                    criteria_total_u256, multiplication_coeff
+                    weights_total, multiplication_coefficient
                 )
             })
-            .checked_div(criteria_total_u256)
+            .checked_div(weights_total)
             .expect("div overflow")
     }
 
@@ -587,6 +588,7 @@ impl PaymentAdjusterReal {
         non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
         let init = (vec![], vec![]);
+
         let (outweighed, passing_through) = non_finalized_adjusted_accounts
             .into_iter()
             .fold(init, possibly_outweighed_accounts_fold_guts);
@@ -621,7 +623,7 @@ impl PaymentAdjusterReal {
         )
     }
 
-    fn debug_info_opt(
+    fn sketch_debug_info_opt(
         &self,
         qualified_payables: &[PayableAccount],
     ) -> Option<HashMap<Wallet, u128>> {
@@ -636,7 +638,7 @@ impl PaymentAdjusterReal {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Adjustment {
-    MasqToken,
+    ByServiceFee,
     TransactionFeeInPriority { affordable_transaction_count: u16 },
 }
 
@@ -700,7 +702,7 @@ mod tests {
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::criteria_total;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
     };
@@ -853,7 +855,7 @@ mod tests {
 
         let result = subject.search_for_indispensable_adjustment(&qualified_payables, &*agent);
 
-        assert_eq!(result, Ok(Some(Adjustment::MasqToken)));
+        assert_eq!(result, Ok(Some(Adjustment::ByServiceFee)));
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,000,001 \
         wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of the MASQ \
@@ -1006,12 +1008,12 @@ mod tests {
             .into_iter()
             .map(|correction| plus_minus_correction_of_u16_max(correction) as u128)
             .map(|max_possible_tx_count| {
-                let (doable_txs_count, _) =
+                let detected_tx_counts =
                     PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
                         max_possible_tx_count,
                         123,
                     );
-                doable_txs_count
+                detected_tx_counts.affordable
             })
             .collect::<Vec<_>>();
 
@@ -1027,12 +1029,12 @@ mod tests {
             .into_iter()
             .map(|correction| plus_minus_correction_of_u16_max(correction))
             .map(|required_tx_count_usize| {
-                let (_, required_tx_count) =
+                let detected_tx_counts =
                     PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
                         123,
                         required_tx_count_usize,
                     );
-                required_tx_count
+                detected_tx_counts.required
             })
             .collect::<Vec<_>>();
 
@@ -1066,20 +1068,19 @@ mod tests {
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
 
-        let criteria_and_accounts =
-            subject.calculate_criteria_sums_for_accounts(qualified_payables);
+        let criteria_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
 
-        let mut previous_criteria_sum = u128::MAX;
+        let mut previous_weight = u128::MAX;
         let accounts_alone = criteria_and_accounts
             .into_iter()
-            .map(|(criteria_sum, account)| {
+            .map(|(weight, account)| {
                 assert!(
-                    previous_criteria_sum > criteria_sum,
+                    previous_weight > weight,
                     "Previous criteria {} wasn't larger than {} but should've been",
-                    previous_criteria_sum,
-                    criteria_sum
+                    previous_weight,
+                    weight
                 );
-                previous_criteria_sum = criteria_sum;
+                previous_weight = weight;
                 account
             })
             .collect::<Vec<PayableAccount>>();
@@ -1118,11 +1119,10 @@ mod tests {
             .unwrap();
 
         // First, let's have an example of why this test is important
-        let criteria_and_accounts =
-            subject.calculate_criteria_sums_for_accounts(qualified_payables);
-        let criteria_total = criteria_total(&criteria_and_accounts);
+        let criteria_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
+        let weights_total = weights_total(&criteria_and_accounts);
         let proposed_adjustments = subject
-            .compute_adjusted_but_non_finalized_accounts(criteria_and_accounts, criteria_total);
+            .compute_adjusted_but_non_finalized_accounts(criteria_and_accounts, weights_total);
         let proposed_adjusted_balance_2 = proposed_adjustments[1].proposed_adjusted_balance;
         // The criteria sum of the second account grew very progressively due to the effect of the greater age;
         // consequences would've been that redistributing the new balances according to the computed criteria would've
@@ -1197,10 +1197,10 @@ mod tests {
             Some(consuming_wallet_balance),
             Some(Logger::new(test_name)),
         );
-        let accounts_with_individual_criteria =
-            subject.calculate_criteria_sums_for_accounts(accounts);
+        let accounts_with_individual_criteria = subject.calculate_weights_for_accounts(accounts);
 
-        let result = subject.perform_masq_adjustment(accounts_with_individual_criteria.clone());
+        let result =
+            subject.perform_adjustment_by_service_fee(accounts_with_individual_criteria.clone());
 
         let remaining = match result {
             AdjustmentIterationResult::SpecialTreatmentNeeded {
@@ -1264,7 +1264,7 @@ mod tests {
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent,
-            adjustment: Adjustment::MasqToken,
+            adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt: None,
         };
 
@@ -1338,7 +1338,7 @@ mod tests {
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent,
-            adjustment: Adjustment::MasqToken,
+            adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt: None,
         };
 
@@ -1572,7 +1572,7 @@ mod tests {
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent,
-            adjustment: Adjustment::MasqToken,
+            adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt,
         };
 
@@ -1658,7 +1658,7 @@ mod tests {
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent,
-            adjustment: Adjustment::MasqToken,
+            adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt: None,
         };
 
@@ -1956,7 +1956,7 @@ mod tests {
         let adjustment_setup = PreparedAdjustment {
             qualified_payables: qualified_payables.clone(),
             agent,
-            adjustment: Adjustment::MasqToken,
+            adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt: None,
         };
 

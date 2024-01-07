@@ -32,22 +32,22 @@ pub trait CriterionCalculator:
     // implementations), and expose it to outside
     fn formula(&self) -> &dyn Fn(Self::Input) -> u128;
 
-    fn calculate_and_add_to_criteria_sum(
+    fn calculate_and_add_to_weight(
         &self,
-        (criteria_sum, account): (u128, PayableAccount),
+        (weight, account): (u128, PayableAccount),
     ) -> (u128, PayableAccount)
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
         #[cfg(test)]
-        self.formula_characteristics_diagnostics();
+        self.diagnostics_of_formula_characteristics();
 
         let criterion: u128 = self.formula()((&account).into());
-        let new_sum = criteria_sum + criterion;
+        let new_weight = weight + criterion;
 
-        calculator_local_diagnostics(&account.wallet, self, criterion, new_sum);
+        calculator_local_diagnostics(&account.wallet, self, criterion, new_weight);
 
-        (criteria_sum + criterion, account)
+        (new_weight, account)
     }
 
     #[cfg(test)]
@@ -60,7 +60,7 @@ pub trait CriterionCalculator:
             .take()
     }
     #[cfg(test)]
-    fn formula_characteristics_diagnostics(&self)
+    fn diagnostics_of_formula_characteristics(&self)
     where
         <Self as CriterionCalculator>::Input: Debug,
     {
@@ -74,7 +74,7 @@ pub trait CriterionCalculator:
     }
 }
 
-pub trait CriteriaCalculators {
+pub trait CriteriaCalculatorIterators {
     fn calculate_age_criteria(
         self,
         payment_adjuster: &PaymentAdjusterReal,
@@ -87,7 +87,7 @@ pub trait CriteriaCalculators {
         Self: Iterator<Item = (u128, PayableAccount)> + Sized;
 }
 
-impl<I> CriteriaCalculators for I
+impl<I> CriteriaCalculatorIterators for I
 where
     I: Iterator<Item = (u128, PayableAccount)>,
 {
@@ -117,8 +117,8 @@ macro_rules! standard_impls_for_calculator {
             type Item = (u128, PayableAccount);
 
             fn next(&mut self) -> Option<Self::Item> {
-                self.iter.next().map(|criteria_sum_and_account| {
-                    self.calculate_and_add_to_criteria_sum(criteria_sum_and_account.into())
+                self.iter.next().map(|weight_and_account| {
+                    self.calculate_and_add_to_weight(weight_and_account.into())
                 })
             }
         }

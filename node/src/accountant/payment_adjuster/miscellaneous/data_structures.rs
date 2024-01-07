@@ -47,3 +47,8 @@ pub struct PercentageAccountInsignificance {
     pub multiplier: u128,
     pub divisor: u128,
 }
+
+pub struct TransactionCountsWithin16bits {
+    pub affordable: u16,
+    pub required: u16,
+}

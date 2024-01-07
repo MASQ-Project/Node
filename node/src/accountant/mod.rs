@@ -1518,7 +1518,7 @@ mod tests {
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
+            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(Ok(payments_instructions));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1537,7 +1537,10 @@ mod tests {
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
         let (actual_prepared_adjustment, captured_now) = adjust_payments_params.remove(0);
-        assert_eq!(actual_prepared_adjustment.adjustment, Adjustment::MasqToken);
+        assert_eq!(
+            actual_prepared_adjustment.adjustment,
+            Adjustment::ByServiceFee
+        );
         assert_eq!(
             actual_prepared_adjustment.qualified_payables,
             unadjusted_accounts
@@ -1670,7 +1673,7 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_it_became_dirty_from_the_job_on_the_adjustment";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::MasqToken)))
+            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsUnexpectedlyEliminated));
 
         test_handling_payment_adjuster_error(test_name, payment_adjuster);

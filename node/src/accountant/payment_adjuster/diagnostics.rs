@@ -126,7 +126,7 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn non_finalized_adjusted_accounts_diagnostics(
+    pub fn proposed_adjusted_balance_diagnostics(
         account: &PayableAccount,
         proposed_adjusted_balance: u128,
     ) {

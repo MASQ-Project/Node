@@ -35,7 +35,7 @@ pub trait AdjustmentRunner {
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        accounts_with_individual_criteria_sorted: Vec<(u128, PayableAccount)>,
+        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType;
 }
 
@@ -52,21 +52,19 @@ impl AdjustmentRunner for TransactionAndServiceFeeRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: PayableAccount,
     ) -> Self::ReturnType {
-        Ok(Either::Left(empty_or_single_element(adjust_last_one(
-            payment_adjuster,
-            last_account,
-        ))))
+        let element_opt = adjust_last_one(payment_adjuster, last_account);
+        Ok(Either::Left(empty_or_single_element_vector(element_opt)))
     }
 
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
-                return payment_adjuster.begin_by_adjustment_by_transaction_fee(
-                    criteria_and_accounts_in_descending_order,
+                return payment_adjuster.begin_with_adjustment_by_transaction_fee(
+                    weights_and_accounts_in_descending_order,
                     limit,
                 )
             }
@@ -75,7 +73,7 @@ impl AdjustmentRunner for TransactionAndServiceFeeRunner {
 
         Ok(Either::Left(
             payment_adjuster
-                .propose_possible_adjustment_recursively(criteria_and_accounts_in_descending_order),
+                .propose_possible_adjustment_recursively(weights_and_accounts_in_descending_order),
         ))
     }
 }
@@ -90,16 +88,17 @@ impl AdjustmentRunner for ServiceFeeOnlyRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: PayableAccount,
     ) -> Self::ReturnType {
-        empty_or_single_element(adjust_last_one(payment_adjuster, last_account))
+        let element_opt = adjust_last_one(payment_adjuster, last_account);
+        empty_or_single_element_vector(element_opt)
     }
 
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        criteria_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
     ) -> Self::ReturnType {
         payment_adjuster
-            .propose_possible_adjustment_recursively(criteria_and_accounts_in_descending_order)
+            .propose_possible_adjustment_recursively(weights_and_accounts_in_descending_order)
     }
 }
 
@@ -134,7 +133,7 @@ fn adjust_last_one(
     }
 }
 
-fn empty_or_single_element(
+fn empty_or_single_element_vector(
     adjusted_account_opt: Option<AdjustedAccountBeforeFinalization>,
 ) -> Vec<AdjustedAccountBeforeFinalization> {
     match adjusted_account_opt {
@@ -147,7 +146,7 @@ fn empty_or_single_element(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one, empty_or_single_element, AdjustmentRunner, ServiceFeeOnlyRunner,
+        adjust_last_one, empty_or_single_element_vector, AdjustmentRunner, ServiceFeeOnlyRunner,
         TransactionAndServiceFeeRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
@@ -161,7 +160,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn prepare_payment_adjuster(cw_balance: u128, now: SystemTime) -> PaymentAdjusterReal {
-        let adjustment = Adjustment::MasqToken;
+        let adjustment = Adjustment::ByServiceFee;
         let mut payment_adjuster = PaymentAdjusterReal::new();
         payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
         payment_adjuster
@@ -285,7 +284,7 @@ mod tests {
         let cw_balance = 9_000_000;
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = ServiceFeeOnlyRunner {};
-        let criteria_and_accounts = payment_adjuster.calculate_criteria_sums_for_accounts(accounts);
+        let criteria_and_accounts = payment_adjuster.calculate_weights_for_accounts(accounts);
 
         let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);
 
@@ -300,7 +299,7 @@ mod tests {
 
     #[test]
     fn empty_or_single_element_for_none() {
-        let result = empty_or_single_element(None);
+        let result = empty_or_single_element_vector(None);
 
         assert_eq!(result, vec![])
     }
@@ -311,7 +310,7 @@ mod tests {
             original_account: make_payable_account(123),
             proposed_adjusted_balance: 123_456_789,
         };
-        let result = empty_or_single_element(Some(account_info.clone()));
+        let result = empty_or_single_element_vector(Some(account_info.clone()));
 
         assert_eq!(result, vec![account_info])
     }

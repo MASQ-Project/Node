@@ -95,7 +95,7 @@ pub fn format_brief_adjustment_summary(
     .join("\n")
 }
 
-pub fn before_and_after_debug_msg(
+pub fn accounts_before_and_after_debug(
     original_account_balances_mapped: HashMap<Wallet, u128>,
     adjusted_accounts: &[PayableAccount],
 ) -> String {
