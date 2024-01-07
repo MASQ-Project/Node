@@ -53,7 +53,7 @@ mod tests {
 
     fn test_body_for_adjustment_possibility_nearly_rejected(
         original_accounts: Vec<PayableAccount>,
-        cw_masq_balance: u128,
+        cw_service_fee_balance: u128,
     ) {
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
@@ -61,7 +61,7 @@ mod tests {
 
         let result = subject.verify_lowest_detectable_adjustment_possibility(
             &accounts_in_expected_format,
-            cw_masq_balance,
+            cw_service_fee_balance,
         );
 
         assert_eq!(result, Ok(()))
@@ -73,10 +73,13 @@ mod tests {
         account_1.balance_wei = 2_000_000_000;
         let mut account_2 = make_payable_account(333);
         account_2.balance_wei = 1_000_000_000;
-        let cw_masq_balance = calculate_disqualification_edge(account_2.balance_wei) + 1;
+        let cw_service_fee_balance = calculate_disqualification_edge(account_2.balance_wei) + 1;
         let original_accounts = vec![account_1, account_2];
 
-        test_body_for_adjustment_possibility_nearly_rejected(original_accounts, cw_masq_balance)
+        test_body_for_adjustment_possibility_nearly_rejected(
+            original_accounts,
+            cw_service_fee_balance,
+        )
     }
 
     #[test]
@@ -85,10 +88,13 @@ mod tests {
         account_1.balance_wei = 2_000_000_000;
         let mut account_2 = make_payable_account(333);
         account_2.balance_wei = 1_000_000_000;
-        let cw_masq_balance = calculate_disqualification_edge(account_2.balance_wei);
+        let cw_service_fee_balance = calculate_disqualification_edge(account_2.balance_wei);
         let original_accounts = vec![account_1, account_2];
 
-        test_body_for_adjustment_possibility_nearly_rejected(original_accounts, cw_masq_balance)
+        test_body_for_adjustment_possibility_nearly_rejected(
+            original_accounts,
+            cw_service_fee_balance,
+        )
     }
 
     #[test]
@@ -100,7 +106,7 @@ mod tests {
         account_2.balance_wei = 2_000_000_002;
         let mut account_3 = make_payable_account(333);
         account_3.balance_wei = 1_000_000_002;
-        let cw_masq_balance = calculate_disqualification_edge(account_3.balance_wei) - 1;
+        let cw_service_fee_balance = calculate_disqualification_edge(account_3.balance_wei) - 1;
         let original_accounts = vec![account_1, account_2, account_3];
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
@@ -108,7 +114,7 @@ mod tests {
 
         let result = subject.verify_lowest_detectable_adjustment_possibility(
             &accounts_in_expected_format,
-            cw_masq_balance,
+            cw_service_fee_balance,
         );
 
         assert_eq!(
@@ -117,7 +123,7 @@ mod tests {
                 PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                     number_of_accounts: 3,
                     total_amount_demanded_minor: 2_000_000_000 + 2_000_000_002 + 1_000_000_002,
-                    cw_service_fee_balance_minor: cw_masq_balance
+                    cw_service_fee_balance_minor: cw_service_fee_balance
                 }
             )
         )

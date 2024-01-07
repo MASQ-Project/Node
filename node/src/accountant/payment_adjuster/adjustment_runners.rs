@@ -39,9 +39,9 @@ pub trait AdjustmentRunner {
     ) -> Self::ReturnType;
 }
 
-pub struct TransactionAndServiceFeeRunner {}
+pub struct TransactionAndServiceFeeAdjustmentRunner {}
 
-impl AdjustmentRunner for TransactionAndServiceFeeRunner {
+impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
     type ReturnType = Result<
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
@@ -78,9 +78,9 @@ impl AdjustmentRunner for TransactionAndServiceFeeRunner {
     }
 }
 
-pub struct ServiceFeeOnlyRunner {}
+pub struct ServiceFeeOnlyAdjustmentRunner {}
 
-impl AdjustmentRunner for ServiceFeeOnlyRunner {
+impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     type ReturnType = Vec<AdjustedAccountBeforeFinalization>;
 
     fn adjust_last_one(
@@ -146,8 +146,8 @@ fn empty_or_single_element_vector(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one, empty_or_single_element_vector, AdjustmentRunner, ServiceFeeOnlyRunner,
-        TransactionAndServiceFeeRunner,
+        adjust_last_one, empty_or_single_element_vector, AdjustmentRunner,
+        ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
@@ -166,12 +166,12 @@ mod tests {
         payment_adjuster
     }
 
-    fn test_adjust_last_one<AR, R>(
+    fn test_adjust_last_one<AR, RT>(
         subject: AR,
-        expected_return_type_finalizer: fn(Vec<AdjustedAccountBeforeFinalization>) -> R,
+        expected_return_type_finalizer: fn(Vec<AdjustedAccountBeforeFinalization>) -> RT,
     ) where
-        AR: AdjustmentRunner<ReturnType = R>,
-        R: Debug + PartialEq,
+        AR: AdjustmentRunner<ReturnType = RT>,
+        RT: Debug + PartialEq,
     {
         let now = SystemTime::now();
         let wallet_1 = make_wallet("abc");
@@ -196,15 +196,18 @@ mod tests {
     }
 
     #[test]
-    fn masq_and_transaction_fee_adjust_single_works() {
-        test_adjust_last_one(TransactionAndServiceFeeRunner {}, |expected_vec| {
-            Ok(Either::Left(expected_vec))
-        })
+    fn transaction_and_service_fee_adjust_last_one_works() {
+        test_adjust_last_one(
+            TransactionAndServiceFeeAdjustmentRunner {},
+            |expected_vec| Ok(Either::Left(expected_vec)),
+        )
     }
 
     #[test]
-    fn masq_only_adjust_single_works() {
-        test_adjust_last_one(ServiceFeeOnlyRunner {}, |expected_vec| expected_vec)
+    fn service_fee_only_adjust_last_one_works() {
+        test_adjust_last_one(ServiceFeeOnlyAdjustmentRunner {}, |expected_vec| {
+            expected_vec
+        })
     }
 
     #[test]
@@ -247,7 +250,8 @@ mod tests {
     }
 
     #[test]
-    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_on_edge() {
+    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_evens_the_edge()
+    {
         let account_balance = 4_000_444;
         let cw_balance = calculate_disqualification_edge(account_balance);
 
@@ -264,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn adjust_multiple_for_the_masq_only_runner_is_not_supposed_to_care_about_transaction_fee() {
+    fn adjust_multiple_for_service_fee_only_runner_is_not_supposed_to_care_about_transaction_fee() {
         let now = SystemTime::now();
         let wallet_1 = make_wallet("abc");
         let account_1 = PayableAccount {
@@ -283,7 +287,7 @@ mod tests {
         let mut payment_adjuster = PaymentAdjusterReal::new();
         let cw_balance = 9_000_000;
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
-        let subject = ServiceFeeOnlyRunner {};
+        let subject = ServiceFeeOnlyAdjustmentRunner {};
         let criteria_and_accounts = payment_adjuster.calculate_weights_for_accounts(accounts);
 
         let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);
@@ -298,14 +302,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_or_single_element_for_none() {
+    fn empty_or_single_element_vector_for_none() {
         let result = empty_or_single_element_vector(None);
 
         assert_eq!(result, vec![])
     }
 
     #[test]
-    fn empty_or_single_element_for_some() {
+    fn empty_or_single_element_vector_for_some() {
         let account_info = AdjustedAccountBeforeFinalization {
             original_account: make_payable_account(123),
             proposed_adjusted_balance: 123_456_789,

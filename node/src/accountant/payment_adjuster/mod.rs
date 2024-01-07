@@ -12,7 +12,7 @@ mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
-    AdjustmentRunner, TransactionAndServiceFeeRunner, ServiceFeeOnlyRunner,
+    AdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
 };
 use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculatorIterators};
 use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
@@ -289,7 +289,7 @@ impl PaymentAdjusterReal {
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
         let accounts = self.calculate_criteria_and_propose_adjustments_recursively(
             qualified_accounts,
-            TransactionAndServiceFeeRunner {},
+            TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
         match accounts {
@@ -306,7 +306,7 @@ impl PaymentAdjusterReal {
 
     fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
-        mut unresolved_qualified_accounts: Vec<PayableAccount>,
+        unresolved_qualified_accounts: Vec<PayableAccount>,
         adjustment_runner: AR,
     ) -> RT
     where
@@ -318,14 +318,19 @@ impl PaymentAdjusterReal {
         );
 
         if unresolved_qualified_accounts.len() == 1 {
-            return adjustment_runner
-                .adjust_last_one(self, unresolved_qualified_accounts.remove(0));
+            let last_one = unresolved_qualified_accounts
+                .into_iter()
+                .next()
+                .expect("previous if must be wrong");
+            return adjustment_runner.adjust_last_one(self, last_one);
         }
 
         let weights_and_accounts_sorted =
             self.calculate_weights_for_accounts(unresolved_qualified_accounts);
+
         #[cfg(test)]
         render_formulas_characteristics_for_diagnostics_if_enabled();
+
         adjustment_runner.adjust_multiple(self, weights_and_accounts_sorted)
     }
 
@@ -435,7 +440,7 @@ impl PaymentAdjusterReal {
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustments_recursively(
                         remaining,
-                        ServiceFeeOnlyRunner {},
+                        ServiceFeeOnlyAdjustmentRunner {},
                     );
 
                 (here_decided_accounts, down_stream_decided_accounts)
@@ -676,7 +681,7 @@ impl Display for PaymentAdjusterError {
             PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                 number_of_accounts,
                 total_amount_demanded_minor,
-                cw_service_fee_balance_minor: cw_masq_balance_minor,
+                cw_service_fee_balance_minor: cw_service_fee_balance_minor,
             } => write!(
                 f,
                 "Analysis projected a possibility for an adjustment leaving each of the transactions \
@@ -685,7 +690,7 @@ impl Display for PaymentAdjusterError {
                 Total amount demanded: {} wei. Consuming wallet balance: {} wei",
                 number_of_accounts.separate_with_commas(),
                 total_amount_demanded_minor.separate_with_commas(),
-                cw_masq_balance_minor.separate_with_commas()
+                cw_service_fee_balance_minor.separate_with_commas()
             ),
             PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
                 f,
@@ -699,12 +704,12 @@ impl Display for PaymentAdjusterError {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeRunner;
+    use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
+        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
@@ -741,7 +746,7 @@ mod tests {
         let test_name = "search_for_indispensable_adjustment_gives_negative_answer";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        // MASQ balance > payments
+        // service fee balance > payments
         let input_1 = make_test_input_for_initial_check(
             Some(TestConfigForServiceFeeBalances {
                 balances_of_accounts: Either::Right(vec![
@@ -752,7 +757,7 @@ mod tests {
             }),
             None,
         );
-        // MASQ balance == payments
+        // service fee balance == payments
         let input_2 = make_test_input_for_initial_check(
             Some(TestConfigForServiceFeeBalances {
                 balances_of_accounts: Either::Left(vec![85, 15]),
@@ -803,9 +808,9 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let number_of_accounts = 3;
-        let masq_balances_config_opt = None;
+        let service_fee_balances_config_opt = None;
         let (qualified_payables, agent) = make_test_input_for_initial_check(
-            masq_balances_config_opt,
+            service_fee_balances_config_opt,
             Some(TestConfigForTransactionFee {
                 agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts,
@@ -1112,7 +1117,7 @@ mod tests {
         let mut result = subject
             .calculate_criteria_and_propose_adjustments_recursively(
                 qualified_payables.clone(),
-                TransactionAndServiceFeeRunner {},
+                TransactionAndServiceFeeAdjustmentRunner {},
             )
             .unwrap()
             .left()
@@ -1159,8 +1164,9 @@ mod tests {
     ) {
         // NOTE that the same is true for more outweighed accounts that would require more than
         // the whole cw balance together, therefore there is no such a test either.
-        // This test answers the question what is happening when the cw MASQ balance cannot cover
-        // the outweighed accounts, which is just a hypothesis we can never reach in the reality.
+        // This test answers the question what is happening when the cw service fee balance cannot
+        // cover the outweighed accounts, which is just a hypothesis we can never reach in
+        // the reality.
         // If there are outweighed accounts some other accounts must be also around of which some
         // are under the disqualification limit pointing to one that would definitely head to its
         // disqualification.
@@ -1248,7 +1254,10 @@ mod tests {
         let qualified_payables = {
             let debt_age_in_months = vec![120, 120, 120];
             make_extreme_accounts(
-                Either::Left((debt_age_in_months, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR)),
+                Either::Left((
+                    debt_age_in_months,
+                    *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
+                )),
                 now,
             )
         };
@@ -1275,11 +1284,11 @@ mod tests {
         assert_eq!(result.affordable_accounts, vec![]);
         let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
             format!(
-                "INFO: {test_name}: Shortage of MASQ in your consuming wallet impacts on payable \
+                "INFO: {test_name}: Shortage of in your consuming wallet impacts on payable \
                 {wallet}, ruled out from this round of payments. The proposed adjustment {} wei \
                 was less than half of the recorded debt, {} wei",
                 proposed_adjusted_balance_in_this_iteration.separate_with_commas(),
-                (*MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR).separate_with_commas()
+                (*MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR).separate_with_commas()
             )
         };
         let log_handler = TestLogHandler::new();
@@ -1687,10 +1696,10 @@ mod tests {
     }
 
     #[test]
-    fn not_enough_masq_to_pay_for_both_accounts_at_least_by_their_half_so_one_wins() {
+    fn not_enough_service_fee_for_both_accounts_at_least_by_their_half_so_only_one_wins() {
         fn merge_test_name_with_test_scenario(description: &str) -> String {
             format!(
-                "not_enough_masq_to_pay_for_both_accounts_at_least_by_their_half_so_one_wins{}",
+                "not_enough_service_fee_for_both_accounts_at_least_by_their_half_so_only_one_wins{}",
                 description
             )
         }

@@ -14,7 +14,7 @@ use std::iter::Empty;
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
-    pub static ref MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR: u128 =
+    pub static ref MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR: u128 =
         MASQ_TOTAL_SUPPLY as u128 * 10_u128.pow(18);
     pub static ref ONE_MONTH_LONG_DEBT_SEC: u64 = 30 * 24 * 60 * 60;
 }

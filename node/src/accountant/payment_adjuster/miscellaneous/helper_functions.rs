@@ -389,7 +389,7 @@ mod tests {
         MAX_EXPONENT_FOR_10_IN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
-        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR,
+        make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
@@ -488,13 +488,13 @@ mod tests {
         // these parameters below will be bigger than another and therefore
         // we cannot line them up in an order
         let accounts_as_months_and_balances = vec![
-            (1, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
+            (1, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
             (5, 10_u128.pow(18)),
             (12, 10_u128.pow(18)),
             (120, 10_u128.pow(20)),
-            (600, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
-            (1200, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR),
-            (1200, *MAX_POSSIBLE_MASQ_BALANCE_IN_MINOR * 1000),
+            (600, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
+            (1200, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
+            (1200, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR * 1000),
         ];
         let (accounts_with_their_weights, reserved_initial_accounts_order_according_to_wallets) =
             get_extreme_weights_and_initial_accounts_order(accounts_as_months_and_balances);

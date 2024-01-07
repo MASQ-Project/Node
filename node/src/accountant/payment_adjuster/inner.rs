@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::payment_adjuster::adjustment_runners::AdjustmentRunner;
 use std::time::SystemTime;
 
 pub trait PaymentAdjusterInner {
@@ -21,13 +22,13 @@ impl PaymentAdjusterInnerReal {
     pub fn new(
         now: SystemTime,
         transaction_fee_count_limit_opt: Option<u16>,
-        cw_masq_balance_minor: u128,
+        cw_service_fee_balance_minor: u128,
     ) -> Self {
         Self {
             now,
             transaction_fee_count_limit_opt,
-            original_cw_service_fee_balance_minor: cw_masq_balance_minor,
-            unallocated_cw_service_fee_balance_minor: cw_masq_balance_minor,
+            original_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
+            unallocated_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
         }
     }
 }
@@ -96,9 +97,12 @@ mod tests {
     fn inner_real_is_constructed_correctly() {
         let now = SystemTime::now();
         let transaction_fee_count_limit_opt = Some(3);
-        let cw_masq_balance = 123_456_789;
-        let result =
-            PaymentAdjusterInnerReal::new(now, transaction_fee_count_limit_opt, cw_masq_balance);
+        let cw_service_fee_balance = 123_456_789;
+        let result = PaymentAdjusterInnerReal::new(
+            now,
+            transaction_fee_count_limit_opt,
+            cw_service_fee_balance,
+        );
 
         assert_eq!(result.now, now);
         assert_eq!(
@@ -107,11 +111,11 @@ mod tests {
         );
         assert_eq!(
             result.original_cw_service_fee_balance_minor,
-            cw_masq_balance
+            cw_service_fee_balance
         );
         assert_eq!(
             result.unallocated_cw_service_fee_balance_minor,
-            cw_masq_balance
+            cw_service_fee_balance
         )
     }
 
