@@ -64,7 +64,7 @@ pub fn collection_diagnostics<D: Debug>(label: &str, accounts: &[D]) {
 
 pub mod separately_defined_diagnostic_functions {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::criteria_calculators::ParameterCriterionCalculator;
+    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::sub_lib::wallet::Wallet;
@@ -150,9 +150,9 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn calculator_local_diagnostics<N: ParameterCriterionCalculator + ?Sized>(
+    pub fn inside_calculator_local_diagnostics<D: CriterionCalculatorDiagnostics + ?Sized>(
         wallet_ref: &Wallet,
-        calculator: &N,
+        calculator: &D,
         criterion: u128,
         added_in_the_sum: u128,
     ) {
@@ -161,7 +161,7 @@ pub mod separately_defined_diagnostic_functions {
             wallet_ref,
             "PARTIAL CRITERION CALCULATED",
             "{:<width$} {} and summed up as {}",
-            calculator.parameter_name(),
+            calculator.input_parameter_name(),
             criterion.separate_with_commas(),
             added_in_the_sum.separate_with_commas(),
             width = FIRST_COLUMN_WIDTH
@@ -173,7 +173,10 @@ pub mod separately_defined_diagnostic_functions {
 pub mod formulas_progressive_characteristics {
     use itertools::Itertools;
     use std::fmt::Debug;
+    use std::fs::File;
+    use std::io::Read;
     use std::iter::once;
+    use std::path::Path;
     use std::sync::{Mutex, Once};
     use thousands::Separable;
 
@@ -229,7 +232,7 @@ pub mod formulas_progressive_characteristics {
 
     fn render_notation(
         coordinate_value: u128,
-        remarkable_vals: Option<&Vec<(u128, &'static str)>>,
+        remarkable_vals: Option<&[(u128, &'static str)]>,
     ) -> String {
         match should_mark_be_used(coordinate_value, remarkable_vals) {
             Some(mark) => format!("{}  {}", coordinate_value.separate_with_commas(), mark),
@@ -238,7 +241,7 @@ pub mod formulas_progressive_characteristics {
     }
     fn should_mark_be_used(
         coordinate_value: u128,
-        remarkable_vals: Option<&Vec<(u128, &'static str)>>,
+        remarkable_vals: Option<&[(u128, &'static str)]>,
     ) -> Option<&'static str> {
         match remarkable_vals {
             Some(vals) => vals
@@ -249,12 +252,12 @@ pub mod formulas_progressive_characteristics {
         }
     }
 
-    pub fn compute_progressive_characteristics<A>(
+    pub fn compute_progressive_characteristics<CriterionCalculatorInput>(
         main_param_name: &'static str,
-        config_opt: Option<DiagnosticsAxisX<A>>,
-        formula: &dyn Fn(A) -> u128,
+        config_opt: Option<DiagnosticsAxisX<CriterionCalculatorInput>>,
+        formula: &dyn Fn(CriterionCalculatorInput) -> u128,
     ) where
-        A: Debug,
+        CriterionCalculatorInput: Debug,
     {
         config_opt.map(|mut config| {
             let input_values = config.finalize_input_with_remarkable_values();
@@ -262,7 +265,8 @@ pub mod formulas_progressive_characteristics {
             let config_x_axis_type_formatter = config.convertor_to_expected_formula_input_type;
             let characteristics = input_values.into_iter().map(|single_coordinate| {
                 let correctly_formatted_input = config_x_axis_type_formatter(single_coordinate);
-                let input_with_commas = render_notation(single_coordinate, remarkable.as_ref());
+                let input_with_commas =
+                    render_notation(single_coordinate, todo!("supply remarkable"));
                 let computed_value_with_commas =
                     formula(correctly_formatted_input).separate_with_commas();
                 format!(
@@ -282,6 +286,50 @@ pub mod formulas_progressive_characteristics {
                 .expect("diagnostics poisoned")
                 .push(full_text);
         });
+    }
+
+    fn read_diagnostics_inputs_from_file(path: &Path) -> Vec<u128> {
+        let mut file = File::open(path).expect("inputs badly prepared");
+        let mut buffer = String::new();
+        file.read_to_string(&mut buffer).unwrap();
+        let mut first_two_lines = buffer.lines().take(2);
+        let first = first_two_lines.next().expect("first line missing");
+        let second = first_two_lines.next().expect("second line missing");
+        let first_line_starter = extract_line_starter(first);
+        if extract_line_starter(first) != "literals:"
+            || extract_line_starter(second) != "decimal_exponents"
+        {
+            panic!("Inputs in the file in {:?} should have the following format. First line starting \
+           \"literals:\", second line with \"decimal_exponents:\", both immediately followed by comma \
+           separated integers or left blank", path)
+        }
+        serialize_values_on_x_axis_from_vecs(
+            parse_numbers_from_line(first),
+            parse_numbers_from_line(second),
+        )
+    }
+
+    fn extract_line_starter(line: &str) -> String {
+        line.chars().take_while(|char| !char.is_numeric()).collect()
+    }
+
+    fn parse_numbers_from_line<N>(line: &str) -> Vec<N> {
+        todo!("implement me");
+        // line.chars().take()
+    }
+
+    pub fn serialize_values_on_x_axis_from_vecs(
+        nums_declared_as_literals: Vec<u128>,
+        nums_declared_as_decimal_exponents: Vec<u32>,
+    ) -> Vec<u128> {
+        let exponent_based_numbers = nums_declared_as_decimal_exponents
+            .into_iter()
+            .map(|exponent| 10_u128.pow(exponent));
+        nums_declared_as_literals
+            .into_iter()
+            .chain(exponent_based_numbers)
+            .sorted()
+            .collect()
     }
 }
 

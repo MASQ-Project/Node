@@ -1,11 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, ParameterCriterionCalculator,
-};
+use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
-use crate::standard_impls_for_calculator;
+use crate::all_standard_impls_for_criterion_calculator;
 test_only_use!(
     use std::sync::Mutex;
         use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::characteristics_config::BALANCE_DIAGNOSTICS_CONFIG_OPT;
@@ -31,7 +30,7 @@ where
     formula: Box<dyn Fn(BalanceInput) -> u128>,
 }
 
-standard_impls_for_calculator!(
+all_standard_impls_for_criterion_calculator!(
     BalanceCriterionCalculator,
     BalanceInput,
     "BALANCE",
@@ -81,25 +80,25 @@ impl From<&PayableAccount> for BalanceInput {
 #[cfg(test)]
 pub mod characteristics_config {
     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-    use crate::accountant::payment_adjuster::test_utils::reinterpret_vec_of_values_on_x_axis;
     use lazy_static::lazy_static;
     use std::sync::Mutex;
 
     lazy_static! {
         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<BalanceInput>>> = {
-            let literal_values = [
+            let literal_values = vec![
                 123_456,
                 7_777_777,
                 1_888_999_999_888,
                 543_210_000_000_000_000_000,
             ];
-            let decadic_exponents = [
+            let decadic_exponents = vec![
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
                 24, 25,
             ];
             let horisontal_axis_decimal_exponents =
-                reinterpret_vec_of_values_on_x_axis(literal_values, decadic_exponents);
+                serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
             Mutex::new(Some(DiagnosticsAxisX {
                 non_remarkable_values_supply: horisontal_axis_decimal_exponents,
                 remarkable_values_opt: Some(vec![
@@ -120,9 +119,8 @@ mod tests {
         BalanceCriterionCalculator, BalanceInput, BALANCE_FINAL_MULTIPLIER,
         BALANCE_LOG_2_ARG_DIVISOR,
     };
-    use crate::accountant::payment_adjuster::criteria_calculators::{
-        CriterionCalculator, ParameterCriterionCalculator,
-    };
+    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
     use crate::accountant::payment_adjuster::test_utils::Sentinel;
     use std::iter;
 
@@ -173,7 +171,7 @@ mod tests {
     fn calculator_returns_the_right_main_param_name() {
         let subject = BalanceCriterionCalculator::new(iter::empty());
 
-        let result = subject.parameter_name();
+        let result = subject.input_parameter_name();
 
         assert_eq!(result, "BALANCE")
     }

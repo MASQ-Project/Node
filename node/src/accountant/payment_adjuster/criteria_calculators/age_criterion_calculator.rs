@@ -1,12 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::{
-    CriterionCalculator, ParameterCriterionCalculator,
-};
+use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::x_or_1;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-use crate::standard_impls_for_calculator;
+use crate::all_standard_impls_for_criterion_calculator;
 use std::time::SystemTime;
 test_only_use!(
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
@@ -29,7 +28,7 @@ where
     formula: Box<dyn Fn(AgeInput) -> u128>,
 }
 
-standard_impls_for_calculator!(
+all_standard_impls_for_criterion_calculator!(
     AgeCriterionCalculator,
     AgeInput,
     "AGE",
@@ -124,8 +123,8 @@ impl From<&PayableAccount> for AgeInput {
 #[cfg(test)]
 pub mod characteristics_config {
     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
+    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-    use crate::accountant::payment_adjuster::test_utils::reinterpret_vec_of_values_on_x_axis;
     use lazy_static::lazy_static;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -134,7 +133,7 @@ pub mod characteristics_config {
     lazy_static! {
         pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<AgeInput>>> = {
             let now = SystemTime::now();
-            let literal_values = [
+            let literal_values = vec![
                 1,
                 5,
                 9,
@@ -156,9 +155,9 @@ pub mod characteristics_config {
                 78_000_000_000,
                 444_333_444_444,
             ];
-            let decadic_exponents = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+            let decadic_exponents = vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
             let horisontal_axis_data_suply =
-                reinterpret_vec_of_values_on_x_axis(literal_values, decadic_exponents);
+                serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
             Mutex::new(Some(DiagnosticsAxisX {
                 non_remarkable_values_supply: horisontal_axis_data_suply,
                 remarkable_values_opt: Some(vec![
@@ -188,9 +187,8 @@ mod tests {
         AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER,
         AGE_MAIN_EXPONENT,
     };
-    use crate::accountant::payment_adjuster::criteria_calculators::{
-        CriterionCalculator, ParameterCriterionCalculator,
-    };
+    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
     use crate::accountant::payment_adjuster::test_utils::{make_initialized_subject, Sentinel};
     use std::iter::empty;
     use std::time::{Duration, SystemTime};
@@ -271,7 +269,7 @@ mod tests {
         let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
         let subject = AgeCriterionCalculator::new(empty(), &payment_adjuster);
 
-        let result = subject.parameter_name();
+        let result = subject.input_parameter_name();
 
         assert_eq!(result, "AGE")
     }

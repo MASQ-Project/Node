@@ -31,7 +31,6 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{Adjust
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
 use crate::accountant::payment_adjuster::possibility_verifier::TransactionFeeAdjustmentPossibilityVerifier;
 use crate::diagnostics;
-use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
@@ -120,14 +119,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         let affordable_accounts = self.run_adjustment(qualified_payables)?;
 
-        debug!(
-            self.logger,
-            "{}",
-            accounts_before_and_after_debug(
-                sketched_debug_info_opt.expectv("debug info"),
-                &affordable_accounts
-            )
-        );
+        self.complete_debug_info_if_enabled(sketched_debug_info_opt, &affordable_accounts);
 
         Ok(OutboundPaymentsInstructions {
             affordable_accounts,
@@ -166,9 +158,9 @@ impl PaymentAdjusterReal {
                 cw_transaction_fee_balance_minor / U256::from(tx_fee_requirement_per_tx_minor);
             u128::try_from(max_possible_tx_count_u256).unwrap_or_else(|e| {
                 panic!(
-                    "Transaction fee balance {} wei in the consuming wallet cases panic given \
-            estimated transaction fee per tx {} wei and resulting ratio {}, that should fit in \
-            u128, respectively: \"{}\"",
+                    "Transaction fee balance {} wei in the consuming wallet cases panic given estimated \
+                    transaction fee per tx {} wei and resulting ratio {}, that should fit in u128, \
+                    respectively: \"{}\"",
                     cw_transaction_fee_balance_minor,
                     tx_fee_requirement_per_tx_minor,
                     max_possible_tx_count_u256,
@@ -186,10 +178,8 @@ impl PaymentAdjusterReal {
             per_transaction_requirement_minor,
         );
 
-        let detected_tx_counts = Self::u16_ceiling_for_accounts_to_be_processed_at_a_time(
-            max_possible_tx_count,
-            number_of_qualified_accounts,
-        );
+        let detected_tx_counts =
+            TransactionCountsWithin16bits::new(max_possible_tx_count, number_of_qualified_accounts);
 
         let max_tx_count_we_can_afford_u16 = detected_tx_counts.affordable;
         let required_tx_count_u16 = detected_tx_counts.required;
@@ -212,16 +202,6 @@ impl PaymentAdjusterReal {
                 max_tx_count_we_can_afford_u16,
             );
             Ok(Some(max_tx_count_we_can_afford_u16))
-        }
-    }
-
-    fn u16_ceiling_for_accounts_to_be_processed_at_a_time(
-        max_possible_tx_count: u128,
-        number_of_accounts: usize,
-    ) -> TransactionCountsWithin16bits {
-        TransactionCountsWithin16bits {
-            affordable: u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
-            required: u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
         }
     }
 
@@ -639,6 +619,18 @@ impl PaymentAdjusterReal {
                 .collect::<HashMap<Wallet, u128>>()
         })
     }
+
+    fn complete_debug_info_if_enabled(
+        &self,
+        sketched_debug_info_opt: Option<HashMap<Wallet, u128>>,
+        affordable_accounts: &[PayableAccount],
+    ) {
+        self.logger.debug(|| {
+            let sketched_debug_info =
+                sketched_debug_info_opt.expect("debug is enabled, so info should exist");
+            accounts_before_and_after_debug(sketched_debug_info, affordable_accounts)
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -681,7 +673,7 @@ impl Display for PaymentAdjusterError {
             PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
                 number_of_accounts,
                 total_amount_demanded_minor,
-                cw_service_fee_balance_minor: cw_service_fee_balance_minor,
+                cw_service_fee_balance_minor,
             } => write!(
                 f,
                 "Analysis projected a possibility for an adjustment leaving each of the transactions \
@@ -967,14 +959,6 @@ mod tests {
         .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg))
     }
 
-    fn plus_minus_correction_of_u16_max(correction: i8) -> usize {
-        if correction < 0 {
-            (u16::MAX - correction.abs() as u16) as usize
-        } else {
-            u16::MAX as usize + correction as usize
-        }
-    }
-
     #[test]
     fn tx_fee_check_panics_on_ration_between_tx_fee_balance_and_estimated_tx_fee_bigger_than_u128()
     {
@@ -1005,48 +989,6 @@ mod tests {
             critical_wallet_balance, estimated_transaction_fee_per_one_tx_minor, deadly_ratio
         );
         assert_eq!(err_msg, &expected_panic)
-    }
-
-    #[test]
-    fn there_is_u16_ceiling_for_possible_tx_count() {
-        let result = [-3_i8, -1, 0, 1, 10]
-            .into_iter()
-            .map(|correction| plus_minus_correction_of_u16_max(correction) as u128)
-            .map(|max_possible_tx_count| {
-                let detected_tx_counts =
-                    PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
-                        max_possible_tx_count,
-                        123,
-                    );
-                detected_tx_counts.affordable
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            result,
-            vec![u16::MAX - 3, u16::MAX - 1, u16::MAX, u16::MAX, u16::MAX]
-        )
-    }
-
-    #[test]
-    fn there_is_u16_ceiling_for_number_of_accounts() {
-        let result = [-9_i8, -1, 0, 1, 5]
-            .into_iter()
-            .map(|correction| plus_minus_correction_of_u16_max(correction))
-            .map(|required_tx_count_usize| {
-                let detected_tx_counts =
-                    PaymentAdjusterReal::u16_ceiling_for_accounts_to_be_processed_at_a_time(
-                        123,
-                        required_tx_count_usize,
-                    );
-                detected_tx_counts.required
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            result,
-            vec![u16::MAX - 9, u16::MAX - 1, u16::MAX, u16::MAX, u16::MAX]
-        )
     }
 
     #[test]
@@ -1284,7 +1226,7 @@ mod tests {
         assert_eq!(result.affordable_accounts, vec![]);
         let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
             format!(
-                "INFO: {test_name}: Shortage of in your consuming wallet impacts on payable \
+                "INFO: {test_name}: Shortage of MASQ in your consuming wallet impacts on payable \
                 {wallet}, ruled out from this round of payments. The proposed adjustment {} wei \
                 was less than half of the recorded debt, {} wei",
                 proposed_adjusted_balance_in_this_iteration.separate_with_commas(),

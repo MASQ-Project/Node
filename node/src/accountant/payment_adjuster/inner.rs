@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payment_adjuster::adjustment_runners::AdjustmentRunner;
 use std::time::SystemTime;
 
 pub trait PaymentAdjusterInner {
