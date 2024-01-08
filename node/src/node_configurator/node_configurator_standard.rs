@@ -927,7 +927,7 @@ mod tests {
             server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap_err();
 
         #[cfg(target_os = "windows")]
-            let result_path = format!(
+        let result_path = format!(
             "Couldn't open configuration file \"{}\". Are you sure it exists?",
             current_dir()
                 .expect("expected current dir")
