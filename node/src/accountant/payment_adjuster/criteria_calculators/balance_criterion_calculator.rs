@@ -63,43 +63,6 @@ impl BalanceCriterionCalculator {
     }
 }
 
-//
-// #[cfg(test)]
-// pub mod characteristics_config {
-//     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
-//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
-//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-//     use lazy_static::lazy_static;
-//     use std::sync::Mutex;
-//
-//     lazy_static! {
-//         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<BalanceInput>>> = {
-//             let literal_values = vec![
-//                 123_456,
-//                 7_777_777,
-//                 1_888_999_999_888,
-//                 543_210_000_000_000_000_000,
-//             ];
-//             let decadic_exponents = vec![
-//                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-//                 24, 25,
-//             ];
-//             let horisontal_axis_decimal_exponents =
-//                 serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
-//             Mutex::new(Some(DiagnosticsAxisX {
-//                 non_remarkable_values_supply: horisontal_axis_decimal_exponents,
-//                 remarkable_values_opt: Some(vec![
-//                     (10_u128.pow(9), "GWEI"),
-//                     (10_u128.pow(18), "MASQ"),
-//                 ]),
-//                 convertor_to_expected_formula_input_type: Box::new(|balance_wei| {
-//                     BalanceInput(balance_wei)
-//                 }),
-//             }))
-//         };
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::{

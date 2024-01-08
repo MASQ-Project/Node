@@ -108,65 +108,6 @@ impl AgeCriterionCalculator {
     }
 }
 
-// #[cfg(test)]
-// pub mod characteristics_config {
-//     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
-//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
-//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-//     use lazy_static::lazy_static;
-//     use std::sync::Mutex;
-//     use std::time::Duration;
-//     use std::time::SystemTime;
-//
-//     lazy_static! {
-//         pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<AgeInput>>> = {
-//             let now = SystemTime::now();
-//             let literal_values = vec![
-//                 1,
-//                 5,
-//                 9,
-//                 25,
-//                 44,
-//                 50,
-//                 75,
-//                 180,
-//                 600,
-//                 900,
-//                 33_333,
-//                 86_400,
-//                 255_000,
-//                 6_700_000,
-//                 55_333_000,
-//                 200_300_400,
-//                 500_000_000,
-//                 7_000_000_000,
-//                 78_000_000_000,
-//                 444_333_444_444,
-//             ];
-//             let decadic_exponents = vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-//             let horisontal_axis_data_suply =
-//                 serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
-//             Mutex::new(Some(DiagnosticsAxisX {
-//                 non_remarkable_values_supply: horisontal_axis_data_suply,
-//                 remarkable_values_opt: Some(vec![
-//                     (60, "MINUTE"),
-//                     (3_600, "HOUR"),
-//                     (86_400, "DAY"),
-//                     (604_800, "WEEK"),
-//                 ]),
-//                 convertor_to_expected_formula_input_type: Box::new(
-//                     move |secs_since_last_paid_payable| {
-//                         let native_time = now
-//                             .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-//                             .expect("time travelling");
-//                         AgeInput(native_time)
-//                     },
-//                 ),
-//             }))
-//         };
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::{
@@ -178,7 +119,6 @@ mod tests {
         CalculatorInputHolder, CalculatorType, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::test_utils::{make_initialized_subject, Sentinel};
-    use std::iter::empty;
     use std::time::{Duration, SystemTime};
 
     #[test]

@@ -4,7 +4,6 @@ pub mod age_criterion_calculator;
 pub mod balance_criterion_calculator;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::inside_calculator_local_diagnostics;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
 use variant_count::VariantCount;
@@ -44,7 +43,7 @@ impl CalculatorInputHolder {
         {
             last_paid_timestamp
         } else {
-            todo!()
+            self.mismatched_call_panic("age")
         }
     }
 
@@ -52,8 +51,15 @@ impl CalculatorInputHolder {
         if let CalculatorInputHolder::DebtBalance(balance_wei) = self {
             balance_wei
         } else {
-            todo!()
+            self.mismatched_call_panic("balance")
         }
+    }
+
+    fn mismatched_call_panic(&self, param_name: &str) -> ! {
+        panic!(
+            "Call for {} while the underlying enum variant is {:?}",
+            param_name, self
+        )
     }
 }
 
@@ -180,127 +186,46 @@ mod tests {
     ) where
         F: Fn(CalculatorType, &PayableAccount) + RefUnwindSafe,
     {
-        let account = make_payable_account(123);
-        let all_types = vec![CalculatorType::DebtBalance, CalculatorType::DebtAge];
+        let account = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 12345,
+            last_paid_timestamp: SystemTime::UNIX_EPOCH,
+            pending_payable_opt: None,
+        };
+        let all_types = vec![
+            (CalculatorType::DebtBalance, "balance", "DebtBalance(12345)"),
+            (
+                CalculatorType::DebtAge,
+                "age",
+                "DebtAge { last_paid_timestamp: SystemTime { tv_sec: 0, tv_nsec: 0 } }",
+            ),
+        ];
 
         assert_eq!(all_types.len(), CalculatorType::VARIANT_COUNT);
+        let (_, the_right_param_literal_name, _) = all_types
+            .iter()
+            .find(|(calculator_type, param_name, _)| calculator_type == &the_only_correct_type)
+            .unwrap();
+        // To be able to shut the reference before we consume the vec
+        let the_right_param_literal_name = the_right_param_literal_name.to_string();
         all_types
             .into_iter()
-            .filter(|calculator_type| calculator_type != &the_only_correct_type)
-            .for_each(|calculator_type| {
-                let result =
-                    catch_unwind(|| tested_function_call_for_panics(calculator_type, &account))
-                        .unwrap_err();
-                let panic_msg = result.downcast_ref::<&str>().unwrap();
-                assert_eq!(panic_msg, &"blaaaaaaaaaaaah");
-            })
+            .filter(|(calculator_type, _, _)| calculator_type != &the_only_correct_type)
+            .for_each(
+                |(calculator_type, _, debug_rendering_of_the_corresponding_input_holder)| {
+                    let result =
+                        catch_unwind(|| tested_function_call_for_panics(calculator_type, &account))
+                            .unwrap_err();
+                    let panic_msg = result.downcast_ref::<String>().unwrap();
+                    assert_eq!(
+                        panic_msg,
+                        &format!(
+                            "Call for {} while the underlying enum variant is {}",
+                            the_right_param_literal_name,
+                            debug_rendering_of_the_corresponding_input_holder
+                        )
+                    );
+                },
+            )
     }
 }
-
-//
-// pub trait CriterionCalculatorDiagnostics {
-//     fn input_parameter_name(&self) -> &'static str;
-//     #[cfg(test)]
-//     fn diagnostics_config_location(&self) -> &Mutex<Option<DiagnosticsAxisX<Self::Input>>>
-//     where
-//         Self: CriterionCalculator;
-//     #[cfg(test)]
-//     fn diagnostics_config_opt(&self) -> Option<DiagnosticsAxisX<Self::Input>>
-//     where
-//         Self: CriterionCalculator,
-//     {
-//         self.diagnostics_config_location()
-//             .lock()
-//             .expect("diagnostics poisoned")
-//             .take()
-//     }
-//     #[cfg(test)]
-//     fn compute_formula_characteristics_for_diagnostics(&self)
-//     where
-//         Self::Input: Debug,
-//         Self: CriterionCalculator,
-//     {
-//         if COMPUTE_FORMULAS_CHARACTERISTICS {
-//             compute_progressive_characteristics(
-//                 self.input_parameter_name(),
-//                 self.diagnostics_config_opt(),
-//                 self.formula(),
-//             )
-//         }
-//     }
-// }
-
-// pub trait CriteriaCalculatorIterators {
-//     fn calculate_age_criteria(
-//         self,
-//         payment_adjuster: &PaymentAdjusterReal,
-//     ) -> AgeCriterionCalculator<Self>
-//     where
-//         Self: Iterator<Item = (u128, PayableAccount)> + Sized;
-//
-//     fn calculate_balance_criteria(self) -> BalanceCriterionCalculator<Self>
-//     where
-//         Self: Iterator<Item = (u128, PayableAccount)> + Sized;
-// }
-
-// impl<I> CriteriaCalculatorIterators for I
-// where
-//     I: Iterator<Item = (u128, PayableAccount)>,
-// {
-//     fn calculate_age_criteria(
-//         self,
-//         payment_adjuster: &PaymentAdjusterReal,
-//     ) -> AgeCriterionCalculator<Self> {
-//         AgeCriterionCalculator::new(self, payment_adjuster)
-//     }
-//
-//     fn calculate_balance_criteria(self) -> BalanceCriterionCalculator<Self> {
-//         BalanceCriterionCalculator::new(self)
-//     }
-// }
-//
-// #[macro_export]
-// macro_rules! all_standard_impls_for_criterion_calculator {
-//     ($calculator: tt, $input_type: tt, $param_name: literal, $diagnostics_config_opt: expr) => {
-//         impl<I> Iterator for $calculator<I>
-//         where
-//             I: Iterator<Item = (u128, PayableAccount)>,
-//         {
-//             type Item = (u128, PayableAccount);
-//
-//             fn next(&mut self) -> Option<Self::Item> {
-//                 self.iter.next().map(|weight_and_account| {
-//                     let wrapped_input = Self::Item::from(weight_and_account);
-//                     self.calculate_criterion_and_add_in_total_weight(wrapped_input)
-//                 })
-//             }
-//         }
-//
-//         impl<I> CriterionCalculator for $calculator<I>
-//         where
-//             I: Iterator<Item = (u128, PayableAccount)>,
-//         {
-//             type Input = $input_type;
-//
-//             fn formula(&self) -> &dyn Fn(Self::Input) -> u128 {
-//                 self.formula.as_ref()
-//             }
-//         }
-//
-//         impl<I> CriterionCalculatorDiagnostics for $calculator<I>
-//         where
-//             I: Iterator<Item = (u128, PayableAccount)>,
-//         {
-//             fn input_parameter_name(&self) -> &'static str {
-//                 $param_name
-//             }
-//
-//             #[cfg(test)]
-//             fn diagnostics_config_location(
-//                 &self,
-//             ) -> &Mutex<Option<DiagnosticsAxisX<<Self as CriterionCalculator>::Input>>> {
-//                 &$diagnostics_config_opt
-//             }
-//         }
-//     };
-// }
