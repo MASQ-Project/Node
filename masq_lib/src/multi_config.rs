@@ -513,7 +513,6 @@ impl<'a> MultiConfig<'a> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    // use crate::shared_schema::official_chain_names;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
     use clap::Arg;

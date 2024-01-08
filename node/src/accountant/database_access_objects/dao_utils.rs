@@ -17,6 +17,7 @@ use rusqlite::{Row, Statement, ToSql};
 use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
+use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
 

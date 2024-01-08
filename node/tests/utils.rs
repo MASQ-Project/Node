@@ -273,6 +273,8 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_exit(&mut self) -> Option<Output> {
+        // TODO Put the body of this function in a background thread and wait on the thread for a few
+        // seconds. If the thread doesn't terminate, leak the thread and return None.
         let child_opt = self.child.take();
         let output_opt = self.output.take();
         match (child_opt, output_opt) {
