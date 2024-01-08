@@ -1,15 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
+use crate::accountant::payment_adjuster::criteria_calculators::{
+    CalculatorInputHolder, CalculatorType, CriterionCalculator,
+};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::x_or_1;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-use crate::all_standard_impls_for_criterion_calculator;
 use std::time::SystemTime;
 test_only_use!(
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-        use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::characteristics_config::AGE_DIAGNOSTICS_CONFIG_OPT;
     use std::sync::Mutex;
 );
 
@@ -20,45 +19,43 @@ const AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER: u128 = 1_000;
 const AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER: u128 = 10;
 const AGE_DESC_MULTIPLIER_DIVISOR_EXP: u32 = 3;
 
-pub struct AgeCriterionCalculator<I>
-where
-    I: Iterator<Item = (u128, PayableAccount)>,
-{
-    iter: I,
-    formula: Box<dyn Fn(AgeInput) -> u128>,
+pub struct AgeCriterionCalculator {
+    formula: Box<dyn Fn(CalculatorInputHolder) -> u128>,
 }
 
-all_standard_impls_for_criterion_calculator!(
-    AgeCriterionCalculator,
-    AgeInput,
-    "AGE",
-    AGE_DIAGNOSTICS_CONFIG_OPT
-);
+impl CriterionCalculator for AgeCriterionCalculator {
+    fn formula(&self) -> &dyn Fn(CalculatorInputHolder) -> u128 {
+        &self.formula
+    }
 
-impl<I> AgeCriterionCalculator<I>
-where
-    I: Iterator<Item = (u128, PayableAccount)>,
-{
-    pub fn new(iter: I, payment_adjuster: &PaymentAdjusterReal) -> Self {
+    fn calculator_type(&self) -> CalculatorType {
+        CalculatorType::DebtAge
+    }
+}
+
+impl AgeCriterionCalculator {
+    pub fn new(payment_adjuster: &PaymentAdjusterReal) -> Self {
         let now = payment_adjuster.inner.now();
 
-        let formula = Box::new(move |wrapped_last_paid_timestamp: AgeInput| {
-            let last_paid_timestamp = wrapped_last_paid_timestamp.0;
-            let elapsed_secs: u64 = Self::nonzero_elapsed(now, last_paid_timestamp);
+        let formula = Box::new(
+            move |last_paid_timestamp_in_holder: CalculatorInputHolder| {
+                let last_paid_timestamp = last_paid_timestamp_in_holder.age_input();
+                let elapsed_secs: u64 = Self::nonzero_elapsed(now, last_paid_timestamp);
 
-            let divisor = Self::nonzero_compute_divisor(elapsed_secs);
+                let divisor = Self::nonzero_compute_divisor(elapsed_secs);
 
-            let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
+                let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
 
-            (elapsed_secs as u128)
-                .checked_pow(AGE_MAIN_EXPONENT)
-                .expect("pow overflow")
-                .checked_div(divisor)
-                .expect("div overflow")
-                .checked_mul(log_multiplier)
-                .expect("mul overflow")
-        });
-        Self { iter, formula }
+                (elapsed_secs as u128)
+                    .checked_pow(AGE_MAIN_EXPONENT)
+                    .expect("pow overflow")
+                    .checked_div(divisor)
+                    .expect("div overflow")
+                    .checked_mul(log_multiplier)
+                    .expect("mul overflow")
+            },
+        );
+        Self { formula }
     }
 
     fn nonzero_elapsed(now: SystemTime, previous_timestamp: SystemTime) -> u64 {
@@ -111,84 +108,75 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct AgeInput(pub SystemTime);
-
-impl From<&PayableAccount> for AgeInput {
-    fn from(account: &PayableAccount) -> Self {
-        AgeInput(account.last_paid_timestamp)
-    }
-}
-
-#[cfg(test)]
-pub mod characteristics_config {
-    use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-    use lazy_static::lazy_static;
-    use std::sync::Mutex;
-    use std::time::Duration;
-    use std::time::SystemTime;
-
-    lazy_static! {
-        pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<AgeInput>>> = {
-            let now = SystemTime::now();
-            let literal_values = vec![
-                1,
-                5,
-                9,
-                25,
-                44,
-                50,
-                75,
-                180,
-                600,
-                900,
-                33_333,
-                86_400,
-                255_000,
-                6_700_000,
-                55_333_000,
-                200_300_400,
-                500_000_000,
-                7_000_000_000,
-                78_000_000_000,
-                444_333_444_444,
-            ];
-            let decadic_exponents = vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-            let horisontal_axis_data_suply =
-                serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
-            Mutex::new(Some(DiagnosticsAxisX {
-                non_remarkable_values_supply: horisontal_axis_data_suply,
-                remarkable_values_opt: Some(vec![
-                    (60, "MINUTE"),
-                    (3_600, "HOUR"),
-                    (86_400, "DAY"),
-                    (604_800, "WEEK"),
-                ]),
-                convertor_to_expected_formula_input_type: Box::new(
-                    move |secs_since_last_paid_payable| {
-                        let native_time = now
-                            .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-                            .expect("time travelling");
-                        AgeInput(native_time)
-                    },
-                ),
-            }))
-        };
-    }
-}
+// #[cfg(test)]
+// pub mod characteristics_config {
+//     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeInput;
+//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
+//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
+//     use lazy_static::lazy_static;
+//     use std::sync::Mutex;
+//     use std::time::Duration;
+//     use std::time::SystemTime;
+//
+//     lazy_static! {
+//         pub static ref AGE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<AgeInput>>> = {
+//             let now = SystemTime::now();
+//             let literal_values = vec![
+//                 1,
+//                 5,
+//                 9,
+//                 25,
+//                 44,
+//                 50,
+//                 75,
+//                 180,
+//                 600,
+//                 900,
+//                 33_333,
+//                 86_400,
+//                 255_000,
+//                 6_700_000,
+//                 55_333_000,
+//                 200_300_400,
+//                 500_000_000,
+//                 7_000_000_000,
+//                 78_000_000_000,
+//                 444_333_444_444,
+//             ];
+//             let decadic_exponents = vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+//             let horisontal_axis_data_suply =
+//                 serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
+//             Mutex::new(Some(DiagnosticsAxisX {
+//                 non_remarkable_values_supply: horisontal_axis_data_suply,
+//                 remarkable_values_opt: Some(vec![
+//                     (60, "MINUTE"),
+//                     (3_600, "HOUR"),
+//                     (86_400, "DAY"),
+//                     (604_800, "WEEK"),
+//                 ]),
+//                 convertor_to_expected_formula_input_type: Box::new(
+//                     move |secs_since_last_paid_payable| {
+//                         let native_time = now
+//                             .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
+//                             .expect("time travelling");
+//                         AgeInput(native_time)
+//                     },
+//                 ),
+//             }))
+//         };
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::{
-        AgeCriterionCalculator, AgeInput, AGE_DESC_MULTIPLIER_ARG_EXP,
-        AGE_DESC_MULTIPLIER_DIVISOR_EXP, AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER,
-        AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER,
-        AGE_MAIN_EXPONENT,
+        AgeCriterionCalculator, AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP,
+        AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, AGE_DESC_MULTIPLIER_LOG_STRESS_EXP,
+        AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_MAIN_EXPONENT,
     };
-    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
-    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
+    use crate::accountant::payment_adjuster::criteria_calculators::{
+        CalculatorInputHolder, CalculatorType, CriterionCalculator,
+    };
     use crate::accountant::payment_adjuster::test_utils::{make_initialized_subject, Sentinel};
     use std::iter::empty;
     use std::time::{Duration, SystemTime};
@@ -207,7 +195,7 @@ mod tests {
     fn nonzero_compute_divisor_works() {
         let result: Vec<_> = [1, 100, 81, 82, 80]
             .into_iter()
-            .map(|secs| AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(secs))
+            .map(|secs| AgeCriterionCalculator::nonzero_compute_divisor(secs))
             .collect();
 
         assert_eq!(result, vec![1, 10, 9, 10, 9])
@@ -223,7 +211,7 @@ mod tests {
             now.checked_sub(Duration::from_secs(2)).unwrap(),
         ]
         .into_iter()
-        .map(|timestamp| AgeCriterionCalculator::<Sentinel>::nonzero_elapsed(now, timestamp))
+        .map(|timestamp| AgeCriterionCalculator::nonzero_elapsed(now, timestamp))
         .collect();
 
         assert_eq!(result, vec![1, 1, 2])
@@ -236,12 +224,8 @@ mod tests {
             .take(12)
             .map(|exp| 10_u64.pow(exp))
             .map(|seconds_elapsed| {
-                let divisor =
-                    AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(seconds_elapsed);
-                AgeCriterionCalculator::<Sentinel>::compute_descending_multiplier(
-                    seconds_elapsed,
-                    divisor,
-                )
+                let divisor = AgeCriterionCalculator::nonzero_compute_divisor(seconds_elapsed);
+                AgeCriterionCalculator::compute_descending_multiplier(seconds_elapsed, divisor)
             })
             .collect();
 
@@ -258,45 +242,41 @@ mod tests {
     fn nonzero_log_works() {
         let result = vec![0.0, 0.6, 1.3, 1.99999, 2.0, 2.1, 5.0, 9.0]
             .into_iter()
-            .map(|num| AgeCriterionCalculator::<Sentinel>::nonzero_log_value(num))
+            .map(|num| AgeCriterionCalculator::nonzero_log_value(num))
             .collect::<Vec<u128>>();
 
         assert_eq!(result, vec![1, 1, 1, 1, 1, 1, 2, 3])
     }
 
     #[test]
-    fn calculator_returns_the_right_main_param_name() {
+    fn calculator_knows_its_type() {
         let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
-        let subject = AgeCriterionCalculator::new(empty(), &payment_adjuster);
+        let subject = AgeCriterionCalculator::new(&payment_adjuster);
 
-        let result = subject.input_parameter_name();
+        let result = subject.calculator_type();
 
-        assert_eq!(result, "AGE")
+        assert_eq!(result, CalculatorType::DebtAge)
     }
 
     #[test]
     fn age_criteria_calculation_works() {
         let now = SystemTime::now();
         let payment_adjuster = make_initialized_subject(now, None, None);
-        let subject = AgeCriterionCalculator::new(empty(), &payment_adjuster);
-        let last_paid_timestamp_wrapped = AgeInput(
-            SystemTime::now()
-                .checked_sub(Duration::from_secs(1500))
-                .unwrap(),
-        );
+        let subject = AgeCriterionCalculator::new(&payment_adjuster);
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(1500))
+            .unwrap();
+        let last_paid_timestamp_holder = CalculatorInputHolder::DebtAge {
+            last_paid_timestamp,
+        };
 
-        let result = subject.formula()(last_paid_timestamp_wrapped);
+        let result = subject.formula()(last_paid_timestamp_holder);
 
         let expected_criterion = {
-            let elapsed_secs: u64 = now
-                .duration_since(last_paid_timestamp_wrapped.0)
-                .unwrap()
-                .as_secs();
-            let divisor = AgeCriterionCalculator::<Sentinel>::nonzero_compute_divisor(elapsed_secs);
-            let log_multiplier = AgeCriterionCalculator::<Sentinel>::compute_descending_multiplier(
-                elapsed_secs,
-                divisor,
-            );
+            let elapsed_secs: u64 = now.duration_since(last_paid_timestamp).unwrap().as_secs();
+            let divisor = AgeCriterionCalculator::nonzero_compute_divisor(elapsed_secs);
+            let log_multiplier =
+                AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);
             (elapsed_secs as u128)
                 .checked_pow(AGE_MAIN_EXPONENT)
                 .unwrap()

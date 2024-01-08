@@ -14,8 +14,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
 };
-use crate::accountant::payment_adjuster::criteria_calculators::{CriteriaCalculatorIterators};
-use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
+use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics, display_formulas_characteristics_according_to_compilation_mode};
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
@@ -41,8 +40,9 @@ use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
-#[cfg(test)]
-use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::render_formulas_characteristics_for_diagnostics_if_enabled;
+use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::proposed_adjusted_balance_diagnostics;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -308,8 +308,7 @@ impl PaymentAdjusterReal {
         let weights_and_accounts_sorted =
             self.calculate_weights_for_accounts(unresolved_qualified_accounts);
 
-        #[cfg(test)]
-        render_formulas_characteristics_for_diagnostics_if_enabled();
+        display_formulas_characteristics_according_to_compilation_mode();
 
         adjustment_runner.adjust_multiple(self, weights_and_accounts_sorted)
     }
@@ -356,14 +355,6 @@ impl PaymentAdjusterReal {
                 Ok(Either::Right(finalized_accounts))
             }
         }
-    }
-
-    fn calculate_weights_for_accounts(
-        &self,
-        accounts: Vec<PayableAccount>,
-    ) -> Vec<(u128, PayableAccount)> {
-        let zero_weights_accounts = Self::initialize_zero_weights(accounts);
-        self.apply_criteria(zero_weights_accounts)
     }
 
     fn propose_possible_adjustment_recursively(
@@ -442,13 +433,35 @@ impl PaymentAdjusterReal {
         weights_iterator.zip(qualified_payables.into_iter())
     }
 
+    fn calculate_weights_for_accounts(
+        &self,
+        accounts: Vec<PayableAccount>,
+    ) -> Vec<(u128, PayableAccount)> {
+        let criteria_calculators: Vec<Box<dyn CriterionCalculator>> = vec![
+            Box::new(BalanceCriterionCalculator::new()),
+            Box::new(AgeCriterionCalculator::new(self)),
+        ];
+
+        self.apply_criteria(criteria_calculators, accounts)
+    }
+
     fn apply_criteria(
         &self,
-        zero_weights_accounts: impl Iterator<Item = (u128, PayableAccount)>,
+        criteria_calculators: Vec<Box<dyn CriterionCalculator>>,
+        qualified_accounts: Vec<PayableAccount>,
     ) -> Vec<(u128, PayableAccount)> {
-        let weights_and_accounts = zero_weights_accounts
-            .calculate_age_criteria(self)
-            .calculate_balance_criteria();
+        let weights_and_accounts = qualified_accounts.into_iter().map(|account| {
+            let weight =
+                criteria_calculators
+                    .iter()
+                    .fold(0_u128, |weight, criterion_calculator| {
+                        let calculator_type = criterion_calculator.calculator_type();
+                        let input_holder = CalculatorInputHolder::from((calculator_type, &account));
+                        let new_criterion = criterion_calculator.formula()(input_holder);
+                        weight + new_criterion
+                    });
+            (weight, account)
+        });
 
         sort_in_descendant_order_by_weights(weights_and_accounts)
     }

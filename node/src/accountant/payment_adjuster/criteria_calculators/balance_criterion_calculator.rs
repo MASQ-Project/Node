@@ -1,13 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
+use crate::accountant::payment_adjuster::criteria_calculators::{
+    CalculatorInputHolder, CalculatorType, CriterionCalculator,
+};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
-use crate::all_standard_impls_for_criterion_calculator;
 test_only_use!(
     use std::sync::Mutex;
-        use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::characteristics_config::BALANCE_DIAGNOSTICS_CONFIG_OPT;
     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
 );
 
@@ -22,28 +21,24 @@ const BALANCE_LOG_2_ARG_DIVISOR: u128 = 18_490_000;
 // This parameter affects the steepness analogously, but energetically
 const BALANCE_FINAL_MULTIPLIER: u128 = 2;
 
-pub struct BalanceCriterionCalculator<I>
-where
-    I: Iterator<Item = (u128, PayableAccount)>,
-{
-    iter: I,
-    formula: Box<dyn Fn(BalanceInput) -> u128>,
+pub struct BalanceCriterionCalculator {
+    formula: Box<dyn Fn(CalculatorInputHolder) -> u128>,
 }
 
-all_standard_impls_for_criterion_calculator!(
-    BalanceCriterionCalculator,
-    BalanceInput,
-    "BALANCE",
-    BALANCE_DIAGNOSTICS_CONFIG_OPT
-);
+impl CriterionCalculator for BalanceCriterionCalculator {
+    fn formula(&self) -> &dyn Fn(CalculatorInputHolder) -> u128 {
+        &self.formula
+    }
 
-impl<I> BalanceCriterionCalculator<I>
-where
-    I: Iterator<Item = (u128, PayableAccount)>,
-{
-    pub fn new(iter: I) -> Self {
-        let formula = Box::new(|wrapped_balance_minor: BalanceInput| {
-            let balance_minor = wrapped_balance_minor.0;
+    fn calculator_type(&self) -> CalculatorType {
+        CalculatorType::DebtBalance
+    }
+}
+
+impl BalanceCriterionCalculator {
+    pub fn new() -> Self {
+        let formula = Box::new(|balance_minor_holder: CalculatorInputHolder| {
+            let balance_minor = balance_minor_holder.balance_input();
             let argument_for_log = Self::calculate_binary_argument(balance_minor);
             let binary_weight = Self::nonzero_log2(argument_for_log);
             balance_minor
@@ -51,7 +46,7 @@ where
                 .expect("mul overflow")
                 * BALANCE_FINAL_MULTIPLIER
         });
-        Self { iter, formula }
+        Self { formula }
     }
 
     fn nonzero_log2(input: u128) -> u32 {
@@ -68,61 +63,51 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BalanceInput(pub u128);
-
-impl From<&PayableAccount> for BalanceInput {
-    fn from(account: &PayableAccount) -> Self {
-        BalanceInput(account.balance_wei)
-    }
-}
-
-#[cfg(test)]
-pub mod characteristics_config {
-    use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-    use lazy_static::lazy_static;
-    use std::sync::Mutex;
-
-    lazy_static! {
-        pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<BalanceInput>>> = {
-            let literal_values = vec![
-                123_456,
-                7_777_777,
-                1_888_999_999_888,
-                543_210_000_000_000_000_000,
-            ];
-            let decadic_exponents = vec![
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-                24, 25,
-            ];
-            let horisontal_axis_decimal_exponents =
-                serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
-            Mutex::new(Some(DiagnosticsAxisX {
-                non_remarkable_values_supply: horisontal_axis_decimal_exponents,
-                remarkable_values_opt: Some(vec![
-                    (10_u128.pow(9), "GWEI"),
-                    (10_u128.pow(18), "MASQ"),
-                ]),
-                convertor_to_expected_formula_input_type: Box::new(|balance_wei| {
-                    BalanceInput(balance_wei)
-                }),
-            }))
-        };
-    }
-}
+//
+// #[cfg(test)]
+// pub mod characteristics_config {
+//     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceInput;
+//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::serialize_values_on_x_axis_from_vecs;
+//     use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
+//     use lazy_static::lazy_static;
+//     use std::sync::Mutex;
+//
+//     lazy_static! {
+//         pub static ref BALANCE_DIAGNOSTICS_CONFIG_OPT: Mutex<Option<DiagnosticsAxisX<BalanceInput>>> = {
+//             let literal_values = vec![
+//                 123_456,
+//                 7_777_777,
+//                 1_888_999_999_888,
+//                 543_210_000_000_000_000_000,
+//             ];
+//             let decadic_exponents = vec![
+//                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+//                 24, 25,
+//             ];
+//             let horisontal_axis_decimal_exponents =
+//                 serialize_values_on_x_axis_from_vecs(literal_values, decadic_exponents);
+//             Mutex::new(Some(DiagnosticsAxisX {
+//                 non_remarkable_values_supply: horisontal_axis_decimal_exponents,
+//                 remarkable_values_opt: Some(vec![
+//                     (10_u128.pow(9), "GWEI"),
+//                     (10_u128.pow(18), "MASQ"),
+//                 ]),
+//                 convertor_to_expected_formula_input_type: Box::new(|balance_wei| {
+//                     BalanceInput(balance_wei)
+//                 }),
+//             }))
+//         };
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::{
-        BalanceCriterionCalculator, BalanceInput, BALANCE_FINAL_MULTIPLIER,
-        BALANCE_LOG_2_ARG_DIVISOR,
+        BalanceCriterionCalculator, BALANCE_FINAL_MULTIPLIER, BALANCE_LOG_2_ARG_DIVISOR,
     };
-    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
-    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculatorDiagnostics;
-    use crate::accountant::payment_adjuster::test_utils::Sentinel;
-    use std::iter;
+    use crate::accountant::payment_adjuster::criteria_calculators::{
+        CalculatorInputHolder, CalculatorType, CriterionCalculator,
+    };
 
     #[test]
     fn constants_are_correct() {
@@ -142,7 +127,7 @@ mod tests {
 
         let result: Vec<_> = arg_values
             .into_iter()
-            .map(|arg| BalanceCriterionCalculator::<Sentinel>::calculate_binary_argument(arg))
+            .map(|arg| BalanceCriterionCalculator::calculate_binary_argument(arg))
             .collect();
 
         assert_eq!(
@@ -161,37 +146,34 @@ mod tests {
     fn nonzero_log2_works() {
         let result: Vec<_> = [0, 1, 2, 5, 66, 100, 131, 132, u64::MAX as u128 + 1]
             .into_iter()
-            .map(|balance| BalanceCriterionCalculator::<Sentinel>::nonzero_log2(balance))
+            .map(|balance| BalanceCriterionCalculator::nonzero_log2(balance))
             .collect();
 
         assert_eq!(result, vec![1, 1, 1, 2, 6, 6, 7, 7, 64])
     }
 
     #[test]
-    fn calculator_returns_the_right_main_param_name() {
-        let subject = BalanceCriterionCalculator::new(iter::empty());
+    fn balance_criterion_calculator_knows_its_type() {
+        let subject = BalanceCriterionCalculator::new();
 
-        let result = subject.input_parameter_name();
+        let result = subject.calculator_type();
 
-        assert_eq!(result, "BALANCE")
+        assert_eq!(result, CalculatorType::DebtBalance)
     }
 
     #[test]
     fn balance_criteria_calculation_works() {
-        let subject = BalanceCriterionCalculator::new(iter::empty());
-        let balance_wei_wrapped = BalanceInput(111_333_555_777);
+        let subject = BalanceCriterionCalculator::new();
+        let balance_wei = 111_333_555_777;
+        let balance_wei_inside_input_holder = CalculatorInputHolder::DebtBalance(balance_wei);
 
-        let result = subject.formula()(balance_wei_wrapped);
+        let result = subject.formula()(balance_wei_inside_input_holder);
 
         let expected_result = {
-            let binary_weight =
-                BalanceCriterionCalculator::<Sentinel>::nonzero_log2(BalanceCriterionCalculator::<
-                    Sentinel,
-                >::calculate_binary_argument(
-                    balance_wei_wrapped.0
-                ));
-            balance_wei_wrapped
-                .0
+            let binary_weight = BalanceCriterionCalculator::nonzero_log2(
+                BalanceCriterionCalculator::calculate_binary_argument(balance_wei),
+            );
+            balance_wei
                 .checked_mul(binary_weight as u128)
                 .expect("mul overflow")
                 * BALANCE_FINAL_MULTIPLIER
