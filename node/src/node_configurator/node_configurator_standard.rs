@@ -532,9 +532,9 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_can_read_parameters_from_config_file() {
-        running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
+        running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_can_read_parameters_from_config_file",
@@ -849,9 +849,9 @@ mod tests {
     #[test]
     fn server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf()
     {
-        running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
+        running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf",
@@ -899,9 +899,9 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_handles_only_path_in_config_file_param() {
-        running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
+        running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_handles_only_path_in_config_file_param",
@@ -943,9 +943,9 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_rewrite_config_files_parameters_from_command_line() {
-        running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
+        running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_rewrite_config_files_parameters_from_command_line",
@@ -1583,7 +1583,6 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         running_test();
-        let _guard = EnvironmentGuard::new();
         let home_dir = Path::new("/home/cooga");
         let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
         let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
