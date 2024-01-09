@@ -1,16 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::{
     CalculatorInputHolder, CalculatorType, CriterionCalculator,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::x_or_1;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use std::time::SystemTime;
-test_only_use!(
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::DiagnosticsAxisX;
-    use std::sync::Mutex;
-);
 
 const AGE_MAIN_EXPONENT: u32 = 3;
 const AGE_DESC_MULTIPLIER_ARG_EXP: u32 = 2;
@@ -118,7 +113,7 @@ mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CalculatorType, CriterionCalculator,
     };
-    use crate::accountant::payment_adjuster::test_utils::{make_initialized_subject, Sentinel};
+    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use std::time::{Duration, SystemTime};
 
     #[test]

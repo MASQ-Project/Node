@@ -4,10 +4,8 @@
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
     render_complete_formulas_characteristics, COMPUTE_FORMULAS_CHARACTERISTICS,
 };
-use itertools::Itertools;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
-use std::io::Read;
 
 const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
 
@@ -159,9 +157,9 @@ pub mod separately_defined_diagnostic_functions {
         );
     }
 
-    pub fn inside_calculator_local_diagnostics<C: CriterionCalculator + ?Sized>(
+    pub fn calculated_criterion_and_weight_diagnostics(
         wallet_ref: &Wallet,
-        calculator: &C,
+        calculator: &dyn CriterionCalculator,
         criterion: u128,
         added_in_the_sum: u128,
     ) {
@@ -197,35 +195,36 @@ pub mod formulas_progressive_characteristics {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CriterionCalculator,
     };
-    use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
+    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use itertools::Itertools;
-    use std::fmt::Debug;
     use std::fs::File;
     use std::io::Read;
     use std::iter::once;
     use std::path::Path;
-    use std::sync::{Mutex, Once};
+    use std::sync::Once;
     use std::time::{Duration, SystemTime};
     use thousands::Separable;
 
     // For debugging and tuning up purposes. It lets you see the curve of calculated criterion
     // in dependence to different values of a distinct parameter
     pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
-    // You must preserve the 'static' keyword
-    static SUMMARIES_OF_FORMULA_CHARACTERISTICS_ONE_FOR_EACH_PARAMETER: Mutex<Vec<String>> =
-        Mutex::new(vec![]);
+
     // You must preserve the 'static' keyword
     //
     // The singleton ensures that the characteristics are always displayed only once, no matter
     // how many tests requested
     static FORMULAS_CHARACTERISTICS_SINGLETON: Once = Once::new();
 
-    fn supply_real_formulas_to_render_characteristics() {
-        let mut payment_adjuster = PaymentAdjusterReal::new();
-        let cw_service_fee_balance = 12345; // doesn't play a role
-        let required_adjustment = Adjustment::ByServiceFee; // play a role neither
-        let now = SystemTime::now();
-        payment_adjuster.initialize_inner(cw_service_fee_balance, required_adjustment, now);
+    pub fn render_complete_formulas_characteristics() {
+        FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
+            let comprehend_debug_summary = supply_real_formulas_to_render_characteristics();
+
+            eprintln!("{}", comprehend_debug_summary)
+        })
+    }
+
+    fn supply_real_formulas_to_render_characteristics() -> String {
+        let payment_adjuster = make_initialized_subject(SystemTime::now(), None, None);
 
         let rendering_params: Vec<(&'static str, Box<dyn CriterionCalculator>, DiagnosticsAxisX)> = vec![
             (
@@ -240,16 +239,19 @@ pub mod formulas_progressive_characteristics {
             ),
         ];
 
-        rendering_params.into_iter().for_each(
-            |(param_name, criterion_calculator, param_rendering_config)| {
-                let param_calculation_formula = criterion_calculator.formula();
-                compute_progressive_characteristics(
-                    param_name,
-                    param_calculation_formula,
-                    param_rendering_config,
-                );
-            },
-        )
+        rendering_params
+            .into_iter()
+            .map(
+                |(param_name, criterion_calculator, param_rendering_config)| {
+                    let param_calculation_formula = criterion_calculator.formula();
+                    compute_progressive_characteristics(
+                        param_name,
+                        param_calculation_formula,
+                        param_rendering_config,
+                    )
+                },
+            )
+            .join("\n\n")
     }
 
     fn make_rendering_config_for_balance() -> DiagnosticsAxisX {
@@ -322,10 +324,10 @@ pub mod formulas_progressive_characteristics {
         }
     }
 
-    pub struct DiagnosticsAxisX {
-        pub non_remarkable_values_supply: Vec<u128>,
-        pub remarkable_values_opt: Option<Vec<(u128, &'static str)>>,
-        pub convertor_to_expected_formula_input_type: Box<dyn Fn(u128) -> CalculatorInputHolder>,
+    struct DiagnosticsAxisX {
+        non_remarkable_values_supply: Vec<u128>,
+        remarkable_values_opt: Option<Vec<(u128, &'static str)>>,
+        convertor_to_expected_formula_input_type: Box<dyn Fn(u128) -> CalculatorInputHolder>,
     }
 
     impl DiagnosticsAxisX {
@@ -344,18 +346,6 @@ pub mod formulas_progressive_characteristics {
                 None => self.non_remarkable_values_supply.clone(),
             }
         }
-    }
-
-    pub fn render_complete_formulas_characteristics() {
-        FORMULAS_CHARACTERISTICS_SINGLETON.call_once(|| {
-            let comprehend_debug_summary =
-                SUMMARIES_OF_FORMULA_CHARACTERISTICS_ONE_FOR_EACH_PARAMETER
-                    .lock()
-                    .expect("diagnostics poisoned")
-                    .join("\n\n");
-
-            eprintln!("{}", comprehend_debug_summary)
-        })
     }
 
     fn render_notation(
@@ -380,11 +370,11 @@ pub mod formulas_progressive_characteristics {
         }
     }
 
-    pub fn compute_progressive_characteristics(
+    fn compute_progressive_characteristics(
         param_name: &'static str,
         formula: &dyn Fn(CalculatorInputHolder) -> u128,
         rendering_config: DiagnosticsAxisX,
-    ) {
+    ) -> String {
         let input_values = rendering_config.finalize_input_with_remarkable_values();
         let remarkable_input_values = rendering_config
             .remarkable_values_opt
@@ -404,12 +394,8 @@ pub mod formulas_progressive_characteristics {
                 length = 40
             )
         });
-        let head = once(format!("CHARACTERISTICS OF THE FORMULA FOR {}", param_name));
-        let full_text = head.into_iter().chain(characteristics).join("\n");
-        SUMMARIES_OF_FORMULA_CHARACTERISTICS_ONE_FOR_EACH_PARAMETER
-            .lock()
-            .expect("diagnostics poisoned")
-            .push(full_text);
+        let head = once(format!("CHARACTERISTICS OF {} FORMULA", param_name));
+        head.into_iter().chain(characteristics).join("\n")
     }
 
     fn read_diagnostics_inputs_from_file(path: &Path) -> Vec<u128> {

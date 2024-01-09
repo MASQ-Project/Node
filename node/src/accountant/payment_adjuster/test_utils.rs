@@ -10,7 +10,6 @@ use itertools::Either;
 use lazy_static::lazy_static;
 use masq_lib::constants::MASQ_TOTAL_SUPPLY;
 use masq_lib::logger::Logger;
-use std::iter::Empty;
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
@@ -62,5 +61,3 @@ pub fn make_extreme_accounts(
         })
         .collect()
 }
-
-pub type Sentinel = Empty<(u128, PayableAccount)>;

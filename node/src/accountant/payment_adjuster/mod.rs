@@ -36,14 +36,13 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
-use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::proposed_adjusted_balance_diagnostics;
+use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 
@@ -419,20 +418,6 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn initialize_zero_weights(
-        qualified_payables: Vec<PayableAccount>,
-    ) -> impl Iterator<Item = (u128, PayableAccount)> {
-        fn zero_weights_iterator(accounts_count: usize) -> impl Iterator<Item = u128> {
-            let one_element = once(0_u128);
-            let endlessly_repeated = one_element.into_iter().cycle();
-            endlessly_repeated.take(accounts_count)
-        }
-
-        let accounts_count = qualified_payables.len();
-        let weights_iterator = zero_weights_iterator(accounts_count);
-        weights_iterator.zip(qualified_payables.into_iter())
-    }
-
     fn calculate_weights_for_accounts(
         &self,
         accounts: Vec<PayableAccount>,
@@ -455,15 +440,37 @@ impl PaymentAdjusterReal {
                 criteria_calculators
                     .iter()
                     .fold(0_u128, |weight, criterion_calculator| {
-                        let calculator_type = criterion_calculator.calculator_type();
-                        let input_holder = CalculatorInputHolder::from((calculator_type, &account));
-                        let new_criterion = criterion_calculator.formula()(input_holder);
-                        weight + new_criterion
+                        let new_criterion = Self::calculate_criterion_by_calculator(
+                            &**criterion_calculator,
+                            &account,
+                        );
+
+                        let summed_up = weight + new_criterion;
+
+                        calculated_criterion_and_weight_diagnostics(
+                            &account.wallet,
+                            &**criterion_calculator,
+                            new_criterion,
+                            summed_up,
+                        );
+
+                        summed_up
                     });
+
             (weight, account)
         });
 
         sort_in_descendant_order_by_weights(weights_and_accounts)
+    }
+
+    fn calculate_criterion_by_calculator(
+        criterion_calculator: &dyn CriterionCalculator,
+        account: &PayableAccount,
+    ) -> u128 {
+        let calculator_type = criterion_calculator.calculator_type();
+        let input_holder = CalculatorInputHolder::from((calculator_type, account));
+
+        criterion_calculator.formula()(input_holder)
     }
 
     fn perform_adjustment_by_service_fee(

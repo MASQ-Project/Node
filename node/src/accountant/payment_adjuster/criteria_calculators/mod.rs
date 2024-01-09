@@ -7,12 +7,6 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
 use variant_count::VariantCount;
-test_only_use!(
-    use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
-        compute_progressive_characteristics, DiagnosticsAxisX, COMPUTE_FORMULAS_CHARACTERISTICS,
-    };
-    use std::sync::Mutex;
-);
 
 // Caution: always remember to use checked math operations in the criteria formulas!
 pub trait CriterionCalculator {
@@ -63,7 +57,7 @@ impl CalculatorInputHolder {
     }
 }
 
-impl<'a> From<((CalculatorType, &'a PayableAccount))> for CalculatorInputHolder {
+impl<'a> From<(CalculatorType, &'a PayableAccount)> for CalculatorInputHolder {
     fn from((calculator_type, account): (CalculatorType, &'a PayableAccount)) -> Self {
         match calculator_type {
             CalculatorType::DebtBalance => CalculatorInputHolder::DebtBalance(account.balance_wei),
@@ -89,15 +83,12 @@ mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CalculatorType,
     };
-    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-    use crate::accountant::test_utils::make_payable_account;
     use crate::test_utils::make_wallet;
     use std::panic::{catch_unwind, RefUnwindSafe};
     use std::time::{Duration, SystemTime};
 
     #[test]
     fn input_holders_can_be_derived_from_calculator_type_and_payable_account() {
-        let payment_adjuster = PaymentAdjusterReal::new();
         let balance_wei = 135_792_468;
         let last_paid_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(3))
@@ -204,7 +195,7 @@ mod tests {
         assert_eq!(all_types.len(), CalculatorType::VARIANT_COUNT);
         let (_, the_right_param_literal_name, _) = all_types
             .iter()
-            .find(|(calculator_type, param_name, _)| calculator_type == &the_only_correct_type)
+            .find(|(calculator_type, _, _)| calculator_type == &the_only_correct_type)
             .unwrap();
         // To be able to shut the reference before we consume the vec
         let the_right_param_literal_name = the_right_param_literal_name.to_string();
