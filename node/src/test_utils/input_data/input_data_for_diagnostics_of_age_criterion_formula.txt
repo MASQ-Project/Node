@@ -1,0 +1,59 @@
+
+# These values follow the standard JSON format and will be processed into a coherent set of inputs to feed the respective
+# criterion formula in the test. There are three different categories of values that can be supplied this way:
+# "literals", "decimal_exponents" and "marked_values".
+#
+# Every value is allowed to incorporate an underscore ("_") for easier distinguishing numeral orders.
+#
+# First two come as name-value pairs with values in an array.
+#
+# Marked values come as objects with two fields: "value" and "label".
+# If the same value has been defined by any of the other categories, marked values will replace them with no conflict.
+#
+# At least one category must be supplied while not empty at a time.
+
+{
+    "literals": [
+            "1",
+            "5",
+            "9",
+            "25",
+            "44",
+            "50",
+            "75",
+            "180",
+            "600",
+            "900",
+            "33_333",
+            "86_400",
+            "255_000",
+            "6_700_000",
+            "55_333_000",
+            "200_300_400",
+            "500_000_000",
+            "7_000_000_000",
+            "78_000_000_000",
+            "444_333_444_444"
+    ],
+    "decimal_exponents": [
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+    ],
+    "marked_values": [
+            {
+                "value": "60",
+                "label": "MINUTE"
+            },
+            {
+                "value": "3_600",
+                "label": "HOUR"
+            },
+            {
+                "value": "86_400",
+                "label": "DAY"
+            },
+            {
+                "value": "604_800",
+                "label": "WEEK"
+            }
+    ]
+}

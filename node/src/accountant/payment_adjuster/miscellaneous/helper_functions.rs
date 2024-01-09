@@ -2,7 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
-use crate::accountant::payment_adjuster::diagnostics::separately_defined_diagnostic_functions::{
+use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{
     account_nominated_for_disqualification_diagnostics, exhausting_cw_balance_diagnostics,
     not_exhausting_cw_balance_diagnostics, possibly_outweighed_accounts_diagnostics,
     try_finding_an_account_to_disqualify_diagnostics,

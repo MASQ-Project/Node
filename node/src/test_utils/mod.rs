@@ -567,6 +567,7 @@ pub mod unshared_test_utils {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::env::current_dir;
     use std::num::ParseIntError;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::{Path, PathBuf};
@@ -812,6 +813,14 @@ pub mod unshared_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub fn standard_dir_for_test_input_data() -> PathBuf {
+        current_dir()
+            .unwrap()
+            .join("src")
+            .join("test_utils")
+            .join("input_data")
     }
 
     pub mod system_killer_actor {

@@ -69,7 +69,7 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
     }
 }
 
-pub mod separately_defined_diagnostic_functions {
+pub mod ordinary_diagnostic_functions {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
@@ -196,17 +196,23 @@ pub mod formulas_progressive_characteristics {
         CalculatorInputHolder, CriterionCalculator,
     };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
+    use crate::test_utils::unshared_test_utils::standard_dir_for_test_input_data;
     use itertools::Itertools;
+    use serde::de::Error;
+    use serde::{Deserialize as NormalImplDeserialize, Deserializer};
+    use serde_derive::Deserialize;
+    use serde_json::Value;
     use std::fs::File;
     use std::io::Read;
     use std::iter::once;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Once;
     use std::time::{Duration, SystemTime};
     use thousands::Separable;
 
-    // For debugging and tuning up purposes. It lets you see the curve of calculated criterion
-    // in dependence to different values of a distinct parameter
+    // For the purposes of debugging and tuning the formulas up to work well together. It lets you
+    // imagine the curve of a criterion in dependence to different supplied input values for
+    // the give parameter
     pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
 
     // You must preserve the 'static' keyword
@@ -255,22 +261,12 @@ pub mod formulas_progressive_characteristics {
     }
 
     fn make_rendering_config_for_balance() -> DiagnosticsAxisX {
-        let literal_values = vec![
-            123_456,
-            7_777_777,
-            1_888_999_999_888,
-            543_210_000_000_000_000_000,
-        ];
-        let decimal_exponents = vec![
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25,
-        ];
-        let horizontal_axis_decimal_exponents =
-            serialize_values_on_x_axis_from_vecs(literal_values, decimal_exponents);
+        let file_path = file_path("input_data_for_diagnostics_of_balance_criterion_formula.txt");
+        let horizontal_axis_data_supply = read_diagnostics_inputs_from_file(&file_path);
+
         DiagnosticsAxisX {
-            non_remarkable_values_supply: horizontal_axis_decimal_exponents,
-            remarkable_values_opt: Some(vec![(10_u128.pow(9), "GWEI"), (10_u128.pow(18), "MASQ")]),
-            convertor_to_expected_formula_input_type: Box::new(|balance_wei| {
+            values: horizontal_axis_data_supply,
+            convertor_to_expected_formula_input: Box::new(|balance_wei| {
                 CalculatorInputHolder::DebtBalance(balance_wei)
             }),
         }
@@ -278,95 +274,133 @@ pub mod formulas_progressive_characteristics {
 
     fn make_rendering_config_for_age() -> DiagnosticsAxisX {
         let now = SystemTime::now();
-        let literal_values = vec![
-            1,
-            5,
-            9,
-            25,
-            44,
-            50,
-            75,
-            180,
-            600,
-            900,
-            33_333,
-            86_400,
-            255_000,
-            6_700_000,
-            55_333_000,
-            200_300_400,
-            500_000_000,
-            7_000_000_000,
-            78_000_000_000,
-            444_333_444_444,
-        ];
-        let decimal_exponents = vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-        let horizontal_axis_data_supply =
-            serialize_values_on_x_axis_from_vecs(literal_values, decimal_exponents);
+        let file_path = file_path("input_data_for_diagnostics_of_age_criterion_formula.txt");
+        let horizontal_axis_data_supply = read_diagnostics_inputs_from_file(&file_path);
+        let convertor_to_expected_formula_input_type = Box::new(
+            move |secs_since_last_paid_payable: u128| {
+                let native_time = now
+                    .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
+                    .expect("time travelling");
+                CalculatorInputHolder::DebtAge {
+                    last_paid_timestamp: native_time,
+                }
+            },
+        );
+
         DiagnosticsAxisX {
-            non_remarkable_values_supply: horizontal_axis_data_supply,
-            remarkable_values_opt: Some(vec![
-                (60, "MINUTE"),
-                (3_600, "HOUR"),
-                (86_400, "DAY"),
-                (604_800, "WEEK"),
-            ]),
-            convertor_to_expected_formula_input_type: Box::new(
-                move |secs_since_last_paid_payable| {
-                    let native_time = now
-                        .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
-                        .expect("time travelling");
-                    CalculatorInputHolder::DebtAge {
-                        last_paid_timestamp: native_time,
-                    }
-                },
-            ),
+            values: horizontal_axis_data_supply,
+            convertor_to_expected_formula_input: convertor_to_expected_formula_input_type,
         }
     }
 
-    struct DiagnosticsAxisX {
-        non_remarkable_values_supply: Vec<u128>,
-        remarkable_values_opt: Option<Vec<(u128, &'static str)>>,
-        convertor_to_expected_formula_input_type: Box<dyn Fn(u128) -> CalculatorInputHolder>,
+    fn file_path(file_name: &str)->PathBuf{
+        standard_dir_for_test_input_data()
+            .join(file_name)
     }
 
-    impl DiagnosticsAxisX {
-        fn finalize_input_with_remarkable_values(&self) -> Vec<u128> {
-            match self.remarkable_values_opt.as_ref() {
-                Some(vals) => {
-                    let filtered_remarkable_values = vals.iter().map(|(num, _)| num);
-                    let standard_input = self.non_remarkable_values_supply.iter();
-                    filtered_remarkable_values
-                        .chain(standard_input)
-                        .sorted()
-                        .dedup()
-                        .map(|num| *num)
-                        .collect()
-                }
-                None => self.non_remarkable_values_supply.clone(),
+    #[derive(Deserialize)]
+    struct InputFromFile {
+        literals: Vec<IntegerValueAllowingUnderscores>,
+        decimal_exponents: Vec<u32>,
+        marked_values: Vec<MarkedValueFromFile>,
+    }
+
+    #[derive(Deserialize)]
+    struct MarkedValueFromFile {
+        value: IntegerValueAllowingUnderscores,
+        label: String,
+    }
+
+    struct MarkedValue {
+        value: u128,
+        label: String,
+    }
+
+    struct DeserializedInputValues {
+        non_marked_values: Vec<u128>,
+        marked_values: Vec<MarkedValue>,
+    }
+
+    struct DiagnosticsAxisX {
+        values: DeserializedInputValues,
+        convertor_to_expected_formula_input: Box<dyn Fn(u128) -> CalculatorInputHolder>,
+    }
+
+    struct IntegerValueAllowingUnderscores {
+        numerical_value: u128,
+    }
+
+    impl IntegerValueAllowingUnderscores {
+        fn new(value: u128) -> Self {
+            Self {
+                numerical_value: value,
             }
         }
     }
 
-    fn render_notation(
-        coordinate_value: u128,
-        remarkable_vals: Option<&[(u128, &'static str)]>,
-    ) -> String {
-        match should_mark_be_used(coordinate_value, remarkable_vals) {
+    impl<'de> NormalImplDeserialize<'de> for IntegerValueAllowingUnderscores {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let value: Value = NormalImplDeserialize::deserialize(deserializer)?;
+            if let Value::String(str) = value {
+                let underscore_less = str.chars().filter(|char| char != &'_').collect::<String>();
+                let num: u128 = underscore_less.parse().unwrap();
+                Ok(IntegerValueAllowingUnderscores::new(num))
+            } else {
+                Err(D::Error::custom(format!(
+                    "Expected a string value but found: {:?}",
+                    value
+                )))
+            }
+        }
+    }
+
+    impl From<MarkedValueFromFile> for MarkedValue {
+        fn from(marked_value_from_file: MarkedValueFromFile) -> Self {
+            MarkedValue {
+                value: marked_value_from_file.value.numerical_value,
+                label: marked_value_from_file.label,
+            }
+        }
+    }
+
+    impl DiagnosticsAxisX {
+        fn finalize_input_with_marked_values(&self) -> Vec<u128> {
+            if self.values.marked_values.is_empty() {
+                self.values.non_marked_values.clone()
+            } else {
+                let filtered_marked_values = self
+                    .values
+                    .marked_values
+                    .iter()
+                    .map(|marked_val| &marked_val.value);
+                let standard_input = self.values.non_marked_values.iter();
+                filtered_marked_values
+                    .chain(standard_input)
+                    .sorted()
+                    .dedup()
+                    .map(|num| *num)
+                    .collect()
+            }
+        }
+    }
+
+    fn render_notation(coordinate_value: u128, marked_vals: &[MarkedValue]) -> String {
+        match should_mark_be_used(coordinate_value, marked_vals) {
             Some(mark) => format!("{}  {}", coordinate_value.separate_with_commas(), mark),
             None => coordinate_value.separate_with_commas(),
         }
     }
-    fn should_mark_be_used(
-        coordinate_value: u128,
-        remarkable_vals: Option<&[(u128, &'static str)]>,
-    ) -> Option<&'static str> {
-        match remarkable_vals {
-            Some(vals) => vals
+    fn should_mark_be_used(coordinate_value: u128, marked_vals: &[MarkedValue]) -> Option<String> {
+        if marked_vals.is_empty() {
+            None
+        } else {
+            marked_vals
                 .iter()
-                .find(|(val, _)| coordinate_value == *val)
-                .map(|(_, mark)| *mark),
-            None => None,
+                .find(|marked_val| marked_val.value == coordinate_value)
+                .map(|marked_val| marked_val.label.clone())
         }
     }
 
@@ -375,16 +409,14 @@ pub mod formulas_progressive_characteristics {
         formula: &dyn Fn(CalculatorInputHolder) -> u128,
         rendering_config: DiagnosticsAxisX,
     ) -> String {
-        let input_values = rendering_config.finalize_input_with_remarkable_values();
-        let remarkable_input_values = rendering_config
-            .remarkable_values_opt
-            .as_ref()
-            .map(|vals| vals.as_slice());
+        let input_values = rendering_config.finalize_input_with_marked_values();
+        let marked_input_values = rendering_config.values.marked_values.as_slice();
         let config_x_axis_type_formatter =
-            rendering_config.convertor_to_expected_formula_input_type;
+            rendering_config.convertor_to_expected_formula_input;
+
         let characteristics = input_values.into_iter().map(|single_coordinate| {
             let correctly_formatted_input = config_x_axis_type_formatter(single_coordinate);
-            let input_with_commas = render_notation(single_coordinate, remarkable_input_values);
+            let input_with_commas = render_notation(single_coordinate, marked_input_values);
             let computed_value_with_commas =
                 formula(correctly_formatted_input).separate_with_commas();
             format!(
@@ -394,38 +426,61 @@ pub mod formulas_progressive_characteristics {
                 length = 40
             )
         });
+
         let head = once(format!("CHARACTERISTICS OF {} FORMULA", param_name));
         head.into_iter().chain(characteristics).join("\n")
     }
 
-    fn read_diagnostics_inputs_from_file(path: &Path) -> Vec<u128> {
-        let mut file = File::open(path).expect("inputs badly prepared");
+    fn read_diagnostics_inputs_from_file(path: &Path) -> DeserializedInputValues {
+        let mut file = File::open(path).unwrap_or_else(|e| {
+            panic!("Inputs badly prepared at path: {:?}, error: {:?}", path, e)
+        });
         let mut buffer = String::new();
         file.read_to_string(&mut buffer).unwrap();
-        let mut first_two_lines = buffer.lines().take(2);
-        let first = first_two_lines.next().expect("first line missing");
-        let second = first_two_lines.next().expect("second line missing");
-        let first_line_starter = extract_line_starter(first);
-        if extract_line_starter(first) != "literals:"
-            || extract_line_starter(second) != "decimal_exponents"
-        {
-            panic!("Inputs in the file in {:?} should have the following format. First line starting \
-           \"literals:\", second line with \"decimal_exponents:\", both immediately followed by comma \
-           separated integers or left blank", path)
+        let plain_json: String = buffer
+            .lines()
+            .filter(|line| !line.is_empty() && !line_is_comment(line))
+            .collect();
+        let processed_json_input = serde_json::from_str::<InputFromFile>(&plain_json)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Error {:?} for file path: {:?}. Read string: {}",
+                    e, path, plain_json
+                )
+            });
+
+        let nums_declared_as_literals = processed_json_input
+            .literals
+            .into_iter()
+            .map(|wrapper| wrapper.numerical_value)
+            .collect();
+
+        let marked_values = processed_json_input
+            .marked_values
+            .into_iter()
+            .map(|marked_value_from_file| MarkedValue::from(marked_value_from_file))
+            .collect();
+
+        DeserializedInputValues {
+            non_marked_values: serialize_values_on_x_axis_from_vecs(
+                nums_declared_as_literals,
+                processed_json_input.decimal_exponents,
+            ),
+            marked_values,
         }
-        serialize_values_on_x_axis_from_vecs(
-            parse_numbers_from_line(first),
-            parse_numbers_from_line(second),
-        )
     }
 
-    fn extract_line_starter(line: &str) -> String {
-        line.chars().take_while(|char| !char.is_numeric()).collect()
-    }
-
-    fn parse_numbers_from_line<N>(line: &str) -> Vec<N> {
-        todo!("implement me");
-        // line.chars().take()
+    fn line_is_comment(line: &str) -> bool {
+        let char_collection = line
+            .chars()
+            .skip_while(|char| char.is_ascii_whitespace())
+            .take(1)
+            .collect::<Vec<char>>();
+        let first_meaningful_char_opt = char_collection.first();
+        if first_meaningful_char_opt.is_none() {
+            panic!("Something went wrong. Empty lines should have been already tested")
+        }
+        first_meaningful_char_opt.unwrap() == &'#'
     }
 
     pub fn serialize_values_on_x_axis_from_vecs(
