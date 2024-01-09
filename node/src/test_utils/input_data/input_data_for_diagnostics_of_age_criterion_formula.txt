@@ -1,17 +1,17 @@
-
-# These values follow the standard JSON format and will be processed into a coherent set of inputs to feed the respective
-# criterion formula in the test. There are three different categories of values that can be supplied this way:
-# "literals", "decimal_exponents" and "marked_values".
 #
-# Every value is allowed to incorporate an underscore ("_") for easier distinguishing numeral orders.
+# The data follows the standard JSON format and will be further processed into a row of integers to feed the respective
+# criterion formula to be rendered. There are three different categories of values that can be supplied via an object
+# with the following fields: "literals", "decimal_exponents" and "marked_values".
 #
-# First two come as name-value pairs with values in an array.
+# Literals are as string declared integers in an array whose notation can be made better readable by use of underscores.
 #
-# Marked values come as objects with two fields: "value" and "label".
+# Decimal exponents are plain integers in an array and represent powers of a ten.
+#
+# Marked values come as objects with two fields: "value" and "label", both expecting string values. The "value" field
+# also accepts underscores in the integers supplied.
+#
 # If the same value has been defined by any of the other categories, marked values will replace them with no conflict.
 #
-# At least one category must be supplied while not empty at a time.
-
 {
     "literals": [
             "1",

@@ -276,16 +276,15 @@ pub mod formulas_progressive_characteristics {
         let now = SystemTime::now();
         let file_path = file_path("input_data_for_diagnostics_of_age_criterion_formula.txt");
         let horizontal_axis_data_supply = read_diagnostics_inputs_from_file(&file_path);
-        let convertor_to_expected_formula_input_type = Box::new(
-            move |secs_since_last_paid_payable: u128| {
+        let convertor_to_expected_formula_input_type =
+            Box::new(move |secs_since_last_paid_payable: u128| {
                 let native_time = now
                     .checked_sub(Duration::from_secs(secs_since_last_paid_payable as u64))
                     .expect("time travelling");
                 CalculatorInputHolder::DebtAge {
                     last_paid_timestamp: native_time,
                 }
-            },
-        );
+            });
 
         DiagnosticsAxisX {
             values: horizontal_axis_data_supply,
@@ -293,9 +292,8 @@ pub mod formulas_progressive_characteristics {
         }
     }
 
-    fn file_path(file_name: &str)->PathBuf{
-        standard_dir_for_test_input_data()
-            .join(file_name)
+    fn file_path(file_name: &str) -> PathBuf {
+        standard_dir_for_test_input_data().join(file_name)
     }
 
     #[derive(Deserialize)]
@@ -411,8 +409,7 @@ pub mod formulas_progressive_characteristics {
     ) -> String {
         let input_values = rendering_config.finalize_input_with_marked_values();
         let marked_input_values = rendering_config.values.marked_values.as_slice();
-        let config_x_axis_type_formatter =
-            rendering_config.convertor_to_expected_formula_input;
+        let config_x_axis_type_formatter = rendering_config.convertor_to_expected_formula_input;
 
         let characteristics = input_values.into_iter().map(|single_coordinate| {
             let correctly_formatted_input = config_x_axis_type_formatter(single_coordinate);

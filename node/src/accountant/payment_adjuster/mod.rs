@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-//try to keep these modules private
+// If possible, let these modules be private
 mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;

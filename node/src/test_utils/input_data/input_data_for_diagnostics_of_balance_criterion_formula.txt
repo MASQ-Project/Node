@@ -1,4 +1,17 @@
-
+#
+# The data follows the standard JSON format and will be further processed into a row of integers to feed the respective
+# criterion formula to be rendered. There are three different categories of values that can be supplied via an object
+# with the following fields: "literals", "decimal_exponents" and "marked_values".
+#
+# Literals are as string declared integers in an array whose notation can be made better readable by use of underscores.
+#
+# Decimal exponents are plain integers in an array and represent powers of a ten.
+#
+# Marked values come as objects with two fields: "value" and "label", both expecting string values. The "value" field
+# also accepts underscores in the integers supplied.
+#
+# If the same value has been defined by any of the other categories, marked values will replace them with no conflict.
+#
 {
     "literals": [
             "123_456",
