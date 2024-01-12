@@ -7,7 +7,7 @@ mod diagnostics;
 mod inner;
 mod log_fns;
 mod miscellaneous;
-mod possibility_verifier;
+mod pre_adjustment_analyzer;
 mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -19,16 +19,15 @@ use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
 use crate::accountant::payment_adjuster::log_fns::{
-    accounts_before_and_after_debug, log_adjustment_by_service_fee_is_required,
+    accounts_before_and_after_debug,
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
-    log_insufficient_transaction_fee_balance,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, TransactionCountsWithin16bits, ProposedAdjustmentResolution};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
-use crate::accountant::payment_adjuster::possibility_verifier::TransactionFeeAdjustmentPossibilityVerifier;
+use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
@@ -63,6 +62,7 @@ pub trait PaymentAdjuster {
 }
 
 pub struct PaymentAdjusterReal {
+    analyzer: PreAdjustmentAnalyzer,
     inner: Box<dyn PaymentAdjusterInner>,
     logger: Logger,
 }
@@ -75,11 +75,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         let number_of_counts = qualified_payables.len();
 
-        match Self::determine_transaction_count_limit_by_transaction_fee(
-            agent,
-            number_of_counts,
-            &self.logger,
-        ) {
+        match self
+            .analyzer
+            .determine_transaction_count_limit_by_transaction_fee(
+                agent,
+                number_of_counts,
+                &self.logger,
+            ) {
             Ok(None) => (),
             Ok(Some(affordable_transaction_count)) => {
                 return Ok(Some(Adjustment::TransactionFeeInPriority {
@@ -90,7 +92,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         };
 
         let service_fee_balance_minor = agent.service_fee_balance_minor();
-        match Self::check_need_of_adjustment_by_service_fee(
+        match self.analyzer.check_need_of_adjustment_by_service_fee(
             &self.logger,
             Either::Left(qualified_payables),
             service_fee_balance_minor,
@@ -139,104 +141,9 @@ impl Default for PaymentAdjusterReal {
 impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {
+            analyzer: PreAdjustmentAnalyzer::new(),
             inner: Box::new(PaymentAdjusterInnerNull {}),
             logger: Logger::new("PaymentAdjuster"),
-        }
-    }
-
-    fn determine_transaction_count_limit_by_transaction_fee(
-        agent: &dyn BlockchainAgent,
-        number_of_qualified_accounts: usize,
-        logger: &Logger,
-    ) -> Result<Option<u16>, PaymentAdjusterError> {
-        fn max_possible_tx_count(
-            cw_transaction_fee_balance_minor: U256,
-            tx_fee_requirement_per_tx_minor: u128,
-        ) -> u128 {
-            let max_possible_tx_count_u256 =
-                cw_transaction_fee_balance_minor / U256::from(tx_fee_requirement_per_tx_minor);
-            u128::try_from(max_possible_tx_count_u256).unwrap_or_else(|e| {
-                panic!(
-                    "Transaction fee balance {} wei in the consuming wallet cases panic given estimated \
-                    transaction fee per tx {} wei and resulting ratio {}, that should fit in u128, \
-                    respectively: \"{}\"",
-                    cw_transaction_fee_balance_minor,
-                    tx_fee_requirement_per_tx_minor,
-                    max_possible_tx_count_u256,
-                    e
-                )
-            })
-        }
-
-        let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
-        let per_transaction_requirement_minor =
-            agent.estimated_transaction_fee_per_transaction_minor();
-
-        let max_possible_tx_count = max_possible_tx_count(
-            cw_transaction_fee_balance_minor,
-            per_transaction_requirement_minor,
-        );
-
-        let detected_tx_counts =
-            TransactionCountsWithin16bits::new(max_possible_tx_count, number_of_qualified_accounts);
-
-        let max_tx_count_we_can_afford_u16 = detected_tx_counts.affordable;
-        let required_tx_count_u16 = detected_tx_counts.required;
-
-        if max_tx_count_we_can_afford_u16 == 0 {
-            Err(
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
-                    number_of_accounts: number_of_qualified_accounts,
-                    per_transaction_requirement_minor,
-                    cw_transaction_fee_balance_minor,
-                },
-            )
-        } else if max_tx_count_we_can_afford_u16 >= required_tx_count_u16 {
-            Ok(None)
-        } else {
-            log_insufficient_transaction_fee_balance(
-                logger,
-                required_tx_count_u16,
-                cw_transaction_fee_balance_minor,
-                max_tx_count_we_can_afford_u16,
-            );
-            Ok(Some(max_tx_count_we_can_afford_u16))
-        }
-    }
-
-    fn check_need_of_adjustment_by_service_fee(
-        logger: &Logger,
-        payables: Either<&[PayableAccount], &[(u128, PayableAccount)]>,
-        cw_service_fee_balance_minor: u128,
-    ) -> Result<bool, PaymentAdjusterError> {
-        let qualified_payables: Vec<&PayableAccount> = match payables {
-            Either::Left(accounts) => accounts.iter().collect(),
-            Either::Right(weights_and_accounts) => weights_and_accounts
-                .iter()
-                .map(|(_, account)| account)
-                .collect(),
-        };
-
-        let required_service_fee_sum: u128 =
-            sum_as(&qualified_payables, |account: &&PayableAccount| {
-                account.balance_wei
-            });
-
-        if cw_service_fee_balance_minor >= required_service_fee_sum {
-            Ok(false)
-        } else {
-            TransactionFeeAdjustmentPossibilityVerifier {}
-                .verify_lowest_detectable_adjustment_possibility(
-                    &qualified_payables,
-                    cw_service_fee_balance_minor,
-                )?;
-
-            log_adjustment_by_service_fee_is_required(
-                logger,
-                required_service_fee_sum,
-                cw_service_fee_balance_minor,
-            );
-            Ok(true)
         }
     }
 
@@ -327,17 +234,18 @@ impl PaymentAdjusterReal {
             );
         let unallocated_balance = self.inner.unallocated_cw_service_fee_balance_minor();
 
-        let is_service_fee_adjustment_needed = match Self::check_need_of_adjustment_by_service_fee(
-            &self.logger,
-            Either::Right(&accounts_with_criteria_affordable_by_transaction_fee),
-            unallocated_balance,
-        ) {
-            Ok(answer) => answer,
-            Err(e) => {
-                log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
-                return Err(e);
-            }
-        };
+        let is_service_fee_adjustment_needed =
+            match self.analyzer.check_need_of_adjustment_by_service_fee(
+                &self.logger,
+                Either::Right(&accounts_with_criteria_affordable_by_transaction_fee),
+                unallocated_balance,
+            ) {
+                Ok(answer) => answer,
+                Err(e) => {
+                    log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
+                    return Err(e);
+                }
+            };
 
         match is_service_fee_adjustment_needed {
             true => {
@@ -440,7 +348,7 @@ impl PaymentAdjusterReal {
                 criteria_calculators
                     .iter()
                     .fold(0_u128, |weight, criterion_calculator| {
-                        let new_criterion = Self::calculate_criterion_by_calculator(
+                        let new_criterion = Self::have_calculator_calculate_its_criterion(
                             &**criterion_calculator,
                             &account,
                         );
@@ -463,7 +371,7 @@ impl PaymentAdjusterReal {
         sort_in_descendant_order_by_weights(weights_and_accounts)
     }
 
-    fn calculate_criterion_by_calculator(
+    fn have_calculator_calculate_its_criterion(
         criterion_calculator: &dyn CriterionCalculator,
         account: &PayableAccount,
     ) -> u128 {
@@ -735,7 +643,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
-    use std::panic::{AssertUnwindSafe, catch_unwind};
     use thousands::Separable;
     use web3::types::U256;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -977,38 +884,6 @@ mod tests {
         ]
         .into_iter()
         .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg))
-    }
-
-    #[test]
-    fn tx_fee_check_panics_on_ration_between_tx_fee_balance_and_estimated_tx_fee_bigger_than_u128()
-    {
-        let deadly_ratio = U256::from(u128::MAX) + 1;
-        let estimated_transaction_fee_per_one_tx_minor = 123_456_789;
-        let critical_wallet_balance =
-            deadly_ratio * U256::from(estimated_transaction_fee_per_one_tx_minor);
-        let blockchain_agent = BlockchainAgentMock::default()
-            .estimated_transaction_fee_per_transaction_minor_result(
-                estimated_transaction_fee_per_one_tx_minor,
-            )
-            .transaction_fee_balance_minor_result(critical_wallet_balance);
-
-        let panic_err = catch_unwind(AssertUnwindSafe(|| {
-            PaymentAdjusterReal::determine_transaction_count_limit_by_transaction_fee(
-                &blockchain_agent,
-                123,
-                &Logger::new("test"),
-            )
-        }))
-        .unwrap_err();
-
-        let err_msg = panic_err.downcast_ref::<String>().unwrap();
-        let expected_panic = format!(
-            "Transaction fee balance {} wei in the consuming wallet cases panic given estimated \
-            transaction fee per tx {} wei and resulting ratio {}, that should fit in u128, \
-            respectively: \"integer overflow when casting to u128\"",
-            critical_wallet_balance, estimated_transaction_fee_per_one_tx_minor, deadly_ratio
-        );
-        assert_eq!(err_msg, &expected_panic)
     }
 
     #[test]
@@ -1866,90 +1741,6 @@ mod tests {
             .exists_log_containing(&format!(
             "ERROR: {test_name}: Passed successfully adjustment by transaction fee but noticing \
             critical scarcity of MASQ balance. Operation will abort."));
-    }
-
-    #[test]
-    fn entry_check_advises_trying_adjustment_despite_lots_of_potentially_disqualified_accounts() {
-        // This test tries to prove that the entry check can reliably predict whether it makes any
-        // sense to set about the adjustment
-        let now = SystemTime::now();
-        // Disqualified in the first iteration
-        let account_1 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 10_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        // Disqualified in the second iteration
-        let account_2 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 550_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(15000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        // Eventually picked fulfilling the keep condition and returned
-        let wallet_3 = make_wallet("ghi");
-        let last_paid_timestamp_3 = now.checked_sub(Duration::from_secs(29000)).unwrap();
-        let balance_3 = 100_000_000_000;
-        let account_3 = PayableAccount {
-            wallet: wallet_3.clone(),
-            balance_wei: balance_3,
-            last_paid_timestamp: last_paid_timestamp_3,
-            pending_payable_opt: None,
-        };
-        // Disqualified in the third iteration (because it is younger debt than the one at wallet 3)
-        let account_4 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 100_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(20000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payables = vec![account_1, account_2, account_3.clone(), account_4];
-        let mut subject = PaymentAdjusterReal::new();
-        // This cw balance should make the entry check pass.
-        // In the adjustment procedure, after three accounts are gradually eliminated,
-        // resolution of the third account will work out well because of the additional unit.
-        //
-        // Both the entry check and the adjustment algorithm strategies advance reversely.
-        // The initial check inspects the smallest account.
-        // The strategy of account disqualifications always cuts from the largest accounts piece
-        // by piece, one in every iteration.
-        // Consequently, we can evaluate early if the adjustment has chances to succeed and stop
-        // just at the entry check if it doesn't.
-        let service_fee_balance_in_minor_units = (balance_3 / 2) + 1;
-        let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
-            Box::new(mock)
-        };
-        let adjustment_setup = PreparedAdjustment {
-            qualified_payables: qualified_payables.clone(),
-            agent,
-            adjustment: Adjustment::ByServiceFee,
-            response_skeleton_opt: None,
-        };
-
-        let check_result = PaymentAdjusterReal::check_need_of_adjustment_by_service_fee(
-            &Logger::new("test"),
-            Either::Left(&qualified_payables),
-            service_fee_balance_in_minor_units,
-        );
-        let adjustment_result = subject.adjust_payments(adjustment_setup, now).unwrap();
-
-        assert_eq!(check_result, Ok(true));
-        assert_eq!(
-            adjustment_result.affordable_accounts,
-            vec![PayableAccount {
-                wallet: wallet_3,
-                balance_wei: service_fee_balance_in_minor_units,
-                last_paid_timestamp: last_paid_timestamp_3,
-                pending_payable_opt: None,
-            }]
-        );
-        assert_eq!(adjustment_result.response_skeleton_opt, None);
-        assert_eq!(adjustment_result.agent.arbitrary_id_stamp(), agent_id_stamp);
     }
 
     struct TestConfigForServiceFeeBalances {

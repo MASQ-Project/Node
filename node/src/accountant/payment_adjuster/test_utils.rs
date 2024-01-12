@@ -4,6 +4,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
+use crate::accountant::payment_adjuster::pre_adjustment_analyzer::PreAdjustmentAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::test_utils::make_wallet;
 use itertools::Either;
@@ -26,6 +27,7 @@ pub fn make_initialized_subject(
     let cw_masq_balance_minor = cw_masq_balance_minor_opt.unwrap_or(0);
     let logger = logger_opt.unwrap_or(Logger::new("test"));
     PaymentAdjusterReal {
+        analyzer: PreAdjustmentAnalyzer::new(),
         inner: Box::new(PaymentAdjusterInnerReal::new(
             now,
             None,
