@@ -58,8 +58,8 @@ pub struct PersistentConfigurationMock {
     set_past_neighbors_params: Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
     set_past_neighbors_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     start_block_params: Arc<Mutex<Vec<()>>>,
-    start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
-    set_start_block_params: Arc<Mutex<Vec<u64>>>,
+    start_block_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
+    set_start_block_params: Arc<Mutex<Vec<Option<u64>>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     max_block_count_params: Arc<Mutex<Vec<()>>>,
     max_block_count_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
@@ -230,12 +230,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_past_neighbors_results.borrow_mut().remove(0)
     }
 
-    fn start_block(&self) -> Result<u64, PersistentConfigError> {
+    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError> {
         self.start_block_params.lock().unwrap().push(());
         Self::result_from(&self.start_block_results)
     }
 
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+    fn set_start_block(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
         self.set_start_block_params.lock().unwrap().push(value);
         Self::result_from(&self.set_start_block_results)
     }
@@ -546,12 +546,12 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn start_block_result(self, result: Result<u64, PersistentConfigError>) -> Self {
+    pub fn start_block_result(self, result: Result<Option<u64>, PersistentConfigError>) -> Self {
         self.start_block_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_start_block_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+    pub fn set_start_block_params(mut self, params: &Arc<Mutex<Vec<Option<u64>>>>) -> Self {
         self.set_start_block_params = params.clone();
         self
     }

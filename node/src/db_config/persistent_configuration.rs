@@ -131,8 +131,8 @@ pub trait PersistentConfiguration {
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn start_block(&self) -> Result<u64, PersistentConfigError>;
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn set_start_block(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
     fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_start_block_from_txn(
@@ -406,12 +406,12 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         )?)
     }
 
-    fn start_block(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "start_block")
+    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError> {
+        Ok(decode_u64(self.get("start_block")?)?)
     }
 
-    fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("start_block", value)
+    fn set_start_block(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("start_block", encode_u64(value)?)?)
     }
 
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
@@ -574,17 +574,6 @@ impl PersistentConfigurationReal {
         Ok(self
             .dao
             .set_by_guest_transaction(txn, parameter_name, Some(value.to_string()))?)
-    }
-
-    fn simple_get_method<T>(
-        &self,
-        decoder: fn(Option<String>) -> Result<Option<T>, TypedConfigLayerError>,
-        parameter: &str,
-    ) -> Result<T, PersistentConfigError> {
-        match decoder(self.get(parameter)?)? {
-            None => Self::missing_value_panic(parameter),
-            Some(value) => Ok(value),
-        }
     }
 
     fn combined_params_get_method<'a, T, C>(
@@ -1503,12 +1492,11 @@ mod tests {
 
         let start_block = subject.start_block().unwrap();
 
-        assert_eq!(start_block, 6);
+        assert_eq!(start_block, Some(6));
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied value missing: start_block; database is corrupt!")]
-    fn start_block_does_not_tolerate_optional_output() {
+    fn start_block_can_be_none() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
             None,
@@ -1516,7 +1504,9 @@ mod tests {
         ))));
         let subject = PersistentConfigurationReal::new(config_dao);
 
-        let _ = subject.start_block();
+        let start_block = subject.start_block();
+
+        assert_eq!(start_block, Ok(None));
     }
 
     #[test]
@@ -1529,7 +1519,7 @@ mod tests {
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.set_start_block(1234);
+        let result = subject.set_start_block(Some(1234));
 
         assert_eq!(result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
