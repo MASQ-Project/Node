@@ -1597,7 +1597,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
-    use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
@@ -1640,11 +1639,7 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
-        make_node_to_ui_recipient, make_recipient_and_recording_arc,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
-    };
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, make_rt};
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
@@ -2554,7 +2549,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result = future.wait().unwrap();
+        let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
 
@@ -2570,7 +2565,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result = future.wait().unwrap();
+        let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
 
@@ -2618,7 +2613,7 @@ mod tests {
                 component,
             )
         };
-        let result = future.wait().unwrap().unwrap();
+        let result = make_rt().block_on(future).unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(
@@ -2686,7 +2681,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result = future.wait().unwrap();
+        let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
 
@@ -2704,7 +2699,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result = future.wait().unwrap();
+        let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
 
@@ -2723,7 +2718,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result = future.wait().unwrap().unwrap();
+        let result = make_rt().block_on(future).unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 RouteSegment::new(
@@ -2819,7 +2814,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        let result = data_route.wait().unwrap().unwrap();
+        let result = make_rt().block_on(data_route).unwrap().unwrap();
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
@@ -2914,8 +2909,8 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
-        let result_0 = data_route_0.wait().unwrap().unwrap();
-        let result_1 = data_route_1.wait().unwrap().unwrap();
+        let result_0 = make_rt().block_on(data_route_0).unwrap().unwrap();
+        let result_1 = make_rt().block_on(data_route_1).unwrap().unwrap();
         let juicy_parts = |result: RouteQueryResponse| {
             let last_element = result.route.hops.last().unwrap();
             let last_element_dec = cryptde.decode(last_element).unwrap();
@@ -2971,8 +2966,8 @@ mod tests {
         System::current().stop();
         system.run();
 
-        let route_1 = route_request_1.wait().unwrap().unwrap().route;
-        let route_2 = route_request_2.wait().unwrap().unwrap().route;
+        let route_1 = make_rt().block_on(route_request_1).unwrap();
+        let route_2 = make_rt().block_on(route_request_2).unwrap();
 
         assert_eq!(route_1, expected_before_route);
         assert_eq!(route_2, expected_after_route);
@@ -4776,7 +4771,8 @@ mod tests {
         addr.try_send(assertion_msg).unwrap();
         System::current().stop_with_code(0);
         system.run();
-        assert_eq!(None, unsuccessful_three_hop_route.wait().unwrap());
+        let result = make_rt().block_on(unsuccessful_three_hop_route).unwrap();
+        assert_eq!(None, result);
     }
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {

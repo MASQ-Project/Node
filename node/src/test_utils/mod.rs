@@ -581,6 +581,7 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
+    use tokio::runtime::Runtime;
 
     #[derive(Message)]
     #[rtype(result = "()")]
@@ -821,6 +822,13 @@ pub mod unshared_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
+    }
+
+    pub fn make_rt() -> Runtime {
+        return tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
     }
 
     pub mod system_killer_actor {

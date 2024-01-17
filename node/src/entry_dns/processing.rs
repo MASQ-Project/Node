@@ -9,10 +9,9 @@ use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
-use trust_dns::op::OpCode;
-use trust_dns::op::ResponseCode;
-use trust_dns::rr::DNSClass;
-use trust_dns::rr::RecordType;
+use hickory_proto::op::ResponseCode;
+use hickory_resolver::proto::op::OpCode;
+use hickory_resolver::proto::rr::{DNSClass, RecordType};
 
 const HEADER_BYTES: usize = 12;
 const UNKNOWN: &str = "<unknown>";

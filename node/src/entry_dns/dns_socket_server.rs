@@ -1,55 +1,22 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::socket_server::ConfiguredByPrivilege;
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
 use masq_lib::command::StdStreams;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use futures::future::Future;
-
-const DNS_PORT: u16 = 53;
-
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
-use futures::task::Context;
-use futures::task::Poll;
+
+const DNS_PORT: u16 = 53;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
     logger: Logger,
     buf: [u8; 65536],
-}
-
-impl Future for DnsSocketServer {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        loop {
-            let mut buffer = self.buf;
-            let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer) {
-                Ok(Poll::Ready((len, socket_addr))) => (len, socket_addr),
-                Ok(Poll::Pending) => return Poll::Pending,
-                Err(e) => {
-                    error!(
-                        self.logger,
-                        "Unrecoverable error receiving from UdpSocket: {}", e
-                    );
-                    return Err(());
-                }
-            };
-            let response_length = processing::process(&mut buffer, len, &socket_addr, &self.logger);
-            if let Err(e) = self
-                .socket_wrapper
-                .send_to(&buffer[0..response_length], socket_addr)
-            {
-                error!(self.logger, "Unrecoverable error sending to UdpSocket: {}", e);
-                return Err(());
-            }
-        }
-    }
 }
 
 impl ConfiguredByPrivilege for DnsSocketServer {
@@ -75,10 +42,35 @@ impl ConfiguredByPrivilege for DnsSocketServer {
     }
 }
 
+impl ConfiguredServer for DnsSocketServer {
+
+    async fn make_server_future(self) -> std::io::Result<()> {
+        loop {
+            let mut buffer = self.buf;
+            let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer).await {
+                Ok((len, socket_addr)) => (len, socket_addr),
+                Err(e) => {
+                    error!(
+                        self.logger,
+                        "Unrecoverable error receiving from UdpSocket: {}", e
+                    );
+                    return Err(e);
+                }
+            };
+            let response_length = processing::process(&mut buffer, len, &socket_addr, &self.logger);
+            if let Err(e) = self.socket_wrapper.send_to(&buffer[0..response_length], socket_addr).await {
+                error!(self.logger, "Unrecoverable error sending to UdpSocket: {}", e);
+                return Err(e);
+            }
+        }
+    }
+}
+
 impl DnsSocketServer {
     pub fn new() -> DnsSocketServer {
         DnsSocketServer {
             socket_wrapper: Box::new(UdpSocketWrapperReal::new()),
+            logger: Logger::new("DNS Socket Server"),
             buf: [0; 65536],
         }
     }
@@ -95,7 +87,7 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::{make_rt, make_simplified_multi_config};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -109,8 +101,10 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use hickory_proto::op::ResponseCode;
     use tokio;
-    use trust_dns::op::ResponseCode;
+    use tokio::runtime::Runtime;
+    use tokio::task;
 
     #[test]
     fn constants_have_correct_values() {
@@ -125,8 +119,8 @@ mod tests {
     #[derive(Clone)]
     struct UdpSocketWrapperMock {
         guts: Arc<Mutex<UdpSocketWrapperMockGuts>>,
-        recv_from_results: Arc<Mutex<Vec<Result<Async<(usize, SocketAddr)>, Error>>>>,
-        send_to_results: Arc<Mutex<Vec<Result<Async<usize>, Error>>>>,
+        recv_from_results: Arc<Mutex<Vec<io::Result<(usize, SocketAddr)>>>>,
+        send_to_results: Arc<Mutex<Vec<io::Result<usize>>>>,
     }
 
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
@@ -138,7 +132,7 @@ mod tests {
             Ok(true)
         }
 
-        fn recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, Error> {
+        async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();
@@ -153,7 +147,7 @@ mod tests {
             result
         }
 
-        fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, Error> {
+        async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();
@@ -214,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn serves_multiple_requests_then_short_circuit_on_error() {
+    fn serves_multiple_requests_then_short_circuits_on_error() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let (log, mut buf) = {
@@ -223,26 +217,26 @@ mod tests {
                 .recv_from_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready((
+                .push(Ok((
                     socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
                     SocketAddr::from_str("0.0.0.0:0").unwrap(),
-                ))));
+                )));
             socket_wrapper
                 .recv_from_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready((
+                .push(Ok((
                     socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
                     SocketAddr::from_str("1.0.0.0:0").unwrap(),
-                ))));
+                )));
             socket_wrapper
                 .recv_from_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready((
+                .push(Ok((
                     socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
                     SocketAddr::from_str("2.0.0.0:0").unwrap(),
-                ))));
+                )));
             socket_wrapper
                 .recv_from_results
                 .lock()
@@ -253,27 +247,27 @@ mod tests {
                 .send_to_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready(12)));
+                .push(Ok(12));
             socket_wrapper
                 .send_to_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready(12)));
+                .push(Ok(12));
             socket_wrapper
                 .send_to_results
                 .lock()
                 .unwrap()
-                .push(Ok(Async::Ready(12)));
-
+                .push(Ok(12));
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
-
             subject
                 .initialize_as_unprivileged(
                     &make_simplified_multi_config([]),
                     &mut holder.streams(),
                 )
                 .unwrap();
-            tokio::run(subject);
+            let future = subject.make_server_future();
+
+            make_rt().block_on(future).unwrap();
 
             let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
             let borrowed_guts = unwrapped_guts.borrow();
@@ -306,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn poll_handles_error_receiving_from_udp_socket_wrapper() {
+    fn server_handles_error_receiving_from_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
@@ -315,14 +309,13 @@ mod tests {
             .lock()
             .unwrap()
             .push(Err(Error::from(ErrorKind::BrokenPipe)));
-
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
-
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
             .unwrap();
+        let future = subject.make_server_future();
 
-        let result = subject.poll();
+        let result = make_rt().block_on(future);
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(
@@ -340,23 +333,22 @@ mod tests {
             .recv_from_results
             .lock()
             .unwrap()
-            .push(Ok(Async::Ready((
+            .push(Ok((
                 socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
                 SocketAddr::from_str("0.0.0.0:0").unwrap(),
-            ))));
+            )));
         socket_wrapper
             .send_to_results
             .lock()
             .unwrap()
             .push(Err(Error::from(ErrorKind::BrokenPipe)));
-
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
-
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
             .unwrap();
+        let future = subject.make_server_future();
 
-        let result = subject.poll();
+        let result = make_rt().block_on(future);
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(
@@ -374,6 +366,7 @@ mod tests {
     fn make_instrumented_subject(socket_wrapper: Box<UdpSocketWrapperMock>) -> DnsSocketServer {
         DnsSocketServer {
             socket_wrapper,
+            logger: Logger::new("Test DNS Socket Server"),
             buf: [0; 65536],
         }
     }

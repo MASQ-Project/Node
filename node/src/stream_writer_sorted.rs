@@ -523,9 +523,9 @@ mod tests {
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec![])),
             poll_write_results: vec![Ok(Async::Ready(packet_a.len()))],
-            shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
+            poll_close_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
         };
-        let shutdown_remainder = writer.shutdown_results.clone();
+        let shutdown_remainder = writer.poll_close_results.clone();
         let write_params_mutex = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
@@ -558,10 +558,10 @@ mod tests {
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec![])),
             poll_write_results: vec![Ok(Async::Ready(packet_a.len()))],
-            shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::NotReady), Ok(Async::Ready(()))])),
+            poll_close_results: Arc::new(Mutex::new(vec![Ok(Async::NotReady), Ok(Async::Ready(()))])),
         };
 
-        let shutdown_remainder = writer.shutdown_results.clone();
+        let shutdown_remainder = writer.poll_close_results.clone();
         let write_params_mutex = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
@@ -597,7 +597,7 @@ mod tests {
 
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Ok(Async::Ready(packet_a.len())))
-            .shutdown_result(Err(io::Error::from(ErrorKind::Other)));
+            .poll_close_result(Err(io::Error::from(ErrorKind::Other)));
 
         let write_params_mutex = writer.poll_write_params.clone();
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();

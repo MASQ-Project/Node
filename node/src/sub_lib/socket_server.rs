@@ -17,7 +17,6 @@ pub trait ConfiguredByPrivilege {
     ) -> Result<(), ConfiguratorError>;
 }
 
-// TODO: Maybe come up with a better name for this.
-pub trait ConfigurerFuture: ConfiguredByPrivilege + Future {
-
+pub trait ConfiguredServer {
+    async fn make_server_future(self) -> std::io::Result<()>;
 }

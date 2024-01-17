@@ -4,7 +4,6 @@
 use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal};
 use crate::proxy_client::stream_establisher::{StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::channel_wrappers::{SenderWrapper};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -17,6 +16,7 @@ use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc};
+use futures::{AsyncRead, AsyncWrite};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::lookup_ip::LookupIp;
 use itertools::Itertools;

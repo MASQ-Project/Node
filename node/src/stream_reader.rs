@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::io;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
@@ -11,9 +13,9 @@ use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::SystemTime;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
 
 pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
@@ -30,15 +32,14 @@ pub struct StreamReaderReal {
 }
 
 impl Future for StreamReaderReal {
-    type Item = ();
-    type Error = ();
+    type Output = Result<(), ()>;
 
-    fn poll(&mut self) -> Result<Async<()>, ()> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut buf = [0u8; 0x0001_0000];
         loop {
-            match self.stream.poll_read(&mut buf) {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(0)) => {
+            match self.stream.poll_read(cx, &mut buf) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(0)) => {
                     // see RETURN VALUE section of recv man page (Unix)
                     debug!(
                         self.logger,
@@ -46,9 +47,9 @@ impl Future for StreamReaderReal {
                         Self::stringify(self.local_addr, self.peer_addr)
                     );
                     self.shutdown();
-                    return Ok(Async::Ready(()));
+                    return Poll::Ready(Ok(()));
                 }
-                Ok(Async::Ready(length)) => {
+                Poll::Ready(Ok(length)) => {
                     debug!(
                         self.logger,
                         "Read {}-byte chunk from stream {}",
@@ -66,7 +67,7 @@ impl Future for StreamReaderReal {
                             e
                         );
                         self.shutdown();
-                        return Err(());
+                        return Poll::Ready(Err(()));
                     } else {
                         // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
                         warning!(

@@ -22,7 +22,7 @@ use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::transports::{Batch, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
@@ -278,10 +278,10 @@ impl Transport for TestTransport {
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
         self.send_params.lock().unwrap().push((id, request.clone()));
         match self.send_results.borrow_mut().pop_front() {
-            Some(response) => Box::new(futures::finished(response)),
+            Some(response) => Ok(response),
             None => {
                 println!("Unexpected request (id: {:?}): {:?}", id, request);
-                Box::new(futures::failed(Web3Error::Unreachable))
+                Err(Web3Error::Unreachable)
             }
         }
     }
@@ -299,7 +299,7 @@ impl BatchTransport for TestTransport {
             .unwrap()
             .push(requests.into_iter().collect());
         let response = self.send_batch_results.borrow_mut().remove(0);
-        Box::new(futures::finished(response))
+        Ok(response)
     }
 }
 
@@ -343,7 +343,7 @@ impl TestTransport {
     }
 }
 
-pub fn make_fake_event_loop_handle() -> EventLoopHandle {
+pub fn make_fake_event_loop_handle() -> u64 { // TODO: Not really u64; what _should_ it be?
     Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
         .unwrap()
         .0

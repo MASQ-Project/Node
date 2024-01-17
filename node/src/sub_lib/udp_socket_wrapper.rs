@@ -2,12 +2,12 @@
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
-use tokio::net::UdpSocket;
+use tokio::net::{ToSocketAddrs, UdpSocket};
 
 pub trait UdpSocketWrapperTrait: Sync + Send {
     fn bind(&mut self, addr: SocketAddr) -> io::Result<bool>;
-    fn recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, io::Error>;
-    fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, io::Error>;
+    async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
 }
 
 #[derive(Default)]
@@ -28,16 +28,18 @@ impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
         Ok(true)
     }
 
-    fn recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, io::Error> {
+    // pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+    async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         match self.delegate {
-            Some(ref mut socket) => socket.poll_recv_from(buf),
+            Some(ref mut socket) => socket.recv_from(buf),
             None => panic!("call bind before recv_from"),
         }
     }
 
-    fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Result<Async<usize>, io::Error> {
+    // pub async fn send_to<A: ToSocketAddrs>(&self, buf: &[u8], target: A) -> io::Result<usize> {
+    async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
         match self.delegate {
-            Some(ref mut socket) => socket.poll_send_to(buf, &addr),
+            Some(ref mut socket) => socket.send_to(buf, addr),
             None => panic!("call bind before send_to"),
         }
     }

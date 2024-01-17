@@ -6,7 +6,7 @@ use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
-use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfigurerFuture};
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
 use backtrace::Backtrace;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
@@ -30,8 +30,8 @@ use tokio::task::{JoinHandle, JoinSet};
 use websocket::futures::try_ready;
 
 pub struct ServerInitializerReal {
-    dns_socket_server: Box<dyn ConfigurerFuture<Output = ()>>,
-    bootstrapper: Box<dyn ConfigurerFuture<Output = ()>>,
+    dns_socket_server: Box<dyn ConfiguredServer<Output = ()>>,
+    bootstrapper: Box<dyn ConfiguredServer<Output = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
 }

@@ -795,7 +795,7 @@ mod tests {
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
                 poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
-                shutdown_results: Arc::new(Mutex::new(vec![])),
+                poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -904,7 +904,7 @@ mod tests {
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
                 poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
-                shutdown_results: Arc::new(Mutex::new(vec![])),
+                poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1080,7 +1080,7 @@ mod tests {
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
                 poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
-                shutdown_results: Arc::new(Mutex::new(vec![])),
+                poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1281,7 +1281,7 @@ mod tests {
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
                 poll_write_results: vec![Ok(Async::NotReady)],
-                shutdown_results: Arc::new(Mutex::new(vec![])),
+                poll_close_results: Arc::new(Mutex::new(vec![])),
             };
 
             let mut subject = StreamHandlerPoolReal::new(

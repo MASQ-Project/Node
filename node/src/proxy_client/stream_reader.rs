@@ -1,4 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use std::future::Future;
+use std::io;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
@@ -9,8 +11,8 @@ use actix::Recipient;
 use crossbeam_channel::Sender;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use tokio::prelude::Async;
-use tokio::prelude::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -23,24 +25,23 @@ pub struct StreamReader {
 }
 
 impl Future for StreamReader {
-    type Item = ();
-    type Error = ();
+    type Output = io::Result<()>;
 
-    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
-            match self.stream.poll_read(&mut buf) {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(0)) => {
+            match self.stream.poll_read(cx, &mut buf) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Ok(0)) => {
                     // see RETURN VALUE section of recv man page (Unix)
                     debug!(
                         self.logger,
                         "Stream from {} was closed: (0-byte read)", self.peer_addr
                     );
                     self.shutdown();
-                    return Ok(Async::Ready(()));
+                    return Poll::Ready(Ok(()));
                 }
-                Ok(Async::Ready(len)) => {
+                Poll::Ready(Ok(len)) => {
                     if self.logger.trace_enabled() {
                         trace!(
                             self.logger,
@@ -53,16 +54,17 @@ impl Future for StreamReader {
                     let stream_key = self.stream_key;
                     self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
                 }
-                Err(e) => {
+                Poll::Ready(Err(e)) => {
                     if indicates_dead_stream(e.kind()) {
                         debug!(
                             self.logger,
                             "Stream from {} was closed: {}", self.peer_addr, e
                         );
                         self.shutdown();
-                        return Err(());
+                        return Poll::Ready(Err(e));
                     } else {
-                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors,
+                        // we go into a tight loop and do not return
                         warning!(
                             self.logger,
                             "Continuing after read error on stream from {}: {}",
@@ -146,17 +148,17 @@ mod tests {
         stream.poll_read_results = vec![
             (
                 read_results[0].clone(),
-                Ok(Async::Ready(read_results[0].len())),
+                Poll::Ready(Ok(read_results[0].len())),
             ),
             (
                 read_results[1].clone(),
-                Ok(Async::Ready(read_results[1].len())),
+                Poll::Ready(Ok(read_results[1].len())),
             ),
             (
                 read_results[2].clone(),
-                Ok(Async::Ready(read_results[2].len())),
+                Poll::Ready(Ok(read_results[2].len())),
             ),
-            (vec![], Ok(Async::Ready(0))),
+            (vec![], Poll::Ready(Ok(0))),
         ];
 
         let (tx, rx) = unbounded();
@@ -226,19 +228,19 @@ mod tests {
         stream.poll_read_results = vec![
             (
                 Vec::from(&b"HTTP/1.1 200"[..]),
-                Ok(Async::Ready(b"HTTP/1.1 200".len())),
+                Poll::Ready(Ok(b"HTTP/1.1 200".len())),
             ),
             (
                 Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]),
-                Ok(Async::Ready(b" OK\r\n\r\nHTTP/1.1 40".len())),
+                Poll::Ready(Ok(b" OK\r\n\r\nHTTP/1.1 40".len())),
             ),
             (
                 Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]),
-                Ok(Async::Ready(
+                Poll::Ready(Ok(
                     b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len(),
                 )),
             ),
-            (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
+            (vec![], Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe)))),
         ];
         let (tx, rx) = unbounded();
         thread::spawn(move || {
@@ -310,7 +312,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
-        stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
+        stream.poll_read_results = vec![(vec![], Poll::Ready(Ok(0)))];
 
         let system = System::new();
         let peer_actors = peer_actors_builder().build();
@@ -332,7 +334,7 @@ mod tests {
 
         let result = subject.poll();
 
-        assert_eq!(result, Ok(Async::Ready(())));
+        assert_eq!(result, Poll::Ready(Ok(())));
         assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
         TestLogHandler::new()
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
@@ -346,12 +348,12 @@ mod tests {
         let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![
-            (vec![], Err(Error::from(ErrorKind::Other))),
+            (vec![], Poll::Ready(Err(Error::from(ErrorKind::Other)))),
             (
                 Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
-                Ok(Async::Ready(b"HTTP/1.1 200 OK\r\n\r\n".len())),
+                Poll::Ready(Ok(b"HTTP/1.1 200 OK\r\n\r\n".len())),
             ),
-            (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
+            (vec![], Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe)))),
         ];
 
         let (tx, rx) = unbounded();

@@ -8,9 +8,6 @@ use crate::stream_messages::*;
 use crate::stream_reader::StreamReaderReal;
 use crate::stream_writer_sorted::StreamWriterSorted;
 use crate::stream_writer_unsorted::StreamWriterUnsorted;
-use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
-use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
@@ -44,7 +41,6 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::prelude::Future;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
@@ -1044,7 +1040,7 @@ mod tests {
             .poll_write_result(Ok(Async::Ready(2)))
             .poll_write_result(Ok(Async::NotReady))
             .poll_write_params(&poll_write_params_arc)
-            .shutdown_ok();
+            .poll_close_ok();
         let local_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.4.5:5673").unwrap();
         let connection_info = ConnectionInfo {
