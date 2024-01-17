@@ -25,7 +25,7 @@ use crate::accountant::payment_adjuster::log_fns::{
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, ProposedAdjustmentResolution};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, GraduallyFormedResult, ProposedAdjustmentResolution};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
@@ -267,11 +267,11 @@ impl PaymentAdjusterReal {
     fn propose_possible_adjustment_recursively(
         &mut self,
         weights_and_accounts: Vec<(u128, PayableAccount)>,
-    ) -> Vec<AdjustedAccountBeforeFinalization> {
+    ) -> Result<Vec<AdjustedAccountBeforeFinalization>, PaymentAdjusterError> {
         let adjustment_iteration_result =
             self.perform_adjustment_by_service_fee(weights_and_accounts);
 
-        let (here_decided_accounts, downstream_decided_accounts) =
+        let gradual_result =
             self.resolve_iteration_result(adjustment_iteration_result);
 
         let here_decided_iter = here_decided_accounts.into_iter();
@@ -281,19 +281,16 @@ impl PaymentAdjusterReal {
 
         diagnostics!("\nFINAL ADJUSTED ACCOUNTS:", &merged);
 
-        merged
+        Ok(merged)
     }
 
     fn resolve_iteration_result(
         &mut self,
         adjustment_iteration_result: AdjustmentIterationResult,
-    ) -> (
-        Vec<AdjustedAccountBeforeFinalization>,
-        Vec<AdjustedAccountBeforeFinalization>,
-    ) {
+    ) -> Result<GraduallyFormedResult,PaymentAdjusterError> {
         match adjustment_iteration_result {
             AdjustmentIterationResult::AllAccountsProcessedSmoothly(decided_accounts) => {
-                (decided_accounts, vec![])
+                Ok(GraduallyFormedResult::new(decided_accounts, vec![]))
             }
             AdjustmentIterationResult::SpecialTreatmentNeeded {
                 case: special_case,
@@ -304,7 +301,8 @@ impl PaymentAdjusterReal {
                         if remaining.is_empty() {
                             debug!(self.logger, "Last remaining account ended up disqualified");
 
-                            return (vec![], vec![]);
+                            todo!();
+                            return Err(PaymentAdjusterError::AllAccountsEliminated);
                         }
 
                         vec![]
@@ -315,13 +313,14 @@ impl PaymentAdjusterReal {
                     }
                 };
 
+                // Note: there always is at least one remaining account besides an outweighed one
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustments_recursively(
                         remaining,
                         ServiceFeeOnlyAdjustmentRunner {},
                     );
 
-                (here_decided_accounts, down_stream_decided_accounts)
+                Ok(GraduallyFormedResult::new(here_decided_accounts, down_stream_decided_accounts))
             }
         }
     }
@@ -579,7 +578,7 @@ pub enum PaymentAdjusterError {
         total_amount_demanded_minor: u128,
         cw_service_fee_balance_minor: u128,
     },
-    AllAccountsUnexpectedlyEliminated,
+    AllAccountsEliminated,
 }
 
 impl Display for PaymentAdjusterError {
@@ -612,10 +611,9 @@ impl Display for PaymentAdjusterError {
                 total_amount_demanded_minor.separate_with_commas(),
                 cw_service_fee_balance_minor.separate_with_commas()
             ),
-            PaymentAdjusterError::AllAccountsUnexpectedlyEliminated => write!(
+            PaymentAdjusterError::AllAccountsEliminated => write!(
                 f,
-                "While chances were according to the preliminary analysis, the adjustment \
-                algorithm rejected each payable"
+                "The adjustment algorithm had to eliminate each payable given the resources."
             ),
         }
     }
@@ -877,9 +875,8 @@ mod tests {
                 70,000,000,000,000 wei. Consuming wallet balance: 90,000 wei",
             ),
             (
-                PaymentAdjusterError::AllAccountsUnexpectedlyEliminated,
-                "While chances were according to the preliminary analysis, the adjustment \
-                algorithm rejected each payable",
+                PaymentAdjusterError::AllAccountsEliminated,
+                "The adjustment algorithm had to eliminate each payable given the resources.",
             ),
         ]
         .into_iter()
@@ -1058,26 +1055,48 @@ mod tests {
     }
 
     #[test]
-    fn there_is_door_leading_out_if_we_accidentally_wind_up_with_last_account_also_disqualified() {
-        // Not really an expected behavior but cannot be ruled out with an absolute confidence
+    fn adjustment_started_but_all_accounts_were_eliminated_anyway() {
+
+        XXXX write me correctly!
+
         init_test_logging();
-        let test_name = "there_is_door_leading_out_if_we_accidentally_wind_up_with_last_account_also_disqualified";
-        let mut subject =
-            make_initialized_subject(SystemTime::now(), Some(123), Some(Logger::new(test_name)));
-        let adjustment_iteration_result = AdjustmentIterationResult::SpecialTreatmentNeeded {
-            case: TreatInsignificantAccount,
-            remaining: vec![],
+        let test_name = "adjustment_started_but_all_accounts_were_eliminated_anyway";
+        let now = SystemTime::now();
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 1,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let account_2 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: 6_000_000_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1.clone(), account_2.clone()];
+        let mut subject = PaymentAdjusterReal::new();
+        subject.logger = Logger::new(test_name);
+        let agent_id_stamp = ArbitraryIdStamp::new();
+        let accounts_sum: u128 =
+            4_444_444_444_444_444_444 + 6_000_000_000_000_000_000 + 6_666_666_666_000_000_000;
+        let service_fee_balance_in_minor_units = accounts_sum - 2_000_000_000_000_000_000;
+        let agent = {
+            let mock = BlockchainAgentMock::default()
+                .set_arbitrary_id_stamp(agent_id_stamp)
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
+            Box::new(mock)
+        };
+        let adjustment_setup = PreparedAdjustment {
+            qualified_payables,
+            agent,
+            adjustment: Adjustment::ByServiceFee,
+            response_skeleton_opt: None,
         };
 
-        let (here_decided_accounts, downstream_decided_accounts) =
-            subject.resolve_iteration_result(adjustment_iteration_result);
+        let result = subject.adjust_payments(adjustment_setup, now);
 
-        assert!(here_decided_accounts.is_empty());
-        assert!(downstream_decided_accounts.is_empty());
-        // Even though we normally don't assert on DEBUG logs, this one hardens the test
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Last remaining account ended up disqualified"
-        ));
+        assert_eq!(result, Err(PaymentAdjusterError::AllAccountsEliminated))
     }
 
     #[test]
@@ -1145,10 +1164,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_accounts_count_evens_the_payments_count() {
+    fn qualified_accounts_count_evens_the_payments_count() {
         // Meaning adjustment by service fee but no account elimination
         init_test_logging();
-        let test_name = "initial_accounts_count_evens_the_payments_count";
+        let test_name = "qualified_accounts_count_evens_the_payments_count";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),

@@ -1674,7 +1674,7 @@ mod tests {
             "payment_adjuster_throws_out_an_error_it_became_dirty_from_the_job_on_the_adjustment";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
-            .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsUnexpectedlyEliminated));
+            .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
 
         test_handling_payment_adjuster_error(test_name, payment_adjuster);
 

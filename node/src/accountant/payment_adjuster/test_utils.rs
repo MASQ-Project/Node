@@ -42,7 +42,7 @@ pub fn make_extreme_accounts(
     now: SystemTime,
 ) -> Vec<PayableAccount> {
     let accounts_seeds: Vec<(usize, u128)> = match months_of_debt_and_balance_minor {
-        Either::Left((vec, constant_balance)) => vec
+        Either::Left((vec_of_months, constant_balance)) => vec_of_months
             .into_iter()
             .map(|months| (months, constant_balance))
             .collect(),

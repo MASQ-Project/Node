@@ -11,6 +11,17 @@ pub enum AdjustmentIterationResult {
     },
 }
 
+pub struct GraduallyFormedResult{
+    pub here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
+    pub downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>
+}
+
+impl GraduallyFormedResult{
+    pub fn new(here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>, downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>)->Self{
+        Self{ here_decided_accounts, downstream_decided_accounts }
+    }
+}
+
 #[derive(Debug)]
 pub enum AfterAdjustmentSpecialTreatment {
     TreatInsignificantAccount,
