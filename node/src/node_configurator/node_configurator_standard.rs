@@ -376,6 +376,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -1075,7 +1076,7 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file");
+        let home_dir = home_dir().expect("expectexd home dir");
         let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("masqhome");
         let _create_data_dir = create_dir_all(data_dir);

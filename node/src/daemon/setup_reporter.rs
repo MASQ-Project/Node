@@ -1216,6 +1216,7 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
+    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyMumbai;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -2029,6 +2030,58 @@ mod tests {
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_tilde_in_config_file_path() {
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_tilde_in_data_directory",
+        );
+        let data_dir = base_dir.join("data_dir");
+        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
+        let mut config_file = File::create(
+            home_dir()
+                .expect("expect home dir")
+                .join("masqhome")
+                .join("config.toml"),
+        )
+        .unwrap();
+        config_file
+            .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
+            .unwrap();
+        let existing_setup = setup_cluster_from(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![
+            ("data-directory", "~/masqhome"),
+            ("config-file", "~/masqhome/config.toml"),
+        ]
+        .into_iter()
+        .map(|(name, value)| UiSetupRequestValue::new(name, value))
+        .collect_vec();
+
+        let expected_config_file_data = "https://www.mainnet.com";
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
+        assert_eq!(actual_config_file_data, expected_config_file_data);
     }
 
     #[test]
