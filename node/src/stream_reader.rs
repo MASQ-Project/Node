@@ -22,7 +22,7 @@ pub struct StreamReaderReal {
     reception_port: Option<u16>,
     ibcd_sub: Recipient<dispatcher::InboundClientData>,
     remove_sub: Recipient<RemoveStreamMsg>,
-    stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    dispatcher_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     discriminators: Vec<Discriminator>,
     is_clandestine: bool,
     logger: Logger,
@@ -89,7 +89,7 @@ impl StreamReaderReal {
         reception_port: Option<u16>,
         ibcd_sub: Recipient<dispatcher::InboundClientData>,
         remove_sub: Recipient<RemoveStreamMsg>,
-        stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+        dispatcher_sub: Recipient<StreamShutdownMsg>,
         discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
         peer_addr: SocketAddr,
@@ -110,7 +110,7 @@ impl StreamReaderReal {
             reception_port,
             ibcd_sub,
             remove_sub,
-            stream_shutdown_sub,
+            dispatcher_stream_shutdown_sub: dispatcher_sub,
             discriminators,
             is_clandestine,
             logger: Logger::new(&name),
@@ -196,7 +196,7 @@ impl StreamReaderReal {
                         sequence_number: self.sequencer.next_sequence_number(),
                     })
                 },
-                sub: self.stream_shutdown_sub.clone(),
+                dispatcher_sub: self.dispatcher_stream_shutdown_sub.clone(),
             })
             .expect("StreamHandlerPool is dead");
     }
@@ -288,7 +288,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -337,7 +337,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -749,7 +749,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
     }
@@ -792,7 +792,7 @@ mod tests {
                     reception_port: HTTP_PORT,
                     sequence_number: 1,
                 }),
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
     }

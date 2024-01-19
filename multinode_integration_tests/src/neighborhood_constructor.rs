@@ -3,8 +3,8 @@
 use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::MASQNode;
 use crate::masq_node_cluster::MASQNodeCluster;
-use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
+use crate::masq_real_node::{MASQRealNode, NodeStartupConfig};
 use crate::multinode_gossip::{Standard, StandardBuilder};
 use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
@@ -51,25 +51,28 @@ use std::time::Duration;
 /// * `HashMap<PublicKey, MASQMockNode>` The mock Nodes corresponding to other NodeRecords in `model_db`. They
 ///                                             will have the same public keys as the `model_db` NodeRecords they
 ///                                             represent, but different NodeAddrs.
-pub fn construct_neighborhood(
+pub fn construct_neighborhood<F>(
     cluster: &mut MASQNodeCluster,
     model_db: NeighborhoodDatabase,
     additional_keys_to_mock: Vec<&PublicKey>,
+    modify_config: F,
 ) -> (
     NeighborhoodDatabase,
     MASQRealNode,
     HashMap<PublicKey, MASQMockNode>,
-) {
-    let real_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .fake_public_key(model_db.root().public_key())
-            .consuming_wallet_info(make_consuming_wallet_info(
-                model_db.root().public_key().to_string().as_str(),
-            ))
-            .rate_pack(model_db.root().inner.rate_pack)
-            .chain(cluster.chain)
-            .build(),
-    );
+)
+where
+    F: FnOnce(NodeStartupConfigBuilder) -> NodeStartupConfig,
+{
+    let config_builder = NodeStartupConfigBuilder::standard()
+        .fake_public_key(model_db.root().public_key())
+        .consuming_wallet_info(make_consuming_wallet_info(
+            model_db.root().public_key().to_string().as_str(),
+        ))
+        .rate_pack(model_db.root().inner.rate_pack)
+        .chain(cluster.chain);
+    let config = modify_config(config_builder);
+    let real_node = cluster.start_real_node(config);
     let (mock_node_map, adjacent_mock_node_keys) =
         make_mock_node_map(cluster, &model_db, &real_node, additional_keys_to_mock);
     let modified_nodes = make_modified_node_records(model_db, &mock_node_map);
@@ -80,6 +83,10 @@ pub fn construct_neighborhood(
     make_and_send_final_setup_gossip(gossip_source_mock_node, &modified_nodes, &real_node);
     absorb_final_setup_responses(&adjacent_mock_node_keys, &mock_node_map);
     (modified_db, real_node, mock_node_map)
+}
+
+pub fn do_not_modify_config() -> impl FnOnce(NodeStartupConfigBuilder) -> NodeStartupConfig {
+    |builder: NodeStartupConfigBuilder| builder.build()
 }
 
 fn make_mock_node_map(

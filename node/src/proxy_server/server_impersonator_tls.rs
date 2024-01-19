@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::ServerImpersonator;
-use crate::sub_lib::cryptde::PublicKey;
 
 pub struct ServerImpersonatorTls {}
 
@@ -9,11 +8,7 @@ impl ServerImpersonator for ServerImpersonatorTls {
         Vec::from(&TLS_INTERNAL_ERROR_ALERT[..])
     }
 
-    fn dns_resolution_failure_response(
-        &self,
-        _exit_key: &PublicKey,
-        _server_name: Option<String>,
-    ) -> Vec<u8> {
+    fn dns_resolution_failure_response(&self, _server_name: Option<String>) -> Vec<u8> {
         Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..])
     }
 
@@ -80,8 +75,7 @@ mod tests {
     fn dns_resolution_failure_response_produces_unrecognized_name_alert() {
         let subject = ServerImpersonatorTls {};
 
-        let result =
-            subject.dns_resolution_failure_response(&PublicKey::new(&b"ignored"[..]), None);
+        let result = subject.dns_resolution_failure_response(None);
 
         assert_eq!(Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..]), result);
     }
