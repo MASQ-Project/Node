@@ -6,7 +6,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamByUse, SQLParamsBuilder, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, RusqliteParamPairAsStruct, SQLParamsBuilder, TableNameDAO};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
@@ -110,16 +110,17 @@ impl PayableDao for PayableDaoReal {
                 name_without_suffix: "balance",
                 amount_to_add: amount,
             })
-            .other_params(vec![ParamByUse::BeforeOverflowOnly {
-                name: ":last_paid_timestamp",
-                value: &last_paid_timestamp,
-            }])
+            .other_params(vec![ParamByUse::BeforeOverflowOnly(
+                DisplayableRusqliteParamPair::new(":last_paid_timestamp", &last_paid_timestamp),
+            )])
             .build();
 
-        Ok(self.big_int_db_processor.execute(
+        self.big_int_db_processor.execute(
             Either::Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
-        )?)
+        )?;
+
+        Ok(())
     }
 
     fn mark_pending_payables_rowids(
@@ -163,13 +164,15 @@ impl PayableDao for PayableDaoReal {
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
                 .wei_change(Subtraction{name_without_suffix: "balance", amount_to_subtract: pending_payable_fingerprint.amount})
-                .other_params(vec![ParamByUse::BeforeAndAfterOverflow { name: ":last_paid", value: &last_paid}])
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
                 .build();
 
-            Ok(self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
+            self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
                 update_clause_with_compensated_overflow,
-                params))?)
+                params))?;
+
+            Ok(())
         })
     }
 

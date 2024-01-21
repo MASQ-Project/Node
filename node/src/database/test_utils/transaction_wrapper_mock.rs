@@ -256,7 +256,7 @@ impl PrepareResultsDispatcher {
         }
     }
 
-    pub fn new_with_prod_code_and_altered_stmts(
+    pub fn construct_with_prod_code_and_altered_stmts(
         prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
         altered_stmts_conn_opt: Option<Box<dyn ConnectionWrapper>>,
         stm_determining_queue: Vec<Option<AlteredStmtByOrigin>>,

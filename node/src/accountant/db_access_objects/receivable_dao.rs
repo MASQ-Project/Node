@@ -10,8 +10,8 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, ParamByUse,
-    SQLParamsBuilder, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig,
+    DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
@@ -36,12 +36,6 @@ pub enum ReceivableDaoError {
     ConfigurationError(String),
     RusqliteError(String),
 }
-
-// impl From<PersistentConfigError> for ReceivableDaoError {
-//     fn from(input: PersistentConfigError) -> Self {
-//         ReceivableDaoError::ConfigurationError(format!("{:?}", input))
-//     }
-// }
 
 impl From<rusqlite::Error> for ReceivableDaoError {
     fn from(input: Error) -> Self {
@@ -133,16 +127,20 @@ impl ReceivableDao for ReceivableDaoReal {
                 name_without_suffix: "balance",
                 amount_to_add: amount,
             })
-            .other_params(vec![ParamByUse::BeforeOverflowOnly {
-                name: ":last_received_timestamp",
-                value: &last_received_timestamp,
-            }])
+            .other_params(vec![ParamByUse::BeforeOverflowOnly(
+                DisplayableRusqliteParamPair::new(
+                    ":last_received_timestamp",
+                    &last_received_timestamp,
+                ),
+            )])
             .build();
 
-        Ok(self.big_int_db_processor.execute(
+        self.big_int_db_processor.execute(
             Either::Left(self.conn.as_ref()),
             BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
-        )?)
+        )?;
+
+        Ok(())
     }
 
     fn more_money_received(
@@ -345,10 +343,9 @@ impl ReceivableDaoReal {
                     name_without_suffix: "balance",
                     amount_to_subtract: received_payment.wei_amount,
                 })
-                .other_params(vec![ParamByUse::BeforeAndAfterOverflow {
-                    name: ":last_received",
-                    value: &last_received_timestamp,
-                }])
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(
+                    DisplayableRusqliteParamPair::new(":last_received", &last_received_timestamp),
+                )])
                 .build();
 
             let result = big_int_db_processor.execute(
@@ -381,24 +378,23 @@ impl ReceivableDaoReal {
         let block_number = suspect.block_number;
 
         match Self::row_count_for_address(txn, address) {
-            0 => (),
+            0 => {
+                info!(logger,
+                "Received {amount} wei from unknown debtor {address} in the block {block_number}.");
+                Ok(())
+            },
             1 => {
-                return Err(RusqliteError(format!(
+                Err(RusqliteError(format!(
                     "Update for received payment with {amount} wei ran without producing a change \
                     in the database, despite the record for wallet {address} exists."
                 )))
             }
-            x => return Err(RusqliteError(format!(
+            x => Err(RusqliteError(format!(
                 "Update for received payment with {amount} wei ran without producing a change in \
                 the database. At the same time, it's been found that wallet address {address} refers \
                 to {x} records while it always should have none or one."
             ))),
-        };
-        info!(
-            logger,
-            "Received {amount} wei from unknown debtor {address} in the block {block_number}."
-        );
-        Ok(())
+        }
     }
 
     fn row_count_for_address(conn: &TransactionSafeWrapper, wallet: &Wallet) -> usize {
@@ -1031,7 +1027,7 @@ mod tests {
             let conn = Connection::open_with_flags(&db_path, flags).unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = PrepareResultsDispatcher::new_with_prod_code_and_altered_stmts(
+        let prepare_results = PrepareResultsDispatcher::construct_with_prod_code_and_altered_stmts(
             prod_code_calls_conn,
             Some(panic_causing_conn),
             vec![
@@ -1202,7 +1198,6 @@ mod tests {
             from: wallet,
             wei_amount: 1_000_000_000,
         };
-
         let logger = Logger::new(test_name);
 
         let result = ReceivableDaoReal::verify_possibly_unknown_wallet(&txn, &logger, &suspect);
