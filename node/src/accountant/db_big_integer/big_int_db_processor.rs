@@ -86,11 +86,11 @@ impl<T: TableNameDAO> BigIntDbProcessorReal<T> {
         mut statement: Statement,
         params: Vec<RusqliteParamPairAsStruct>,
     ) -> rusqlite::Result<usize> {
-        let rusqlite_purely_typed_params: Vec<(&str, &dyn ToSql)> = params
+        let params_in_pure_rusqlite_format: Vec<(&str, &dyn ToSql)> = params
             .into_iter()
             .map(|param| (param.sql_subst_name, param.value))
             .collect();
-        statement.execute(rusqlite_purely_typed_params.as_slice())
+        statement.execute(params_in_pure_rusqlite_format.as_slice())
     }
 }
 
@@ -333,12 +333,8 @@ pub struct SQLParamsBuilder<'params> {
 
 impl<'params> SQLParamsBuilder<'params> {
     pub fn key(mut self, key_variant: KeyVariants<'params>) -> Self {
-        let (definition_name, substitution_name_in_sql, value_itself) = key_variant.into();
-        self.key_spec_opt = Some(TableUniqueKey {
-            column_name: definition_name,
-            substitution_name_in_sql,
-            value: value_itself,
-        });
+        let key_spec = TableUniqueKey::from(key_variant);
+        self.key_spec_opt = Some(key_spec);
         self
     }
 
@@ -386,6 +382,20 @@ struct TableUniqueKey<'params> {
     value: &'params dyn DisplayableParamValue,
 }
 
+impl<'params> TableUniqueKey<'params> {
+    fn new(
+        column_name: &'params str,
+        substitution_name_in_sql: &'params str,
+        value: &'params dyn DisplayableParamValue,
+    ) -> Self {
+        Self {
+            column_name,
+            substitution_name_in_sql,
+            value,
+        }
+    }
+}
+
 pub enum KeyVariants<'params> {
     WalletAddress(&'params dyn DisplayableParamValue),
     PendingPayableRowid(&'params dyn DisplayableParamValue),
@@ -397,23 +407,21 @@ pub enum KeyVariants<'params> {
     },
 }
 
-impl<'params> From<KeyVariants<'params>>
-    for (
-        &'params str,
-        &'params str,
-        &'params dyn DisplayableParamValue,
-    )
-{
+impl<'params> From<KeyVariants<'params>> for TableUniqueKey<'params> {
     fn from(variant: KeyVariants<'params>) -> Self {
         match variant {
-            KeyVariants::WalletAddress(val) => ("wallet_address", ":wallet", val),
-            KeyVariants::PendingPayableRowid(val) => ("pending_payable_rowid", ":rowid", val),
+            KeyVariants::WalletAddress(val) => {
+                TableUniqueKey::new("wallet_address", ":wallet", val)
+            }
+            KeyVariants::PendingPayableRowid(val) => {
+                TableUniqueKey::new("pending_payable_rowid", ":rowid", val)
+            }
             #[cfg(test)]
             KeyVariants::TestKey {
                 column_name: var_name,
                 substitution_name: sub_name,
                 value: val,
-            } => (var_name, sub_name, val),
+            } => TableUniqueKey::new(var_name, sub_name, val),
         }
     }
 }
@@ -432,9 +440,11 @@ struct WeiChangeAsHighAndLowBytes {
 
 impl WeiChangeAsHighAndLowBytes {
     fn new(name: &str, high_bytes: i64, low_bytes: i64) -> Self {
+        let high_bytes = StdNumParamFormNamed::new(format!(":{}_high_b", name), high_bytes);
+        let low_bytes = StdNumParamFormNamed::new(format!(":{}_low_b", name), low_bytes);
         Self {
-            high_bytes: StdNumParamFormNamed::new(format!(":{}_high_b", name), high_bytes),
-            low_bytes: StdNumParamFormNamed::new(format!(":{}_low_b", name), low_bytes),
+            high_bytes,
+            low_bytes,
         }
     }
 }
@@ -446,27 +456,17 @@ struct StdNumParamFormNamed {
 }
 
 impl From<WeiChange> for WeiChangeAsHighAndLowBytes {
-    fn from(undivided_wei_change: WeiChange) -> Self {
-        let (name, num): (&'static str, i128) = match undivided_wei_change {
-            WeiChange::Addition {
-                name_without_suffix,
-                amount_to_add,
-            } => (
-                name_without_suffix,
-                checked_conversion::<u128, i128>(amount_to_add),
-            ),
-            WeiChange::Subtraction {
-                name_without_suffix,
-                amount_to_subtract,
-            } => (
-                name_without_suffix,
-                checked_conversion::<u128, i128>(amount_to_subtract).neg(),
-            ),
+    fn from(wei_change: WeiChange) -> Self {
+        let size_checked_amount = checked_conversion::<u128, i128>(wei_change.amount_to_change);
+
+        let oriented_amount = match wei_change.direction {
+            WeiChangeDirection::Addition => size_checked_amount,
+            WeiChangeDirection::Subtraction => size_checked_amount.neg(),
         };
 
-        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(num);
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(oriented_amount);
 
-        WeiChangeAsHighAndLowBytes::new(name, high_bytes, low_bytes)
+        WeiChangeAsHighAndLowBytes::new(wei_change.unsuffixed_name, high_bytes, low_bytes)
     }
 }
 
@@ -510,14 +510,14 @@ impl<'params> From<&'params WeiChangeAsHighAndLowBytes>
 {
     fn from(wei_change: &'params WeiChangeAsHighAndLowBytes) -> Self {
         [
-            RusqliteParamPairAsStruct {
-                sql_subst_name: wei_change.high_bytes.name.as_str(),
-                value: &wei_change.high_bytes.value,
-            },
-            RusqliteParamPairAsStruct {
-                sql_subst_name: wei_change.low_bytes.name.as_str(),
-                value: &wei_change.low_bytes.value,
-            },
+            RusqliteParamPairAsStruct::new(
+                wei_change.high_bytes.name.as_str(),
+                &wei_change.high_bytes.value,
+            ),
+            RusqliteParamPairAsStruct::new(
+                wei_change.low_bytes.name.as_str(),
+                &wei_change.low_bytes.value,
+            ),
         ]
     }
 }
@@ -559,18 +559,31 @@ pub trait TableNameDAO: Debug + Send {
     fn table_name() -> String;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum WeiChange {
-    Addition {
-        name_without_suffix: &'static str,
-        amount_to_add: u128,
-    },
-    //This means that the supplied amount is internally converted into a signed number and
-    //so even though the related SQL contains + signs the resulting math operation is subtraction
-    Subtraction {
-        name_without_suffix: &'static str,
-        amount_to_subtract: u128,
-    },
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeiChange {
+    unsuffixed_name: &'static str,
+    amount_to_change: u128,
+    direction: WeiChangeDirection,
+}
+
+impl WeiChange {
+    pub fn new(
+        unsuffixed_name: &'static str,
+        amount_to_change: u128,
+        direction: WeiChangeDirection,
+    ) -> Self {
+        Self {
+            unsuffixed_name,
+            amount_to_change,
+            direction,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum WeiChangeDirection {
+    Addition,
+    Subtraction,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -615,9 +628,7 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
     use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::TestKey;
-    use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
-        Addition, Subtraction,
-    };
+    use crate::accountant::db_big_integer::big_int_db_processor::WeiChangeDirection::Addition;
     use crate::accountant::db_big_integer::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };
@@ -724,19 +735,17 @@ mod tests {
     }
 
     #[test]
-    fn known_key_variants_to_tuple_of_names_and_val_works() {
-        let (wallet_name, wallet_sub_name, wallet_val): (&str, &str, &dyn DisplayableParamValue) =
-            KeyVariants::WalletAddress(&"blah").into();
-        let (rowid_name, rowid_sub_name, rowid_val): (&str, &str, &dyn DisplayableParamValue) =
-            KeyVariants::PendingPayableRowid(&123).into();
+    fn known_key_variants_to_table_unique_key_works() {
+        let key_1: TableUniqueKey = KeyVariants::WalletAddress(&"blah").into();
+        let key_2: TableUniqueKey = KeyVariants::PendingPayableRowid(&123).into();
 
-        assert_eq!(wallet_name, "wallet_address");
-        assert_eq!(wallet_sub_name, ":wallet");
-        assert_eq!(wallet_val.to_string(), "blah".to_string());
-        assert_eq!(rowid_name, "pending_payable_rowid");
-        assert_eq!(rowid_sub_name, ":rowid");
-        assert_eq!(rowid_val.to_string(), 123.to_string())
-        //cannot be compared by values directly
+        assert_eq!(key_1.column_name, "wallet_address");
+        assert_eq!(key_1.substitution_name_in_sql, ":wallet");
+        assert_eq!(key_1.value.to_string(), "blah".to_string());
+        assert_eq!(key_2.column_name, "pending_payable_rowid");
+        assert_eq!(key_2.substitution_name_in_sql, ":rowid");
+        assert_eq!(key_2.value.to_string(), 123.to_string())
+        // Values cannot be compared directly
     }
 
     #[test]
@@ -744,10 +753,11 @@ mod tests {
         let subject = SQLParamsBuilder::default();
 
         let result = subject
-            .wei_change(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: 4546,
-            })
+            .wei_change(WeiChange::new(
+                "balance",
+                4546,
+                WeiChangeDirection::Addition,
+            ))
             .key(TestKey {
                 column_name: "some_key",
                 substitution_name: ":some_key",
@@ -762,10 +772,11 @@ mod tests {
 
         assert_eq!(
             result.wei_change_spec_opt,
-            Some(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: 4546
-            })
+            Some(WeiChange::new(
+                "balance",
+                4546,
+                WeiChangeDirection::Addition
+            ))
         );
         let key_spec = result.key_spec_opt.unwrap();
         assert_eq!(key_spec.column_name, "some_key");
@@ -784,10 +795,7 @@ mod tests {
 
     #[test]
     fn sql_params_builder_builds_correct_params_with_addition_in_wei_change() {
-        let wei_change_input = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 115898,
-        };
+        let wei_change_input = WeiChange::new("balance", 115898, Addition);
         let expected_resulted_wei_change_params = WeiChangeAsHighAndLowBytes {
             high_bytes: StdNumParamFormNamed::new(":balance_high_b".to_string(), 0),
             low_bytes: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898),
@@ -798,10 +806,7 @@ mod tests {
 
     #[test]
     fn sql_params_builder_builds_correct_params_with_subtraction_in_wei_change() {
-        let wei_change_input = Subtraction {
-            name_without_suffix: "balance",
-            amount_to_subtract: 454684,
-        };
+        let wei_change_input = WeiChange::new("balance", 454684, WeiChangeDirection::Subtraction);
         let expected_resulted_wei_change_params = WeiChangeAsHighAndLowBytes {
             high_bytes: StdNumParamFormNamed::new(":balance_high_b".to_string(), -1),
             low_bytes: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124),
@@ -846,10 +851,11 @@ mod tests {
         let subject = SQLParamsBuilder::default();
 
         let _ = subject
-            .wei_change(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: 4546,
-            })
+            .wei_change(WeiChange::new(
+                "balance",
+                4546,
+                WeiChangeDirection::Addition,
+            ))
             .other_params(vec![ParamByUse::BeforeAndAfterOverflow(
                 DisplayableRusqliteParamPair::new("laughter", &"hahaha"),
             )])
@@ -878,10 +884,11 @@ mod tests {
         let subject = SQLParamsBuilder::default();
 
         let _ = subject
-            .wei_change(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: 4546,
-            })
+            .wei_change(WeiChange::new(
+                "balance",
+                4546,
+                WeiChangeDirection::Addition,
+            ))
             .key(TestKey {
                 column_name: "id",
                 substitution_name: ":id",
@@ -1185,10 +1192,7 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_addition",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: wei_change as u128,
-            },
+            WeiChange::new("balance", wei_change as u128, WeiChangeDirection::Addition),
             initial,
         );
 
@@ -1213,10 +1217,7 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_addition_with_overflow",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: wei_change as u128,
-            },
+            WeiChange::new("balance", wei_change as u128, WeiChangeDirection::Addition),
             initial,
         );
 
@@ -1242,10 +1243,11 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_subtraction",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: wei_change.abs() as u128,
-            },
+            WeiChange::new(
+                "balance",
+                wei_change.abs() as u128,
+                WeiChangeDirection::Subtraction,
+            ),
             initial,
         );
 
@@ -1271,10 +1273,11 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_subtraction_with_overflow",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: wei_change.abs() as u128,
-            },
+            WeiChange::new(
+                "balance",
+                wei_change.abs() as u128,
+                WeiChangeDirection::Subtraction,
+            ),
             initial,
         );
 
@@ -1304,10 +1307,7 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "early_return_for_successful_insert_works",
             STANDARD_EXAMPLE_OF_INSERT_CLAUSE,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: wei_change as u128,
-            },
+            WeiChange::new("balance", wei_change as u128, WeiChangeDirection::Addition),
             initial,
         );
 
@@ -1332,10 +1332,11 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "early_return_for_successful_insert_works_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_CLAUSE,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: wei_change.abs() as u128,
-            },
+            WeiChange::new(
+                "balance",
+                wei_change.abs() as u128,
+                WeiChangeDirection::Subtraction,
+            ),
             initial,
         );
 
@@ -1364,10 +1365,7 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_simple_update_succeeds_for_addition",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: wei_change as u128,
-            },
+            WeiChange::new("balance", wei_change as u128, WeiChangeDirection::Addition),
             initial,
         );
 
@@ -1392,10 +1390,11 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_simple_update_succeeds_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: wei_change.abs() as u128,
-            },
+            WeiChange::new(
+                "balance",
+                wei_change.abs() as u128,
+                WeiChangeDirection::Subtraction,
+            ),
             initial,
         );
 
@@ -1421,10 +1420,7 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_update_with_overflow_for_addition",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: wei_change as u128,
-            },
+            WeiChange::new("balance", wei_change as u128, WeiChangeDirection::Addition),
             initial,
         );
 
@@ -1450,10 +1446,11 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_update_with_overflow_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: wei_change.abs() as u128,
-            },
+            WeiChange::new(
+                "balance",
+                wei_change.abs() as u128,
+                WeiChangeDirection::Subtraction,
+            ),
             initial,
         );
 
@@ -1489,10 +1486,11 @@ mod tests {
                     "",
                     SQLParamsBuilder::default()
                         .key(test_database_key(&"Joe"))
-                        .wei_change(Addition {
-                            name_without_suffix: "balance",
-                            amount_to_add: wei_change as u128,
-                        })
+                        .wei_change(WeiChange::new(
+                            "balance",
+                            wei_change as u128,
+                            WeiChangeDirection::Addition,
+                        ))
                         .build(),
                 ),
             );
@@ -1526,10 +1524,7 @@ mod tests {
             "main_sql_clause_error_handled",
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::default();
-        let balance_change = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 4879898145125,
-        };
+        let balance_change = WeiChange::new("balance", 4879898145125, WeiChangeDirection::Addition);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_wrong_a, :balance_wrong_b) on conflict (name) do \
              update set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",
@@ -1559,10 +1554,7 @@ mod tests {
             "different_count_of_changed_rows_than_expected_with_update_only_configuration",
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::default();
-        let balance_change = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 12345,
-        };
+        let balance_change = WeiChange::new("balance", 12345, WeiChangeDirection::Addition);
         let config = BigIntSqlConfig::new(
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
             "",
@@ -1626,10 +1618,7 @@ mod tests {
         let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_addition",
             big_initial,
-            Addition {
-                name_without_suffix: "balance",
-                amount_to_add: big_addend as u128,
-            },
+            WeiChange::new("balance", big_addend as u128, WeiChangeDirection::Addition),
         );
 
         assert_eq!(
@@ -1650,10 +1639,11 @@ mod tests {
         let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_positive_num",
             big_initial,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: big_subtrahend as u128,
-            },
+            WeiChange::new(
+                "balance",
+                big_subtrahend as u128,
+                WeiChangeDirection::Subtraction,
+            ),
         );
 
         assert_eq!(
@@ -1677,10 +1667,11 @@ mod tests {
         let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_negative_num",
             -big_initial,
-            Subtraction {
-                name_without_suffix: "balance",
-                amount_to_subtract: big_subtrahend as u128,
-            },
+            WeiChange::new(
+                "balance",
+                big_subtrahend as u128,
+                WeiChangeDirection::Subtraction,
+            ),
         );
 
         assert_eq!(
@@ -1701,10 +1692,7 @@ mod tests {
             "big_int_db_processor",
             "update_with_overflow_handles_unspecific_error",
         );
-        let balance_change = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 100,
-        };
+        let balance_change = WeiChange::new("balance", 100, WeiChangeDirection::Addition);
         let update_config = BigIntSqlConfig::new(
             "this can be whatever because the test fails earlier on the select stm",
             STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
@@ -1740,10 +1728,7 @@ mod tests {
         );
         insert_single_record(&*conn, [&"Joe", &60, &5555]);
         insert_single_record(&*conn, [&"Jodie", &77, &0]);
-        let balance_change = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 100,
-        };
+        let balance_change = WeiChange::new("balance", 100, WeiChangeDirection::Addition);
         let update_config = BigIntSqlConfig::new(
             "",
             "update test_table set balance_high_b = balance_high_b + :balance_high_b, \
@@ -1774,10 +1759,7 @@ mod tests {
             .execute([])
             .unwrap();
         insert_single_record(&*conn, [&"Joe", &60, &"bad type"]);
-        let balance_change = Addition {
-            name_without_suffix: "balance",
-            amount_to_add: 100,
-        };
+        let balance_change = WeiChange::new("balance", 100, WeiChangeDirection::Addition);
         let update_config = BigIntSqlConfig::new(
             "this can be whatever because the test fails earlier on the select stm",
             "",

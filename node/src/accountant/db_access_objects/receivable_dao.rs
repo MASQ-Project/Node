@@ -8,10 +8,10 @@ use crate::accountant::db_access_objects::utils::{
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
-use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig,
-    DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO,
+    DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange,
+    WeiChangeDirection,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
@@ -123,10 +123,11 @@ impl ReceivableDao for ReceivableDaoReal {
         let last_received_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
-            .wei_change(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: amount,
-            })
+            .wei_change(WeiChange::new(
+                "balance",
+                amount,
+                WeiChangeDirection::Addition,
+            ))
             .other_params(vec![ParamByUse::BeforeOverflowOnly(
                 DisplayableRusqliteParamPair::new(
                     ":last_received_timestamp",
@@ -339,10 +340,11 @@ impl ReceivableDaoReal {
             let last_received_timestamp = to_time_t(timestamp);
             let params = SQLParamsBuilder::default()
                 .key(WalletAddress(&received_payment.from))
-                .wei_change(Subtraction {
-                    name_without_suffix: "balance",
-                    amount_to_subtract: received_payment.wei_amount,
-                })
+                .wei_change(WeiChange::new(
+                    "balance",
+                    received_payment.wei_amount,
+                    WeiChangeDirection::Subtraction,
+                ))
                 .other_params(vec![ParamByUse::BeforeAndAfterOverflow(
                     DisplayableRusqliteParamPair::new(":last_received", &last_received_timestamp),
                 )])
@@ -1186,7 +1188,7 @@ mod tests {
         insert_record(2222);
         insert_record(3333);
         let wrapped_conn = ConnectionWrapperReal::new(unrelated_conn);
-        let results = PrepareResultsDispatcher::new_with_altered_stmts_only(
+        let results = PrepareResultsDispatcher::construct_with_altered_stmts_only(
             Box::new(wrapped_conn),
             vec![AlteredStmtByOrigin::IdenticalWithProdCode],
         );

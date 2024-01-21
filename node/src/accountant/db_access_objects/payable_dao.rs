@@ -3,10 +3,7 @@
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
     PendingPayableRowid, WalletAddress,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
-    Addition, Subtraction,
-};
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, RusqliteParamPairAsStruct, SQLParamsBuilder, TableNameDAO};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
@@ -106,10 +103,11 @@ impl PayableDao for PayableDaoReal {
         let last_paid_timestamp = to_time_t(timestamp);
         let params = SQLParamsBuilder::default()
             .key(WalletAddress(wallet))
-            .wei_change(Addition {
-                name_without_suffix: "balance",
-                amount_to_add: amount,
-            })
+            .wei_change(WeiChange::new(
+                "balance",
+                amount,
+                WeiChangeDirection::Addition,
+            ))
             .other_params(vec![ParamByUse::BeforeOverflowOnly(
                 DisplayableRusqliteParamPair::new(":last_paid_timestamp", &last_paid_timestamp),
             )])
@@ -163,7 +161,7 @@ impl PayableDao for PayableDaoReal {
             let last_paid = to_time_t(pending_payable_fingerprint.timestamp);
             let params = SQLParamsBuilder::default()
                 .key( PendingPayableRowid(&i64_rowid))
-                .wei_change(Subtraction{name_without_suffix: "balance", amount_to_subtract: pending_payable_fingerprint.amount})
+                .wei_change(WeiChange::new( "balance", pending_payable_fingerprint.amount, WeiChangeDirection::Subtraction))
                 .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
                 .build();
 
