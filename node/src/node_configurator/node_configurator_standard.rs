@@ -1077,7 +1077,6 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let home_dir = home_dir().expect("expectexd home dir");
-        let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("masqhome");
         let _create_data_dir = create_dir_all(data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
