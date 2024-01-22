@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct TransactionInnerWrapperMockBuilder {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+    prepare_results_producer_opt: Option<PrepareMethodResultsProducer>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
@@ -37,8 +37,8 @@ impl TransactionInnerWrapperMockBuilder {
         self
     }
 
-    pub fn prepare_results(mut self, results: PrepareResultsDispatcher) -> Self {
-        self.prepare_results_dispatcher_opt = Some(results);
+    pub fn prepare_results(mut self, results: PrepareMethodResultsProducer) -> Self {
+        self.prepare_results_producer_opt = Some(results);
         self
     }
 
@@ -55,7 +55,7 @@ impl TransactionInnerWrapperMockBuilder {
     pub fn build(self) -> Box<dyn TransactionInnerWrapper> {
         Box::new(TransactionInnerWrapperMock {
             prepare_params: self.prepare_params,
-            prepare_results_dispatcher_opt: self.prepare_results_dispatcher_opt,
+            prepare_results_producer_opt: self.prepare_results_producer_opt,
             commit_params: self.commit_params,
             commit_results: self.commit_results,
             arbitrary_id_stamp_opt: self.arbitrary_id_stamp_opt,
@@ -73,7 +73,7 @@ struct TransactionInnerWrapperMock {
     // This field hosts an object able to produce the requested result based on the configuration
     // of this mock in the test setup instructions for the given test where the programmer needed to
     // have a control over the result of the 'prepare' method
-    prepare_results_dispatcher_opt: Option<PrepareResultsDispatcher>,
+    prepare_results_producer_opt: Option<PrepareMethodResultsProducer>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
@@ -86,7 +86,7 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
             .unwrap()
             .push(prod_code_query.to_string());
 
-        self.prepare_results_dispatcher_opt
+        self.prepare_results_producer_opt
             .as_ref()
             .unwrap()
             .produce_statement(prod_code_query)
@@ -101,12 +101,12 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 
         let next_result = self.commit_results.borrow_mut().remove(0);
         // If the commit is meant to succeed we check for the transaction we may keep
-        // in the `PrepareResultsDispatcher` (design allowing for the initial database interactions
+        // in the `PrepareMethodResultsProducer` (design allowing for the initial database interactions
         // in the test to be run with the genuine prod code statements), and thus all data changes these
         // statements may claim to introduce (if called) will be recorded in the database and
         // visible at the end of the test.
         if next_result.is_ok() {
-            if let Some(prepared_results) = self.prepare_results_dispatcher_opt.as_mut() {
+            if let Some(prepared_results) = self.prepare_results_producer_opt.as_mut() {
                 if let Either::Right(for_both) = &mut prepared_results.setup {
                     return for_both.commit_prod_code_stmts();
                 }
@@ -150,7 +150,7 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 #[derive(Debug)]
 struct SetupForOnlyAlteredStmts {
     conn: Box<dyn ConnectionWrapper>,
-    queue_of_statements: RefCell<Vec<AlteredStmtByOrigin>>,
+    queue_of_statements: RefCell<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -163,7 +163,7 @@ struct SetupForProdCodeAndAlteredStmts {
     // the test can laid assertions that can be faithful to the expected changes
     // happening inside the database.
     txn_bearing_prod_code_stmts_opt: Option<TransactionSafeWrapper<'static>>,
-    queue_with_prod_code_and_altered_stmts: RefCell<Vec<Option<AlteredStmtByOrigin>>>,
+    queue_with_prod_code_and_altered_stmts: RefCell<Vec<StmtTypeDirective>>,
     // This connection is usually the most important, but using just the prod code
     // connection meant primarily for the prod-code statements should be also possible.
     //
@@ -219,14 +219,14 @@ impl Drop for SetupForProdCodeAndAlteredStmts {
 }
 
 #[derive(Debug)]
-pub struct PrepareResultsDispatcher {
+pub struct PrepareMethodResultsProducer {
     setup: Either<SetupForOnlyAlteredStmts, SetupForProdCodeAndAlteredStmts>,
 }
 
-impl PrepareResultsDispatcher {
+impl PrepareMethodResultsProducer {
     pub fn construct_with_altered_stmts_only(
         conn: Box<dyn ConnectionWrapper>,
-        altered_stmts_queue: Vec<AlteredStmtByOrigin>,
+        altered_stmts_queue: Vec<String>,
     ) -> Self {
         let setup = SetupForOnlyAlteredStmts {
             conn,
@@ -241,7 +241,7 @@ impl PrepareResultsDispatcher {
     pub fn construct_with_prod_code_and_altered_stmts(
         prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
         separate_conn_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
-        stm_determining_queue: Vec<Option<AlteredStmtByOrigin>>,
+        stm_determining_queue: Vec<StmtTypeDirective>,
     ) -> Self {
         let setup = {
             let ptr = Box::into_raw(prod_code_stmts_conn);
@@ -269,20 +269,16 @@ impl PrepareResultsDispatcher {
 
     fn produce_statement(&self, prod_code_stmt: &str) -> Result<Statement, Error> {
         match self.setup.as_ref() {
-            Either::Left(setup) => Self::handle_stmt_for_only_altered(setup, prod_code_stmt),
+            Either::Left(setup) => Self::handle_stmt_for_only_altered(setup),
             Either::Right(setup) => {
                 Self::handle_stmt_for_prod_code_and_altered(setup, prod_code_stmt)
             }
         }
     }
 
-    fn handle_stmt_for_only_altered<'conn>(
-        setup: &'conn SetupForOnlyAlteredStmts,
-        prod_code_stmt: &str,
-    ) -> Result<Statement<'conn>, Error> {
-        let stmt_by_origin = setup.queue_of_statements.borrow_mut().remove(0);
-        let altered_stmt = stmt_by_origin.str_stmt(prod_code_stmt);
-        setup.conn.prepare(altered_stmt)
+    fn handle_stmt_for_only_altered(setup: &SetupForOnlyAlteredStmts) -> Result<Statement, Error> {
+        let stmt = setup.queue_of_statements.borrow_mut().remove(0);
+        setup.conn.prepare(&stmt)
     }
 
     fn handle_stmt_for_prod_code_and_altered<'conn>(
@@ -295,9 +291,14 @@ impl PrepareResultsDispatcher {
             .remove(0);
 
         match altered_stmt_opt {
-            None => setup.prod_code_stmts_conn.prepare(prod_code_stmt),
-            Some(altered_stmt) => {
-                let altered_stm_str = altered_stmt.str_stmt(prod_code_stmt);
+            StmtTypeDirective::ExecuteProdCode => {
+                setup.prod_code_stmts_conn.prepare(prod_code_stmt)
+            }
+            StmtTypeDirective::UseAlteredStmt(altered_stmt) => {
+                let altered_stm_str = match &altered_stmt {
+                    AlteredStmtBySQLOrigin::SQLIdenticalWithProdCode => prod_code_stmt,
+                    AlteredStmtBySQLOrigin::Substitution { new_stmt } => new_stmt.as_str(),
+                };
                 setup.make_altered_stmt(altered_stm_str)
             }
         }
@@ -305,21 +306,15 @@ impl PrepareResultsDispatcher {
 }
 
 #[derive(Debug)]
-pub enum AlteredStmtByOrigin {
-    // Use this when you plan to have a connection pointing to a different db, but at the same time,
-    // you don't want to go through devising a new statement but to use the same one as in the prod
-    // code
-    IdenticalWithProdCode,
-    FromSubstitution { new_stmt: String },
+pub enum StmtTypeDirective {
+    ExecuteProdCode,
+    UseAlteredStmt(AlteredStmtBySQLOrigin),
 }
 
-impl AlteredStmtByOrigin {
-    fn str_stmt<'a>(&'a self, prod_code_stm: &'a str) -> &'a str {
-        match self {
-            AlteredStmtByOrigin::IdenticalWithProdCode => prod_code_stm,
-            AlteredStmtByOrigin::FromSubstitution {
-                new_stmt: incident_stmt,
-            } => incident_stmt.as_str(),
-        }
-    }
+#[derive(Debug)]
+pub enum AlteredStmtBySQLOrigin {
+    // Use this on planning to have a conn pointing to a different db. This will eliminate having to
+    // think up a new stmt, instead, the same one as in the prod code will be used.
+    SQLIdenticalWithProdCode,
+    Substitution { new_stmt: String },
 }

@@ -379,31 +379,24 @@ impl ReceivableDaoReal {
         let address = &suspect.from;
         let block_number = suspect.block_number;
 
-        match Self::row_count_for_address(txn, address) {
-            0 => {
+        match Self::is_row_present(txn, address) {
+            false => {
                 info!(logger,
                 "Received {amount} wei from unknown debtor {address} in the block {block_number}.");
                 Ok(())
-            },
-            1 => {
-                Err(RusqliteError(format!(
-                    "Update for received payment with {amount} wei ran without producing a change \
-                    in the database, despite the record for wallet {address} exists."
-                )))
             }
-            x => Err(RusqliteError(format!(
-                "Update for received payment with {amount} wei ran without producing a change in \
-                the database. At the same time, it's been found that wallet address {address} refers \
-                to {x} records while it always should have none or one."
+            true => Err(RusqliteError(format!(
+                "Update for received payment with {amount} wei ran without producing a change \
+                    in the database, despite the record for wallet {address} exists."
             ))),
         }
     }
 
-    fn row_count_for_address(conn: &TransactionSafeWrapper, wallet: &Wallet) -> usize {
-        conn.prepare("select count(*) from receivable where wallet_address = ?")
+    fn is_row_present(conn: &TransactionSafeWrapper, wallet: &Wallet) -> bool {
+        conn.prepare("select * from receivable where wallet_address = ?")
             .expect("internal sqlite error")
-            .query_row([wallet], |row| row.get::<usize, usize>(0))
-            .expect("row count fetching failed")
+            .exists(&[&wallet])
+            .expect("checking on a row failed")
     }
 
     fn create_receivable_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
@@ -511,7 +504,8 @@ mod tests {
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::transaction_wrapper_mock::{
-        AlteredStmtByOrigin, PrepareResultsDispatcher, TransactionInnerWrapperMockBuilder,
+        AlteredStmtBySQLOrigin, PrepareMethodResultsProducer, StmtTypeDirective,
+        TransactionInnerWrapperMockBuilder,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
@@ -1029,16 +1023,19 @@ mod tests {
             let conn = Connection::open_with_flags(&db_path, flags).unwrap();
             Box::new(ConnectionWrapperReal::new(conn))
         };
-        let prepare_results = PrepareResultsDispatcher::construct_with_prod_code_and_altered_stmts(
-            prod_code_calls_conn,
-            Some(panic_causing_conn),
-            vec![
-                None,
-                None,
-                None,
-                Some(AlteredStmtByOrigin::IdenticalWithProdCode),
-            ],
-        );
+        let prepare_results =
+            PrepareMethodResultsProducer::construct_with_prod_code_and_altered_stmts(
+                prod_code_calls_conn,
+                Some(panic_causing_conn),
+                vec![
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::UseAlteredStmt(
+                        AlteredStmtBySQLOrigin::SQLIdenticalWithProdCode,
+                    ),
+                ],
+            );
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
             .prepare_params(&prepare_params_arc)
             .prepare_results(prepare_results);
@@ -1163,51 +1160,6 @@ mod tests {
         let expected_panic_msg = "Update for received payment with 1000000000 wei ran \
         without producing a change in the database, despite the record for wallet \
         0x00000000000000000000000000000000626c6168 exists.";
-        assert_eq!(result, Err(RusqliteError(expected_panic_msg.to_string())))
-    }
-
-    #[test]
-    fn verify_possibly_unknown_wallet_returns_error_finding_duplicated_records_for_single_wallet() {
-        let test_name = "verify_possibly_unknown_wallet_returns_error_finding_duplicated_records_for_single_wallet";
-        let wallet = make_wallet("blah");
-        let home_dir = ensure_node_home_directory_exists("receivables", test_name);
-        let db_file_path = home_dir.join(DATABASE_FILE);
-        let unrelated_conn = Connection::open(db_file_path).unwrap();
-        unrelated_conn
-            .prepare("create table receivable (wallet_address string, balance integer)")
-            .unwrap()
-            .execute([])
-            .unwrap();
-        let insert_record = |balance: i64| {
-            let _ = unrelated_conn
-                .prepare("insert into receivable (wallet_address, balance) values (?,?)")
-                .unwrap()
-                .execute([&wallet as &dyn ToSql, &balance]);
-        };
-        insert_record(1111);
-        insert_record(2222);
-        insert_record(3333);
-        let wrapped_conn = ConnectionWrapperReal::new(unrelated_conn);
-        let results = PrepareResultsDispatcher::construct_with_altered_stmts_only(
-            Box::new(wrapped_conn),
-            vec![AlteredStmtByOrigin::IdenticalWithProdCode],
-        );
-        let txn_inner_builder =
-            TransactionInnerWrapperMockBuilder::default().prepare_results(results);
-        let txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
-        let suspect = BlockchainTransaction {
-            block_number: 1234,
-            from: wallet,
-            wei_amount: 1_000_000_000,
-        };
-        let logger = Logger::new(test_name);
-
-        let result = ReceivableDaoReal::verify_possibly_unknown_wallet(&txn, &logger, &suspect);
-
-        let expected_panic_msg = "Update for received payment with 1000000000 wei ran without \
-        producing a change in the database. At the same time, it's been found that wallet address \
-        0x00000000000000000000000000000000626c6168 refers to 3 records while it always should have \
-        none or one.";
         assert_eq!(result, Err(RusqliteError(expected_panic_msg.to_string())))
     }
 
