@@ -175,7 +175,7 @@ struct SetupForProdCodeAndAlteredStmts {
     // b) to tickle the database while exercising statements that attempt to change the state of
     //    the database. Since this connection will be read only, it'll generate an error. Thereby,
     //    we can assert on this error. Usually used when all we need is any kind of error.
-    conn_exclusively_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
+    separate_conn_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
 }
 
 impl SetupForProdCodeAndAlteredStmts {
@@ -187,24 +187,33 @@ impl SetupForProdCodeAndAlteredStmts {
     }
 
     fn make_altered_stmt(&self, altered_stm: &str) -> Result<Statement, Error> {
-        match self.conn_exclusively_for_altered_stmts_opt.as_ref() {
-            None => self
-                .txn_bearing_prod_code_stmts_opt
-                .as_ref()
-                .expect("The txn must be present")
-                .prepare(altered_stm),
+        match self.separate_conn_for_altered_stmts_opt.as_ref() {
             Some(special_conn) => special_conn.prepare(altered_stm),
+            None =>
+            // Since all db operations would've happened on a single wrapped txn in reality,
+            // we strive to interact with a txn also here, not with the conn directly.
+            // (In some scarce cases it might be even required, as in providing a 'Statement'
+            // that wouldn't be supposed to stimulate an error whereupon any potential
+            // rollback of this txn should best embody both the prod code statements and
+            // the altered ones together, enabling us to get a realistic state of the db that
+            // we might have decided to test closely by assertions in the test).
+            {
+                self.txn_bearing_prod_code_stmts_opt
+                    .as_ref()
+                    .expect("The txn is always created and should be present")
+                    .prepare(altered_stm)
+            }
         }
     }
 }
 
 impl Drop for SetupForProdCodeAndAlteredStmts {
     fn drop(&mut self) {
-        // The real transaction borne in this object binds to a reference that doesn't comply with
-        // safeness anymore, it has gone through backward cast from a raw pointer, which
-        // automatically breaks the check mechanism for referencing an invalid memory. We must make
-        // sure by having this Drop implementation that this transaction deconstructs earlier than
-        // the database Connection by which it was produced, avoiding an OS segmentation error.
+        // Self contains a reference that doesn't comply with Rust safeness anymore as it has gone
+        // through backward cast from a raw pointer.  We're making sure by this Drop impl that one
+        // part of 'self', the borne txn will deconstruct earlier than what it is referencing, that
+        // is the DB Connection held by one of the other fields of this same struct. Failing that,
+        // we'll have to do with a segmentation error from the OS.
         drop(self.txn_bearing_prod_code_stmts_opt.take())
     }
 }
@@ -231,7 +240,7 @@ impl PrepareResultsDispatcher {
 
     pub fn construct_with_prod_code_and_altered_stmts(
         prod_code_stmts_conn: Box<dyn ConnectionWrapper>,
-        conn_exclusively_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
+        separate_conn_for_altered_stmts_opt: Option<Box<dyn ConnectionWrapper>>,
         stm_determining_queue: Vec<Option<AlteredStmtByOrigin>>,
     ) -> Self {
         let setup = {
@@ -242,7 +251,7 @@ impl PrepareResultsDispatcher {
                 prod_code_stmts_conn: conn,
                 txn_bearing_prod_code_stmts_opt: None,
                 queue_with_prod_code_and_altered_stmts: RefCell::new(stm_determining_queue),
-                conn_exclusively_for_altered_stmts_opt,
+                separate_conn_for_altered_stmts_opt,
             };
 
             let conn = unsafe { ptr.as_mut().unwrap() };
@@ -287,8 +296,8 @@ impl PrepareResultsDispatcher {
 
         match altered_stmt_opt {
             None => setup.prod_code_stmts_conn.prepare(prod_code_stmt),
-            Some(altered_stm) => {
-                let altered_stm_str = altered_stm.str_stmt(prod_code_stmt);
+            Some(altered_stmt) => {
+                let altered_stm_str = altered_stmt.str_stmt(prod_code_stmt);
                 setup.make_altered_stmt(altered_stm_str)
             }
         }
@@ -309,8 +318,8 @@ impl AlteredStmtByOrigin {
         match self {
             AlteredStmtByOrigin::IdenticalWithProdCode => prod_code_stm,
             AlteredStmtByOrigin::FromSubstitution {
-                new_stmt: incident_statement,
-            } => incident_statement.as_str(),
+                new_stmt: incident_stmt,
+            } => incident_stmt.as_str(),
         }
     }
 }
