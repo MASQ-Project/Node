@@ -559,7 +559,7 @@ pub trait TableNameDAO: Debug + Send {
     fn table_name() -> String;
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WeiChange {
     unsuffixed_name: &'static str,
     amount_to_change: u128,
@@ -580,7 +580,7 @@ impl WeiChange {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WeiChangeDirection {
     Addition,
     Subtraction,
