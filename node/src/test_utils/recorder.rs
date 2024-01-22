@@ -40,16 +40,14 @@ use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
-};
+use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
+use crate::sub_lib::proxy_server::{AddRouteResultMessage, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::{
-    ForcedMatchable, PretendedMatchableWrapper, StopConditions,
+    ForcedMatchable, PretendedMatchableWrapper, StopCondition, StopConditions,
 };
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
@@ -125,7 +123,7 @@ macro_rules! recorder_message_handler_t_p {
 }
 
 recorder_message_handler_t_m_p!(AddReturnRouteMessage);
-recorder_message_handler_t_m_p!(AddRouteMessage);
+recorder_message_handler_t_m_p!(AddRouteResultMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
 recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
@@ -399,9 +397,9 @@ pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServe
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
         dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
-        add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
+        route_result_sub: recipient!(addr, AddRouteResultMessage),
     }
 }
 
@@ -604,6 +602,7 @@ impl PeerActorsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use actix::Message;
     use actix::System;
     use std::any::TypeId;
@@ -661,6 +660,31 @@ mod tests {
             }
         );
         assert_eq!(recording.len(), 2);
+    }
+
+    #[test]
+    fn recorder_can_be_stopped_on_a_particular_message() {
+        let system = System::new("recorder_can_be_stopped_on_a_particular_message");
+        let recorder =
+            Recorder::new().system_stop_conditions(match_every_type_id!(FirstMessageType));
+        let recording_arc = recorder.get_recording();
+        let rec_addr: Addr<Recorder> = recorder.start();
+
+        rec_addr
+            .try_send(FirstMessageType {
+                string: String::from("String"),
+            })
+            .unwrap();
+
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(
+            recording.get_record::<FirstMessageType>(0),
+            &FirstMessageType {
+                string: String::from("String")
+            }
+        );
+        assert_eq!(recording.len(), 1);
     }
 
     struct ExampleMsgA;
