@@ -1146,6 +1146,30 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Unable to retrieve consuming wallet from persistent configuration")]
+    fn panics_if_consuming_wallet_can_not_be_retrieved_before_sending_to_subs() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(None));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: make_example_generate_wallets_request().tmb(4321),
+            })
+            .unwrap();
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
+    }
+
+    #[test]
     fn handle_change_password_can_process_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new().change_password_result(Err(
@@ -1437,7 +1461,6 @@ mod tests {
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
-
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
