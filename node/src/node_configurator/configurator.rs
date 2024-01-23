@@ -121,7 +121,9 @@ impl Handler<NodeFromUiMessage> for Configurator {
             self.call_handler(msg, |c| c.handle_check_password(body, context_id));
         } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_configuration(body, context_id));
-        } else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.body.clone()) {
+        }
+        // TODO: Send a message to the BlockchainBridge to fetch and update the consuming_wallet from the Persistent Config
+        else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
         } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_recover_wallets(body, context_id));
