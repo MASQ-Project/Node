@@ -273,16 +273,7 @@ impl Configurator {
         match Self::unfriendly_handle_generate_wallets(msg, context_id, &mut self.persistent_config)
         {
             Ok(message_body) => {
-                // TODO: GH-728 - Fetch Consuming Wallet from the persistent config and then send it to other actors
-                // let new_consuming_wallet = self.persistent_config.as_ref().consuming_wallet()
-                // self.send_new_consuming_wallet_to_subs()
-                match self.persistent_config.as_ref().consuming_wallet(&db_password) {
-                    Ok(Some(consuming_wallet)) => {
-                        self.send_new_consuming_wallet_to_subs(consuming_wallet)
-                    }
-                    _ => panic!("Unable to retrieve consuming wallet from persistent configuration"), // TODO: GH-728 - test this
-                };
-
+                self.send_new_consuming_wallet_to_subs(&db_password);
                 message_body
             },
             Err((code, msg)) => MessageBody {
@@ -876,20 +867,24 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
-    fn send_new_consuming_wallet_to_subs(&self, new_consuming_wallet: Wallet) {
-        let msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateConsumingWallet(new_consuming_wallet),
+    fn send_new_consuming_wallet_to_subs(&self, db_password: &str) {
+        if let Ok(Some(new_consuming_wallet)) = self.persistent_config.as_ref().consuming_wallet(db_password) {
+            let msg = ConfigurationChangeMessage {
+                change: ConfigurationChange::UpdateConsumingWallet(new_consuming_wallet),
+            };
+            self.update_consuming_wallet_subs_opt
+                .as_ref()
+                .expect("Configuration is unbound")
+                .recipients()
+                .iter()
+                .for_each(|recipient| {
+                    recipient
+                        .try_send(msg.clone())
+                        .expect("Update Consuming Wallet recipient is dead")
+                });
+        } else {
+            panic!("Unable to retrieve consuming wallet from persistent configuration")
         };
-        self.update_consuming_wallet_subs_opt
-            .as_ref()
-            .expect("Configuration is unbound")
-            .recipients()
-            .iter()
-            .for_each(|recipient| {
-                recipient
-                    .try_send(msg.clone())
-                    .expect("Update Consuming Wallet recipient is dead")
-            });
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -1144,6 +1139,10 @@ mod tests {
             &expected_configuration_msg
         );
     }
+
+    // fn assert_consuming_wallet_is_updated_in_other_actors(msg: NodeFromUiMessage) {
+    //
+    // }
 
     #[test]
     #[should_panic(expected = "Unable to retrieve consuming wallet from persistent configuration")]
