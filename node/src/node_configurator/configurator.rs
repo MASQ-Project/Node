@@ -110,7 +110,6 @@ impl Handler<NodeFromUiMessage> for Configurator {
         } else if let Ok((body, context_id)) = UiConfigurationRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_configuration(body, context_id));
         }
-        // TODO: Send a message to the BlockchainBridge to fetch and update the consuming_wallet from the Persistent Config
         else if let Ok((body, context_id)) = UiGenerateWalletsRequest::fmb(msg.body.clone()) {
             self.call_handler(msg, |c| c.handle_generate_wallets(body, context_id));
         } else if let Ok((body, context_id)) = UiRecoverWalletsRequest::fmb(msg.body.clone()) {
@@ -289,9 +288,13 @@ impl Configurator {
         msg: UiRecoverWalletsRequest,
         context_id: u64,
     ) -> MessageBody {
+        let db_password = msg.db_password.clone();
         match Self::unfriendly_handle_recover_wallets(msg, context_id, &mut self.persistent_config)
         {
-            Ok(message_body) => message_body,
+            Ok(message_body) => {
+                self.send_new_consuming_wallet_to_subs(&db_password);
+                message_body
+            },
             Err((code, msg)) => MessageBody {
                 opcode: "recoverWallets".to_string(),
                 path: MessagePath::Conversation(context_id),
@@ -1092,7 +1095,18 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_is_updated_when_new_wallet_is_generated() {
+    fn consuming_wallet_is_updated_in_other_actors_when_modified() {
+        assert_consuming_wallet_is_updated_in_other_actors(NodeFromUiMessage {
+            client_id: 1234,
+            body: make_example_generate_wallets_request().tmb(4321),
+        });
+        assert_consuming_wallet_is_updated_in_other_actors(NodeFromUiMessage {
+            client_id: 1234,
+            body: make_example_recover_wallets_request_with_paths().tmb(4321),
+        });
+    }
+
+    fn assert_consuming_wallet_is_updated_in_other_actors(msg: NodeFromUiMessage) {
         let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
         let consuming_wallet = Wallet::new("0x3333333333333333333333333333333333333333");
         let persistent_config = PersistentConfigurationMock::new()
@@ -1112,10 +1126,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: make_example_generate_wallets_request().tmb(4321),
-            })
+            .try_send(msg)
             .unwrap();
 
         System::current().stop();
@@ -1139,10 +1150,6 @@ mod tests {
             &expected_configuration_msg
         );
     }
-
-    // fn assert_consuming_wallet_is_updated_in_other_actors(msg: NodeFromUiMessage) {
-    //
-    // }
 
     #[test]
     #[should_panic(expected = "Unable to retrieve consuming wallet from persistent configuration")]
