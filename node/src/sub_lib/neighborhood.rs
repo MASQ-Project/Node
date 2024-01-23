@@ -561,7 +561,7 @@ pub struct ConfigurationChangeMessage {
 pub enum ConfigurationChange {
     UpdateConsumingWallet(Wallet),
     UpdateMinHops(Hops),
-    UpdatePassword(String), // TODO: Use me
+    // UpdatePassword(String), // TODO: Use me
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -1025,7 +1025,6 @@ mod tests {
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-    use crate::sub_lib::neighborhood::ConfigurationChange::UpdatePassword;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1207,24 +1206,25 @@ mod tests {
 
     #[test]
     fn accountant_updates_password_when_it_receives_configuration_change_msg() {
-        let system =
-            System::new("accountant_updates_password_when_it_receives_configuration_change_msg");
-        let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .build();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: UpdatePassword("new_password".to_string()),
-            })
-            .unwrap();
-
-        System::current().stop();
-        assert_eq!(system.run(), 0);
+        todo!("either remove this test or modify it");
+        // let system =
+        //     System::new("accountant_updates_password_when_it_receives_configuration_change_msg");
+        // let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
+        // let subject = AccountantBuilder::default()
+        //     .bootstrapper_config(config)
+        //     .build();
+        // let subject_addr = subject.start();
+        // let peer_actors = peer_actors_builder().build();
+        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        //
+        // subject_addr
+        //     .try_send(ConfigurationChangeMessage {
+        //         change: UpdatePassword("new_password".to_string()),
+        //     })
+        //     .unwrap();
+        //
+        // System::current().stop();
+        // assert_eq!(system.run(), 0);
     }
 
     #[test]

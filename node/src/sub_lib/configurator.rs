@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -17,7 +16,6 @@ use std::fmt::{Debug, Formatter};
 pub struct ConfiguratorSubs {
     pub bind: Recipient<BindMessage>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
-    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
 }
 
 impl Debug for ConfiguratorSubs {
@@ -39,7 +37,6 @@ mod tests {
         let subject = ConfiguratorSubs {
             bind: recipient!(recorder, BindMessage),
             node_from_ui_sub: recipient!(recorder, NodeFromUiMessage),
-            configuration_change_msg_sub: recipient!(recorder, ConfigurationChangeMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ConfiguratorSubs");

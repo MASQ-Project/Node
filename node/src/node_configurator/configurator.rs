@@ -1,6 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -48,7 +47,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    update_password_subs_opt: Option<UpdatePasswordSubs>,
+    update_consuming_wallet_subs_opt: Option<UpdateConsumingWalletSubs>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -70,41 +69,30 @@ impl Handler<BindMessage> for Configurator {
                 .configuration_change_msg_sub
                 .clone(),
         );
-        self.update_password_subs_opt = Some(UpdatePasswordSubs {
+        self.update_consuming_wallet_subs_opt = Some(UpdateConsumingWalletSubs {
             accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
             blockchain_bridge: msg
                 .peer_actors
                 .blockchain_bridge
                 .configuration_change_msg_sub,
-            configurator: msg.peer_actors.configurator.configuration_change_msg_sub,
             neighborhood: msg.peer_actors.neighborhood.configuration_change_msg_sub,
         });
     }
 }
 
-struct UpdatePasswordSubs {
+struct UpdateConsumingWalletSubs {
     accountant: Recipient<ConfigurationChangeMessage>,
     blockchain_bridge: Recipient<ConfigurationChangeMessage>,
-    configurator: Recipient<ConfigurationChangeMessage>,
     neighborhood: Recipient<ConfigurationChangeMessage>,
 }
 
-impl UpdatePasswordSubs {
-    fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 4] {
+impl UpdateConsumingWalletSubs {
+    fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 3] {
         [
             &self.accountant,
             &self.blockchain_bridge,
-            &self.configurator,
             &self.neighborhood,
         ]
-    }
-}
-
-impl Handler<ConfigurationChangeMessage> for Configurator {
-    type Result = ();
-
-    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!("handler in configurator")
     }
 }
 
@@ -153,7 +141,7 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            update_password_subs_opt: None,
+            update_consuming_wallet_subs_opt: None,
             node_to_ui_sub_opt: None,
             update_min_hops_sub_opt: None,
             crashable,
@@ -194,7 +182,6 @@ impl Configurator {
         {
             Ok(_) => {
                 let broadcast = UiNewPasswordBroadcast {}.tmb(0);
-                self.send_password_changes(msg.new_password.clone());
                 self.send_to_ui_gateway(MessageTarget::AllExcept(client_id), broadcast);
                 UiChangePasswordResponse {}.tmb(context_id)
             }
@@ -282,9 +269,22 @@ impl Configurator {
         msg: UiGenerateWalletsRequest,
         context_id: u64,
     ) -> MessageBody {
+        let db_password = msg.db_password.clone();
         match Self::unfriendly_handle_generate_wallets(msg, context_id, &mut self.persistent_config)
         {
-            Ok(message_body) => message_body,
+            Ok(message_body) => {
+                // TODO: GH-728 - Fetch Consuming Wallet from the persistent config and then send it to other actors
+                // let new_consuming_wallet = self.persistent_config.as_ref().consuming_wallet()
+                // self.send_new_consuming_wallet_to_subs()
+                match self.persistent_config.as_ref().consuming_wallet(&db_password) {
+                    Ok(Some(consuming_wallet)) => {
+                        self.send_new_consuming_wallet_to_subs(consuming_wallet)
+                    }
+                    _ => panic!("Unable to retrieve consuming wallet from persistent configuration"), // TODO: GH-728 - test this
+                };
+
+                message_body
+            },
             Err((code, msg)) => MessageBody {
                 opcode: "generateWallets".to_string(),
                 path: MessagePath::Conversation(context_id),
@@ -876,11 +876,11 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
-    fn send_password_changes(&self, new_password: String) {
+    fn send_new_consuming_wallet_to_subs(&self, new_consuming_wallet: Wallet) {
         let msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword(new_password),
+            change: ConfigurationChange::UpdateConsumingWallet(new_consuming_wallet),
         };
-        self.update_password_subs_opt
+        self.update_consuming_wallet_subs_opt
             .as_ref()
             .expect("Configuration is unbound")
             .recipients()
@@ -888,7 +888,7 @@ impl Configurator {
             .for_each(|recipient| {
                 recipient
                     .try_send(msg.clone())
-                    .expect("New password recipient is dead")
+                    .expect("Update Consuming Wallet recipient is dead")
             });
     }
 
@@ -919,8 +919,8 @@ impl Configurator {
 mod tests {
     use actix::System;
     use masq_lib::messages::{
-        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds,
+        ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiPaymentThresholds,
         UiRatePack, UiRecoverSeedSpec, UiScanIntervals, UiStartOrder, UiWalletAddressesRequest,
         UiWalletAddressesResponse,
     };
@@ -983,7 +983,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
-        subject.update_password_subs_opt = None;
+        subject.update_consuming_wallet_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1097,23 +1097,20 @@ mod tests {
     }
 
     #[test]
-    fn change_password_works() {
-        let system = System::new("test");
-        let change_password_params_arc = Arc::new(Mutex::new(vec![]));
+    fn consuming_wallet_is_updated_when_new_wallet_is_generated() {
+        let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
+        let consuming_wallet = Wallet::new("0x3333333333333333333333333333333333333333");
         let persistent_config = PersistentConfigurationMock::new()
-            .change_password_params(&change_password_params_arc)
-            .change_password_result(Ok(()));
+            .check_password_result(Ok(true))
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(consuming_wallet.clone())));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let (configurator, _, configurator_recording_arc) = make_recorder();
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder()
-            .ui_gateway(ui_gateway)
             .neighborhood(neighborhood)
-            .configurator(configurator)
             .blockchain_bridge(blockchain_bridge)
             .accountant(accountant)
             .build();
@@ -1122,49 +1119,20 @@ mod tests {
         subject_addr
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
-                body: UiChangePasswordRequest {
-                    old_password_opt: Some("old_password".to_string()),
-                    new_password: "new_password".to_string(),
-                }
-                .tmb(4321),
+                body: make_example_generate_wallets_request().tmb(4321),
             })
             .unwrap();
 
         System::current().stop();
         system.run();
-        let change_password_params = change_password_params_arc.lock().unwrap();
-        assert_eq!(
-            *change_password_params,
-            vec![(Some("old_password".to_string()), "new_password".to_string())]
-        );
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-            &NodeToUiMessage {
-                target: MessageTarget::AllExcept(1234),
-                body: UiNewPasswordBroadcast {}.tmb(0)
-            }
-        );
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(1),
-            &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
-                body: UiChangePasswordResponse {}.tmb(4321)
-            }
-        );
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let configurator_recording = configurator_recording_arc.lock().unwrap();
-        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let expected_configuration_msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword("new_password".to_string()),
+            change: ConfigurationChange::UpdateConsumingWallet(consuming_wallet)
         };
         assert_eq!(
-            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
-            &expected_configuration_msg
-        );
-        assert_eq!(
-            configurator_recording.get_record::<ConfigurationChangeMessage>(0),
+            accountant_recording.get_record::<ConfigurationChangeMessage>(0),
             &expected_configuration_msg
         );
         assert_eq!(
@@ -1172,7 +1140,7 @@ mod tests {
             &expected_configuration_msg
         );
         assert_eq!(
-            accountant_recording.get_record::<ConfigurationChangeMessage>(0),
+            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
             &expected_configuration_msg
         );
     }
@@ -1400,11 +1368,13 @@ mod tests {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let consuming_wallet_for_mock = Wallet::new("0x3333333333333333333333333333333333333333");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(consuming_wallet_for_mock)));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -2936,7 +2906,7 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                update_password_subs_opt: None,
+                update_consuming_wallet_subs_opt: None,
                 node_to_ui_sub_opt: None,
                 update_min_hops_sub_opt: None,
                 crashable: false,

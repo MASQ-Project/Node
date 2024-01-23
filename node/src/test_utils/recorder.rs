@@ -494,7 +494,6 @@ pub fn make_configurator_subs_from_recorder(addr: &Addr<Recorder>) -> Configurat
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
-        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
     }
 }
 
