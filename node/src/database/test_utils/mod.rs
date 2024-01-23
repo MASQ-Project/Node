@@ -19,9 +19,9 @@ pub struct ConnectionWrapperMock<'conn> {
     transaction_results: RefCell<Vec<Result<TransactionSafeWrapper<'conn>, Error>>>,
 }
 
-// We don't know better how to deal with the third-party code for `Statement` that takes on
-// attributes of `Connection` which lacks the Send marker. This unsafe instructs the compiler
-// we don't care because it is a test utility and as far as we know it hasn't bitten us yet
+// We don't know better how to deal with the third-party code for `Statement` that inherits
+// attributes from `Connection` that lacks the Send marker. This unsafe block instructs the compiler
+// we want to enforce it because it is a test utility and as far as we know it hasn't bitten us
 
 unsafe impl<'conn> Send for ConnectionWrapperMock<'conn> {}
 

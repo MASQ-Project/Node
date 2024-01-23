@@ -92,14 +92,14 @@ impl ConfigDaoReal {
     }
 
     fn set_value<'a, P>(
-        prepare_stm: P,
+        prepare_stmt: P,
         name: &str,
         value: Option<String>,
     ) -> Result<(), ConfigDaoError>
     where
         P: FnOnce(&str) -> Result<Statement<'a>, rusqlite::Error> + 'a,
     {
-        let mut stmt = match prepare_stm("update config set value = ? where name = ?") {
+        let mut stmt = match prepare_stmt("update config set value = ? where name = ?") {
             Ok(stmt) => stmt,
             Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
         };
@@ -294,9 +294,10 @@ mod tests {
     fn set_by_guest_transaction_works() {
         let home_dir =
             ensure_node_home_directory_exists("config_dao", "set_by_guest_transaction_works");
-        // To make the test even more convincing, let's give a useless "Connection" to the hosting DAO object,
-        // while the guest connection will do the job
+        // We give a useless "Connection" to the DAO object, making it more obvious it was the guest
+        // connection that did all the job
         let subject = ConfigDaoReal::new(Box::new(ConnectionWrapperMock::default()));
+        // Here we create a database, undoubtedly with the schema same as CURRENT_SCHEMA_VERSION
         let mut conn = initialize_conn(&home_dir);
         let mut txn = conn.transaction().unwrap();
         let different_than_current_schema_version = CURRENT_SCHEMA_VERSION + 3;
