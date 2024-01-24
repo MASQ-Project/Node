@@ -11,6 +11,7 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "0.13.1"
+async-trait = "0.1.77"
 automap = { path = "../automap"}
 backtrace = "0.3.69"
 base64 = "0.21.5"
@@ -25,7 +26,6 @@ ethsign-crypto = "0.3.0"
 ethereum-types = "0.14.1"
 fdlimit = "0.3.0"
 flexi_logger = { version = "0.27.3", features = [ "compress" ] }
-futures = "0.3.29"
 heck = "0.5.0-rc.1"
 http = "1.0.0"
 indoc = "2.0.4"

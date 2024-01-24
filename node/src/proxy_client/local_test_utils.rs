@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use crossbeam_channel::{SendError, unbounded};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup::Lookup;
@@ -119,8 +120,8 @@ impl ResolverWrapperFactoryMock {
         self
     }
 }
-//
-// pub fn make_send_error<T>(msg: T) -> Result<(), SendError<T>> {
-//     let (tx, _) = unbounded();
-//     tx.unbounded_send(msg)
-// }
+
+pub fn make_send_error<T>(msg: T) -> Result<(), SendError<T>> {
+    let (tx, _) = unbounded();
+    tx.send(msg)
+}

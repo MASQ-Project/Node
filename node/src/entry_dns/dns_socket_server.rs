@@ -3,7 +3,6 @@ use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
 use masq_lib::command::StdStreams;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use futures::future::Future;
 use crate::entry_dns::processing;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;

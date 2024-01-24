@@ -135,12 +135,12 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use actix::System;
     use crossbeam_channel::unbounded;
-    use futures::future::lazy;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::thread;
-    use tokio::prelude::Async;
+    use std::task::Poll;
+    use std::{thread};
+    use tokio::task;
 
     #[test]
     fn spawn_stream_reader_handles_data() {
@@ -156,7 +156,7 @@ mod tests {
         });
 
         let (ibsd_tx, ibsd_rx) = unbounded();
-        let test_future = lazy(move || {
+        let test_future = async {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
@@ -164,8 +164,8 @@ mod tests {
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![
-                (bytes.to_vec(), Ok(Async::Ready(bytes.len()))),
-                (vec![], Err(io::Error::from(ErrorKind::BrokenPipe))),
+                (bytes.to_vec(), Poll::Ready(Ok(bytes.len()))),
+                (vec![], Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe)))),
             ];
 
             let subject = StreamEstablisher {
@@ -201,11 +201,9 @@ mod tests {
                 .clone();
             ibsd_tx.send(record).unwrap();
             return Ok(());
-        });
+        };
 
-        thread::spawn(move || {
-            tokio::run(test_future);
-        });
+        task::spawn(test_future);
 
         let ibsd = ibsd_rx.recv().unwrap();
 

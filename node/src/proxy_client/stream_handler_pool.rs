@@ -15,19 +15,17 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use crossbeam_channel::{unbounded, Receiver};
-use futures::future;
-use futures::future::Future;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
+use std::future::{Future, ready};
 use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tokio::prelude::future::FutureResult;
-use tokio::prelude::future::{err, ok};
-use trust_dns_resolver::error::ResolveError;
-use trust_dns_resolver::lookup_ip::LookupIp;
+use hickory_resolver::error::ResolveError;
+use hickory_resolver::lookup_ip::LookupIp;
+use tokio::task;
 
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
@@ -61,8 +59,9 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
     }
 }
 
+type StreamEstablisherResultInner = Result<Box<dyn SenderWrapper<SequencedPacket> + 'static>, String>;
 type StreamEstablisherResult =
-    Box<dyn Future<Item = Box<dyn SenderWrapper<SequencedPacket> + 'static>, Error = String>>;
+    Box<dyn Future<Output = StreamEstablisherResultInner>>;
 
 impl StreamHandlerPoolReal {
     pub fn new(
@@ -107,12 +106,12 @@ impl StreamHandlerPoolReal {
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
-                let future =
-                    Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
-                        .map_err(move |error| {
-                            Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
-                        });
-                actix::spawn(future);
+                let future = async {
+                    if let Err(msg) = Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc).await {
+                        Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, msg)
+                    }
+                };
+                task::spawn(future);
             }
             None => {
                 if payload.sequenced_packet.data.is_empty() {
@@ -122,16 +121,14 @@ impl StreamHandlerPoolReal {
                         payload.stream_key
                     )
                 } else {
-                    let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
-                        .and_then(move |sender_wrapper| {
-                            Self::write_and_tend(
-                                sender_wrapper,
-                                payload,
-                                paying_wallet_opt,
-                                inner_arc,
-                            )
-                        })
-                        .map_err(move |error| {
+                    let future = async {
+                        let sender_wrapper = Self::make_stream_with_key(&payload, inner_arc_1.clone()).await?;
+                        if let Err(msg) = Self::write_and_tend(
+                            sender_wrapper,
+                            payload,
+                            paying_wallet_opt,
+                            inner_arc,
+                        ).await {
                             // TODO: This ends up sending an empty response back to the browser and terminating
                             // the stream. User deserves better than that. Send back a response from the
                             // proper ServerImpersonator describing the error.
@@ -139,10 +136,12 @@ impl StreamHandlerPoolReal {
                                 inner_arc_1,
                                 &stream_key,
                                 error_socket_addr(),
-                                error,
+                                msg,
                             );
-                        });
-                    actix::spawn(future);
+                        };
+                        Ok(())
+                    };
+                    task::spawn(future);
                 }
             }
         };
@@ -173,12 +172,12 @@ impl StreamHandlerPoolReal {
         );
     }
 
-    fn write_and_tend(
+    async fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    ) -> impl Future<Item = (), Error = String> {
+    ) -> Result<(), String> {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
@@ -251,10 +250,7 @@ impl StreamHandlerPoolReal {
                     "Cannot open new stream with key {:?}: no hostname supplied",
                     payload.stream_key
                 );
-                Box::new(err::<
-                    Box<dyn SenderWrapper<SequencedPacket> + 'static>,
-                    String,
-                >("No hostname provided".to_string()))
+                Box::new(ready(Err("No hostname provided".to_string())))
             }
         }
     }
@@ -275,26 +271,24 @@ impl StreamHandlerPoolReal {
         inner.establisher_factory.make()
     }
 
-    fn handle_ip(
+    async fn handle_ip(
         payload: ClientRequestPayload_0v1,
         ip_addr: IpAddr,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
-    ) -> StreamEstablisherResult {
+    ) -> StreamEstablisherResultInner {
         let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
-        Box::new(
-            future::lazy(move || {
-                stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname)
-            })
-            .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
-        )
+        match stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname).await {
+            Ok(sender_wrapper) => Ok(Box::new(sender_wrapper)),
+            Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error))
+        }
     }
 
-    fn lookup_dns(
+    async fn lookup_dns(
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
         payload: ClientRequestPayload_0v1,
-    ) -> StreamEstablisherResult {
+    ) -> StreamEstablisherResultInner {
         let fqdn = Self::make_fqdn(&target_hostname);
         let dns_resolve_failed_sub = inner_arc
             .lock()
@@ -305,29 +299,30 @@ impl StreamHandlerPoolReal {
         let mut establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone());
         let stream_key = payload.stream_key;
         let logger = StreamHandlerPoolReal::make_logger_copy(&inner_arc);
-        Box::new(
-            inner_arc
-                .lock()
-                .expect("Stream handler pool is poisoned")
-                .resolver
-                .lookup_ip(&fqdn)
-                .map_err(move |err| {
-                    dns_resolve_failed_sub
-                        .try_send(DnsResolveFailure_0v1::new(stream_key))
-                        .expect("ProxyClient is poisoned");
-                    err
-                })
-                .then(move |lookup_result| {
-                    Self::handle_lookup_ip(
-                        target_hostname.to_string(),
-                        &payload,
-                        lookup_result,
-                        logger,
-                        &mut establisher,
-                    )
-                })
-                .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
-        )
+        match inner_arc
+            .lock()
+            .expect("Stream handler pool is poisoned")
+            .resolver
+            .lookup_ip(&fqdn).await {
+            Ok(lookup_result) => match Self::handle_lookup_ip(
+                target_hostname.to_string(),
+                &payload,
+                lookup_result,
+                logger,
+                &mut establisher,
+            ).await {
+                Ok(sender_wrapper) => Ok(sender_wrapper),
+                Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error))
+            },
+            Err(err) => {
+                dns_resolve_failed_sub
+                    .try_send(DnsResolveFailure_0v1::new(stream_key))
+                    .expect("ProxyClient is poisoned");
+                // TODO SPIKE This code was returning a naked "err" before. How can that be right?
+                Err(format!("DNS resolution failure: {:?}", err))
+                // TODO SPIKE
+            }
+        }
     }
 
     fn handle_lookup_ip(
@@ -372,14 +367,14 @@ impl StreamHandlerPoolReal {
         inner.logger.clone()
     }
 
-    fn perform_write(
+    async fn perform_write(
         sequenced_packet: SequencedPacket,
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
-    ) -> FutureResult<(), String> {
-        match sender_wrapper.unbounded_send(sequenced_packet) {
-            Ok(_) => ok::<(), String>(()),
+    ) -> Result<(), String> {
+        match sender_wrapper.unbounded_send(sequenced_packet).await {
+            Ok(_) => Ok(()),
             Err(_) => {
-                err::<(), String>("Could not queue write to stream; channel full".to_string())
+                Err("Could not queue write to stream; channel full".to_string())
             }
         }
     }
@@ -528,10 +523,9 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::task::Poll;
     use std::thread;
     use tokio;
-    use tokio::prelude::Async;
-    use trust_dns_resolver::error::ResolveErrorKind;
 
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,
@@ -543,7 +537,7 @@ mod tests {
         }
     }
 
-    fn run_process_package_in_actix(
+    fn spawn_process_package(
         subject: StreamHandlerPoolReal,
         package: ExpiredCoresPackage<MessageType>,
     ) {
@@ -554,10 +548,10 @@ mod tests {
                 .unwrap(),
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
-        actix::run(move || {
+        let future = async {
             subject.process_package(payload, paying_wallet);
-            ok(())
-        })
+        };
+        task::spawn(future);
     }
 
     #[test]
@@ -669,7 +663,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, tx_to_write);
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         await_messages(1, &write_parameters);
@@ -730,7 +724,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
@@ -787,14 +781,14 @@ mod tests {
                 poll_read_results: vec![
                     (
                         first_read_result.to_vec(),
-                        Ok(Async::Ready(first_read_result.len())),
+                        Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
                 ],
             };
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
-                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
                 poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
@@ -830,7 +824,7 @@ mod tests {
                 });
             }
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -896,14 +890,14 @@ mod tests {
                 poll_read_results: vec![
                     (
                         first_read_result.to_vec(),
-                        Ok(Async::Ready(first_read_result.len())),
+                        Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
                 ],
             };
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
-                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
                 poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
@@ -939,7 +933,7 @@ mod tests {
                 });
             }
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -1002,7 +996,7 @@ mod tests {
                 200,
             );
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -1072,14 +1066,14 @@ mod tests {
                 poll_read_results: vec![
                     (
                         first_read_result.to_vec(),
-                        Ok(Async::Ready(first_read_result.len())),
+                        Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
                 ],
             };
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
-                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
                 poll_close_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
@@ -1115,7 +1109,7 @@ mod tests {
                 });
             }
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -1213,7 +1207,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -1274,13 +1268,13 @@ mod tests {
 
             let reader = ReadHalfWrapperMock {
                 poll_read_results: vec![
-                    (vec![], Ok(Async::NotReady)),
-                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                    (vec![], Poll::Pending),
+                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
                 ],
             };
             let writer = WriteHalfWrapperMock {
                 poll_write_params: write_parameters,
-                poll_write_results: vec![Ok(Async::NotReady)],
+                poll_write_results: vec![Poll::Pending],
                 poll_close_results: Arc::new(Mutex::new(vec![])),
             };
 
@@ -1322,7 +1316,7 @@ mod tests {
                         results: vec![(
                             disconnected_sender,
                             Box::new(ReceiverWrapperMock {
-                                poll_results: vec![Ok(Async::Ready(None))],
+                                poll_results: vec![Poll::Ready(Ok(None))],
                             }),
                         )],
                     }),
@@ -1332,7 +1326,7 @@ mod tests {
                     make_results: RefCell::new(vec![establisher]),
                 });
             }
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -1391,7 +1385,7 @@ mod tests {
             );
             subject.inner.lock().unwrap().logger =
                 Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
         proxy_client_awaiter.await_message_count(2);
         let recording = proxy_client_recording_arc.lock().unwrap();
@@ -1465,7 +1459,7 @@ mod tests {
                 .stream_writer_channels
                 .insert(stream_key, Box::new(sender_wrapper));
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         await_messages(1, &send_params);
@@ -1521,7 +1515,7 @@ mod tests {
                     make_results: RefCell::new(vec![]),
                 });
 
-            run_process_package_in_actix(subject, package);
+            spawn_process_package(subject, package);
         });
 
         let tlh = TestLogHandler::new();
