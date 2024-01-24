@@ -72,8 +72,9 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
         };
 
         Ok(Either::Left(
-            payment_adjuster
-                .propose_possible_adjustment_recursively(weights_and_accounts_in_descending_order),
+            payment_adjuster.propose_possible_adjustment_recursively(
+                weights_and_accounts_in_descending_order,
+            )?,
         ))
     }
 }
@@ -81,7 +82,7 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
 pub struct ServiceFeeOnlyAdjustmentRunner {}
 
 impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
-    type ReturnType = Vec<AdjustedAccountBeforeFinalization>;
+    type ReturnType = Result<Vec<AdjustedAccountBeforeFinalization>, PaymentAdjusterError>;
 
     fn adjust_last_one(
         &self,
@@ -89,7 +90,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         last_account: PayableAccount,
     ) -> Self::ReturnType {
         let element_opt = adjust_last_one(payment_adjuster, last_account);
-        empty_or_single_element_vector(element_opt)
+        Ok(empty_or_single_element_vector(element_opt))
     }
 
     fn adjust_multiple(
@@ -206,7 +207,7 @@ mod tests {
     #[test]
     fn service_fee_only_adjust_last_one_works() {
         test_adjust_last_one(ServiceFeeOnlyAdjustmentRunner {}, |expected_vec| {
-            expected_vec
+            Ok(expected_vec)
         })
     }
 
@@ -290,7 +291,9 @@ mod tests {
         let subject = ServiceFeeOnlyAdjustmentRunner {};
         let criteria_and_accounts = payment_adjuster.calculate_weights_for_accounts(accounts);
 
-        let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);
+        let result = subject
+            .adjust_multiple(&mut payment_adjuster, criteria_and_accounts)
+            .unwrap();
 
         let returned_accounts = result
             .into_iter()

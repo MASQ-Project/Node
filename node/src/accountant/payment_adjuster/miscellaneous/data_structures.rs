@@ -11,14 +11,27 @@ pub enum AdjustmentIterationResult {
     },
 }
 
-pub struct GraduallyFormedResult{
+pub struct RecursionResults {
     pub here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    pub downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>
+    pub downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
 }
 
-impl GraduallyFormedResult{
-    pub fn new(here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>, downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>)->Self{
-        Self{ here_decided_accounts, downstream_decided_accounts }
+impl RecursionResults {
+    pub fn new(
+        here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
+        downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
+    ) -> Self {
+        Self {
+            here_decided_accounts,
+            downstream_decided_accounts,
+        }
+    }
+
+    pub fn merge_results_from_recursion(self) -> Vec<AdjustedAccountBeforeFinalization> {
+        self.here_decided_accounts
+            .into_iter()
+            .chain(self.downstream_decided_accounts.into_iter())
+            .collect()
     }
 }
 
@@ -75,7 +88,44 @@ impl TransactionCountsWithin16bits {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::TransactionCountsWithin16bits;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+        AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsWithin16bits,
+    };
+    use crate::accountant::test_utils::make_payable_account;
+
+    #[test]
+    fn merging_results_from_recursion_works() {
+        let non_finalized_account_1 = AdjustedAccountBeforeFinalization {
+            original_account: make_payable_account(111),
+            proposed_adjusted_balance: 1234,
+        };
+        let non_finalized_account_2 = AdjustedAccountBeforeFinalization {
+            original_account: make_payable_account(222),
+            proposed_adjusted_balance: 5555,
+        };
+        let non_finalized_account_3 = AdjustedAccountBeforeFinalization {
+            original_account: make_payable_account(333),
+            proposed_adjusted_balance: 6789,
+        };
+        let subject = RecursionResults {
+            here_decided_accounts: vec![non_finalized_account_1.clone()],
+            downstream_decided_accounts: vec![
+                non_finalized_account_2.clone(),
+                non_finalized_account_3.clone(),
+            ],
+        };
+
+        let result = subject.merge_results_from_recursion();
+
+        assert_eq!(
+            result,
+            vec![
+                non_finalized_account_1,
+                non_finalized_account_2,
+                non_finalized_account_3
+            ]
+        )
+    }
 
     #[test]
     fn there_is_u16_ceiling_for_possible_tx_count() {

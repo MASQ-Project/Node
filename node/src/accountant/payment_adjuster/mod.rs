@@ -25,7 +25,7 @@ use crate::accountant::payment_adjuster::log_fns::{
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, GraduallyFormedResult, ProposedAdjustmentResolution};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, ProposedAdjustmentResolution};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
@@ -253,7 +253,7 @@ impl PaymentAdjusterReal {
                     .propose_possible_adjustment_recursively(
                         accounts_with_criteria_affordable_by_transaction_fee,
                     );
-                Ok(Either::Left(adjustment_result_before_verification))
+                Ok(Either::Left(adjustment_result_before_verification?))
             }
             false => {
                 let finalized_accounts = isolate_accounts_from_weights(
@@ -268,29 +268,24 @@ impl PaymentAdjusterReal {
         &mut self,
         weights_and_accounts: Vec<(u128, PayableAccount)>,
     ) -> Result<Vec<AdjustedAccountBeforeFinalization>, PaymentAdjusterError> {
-        let adjustment_iteration_result =
-            self.perform_adjustment_by_service_fee(weights_and_accounts);
+        let current_iteration_result = self.perform_adjustment_by_service_fee(weights_and_accounts);
 
-        let gradual_result =
-            self.resolve_iteration_result(adjustment_iteration_result);
+        let recursion_results = self.resolve_current_iteration_result(current_iteration_result)?;
 
-        let here_decided_iter = here_decided_accounts.into_iter();
-        let downstream_decided_iter = downstream_decided_accounts.into_iter();
-        let merged: Vec<AdjustedAccountBeforeFinalization> =
-            here_decided_iter.chain(downstream_decided_iter).collect();
+        let merged = recursion_results.merge_results_from_recursion();
 
         diagnostics!("\nFINAL ADJUSTED ACCOUNTS:", &merged);
 
         Ok(merged)
     }
 
-    fn resolve_iteration_result(
+    fn resolve_current_iteration_result(
         &mut self,
         adjustment_iteration_result: AdjustmentIterationResult,
-    ) -> Result<GraduallyFormedResult,PaymentAdjusterError> {
+    ) -> Result<RecursionResults, PaymentAdjusterError> {
         match adjustment_iteration_result {
             AdjustmentIterationResult::AllAccountsProcessedSmoothly(decided_accounts) => {
-                Ok(GraduallyFormedResult::new(decided_accounts, vec![]))
+                Ok(RecursionResults::new(decided_accounts, vec![]))
             }
             AdjustmentIterationResult::SpecialTreatmentNeeded {
                 case: special_case,
@@ -318,9 +313,12 @@ impl PaymentAdjusterReal {
                     .calculate_criteria_and_propose_adjustments_recursively(
                         remaining,
                         ServiceFeeOnlyAdjustmentRunner {},
-                    );
+                    )?;
 
-                Ok(GraduallyFormedResult::new(here_decided_accounts, down_stream_decided_accounts))
+                Ok(RecursionResults::new(
+                    here_decided_accounts,
+                    down_stream_decided_accounts,
+                ))
             }
         }
     }
@@ -625,7 +623,7 @@ mod tests {
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, weights_total};
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
     };
@@ -1031,7 +1029,7 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
             pending_payable_opt: None,
         };
-        let accounts = vec![account_1.clone(), account_2.clone()];
+        let accounts = vec![account_1.clone(), account_2];
         let subject = make_initialized_subject(
             now,
             Some(consuming_wallet_balance),
@@ -1056,31 +1054,28 @@ mod tests {
 
     #[test]
     fn adjustment_started_but_all_accounts_were_eliminated_anyway() {
-
-        XXXX write me correctly!
-
-        init_test_logging();
         let test_name = "adjustment_started_but_all_accounts_were_eliminated_anyway";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 1,
+            balance_wei: 3_000_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 6_000_000_000_000_000_000,
+            balance_wei: 1_000_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1.clone(), account_2.clone()];
+        let qualified_payables = vec![account_1, account_2];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let accounts_sum: u128 =
-            4_444_444_444_444_444_444 + 6_000_000_000_000_000_000 + 6_666_666_666_000_000_000;
-        let service_fee_balance_in_minor_units = accounts_sum - 2_000_000_000_000_000_000;
+        let service_fee_balance_in_minor_units = ((3_000_000_000_000
+            * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
+            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
+            - 1;
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
@@ -1096,7 +1091,11 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now);
 
-        assert_eq!(result, Err(PaymentAdjusterError::AllAccountsEliminated))
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("we expected to get an error but it was ok"),
+        };
+        assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated)
     }
 
     #[test]
