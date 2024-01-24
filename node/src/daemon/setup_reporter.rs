@@ -46,10 +46,13 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
-    blanked_arg: "chain",
-    linked_arg: "data-directory",
-}];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[
+    // If we have chain A and data directory X, and then an incoming_setup arrives with chain blanked out and data
+    // directory Y, we'll preserve the blank chain, but resurrect data directory X. (I'm not sure this is correct;
+    // perhaps if we're going to take advantage of a default chain, we should also use the default chain's data
+    // directory. --Dan)
+    ErrorSensitiveArgPair { blanked_arg: "chain", linked_arg: "data-directory" }
+];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -110,6 +113,7 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("DEFAULTS", &default_setup);
         eprintln_setup("EXISTING", &existing_setup);
         eprintln_setup("BLANKED-OUT FORMER VALUES", &blanked_out_former_values);
+        eprintln_setup("PREVENTION TO ERR INDUCED SETUP IMPAIRMENTS", &prevention_to_err_induced_setup_impairments);
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
