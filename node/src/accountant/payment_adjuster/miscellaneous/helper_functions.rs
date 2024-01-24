@@ -20,7 +20,7 @@ use std::iter::successors;
 use std::ops::Not;
 use web3::types::U256;
 
-const MAX_EXPONENT_FOR_10_IN_U128: u32 = 38;
+const MAX_EXPONENT_FOR_10_WITHIN_U128: u32 = 76;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
 // Represents 50%
 pub const ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE: PercentageAccountInsignificance =
@@ -57,20 +57,20 @@ pub fn drop_accounts_that_cannot_be_afforded_due_to_service_fee(
         .collect()
 }
 
-// TODO U256 possible + test for extreme input fed??
 pub fn compute_mul_coefficient_preventing_fractional_numbers(
     cw_masq_balance_minor: u128,
-    account_weight: u128,
+    account_weights_total: u128,
 ) -> U256 {
-    let weight_digits_count = log_10(account_weight);
+    let weight_digits_count = log_10(account_weights_total);
     let cw_balance_digits_count = log_10(cw_masq_balance_minor);
-    let positive_difference = weight_digits_count.saturating_sub(cw_balance_digits_count);
-    let safe_mul_coefficient = positive_difference + EMPIRIC_PRECISION_COEFFICIENT;
+    let positive_only_difference = weight_digits_count.saturating_sub(cw_balance_digits_count);
+    let exponent = positive_only_difference + EMPIRIC_PRECISION_COEFFICIENT;
     U256::from(10)
-        .checked_pow(safe_mul_coefficient.into())
-        // .unwrap_or_else(|| 10_u128.pow(MAX_EXPONENT_FOR_10_IN_U128))
-        //     TODO fix me in the test
-        .unwrap_or_else(|| U256::MAX)
+        .checked_pow(exponent.into())
+        .expect("impossible to reach given weights total data type being u128")
+    // Note that reaching this limitation is highly unlikely, and even in the future, if we boosted the data type
+    // for account_weights_total up to U256, assuming such low inputs we would be feeding it now with real world
+    // scenario parameters
 }
 
 pub fn possibly_outweighed_accounts_fold_guts(
@@ -386,7 +386,7 @@ mod tests {
         possibly_outweighed_accounts_fold_guts,
         try_finding_an_account_to_disqualify_in_this_iteration, weights_total, CwExhaustingStatus,
         ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
-        MAX_EXPONENT_FOR_10_IN_U128,
+        MAX_EXPONENT_FOR_10_WITHIN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(MAX_EXPONENT_FOR_10_IN_U128, 38);
+        assert_eq!(MAX_EXPONENT_FOR_10_WITHIN_U128, 76);
         assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
         assert_eq!(
             ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
@@ -472,6 +472,8 @@ mod tests {
             1_000_000_000_u128,
             1_000_000_000_000_000,
             1_000_000_000_000,
+            // The following values are the minimum. It turned out that it helps to reach better precision in
+            // the downstream computations
             100_000_000,
             100_000_000,
             100_000_000,
@@ -483,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn multiplication_coefficient_extreme_feeding_and_safety_ceiling() {
+    fn multiplication_coefficient_extreme_feeding_with_possible_but_only_little_realistic_values() {
         // We cannot say by heart which of the evaluated weights from
         // these parameters below will be bigger than another and therefore
         // we cannot line them up in an order
@@ -498,7 +500,7 @@ mod tests {
         ];
         let (accounts_with_their_weights, reserved_initial_accounts_order_according_to_wallets) =
             get_extreme_weights_and_initial_accounts_order(accounts_as_months_and_balances);
-        let cw_balance_in_minor = 1;
+        let cw_balance_in_minor = 1; // Minimal possible balance 1 wei
 
         let results = accounts_with_their_weights
             .into_iter()

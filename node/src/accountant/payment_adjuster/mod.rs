@@ -1015,8 +1015,7 @@ mod tests {
             wallet: make_wallet("blah"),
             balance_wei: 1_000_000_000_000,
             last_paid_timestamp: now
-                // Greater age like this together with smaller balance usually causes the account
-                // to come outweighed
+                // Greater age like this together with smaller balance usually causes the account to outweigh
                 .checked_sub(Duration::from_secs(SECONDS_IN_3_DAYS))
                 .unwrap(),
             pending_payable_opt: None,
@@ -1047,8 +1046,7 @@ mod tests {
             } => remaining,
             x => panic!("we expected to see a disqualified account but got: {:?}", x),
         };
-        // We eliminated (disqualified) the other account than which was going to qualify as
-        // outweighed
+        // We eliminated (disqualified) the other account than which was going to qualify as outweighed
         assert_eq!(remaining, vec![account_1]);
     }
 
