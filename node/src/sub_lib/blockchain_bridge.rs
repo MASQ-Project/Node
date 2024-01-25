@@ -68,15 +68,20 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
+    // The supply of this currency isn't limited by our database and
+    // theoretically can be much bigger than of our utility currency
     pub transaction_fee_balance_in_minor_units: U256,
-    pub masq_token_balance_in_minor_units: U256,
+    // This supply must fit in u128 because otherwise our database would
+    // not be fully capable of handling math with it not threatened by
+    // an overflow
+    pub service_fee_balance_in_minor_units: u128,
 }
 
 impl ConsumingWalletBalances {
-    pub fn new(transaction_fee: U256, masq_token: U256) -> Self {
+    pub fn new(transaction_fee: U256, service_fee: u128) -> Self {
         Self {
             transaction_fee_balance_in_minor_units: transaction_fee,
-            masq_token_balance_in_minor_units: masq_token,
+            service_fee_balance_in_minor_units: service_fee,
         }
     }
 }

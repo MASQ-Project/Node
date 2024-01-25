@@ -52,6 +52,10 @@ impl TestServer {
         TestServer { port, rx }
     }
 
+    pub fn local_url(&self) -> String {
+        format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), self.port)
+    }
+
     pub fn requests_so_far(&self) -> Vec<Request<Vec<u8>>> {
         let mut requests = vec![];
         while let Ok(request) = self.rx.try_recv() {

@@ -29,7 +29,7 @@ pub mod payable_scanner_utils {
         RemotelyCausedErrors(Vec<H256>),
     }
 
-    //debugging purposes only
+    // Debug purposes only
     pub fn investigate_debt_extremes(
         timestamp: SystemTime,
         all_non_pending_payables: &[PayableAccount],

@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
@@ -14,17 +12,19 @@ pub struct BlockchainAgentNull {
 }
 
 impl BlockchainAgent for BlockchainAgentNull {
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
-        self.log_function_call("estimated_transaction_fee_total()");
+    fn estimated_transaction_fee_per_transaction_minor(&self) -> u128 {
+        self.log_function_call("estimated_transaction_fee_per_transaction_minor()");
         0
     }
 
-    fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
-        self.log_function_call("consuming_wallet_balances()");
-        ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::zero(),
-            masq_token_balance_in_minor_units: U256::zero(),
-        }
+    fn transaction_fee_balance_minor(&self) -> U256 {
+        self.log_function_call("transaction_fee_balance_minor()");
+        U256::zero()
+    }
+
+    fn service_fee_balance_minor(&self) -> u128 {
+        self.log_function_call("service_fee_balance_minor()");
+        0
     }
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
@@ -77,10 +77,7 @@ impl Default for BlockchainAgentNull {
 mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
-
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
@@ -120,35 +117,42 @@ mod tests {
     }
 
     #[test]
-    fn null_agent_estimated_transaction_fee_total() {
+    fn null_agent_estimated_transaction_fee_per_transaction_minor() {
         init_test_logging();
-        let test_name = "null_agent_estimated_transaction_fee_total";
+        let test_name = "null_agent_estimated_transaction_fee_per_transaction_minor";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.estimated_transaction_fee_total(4);
+        let result = subject.estimated_transaction_fee_per_transaction_minor();
 
         assert_eq!(result, 0);
-        assert_error_log(test_name, "estimated_transaction_fee_total");
+        assert_error_log(test_name, "estimated_transaction_fee_per_transaction_minor");
     }
 
     #[test]
-    fn null_agent_consuming_wallet_balances() {
+    fn null_agent_consuming_transaction_fee_balance_minor() {
         init_test_logging();
-        let test_name = "null_agent_consuming_wallet_balances";
+        let test_name = "null_agent_consuming_transaction_fee_balance_minor";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.consuming_wallet_balances();
+        let result = subject.transaction_fee_balance_minor();
 
-        assert_eq!(
-            result,
-            ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: U256::zero(),
-                masq_token_balance_in_minor_units: U256::zero()
-            }
-        );
-        assert_error_log(test_name, "consuming_wallet_balances")
+        assert_eq!(result, U256::zero());
+        assert_error_log(test_name, "transaction_fee_balance_minor")
+    }
+
+    #[test]
+    fn null_agent_service_fee_balance_minor() {
+        init_test_logging();
+        let test_name = "null_agent_service_fee_balance_minor";
+        let mut subject = BlockchainAgentNull::new();
+        subject.logger = Logger::new(test_name);
+
+        let result = subject.service_fee_balance_minor();
+
+        assert_eq!(result, 0);
+        assert_error_log(test_name, "service_fee_balance_minor")
     }
 
     #[test]

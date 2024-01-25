@@ -110,11 +110,8 @@ mod tests {
             port,
             vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec()],
         );
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (_event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
@@ -170,11 +167,8 @@ mod tests {
         let test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"}"#.to_vec()
         ]);
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (_event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
@@ -350,14 +344,11 @@ mod tests {
         F: FnOnce(&LowBlockchainIntWeb3<Http>, &Wallet) -> ResultForBalance,
     {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
         ]);
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (_event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = make_subject(transport, chain);

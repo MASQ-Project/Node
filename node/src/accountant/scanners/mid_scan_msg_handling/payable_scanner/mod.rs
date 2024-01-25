@@ -6,9 +6,12 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::Adjustment;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
+use crate::accountant::ResponseSkeleton;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
@@ -27,27 +30,33 @@ pub trait SolvencySensitivePaymentInstructor {
         &self,
         msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
+    ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>>;
 
     fn perform_payment_adjustment(
         &self,
         setup: PreparedAdjustment,
         logger: &Logger,
-    ) -> OutboundPaymentsInstructions;
+    ) -> Option<OutboundPaymentsInstructions>;
 }
 
 pub struct PreparedAdjustment {
-    pub original_setup_msg: BlockchainAgentWithContextMessage,
+    pub qualified_payables: Vec<PayableAccount>,
+    pub agent: Box<dyn BlockchainAgent>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
     pub adjustment: Adjustment,
 }
 
 impl PreparedAdjustment {
     pub fn new(
-        original_setup_msg: BlockchainAgentWithContextMessage,
+        qualified_payables: Vec<PayableAccount>,
+        agent: Box<dyn BlockchainAgent>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
         adjustment: Adjustment,
     ) -> Self {
         Self {
-            original_setup_msg,
+            qualified_payables,
+            agent,
+            response_skeleton_opt,
             adjustment,
         }
     }
@@ -60,7 +69,9 @@ mod tests {
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {
             Self {
-                original_setup_msg: self.original_setup_msg.clone(),
+                qualified_payables: self.qualified_payables.clone(),
+                agent: self.agent.dup(),
+                response_skeleton_opt: self.response_skeleton_opt,
                 adjustment: self.adjustment.clone(),
             }
         }

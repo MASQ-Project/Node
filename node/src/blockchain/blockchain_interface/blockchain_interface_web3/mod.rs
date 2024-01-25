@@ -38,6 +38,7 @@ use web3::types::{
 use web3::{BatchTransport, Error, Web3};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
+use crate::sub_lib::blockchain_interface_web3::transaction_data_web3;
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -63,8 +64,6 @@ const TRANSACTION_LITERAL: H256 = H256([
     0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
     0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 ]);
-
-const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -251,7 +250,8 @@ where
 
         let consuming_wallet_balances = ConsumingWalletBalances {
             transaction_fee_balance_in_minor_units: transaction_fee_balance,
-            masq_token_balance_in_minor_units: masq_token_balance,
+            service_fee_balance_in_minor_units: u128::try_from(masq_token_balance)
+                .expect("larger amount than the official supply"),
         };
         let consuming_wallet = consuming_wallet.clone();
 
@@ -506,7 +506,7 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
-        let data = Self::transaction_data(recipient, amount);
+        let data = transaction_data_web3(recipient, amount);
         let gas_limit = self.compute_gas_limit(data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
@@ -557,16 +557,6 @@ where
             )
         });
         introduction.chain(body).collect()
-    }
-
-    fn transaction_data(recipient: &Wallet, amount: u128) -> [u8; 68] {
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        U256::try_from(amount)
-            .expect("shouldn't overflow")
-            .to_big_endian(&mut data[36..68]);
-        data
     }
 
     fn compute_gas_limit(&self, data: &[u8]) -> U256 {
@@ -630,7 +620,6 @@ mod tests {
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
-        TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
@@ -643,7 +632,6 @@ mod tests {
         all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::http_test_server::TestServer;
@@ -716,7 +704,6 @@ mod tests {
         };
         assert_eq!(CONTRACT_ABI, contract_abi_expected);
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
-        assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
     }
 
@@ -795,11 +782,8 @@ mod tests {
                 ]
             }]"#.to_vec(),
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let end_block_nbr = 1024u64;
@@ -857,11 +841,8 @@ mod tests {
             port,
             vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
         );
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let end_block_nbr = 1024u64;
@@ -927,14 +908,11 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -954,14 +932,11 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start(port, vec![
+        let test_server = TestServer::start(port, vec![
             br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -978,15 +953,12 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
         init_test_logging();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -1015,14 +987,11 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
     ) {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
@@ -1088,20 +1057,14 @@ mod tests {
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), transaction_id);
         assert_eq!(
-            result.consuming_wallet_balances(),
-            ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: transaction_fee_balance,
-                masq_token_balance_in_minor_units: masq_balance
-            }
+            result.transaction_fee_balance_minor(),
+            transaction_fee_balance
         );
+        assert_eq!(result.service_fee_balance_minor(), masq_balance.as_u128());
         assert_eq!(result.agreed_fee_per_computation_unit(), 50);
-        let expected_fee_estimation = (3
-            * (BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain)
-                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-            * 50) as u128;
         assert_eq!(
-            result.estimated_transaction_fee_total(3),
-            expected_fee_estimation
+            result.estimated_transaction_fee_per_transaction_minor(),
+            3666400000000000
         )
     }
 
@@ -1801,10 +1764,6 @@ mod tests {
         );
     }
 
-    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
-    const TEST_GAS_PRICE_ETH: u64 = 110;
-    const TEST_GAS_PRICE_POLYGON: u64 = 50;
-
     fn test_consuming_wallet_with_secret() -> Wallet {
         let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
             &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
@@ -1826,6 +1785,10 @@ mod tests {
         nonce: u64,
         template: &[u8],
     ) {
+        const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
+        const TEST_GAS_PRICE_ETH: u64 = 110;
+        const TEST_GAS_PRICE_POLYGON: u64 = 50;
+
         let transport = TestTransport::default();
         let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         let consuming_wallet = test_consuming_wallet_with_secret();
@@ -2081,15 +2044,12 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_fetch_transaction_receipt() {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
+        let test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#
                 .to_vec()
         ]);
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(&test_server.local_url(), REQUESTS_IN_PARALLEL).unwrap();
         let chain = TEST_DEFAULT_CHAIN;
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
         let tx_hash =
@@ -2217,13 +2177,5 @@ mod tests {
                 .agreed_fee_per_computation_unit_result(gas_price_gwei)
                 .pending_transaction_id_result(nonce),
         )
-    }
-
-    #[test]
-    fn hash_the_smart_contract_transfer_function_signature() {
-        assert_eq!(
-            "transfer(address,uint256)".keccak256()[0..4],
-            TRANSFER_METHOD_ID,
-        );
     }
 }

@@ -13,7 +13,8 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
@@ -40,6 +41,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::{Message, System};
 use ethereum_types::H256;
@@ -205,39 +207,8 @@ fn fill_vacancies_with_given_or_default_daos<const N: usize, T: Default>(
     make_queue_for_factory
 }
 
-macro_rules! create_or_update_factory {
-    (
-        $dao_set: expr, //Vec<DaoWithDestination<XxxDaoMock>>
-        $dao_initialization_order_in_regard_to_accountant: expr, //[DestinationMarker;N]
-        $factory_field_in_builder: ident, //Option<XxxDaoFactoryMock>
-        $dao_factory_mock: ident, // XxxDaoFactoryMock
-        $dao_trait: ident,
-        $self: expr //mut AccountantBuilder
-    ) => {{
-        let make_queue_uncast = fill_vacancies_with_given_or_default_daos(
-            $dao_initialization_order_in_regard_to_accountant,
-            $dao_set,
-        );
-
-        let finished_make_queue: Vec<Box<dyn $dao_trait>> = make_queue_uncast
-            .into_iter()
-            .map(|elem| elem as Box<dyn $dao_trait>)
-            .collect();
-
-        let ready_factory = match $self.$factory_field_in_builder.take() {
-            Some(existing_factory) => {
-                existing_factory.make_results.replace(finished_make_queue);
-                existing_factory
-            }
-            None => {
-                let mut new_factory = $dao_factory_mock::new();
-                new_factory.make_results = RefCell::new(finished_make_queue);
-                new_factory
-            }
-        };
-        $self.$factory_field_in_builder = Some(ready_factory);
-        $self
-    }};
+pub trait DaoFactoryWithMakeReplace<DAO> {
+    fn replace_make_results(&self, results: Vec<Box<DAO>>);
 }
 
 const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
@@ -272,55 +243,72 @@ impl AccountantBuilder {
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<PendingPayableDaoMock>>,
     ) -> Self {
-        create_or_update_factory!(
+        Self::create_or_update_factory(
             specially_configured_daos,
             PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            pending_payable_dao_factory,
-            PendingPayableDaoFactoryMock,
-            PendingPayableDao,
-            self
-        )
+            &mut self.pending_payable_dao_factory,
+            PendingPayableDaoFactoryMock::new(),
+        );
+        self
     }
 
     pub fn payable_daos(
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<PayableDaoMock>>,
     ) -> Self {
-        create_or_update_factory!(
+        Self::create_or_update_factory(
             specially_configured_daos,
             PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            payable_dao_factory,
-            PayableDaoFactoryMock,
-            PayableDao,
-            self
-        )
+            &mut self.payable_dao_factory,
+            PayableDaoFactoryMock::new(),
+        );
+        self
     }
 
     pub fn receivable_daos(
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<ReceivableDaoMock>>,
     ) -> Self {
-        create_or_update_factory!(
+        Self::create_or_update_factory(
             specially_configured_daos,
             RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            receivable_dao_factory,
-            ReceivableDaoFactoryMock,
-            ReceivableDao,
-            self
-        )
+            &mut self.receivable_dao_factory,
+            ReceivableDaoFactoryMock::new(),
+        );
+        self
     }
 
-    //TODO this method seems to be never used?
-    pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-        match self.banned_dao_factory {
+    fn create_or_update_factory<const N: usize, DAOFactory, DAO>(
+        dao_set: Vec<DaoWithDestination<DAO>>,
+        dao_initialization_order_in_regard_to_accountant: [DestinationMarker; N],
+        factory_field_in_builder: &mut Option<DAOFactory>,
+        dao_factory_mock: DAOFactory,
+    ) where
+        DAO: Default,
+        DAOFactory: DaoFactoryWithMakeReplace<DAO>,
+    {
+        let make_queue_uncast = fill_vacancies_with_given_or_default_daos(
+            dao_initialization_order_in_regard_to_accountant,
+            dao_set,
+        );
+
+        let finished_make_queue: Vec<Box<DAO>> = make_queue_uncast
+            .into_iter()
+            .map(|elem| elem as Box<DAO>)
+            .collect();
+
+        let ready_factory = match factory_field_in_builder.take() {
+            Some(existing_factory) => {
+                existing_factory.replace_make_results(finished_make_queue);
+                existing_factory
+            }
             None => {
-                self.banned_dao_factory = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
+                let new_factory = dao_factory_mock;
+                new_factory.replace_make_results(finished_make_queue);
+                new_factory
             }
-            Some(banned_dao_factory) => {
-                self.banned_dao_factory = Some(banned_dao_factory.make_result(banned_dao))
-            }
-        }
-        self
+        };
+        factory_field_in_builder.replace(ready_factory);
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
@@ -369,7 +357,7 @@ impl AccountantBuilder {
 
 pub struct PayableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
-    make_results: RefCell<Vec<Box<dyn PayableDao>>>,
+    make_results: RefCell<Vec<Box<PayableDaoMock>>>,
 }
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
@@ -381,6 +369,12 @@ impl PayableDaoFactory for PayableDaoFactoryMock {
         };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl DaoFactoryWithMakeReplace<PayableDaoMock> for PayableDaoFactoryMock {
+    fn replace_make_results(&self, results: Vec<Box<PayableDaoMock>>) {
+        self.make_results.replace(results);
     }
 }
 
@@ -403,9 +397,51 @@ impl PayableDaoFactoryMock {
     }
 }
 
+pub struct PendingPayableDaoFactoryMock {
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<PendingPayableDaoMock>>>,
+}
+
+impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
+    fn make(&self) -> Box<dyn PendingPayableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!(
+                "PendingPayableDao Missing. This problem mostly occurs when PendingPayableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+            )
+        };
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl DaoFactoryWithMakeReplace<PendingPayableDaoMock> for PendingPayableDaoFactoryMock {
+    fn replace_make_results(&self, results: Vec<Box<PendingPayableDaoMock>>) {
+        self.make_results.replace(results);
+    }
+}
+
+impl PendingPayableDaoFactoryMock {
+    pub fn new() -> Self {
+        Self {
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: PendingPayableDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
+        self
+    }
+}
+
 pub struct ReceivableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
-    make_results: RefCell<Vec<Box<dyn ReceivableDao>>>,
+    make_results: RefCell<Vec<Box<ReceivableDaoMock>>>,
 }
 
 impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
@@ -417,6 +453,12 @@ impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
         };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl DaoFactoryWithMakeReplace<ReceivableDaoMock> for ReceivableDaoFactoryMock {
+    fn replace_make_results(&self, results: Vec<Box<ReceivableDaoMock>>) {
+        self.make_results.replace(results);
     }
 }
 
@@ -1020,42 +1062,6 @@ impl PendingPayableDaoMock {
     }
 }
 
-pub struct PendingPayableDaoFactoryMock {
-    make_params: Arc<Mutex<Vec<()>>>,
-    make_results: RefCell<Vec<Box<dyn PendingPayableDao>>>,
-}
-
-impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
-    fn make(&self) -> Box<dyn PendingPayableDao> {
-        if self.make_results.borrow().len() == 0 {
-            panic!(
-                "PendingPayableDao Missing. This problem mostly occurs when PendingPayableDao is only supplied for Accountant and not for the Scanner while building Accountant."
-            )
-        };
-        self.make_params.lock().unwrap().push(());
-        self.make_results.borrow_mut().remove(0)
-    }
-}
-
-impl PendingPayableDaoFactoryMock {
-    pub fn new() -> Self {
-        Self {
-            make_params: Arc::new(Mutex::new(vec![])),
-            make_results: RefCell::new(vec![]),
-        }
-    }
-
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.make_params = params.clone();
-        self
-    }
-
-    pub fn make_result(self, result: PendingPayableDaoMock) -> Self {
-        self.make_results.borrow_mut().push(Box::new(result));
-        self
-    }
-}
-
 pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
     pending_payable_dao: PendingPayableDaoMock,
@@ -1396,54 +1402,54 @@ impl PayableThresholdsGaugeMock {
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params:
-        Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+        Arc<Mutex<Vec<(Vec<PayableAccount>, ArbitraryIdStamp)>>>,
     search_for_indispensable_adjustment_results:
-        RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
-    adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
+        RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
+    adjust_payments_results:
+        RefCell<Vec<Result<OutboundPaymentsInstructions, PaymentAdjusterError>>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &BlockchainAgentWithContextMessage,
-        logger: &Logger,
-    ) -> Result<Option<Adjustment>, AnalysisError> {
+        qualified_payables: &[PayableAccount],
+        agent: &dyn BlockchainAgent,
+    ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
-            .push((msg.clone(), logger.clone()));
+            .push((qualified_payables.to_vec(), agent.arbitrary_id_stamp()));
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .remove(0)
     }
 
     fn adjust_payments(
-        &self,
+        &mut self,
         setup: PreparedAdjustment,
         now: SystemTime,
-        logger: &Logger,
-    ) -> OutboundPaymentsInstructions {
+    ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
         self.adjust_payments_params
             .lock()
             .unwrap()
-            .push((setup.clone(), now, logger.clone()));
+            .push((setup, now));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
 
 impl PaymentAdjusterMock {
-    pub fn is_adjustment_required_params(
+    pub fn search_for_indispensable_adjustment_params(
         mut self,
-        params: &Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+        params: &Arc<Mutex<Vec<(Vec<PayableAccount>, ArbitraryIdStamp)>>>,
     ) -> Self {
         self.search_for_indispensable_adjustment_params = params.clone();
         self
     }
 
-    pub fn is_adjustment_required_result(
+    pub fn search_for_indispensable_adjustment_result(
         self,
-        result: Result<Option<Adjustment>, AnalysisError>,
+        result: Result<Option<Adjustment>, PaymentAdjusterError>,
     ) -> Self {
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
@@ -1453,13 +1459,16 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
+        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
     }
 
-    pub fn adjust_payments_result(self, result: OutboundPaymentsInstructions) -> Self {
+    pub fn adjust_payments_result(
+        self,
+        result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
+    ) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
     }
@@ -1474,7 +1483,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
                 &self,
                 _msg: BlockchainAgentWithContextMessage,
                 _logger: &Logger,
-            ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
+            ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>> {
                 intentionally_blank!()
             }
 
@@ -1482,7 +1491,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
                 &self,
                 _setup: PreparedAdjustment,
                 _logger: &Logger,
-            ) -> OutboundPaymentsInstructions {
+            ) -> Option<OutboundPaymentsInstructions> {
                 intentionally_blank!()
             }
         }

@@ -1674,7 +1674,8 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(1234))
             .max_block_count_result(Ok(Some(10000u64)))
-            .set_start_block_result(Err(PersistentConfigError::TransactionError));
+            .set_start_block_result(Err(PersistentConfigError::TransactionError))
+            .max_block_count_result(Ok(Some(10000u64)));
         let lower_interface =
             LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
         let blockchain_interface = BlockchainInterfaceMock::default()
@@ -2028,7 +2029,7 @@ pub mod exportable_test_parts {
         }
         fn launch_prepared_test_server() -> (TestServer, String) {
             let port = find_free_port();
-            let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
+            let server_url = format!("http://{}:{}", Ipv4Addr::LOCALHOST, port);
             (
                 TestServer::start(
                     port,
