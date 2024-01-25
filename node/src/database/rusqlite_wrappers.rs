@@ -5,46 +5,47 @@ use crate::masq_lib::utils::ExpectValue;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 
-// We were challenged multiple times to device mocks for testing some stubborn, hard to tame, data
+// We were challenged multiple times to device mocks for testing stubborn, hard to tame, data
 // structures from the 'rusqlite' library. After all, we've adopted two of them, the Connection,
-// that came first, and the Transaction to be drawn in much later. Of these, only the former
-// complies with the standard policy we follow for mock designs.
+// that came first, and the Transaction to come much later. Of these, only the former complies
+// with the standard policy we follow for mock designs.
 //
-// The delay until the second one, even though we would've been glad having it available earlier,
-// was caused by vacuum of ideas on how we could create a mock of these parameters and have it
-// accepted by the compiler. Passing a lot of time, we came up with a hybrid at least. That said,
-// it's involved a considerably high price of giving up on simplicity.
+// The delay until the second one became a thing, even though we would've been glad having it
+// on hand much earlier, was caused by vacuum of ideas on how we could create a mock of these
+// parameters and have it accepted by the compiler. Passing a lot of time, we came up with a hybrid,
+// at least. That said, it's costed a considerably high price of giving up on simplicity.
 //
-// The firmest blocker of the design has always rooted in a hardly relationships of serialized
-// lifetimes affecting each other that has been so hard to maintain right. Yet the choices made
-// within the third-party library can be found reasonable, like that the database connection must
+// The firmest blocker of the design has always rooted in a relationship of serialized lifetimes,
+// affecting each other, that has been so hard to maintain right. Yet the choices made
+// within the third-party library have good reasoning, like that the database connection must
 // stay alive as long as there are any active 'Transactions' or 'Statements'.
 //
-// The truth is the use of an explicit, object-like, transaction from 'rusqlite' is rare for our code.
-// That might be why we'd managed to live so long without being much constrained by absence of
-// the mock. While we did write some code using that kind of a transaction, we always acknowledged
-// only that we had to make and exception and leave that piece of code untested. The problem
-// with a mocked transaction has been that we often need to combine it with also a mocked connection.
-// Then the transaction springs from the connection. The upcoming nontrivial issues with lifetimes
-// have been briefly mentioned.
+// It's a fact, though, that the use of an explicit, object-like transaction from the 'rusqlite'
+// library is rare in our code. That might explain why we managed to live so long without feeling
+// much constrained by absence of this mock. While we did write some code using that kind of
+// a transaction, we always acknowledged that we had to make an exception and leave that piece
+// of code untested. The problem with a mocked transaction has been that we often need to combine
+// it with a connection also needs to be a mock. Then the transaction springs from the connection.
+// The following nontrivial issues with lifetimes have been briefly mentioned.
 //
-// The interface a transaction needs have three methods of which 'prepare' causes the troubles.
-// It returns `Statement`, a 'rusqlite' structure that always keeps a reference to the connection.
+// The interface a transaction needs has three methods while only 'prepare' causes the troubles.
+// It returns a `Statement`, keeping a reference to the parent connection.
 //
-// There is now no decent vision of how to stop using that method, despite how much temptation it
+// There is now no decent vision of how to cut off this method, despite how much temptation it
 // provides. In theory, we could replace it by the existing 'execute' method, able to circumvent
 // any places where we now need to manipulate with the 'Statement', that is because 'execute'
-// returns, in contrary, only simple data structures, easy to be stored in a mock. Going that way,
-// other issues may be anticipated.
+// returns, in contrary, only simple data structures, easy to be stored in a mock. Still, going
+// that way, other issues should be anticipated.
 //
-// One may think about creating another class to wrap up the `Statement` to have a better control.
-// Tested, but its interface requires even more methods and so obstacles, whereupon the steeply
+// One may consider creating another class to wrap up the `Statement` and acquire a full control.
+// It's been also tested. The interface requires even more methods and so obstacles. The steeply
 // increasing difficulty ended the efforts.
 //
-// Fair to admit the mock is poor at elegance and simplicity. The more the more complex tests it
-// takes. The compensation for that needs to be seen in the portion of possibilities it opens up
-// for thorough testing in those less and less rare places where we do rely on an explicit 'rusqlite'
-// transaction. Yet this kind of thing used to seem completely undoable not so far ago.
+// Critically viewed, this mock wins neither by simplicity nor sparkling elegance. Its setup must
+// also be expected to become harder the more complex tests it takes. The excuse for this is that
+// it also opens up possibilities for thorough tests in progressively less rare occurrences where
+// we need to be able to use an explicit 'rusqlite' transaction. Note that testing such situations
+// used to seem undoable not so far ago.
 //
 // (See more explanation near the mock itself)
 
