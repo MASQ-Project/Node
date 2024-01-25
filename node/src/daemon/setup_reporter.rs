@@ -51,7 +51,10 @@ const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[
     // directory Y, we'll preserve the blank chain, but resurrect data directory X. (I'm not sure this is correct;
     // perhaps if we're going to take advantage of a default chain, we should also use the default chain's data
     // directory. --Dan)
-    ErrorSensitiveArgPair { blanked_arg: "chain", linked_arg: "data-directory" }
+    ErrorSensitiveArgPair {
+        blanked_arg: "chain",
+        linked_arg: "data-directory",
+    },
 ];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
@@ -113,7 +116,10 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("DEFAULTS", &default_setup);
         eprintln_setup("EXISTING", &existing_setup);
         eprintln_setup("BLANKED-OUT FORMER VALUES", &blanked_out_former_values);
-        eprintln_setup("PREVENTION TO ERR INDUCED SETUP IMPAIRMENTS", &prevention_to_err_induced_setup_impairments);
+        eprintln_setup(
+            "PREVENTION TO ERR INDUCED SETUP IMPAIRMENTS",
+            &prevention_to_err_induced_setup_impairments,
+        );
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
@@ -491,9 +497,6 @@ impl SetupReporterReal {
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
         }
-        if environment {
-            vcls.push(Box::new(EnvironmentVcl::new(&app)));
-        }
         if config_file {
             let command_line = match command_line_opt {
                 Some(command_line) => command_line,
@@ -509,6 +512,9 @@ impl SetupReporterReal {
                 Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
             };
             vcls.push(Box::new(config_file_vcl));
+        }
+        if environment {
+            vcls.push(Box::new(EnvironmentVcl::new(&app)));
         }
         make_new_multi_config(&app, vcls)
     }
@@ -1702,7 +1708,10 @@ mod tests {
                 .write_all(b"clandestine-port = \"7788\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
-            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"Error\"\n").unwrap();
+            config_file
+                .write_all(b"db-password = \"mainnetPassword\"\n")
+                .unwrap();
             config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
@@ -1716,7 +1725,7 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
-                .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .write_all(b"neighborhood-mode = \"standard\"\n")
                 .unwrap();
             config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();

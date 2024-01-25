@@ -1215,6 +1215,8 @@ mod tests {
 
         let env_vec_array = vec![
             ("MASQ_CONFIG_FILE", "booga.toml"),
+            ("MASQ_CLANDESTINE_PORT", "8888"),
+            ("MASQ_DNS_SERVERS", "1.2.3.4"),
             ("MASQ_DATA_DIRECTORY", "/nonexistent/directory/home"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1228,12 +1230,25 @@ mod tests {
             .data_dir_result(Some(data_dir.to_path_buf()));
         let args = ArgsBuilder::new()
             .param("--data-directory", current_directory.join(Path::new("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home")).to_string_lossy().to_string().as_str())
+            .param("--clandestine-port", "1111")
             .param("--real-user", "1001:1001:cooga");
         let args_vec: Vec<String> = args.into();
 
         let params = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = params.as_ref().unwrap();
 
+        assert_eq!(
+            value_m!(multiconfig, "clandestine-port", String).unwrap(),
+            "1111".to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "dns-servers", String).unwrap(),
+            "1.2.3.4".to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "ip", String).unwrap(),
+            "6.6.6.6".to_string()
+        );
         #[cfg(not(target_os = "windows"))]
         {
             assert_eq!(
