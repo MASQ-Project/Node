@@ -13,7 +13,7 @@ use std::fmt::Debug;
 // The delay until the second one became a thing, even though we would've been glad having it
 // on hand much earlier, was caused by vacuum of ideas on how we could create a mock of these
 // parameters and have it accepted by the compiler. Passing a lot of time, we came up with a hybrid,
-// at least. That said, it's costed a considerably high price of giving up on simplicity.
+// at least. That said, it has costed us a considerably high price of giving up on simplicity.
 //
 // The firmest blocker of the design has always rooted in a relationship of serialized lifetimes,
 // affecting each other, that has been so hard to maintain right. Yet the choices made
@@ -23,29 +23,29 @@ use std::fmt::Debug;
 // It's a fact, though, that the use of an explicit, object-like transaction from the 'rusqlite'
 // library is rare in our code. That might explain why we managed to live so long without feeling
 // much constrained by absence of this mock. While we did write some code using that kind of
-// a transaction, we always acknowledged that we had to make an exception and leave that piece
+// transaction, we always acknowledged that we had to make an exception and leave that piece
 // of code untested. The problem with a mocked transaction has been that we often need to combine
 // it with a connection also needs to be a mock. Then the transaction springs from the connection.
 // The following nontrivial issues with lifetimes have been briefly mentioned.
 //
-// The interface a transaction needs has three methods while only 'prepare' causes the troubles.
+// The interface a transaction uses consists of three methods. Only 'prepare' causes troubles.
 // It returns a `Statement`, keeping a reference to the parent connection.
 //
-// There is now no decent vision of how to cut off this method, despite how much temptation it
-// provides. In theory, we could replace it by the existing 'execute' method, able to circumvent
-// any places where we now need to manipulate with the 'Statement', that is because 'execute'
-// returns, in contrary, only simple data structures, easy to be stored in a mock. Still, going
-// that way, other issues should be anticipated.
+// There is now no decent vision of how to cut back on this method, despite how large temptation
+// surrounds it. Theoretically, we could make a replacement by the existing 'execute' method and
+// so circumvent all the places where we now need to manipulate with 'Statement'. That is because
+// 'execute' returns only simple data structures, easy to be stored in a mock. Even going that
+// way, other issues would take place inevitably.
 //
 // One may consider creating another class to wrap up the `Statement` and acquire a full control.
-// It's been also tested. The interface requires even more methods and so obstacles. The steeply
+// It's been tested. The interface requires even more methods and so obstacles. The steeply
 // increasing difficulty ended the efforts.
 //
-// Critically viewed, this mock wins neither by simplicity nor sparkling elegance. Its setup must
-// also be expected to become harder the more complex tests it takes. The excuse for this is that
-// it also opens up possibilities for thorough tests in progressively less rare occurrences where
-// we need to be able to use an explicit 'rusqlite' transaction. Note that testing such situations
-// used to seem undoable not so far ago.
+// Critically speaking, this mock does not win with either simplicity or sparkling elegance. Its
+// setup must also be expected to become harder the more complex tests it takes. The excuse for
+// this is that it also opens up possibilities for thorough tests in progressively less rare
+// occurrences where we need to be able to use an explicit 'rusqlite' transaction. Note that
+// testing such situations used to seem undoable not so far ago.
 //
 // (See more explanation near the mock itself)
 
