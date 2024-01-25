@@ -146,8 +146,8 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg.change {
-            ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
-                self.consuming_wallet_opt = Some(new_wallet)
+            ConfigurationChange::UpdateWallets(new_wallet_pair) => {
+                self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
             }
             ConfigurationChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
@@ -1662,10 +1662,7 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage,
-        ExpectedServices, NeighborhoodMode,
-    };
+    use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage, ExpectedServices, NeighborhoodMode, WalletPair};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::peer_actors::PeerActors;
@@ -2988,7 +2985,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let configuration_change_msg_sub = addr.clone().recipient::<ConfigurationChangeMessage>();
         let route_sub = addr.recipient::<RouteQueryMessage>();
-        let expected_new_wallet = make_paying_wallet(b"new consuming wallet");
+        let expected_consuming_wallet = make_paying_wallet(b"new consuming wallet");
         let expected_before_route = Route::round_trip(
             segment(&[&o, &r, &e], &Component::ProxyClient),
             segment(&[&e, &r, &o], &Component::ProxyServer),
@@ -3002,7 +2999,7 @@ mod tests {
             segment(&[&o, &r, &e], &Component::ProxyClient),
             segment(&[&e, &r, &o], &Component::ProxyServer),
             cryptde,
-            Some(expected_new_wallet.clone()),
+            Some(expected_consuming_wallet.clone()),
             1,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
@@ -3012,8 +3009,11 @@ mod tests {
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
         configuration_change_msg_sub
             .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
-            })
+                change: ConfigurationChange::UpdateWallets(WalletPair {
+                    consuming_wallet: expected_consuming_wallet,
+                    earning_wallet: make_wallet("earning"),
+                    })
+                })
             .unwrap();
         let route_request_2 =
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));

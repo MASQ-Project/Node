@@ -27,7 +27,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
-use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage, Hops};
+use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage, Hops, WalletPair};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -871,9 +871,14 @@ impl Configurator {
     }
 
     fn send_new_consuming_wallet_to_subs(&self, db_password: &str) {
-        if let Ok(Some(new_consuming_wallet)) = self.persistent_config.as_ref().consuming_wallet(db_password) {
+        let consuming_wallet_result_opt = self.persistent_config.as_ref().consuming_wallet(db_password);
+        let earning_wallet_result_opt = self.persistent_config.as_ref().earning_wallet();
+        if let (Ok(Some(new_consuming_wallet)), Ok(Some(new_earning_wallet))) = (consuming_wallet_result_opt, earning_wallet_result_opt) {
             let msg = ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateConsumingWallet(new_consuming_wallet),
+                change: ConfigurationChange::UpdateWallets(WalletPair {
+                    consuming_wallet: new_consuming_wallet,
+                    earning_wallet: new_earning_wallet
+                }),
             };
             self.update_consuming_wallet_subs_opt
                 .as_ref()
@@ -886,7 +891,7 @@ impl Configurator {
                         .expect("Update Consuming Wallet recipient is dead")
                 });
         } else {
-            panic!("Unable to retrieve consuming wallet from persistent configuration")
+            panic!("Unable to retrieve wallets from persistent configuration")
         };
     }
 
@@ -957,6 +962,7 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
 
     #[test]
     fn constants_have_correct_values() {
@@ -1108,11 +1114,13 @@ mod tests {
 
     fn assert_consuming_wallet_is_updated_in_other_actors(msg: NodeFromUiMessage) {
         let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
-        let consuming_wallet = Wallet::new("0x3333333333333333333333333333333333333333");
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let earning_wallet = make_wallet("earning");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_result(Ok(()))
-            .consuming_wallet_result(Ok(Some(consuming_wallet.clone())));
+            .consuming_wallet_result(Ok(Some(consuming_wallet.clone())))
+            .earning_wallet_result(Ok(Some(earning_wallet.clone())));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1135,7 +1143,7 @@ mod tests {
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let expected_configuration_msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateConsumingWallet(consuming_wallet)
+            change: ConfigurationChange::UpdateWallets(WalletPair {consuming_wallet, earning_wallet})
         };
         assert_eq!(
             accountant_recording.get_record::<ConfigurationChangeMessage>(0),
@@ -1152,12 +1160,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to retrieve consuming wallet from persistent configuration")]
+    #[should_panic(expected = "Unable to retrieve wallets from persistent configuration")]
     fn panics_if_consuming_wallet_can_not_be_retrieved_before_sending_to_subs() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_result(Ok(()))
-            .consuming_wallet_result(Ok(None));
+            .consuming_wallet_result(Ok(None))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -1398,13 +1407,15 @@ mod tests {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let consuming_wallet_for_mock = Wallet::new("0x3333333333333333333333333333333333333333");
+        let consuming_wallet_for_mock = make_paying_wallet(b"consuming");
+        let earning_wallet_for_mock = make_wallet("earning");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
             .set_wallet_info_result(Ok(()))
-            .consuming_wallet_result(Ok(Some(consuming_wallet_for_mock)));
+            .consuming_wallet_result(Ok(Some(consuming_wallet_for_mock)))
+            .earning_wallet_result(Ok(Some(earning_wallet_for_mock)));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -1665,7 +1676,9 @@ mod tests {
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -1738,7 +1751,9 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = Some(derivation_path(0, 5));
@@ -1791,7 +1806,9 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
         let mut request = make_example_recover_wallets_request_with_paths();
         request

@@ -558,8 +558,14 @@ pub struct ConfigurationChangeMessage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalletPair {
+    pub consuming_wallet: Wallet,
+    pub earning_wallet: Wallet,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigurationChange {
-    UpdateConsumingWallet(Wallet),
+    UpdateWallets(WalletPair),
     UpdateMinHops(Hops),
     // UpdatePassword(String), // TODO: Use me
 }
