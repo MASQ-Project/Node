@@ -198,6 +198,7 @@ pub mod formulas_progressive_characteristics {
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use crate::test_utils::unshared_test_utils::standard_dir_for_test_input_data;
     use itertools::Itertools;
+    use masq_lib::utils::convert_collection;
     use serde::de::Error;
     use serde::{Deserialize as NormalImplDeserialize, Deserializer};
     use serde_derive::Deserialize;
@@ -452,11 +453,7 @@ pub mod formulas_progressive_characteristics {
             .map(|wrapper| wrapper.numerical_value)
             .collect();
 
-        let marked_values = processed_json_input
-            .marked_values
-            .into_iter()
-            .map(|marked_value_from_file| MarkedValue::from(marked_value_from_file))
-            .collect();
+        let marked_values = convert_collection(processed_json_input.marked_values);
 
         DeserializedInputValues {
             non_marked_values: serialize_values_on_x_axis_from_vecs(

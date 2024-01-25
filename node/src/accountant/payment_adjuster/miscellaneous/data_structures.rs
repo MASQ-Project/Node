@@ -4,10 +4,10 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 
 #[derive(Debug)]
 pub enum AdjustmentIterationResult {
-    AllAccountsProcessedSmoothly(Vec<AdjustedAccountBeforeFinalization>),
-    SpecialTreatmentNeeded {
-        case: AfterAdjustmentSpecialTreatment,
-        remaining: Vec<PayableAccount>,
+    AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
+    SpecialTreatmentRequired {
+        case: RequiredSpecialTreatment,
+        remaining_undecided_accounts: Vec<PayableAccount>,
     },
 }
 
@@ -36,7 +36,7 @@ impl RecursionResults {
 }
 
 #[derive(Debug)]
-pub enum AfterAdjustmentSpecialTreatment {
+pub enum RequiredSpecialTreatment {
     TreatInsignificantAccount,
     TreatOutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
 }
@@ -56,8 +56,43 @@ impl AdjustedAccountBeforeFinalization {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct UnconfirmedAdjustment {
+    pub non_finalized_account: AdjustedAccountBeforeFinalization,
+    pub weight: u128,
+}
+
+impl UnconfirmedAdjustment {
+    pub fn new(account: PayableAccount, weight: u128, proposed_adjusted_balance: u128) -> Self {
+        Self {
+            non_finalized_account: AdjustedAccountBeforeFinalization::new(
+                account,
+                proposed_adjusted_balance,
+            ),
+            weight,
+        }
+    }
+}
+
+pub struct NonFinalizedAdjustmentWithResolution {
+    pub non_finalized_adjustment: AdjustedAccountBeforeFinalization,
+    pub adjustment_resolution: AdjustmentResolution,
+}
+
+impl NonFinalizedAdjustmentWithResolution {
+    pub fn new(
+        non_finalized_adjustment: AdjustedAccountBeforeFinalization,
+        adjustment_resolution: AdjustmentResolution,
+    ) -> Self {
+        Self {
+            non_finalized_adjustment,
+            adjustment_resolution,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
-pub enum ProposedAdjustmentResolution {
+pub enum AdjustmentResolution {
     Finalize,
     Revert,
 }

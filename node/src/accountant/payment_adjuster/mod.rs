@@ -22,11 +22,11 @@ use crate::accountant::payment_adjuster::log_fns::{
     accounts_before_and_after_debug,
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::{
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::{
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, ProposedAdjustmentResolution};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, finalize_collection, try_finding_an_account_to_disqualify_in_this_iteration, possibly_outweighed_accounts_fold_guts, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, AdjustmentResolution, NonFinalizedAdjustmentWithResolution, RecursionResults, UnconfirmedAdjustment};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
@@ -38,6 +38,7 @@ use std::fmt::{Display, Formatter};
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
+use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
@@ -284,12 +285,12 @@ impl PaymentAdjusterReal {
         adjustment_iteration_result: AdjustmentIterationResult,
     ) -> Result<RecursionResults, PaymentAdjusterError> {
         match adjustment_iteration_result {
-            AdjustmentIterationResult::AllAccountsProcessedSmoothly(decided_accounts) => {
+            AdjustmentIterationResult::AllAccountsProcessed(decided_accounts) => {
                 Ok(RecursionResults::new(decided_accounts, vec![]))
             }
-            AdjustmentIterationResult::SpecialTreatmentNeeded {
+            AdjustmentIterationResult::SpecialTreatmentRequired {
                 case: special_case,
-                remaining,
+                remaining_undecided_accounts: remaining,
             } => {
                 let here_decided_accounts = match special_case {
                     TreatInsignificantAccount => {
@@ -384,7 +385,7 @@ impl PaymentAdjusterReal {
     ) -> AdjustmentIterationResult {
         let weights_total = weights_total(&weights_and_accounts);
         let non_finalized_adjusted_accounts =
-            self.compute_adjusted_but_non_finalized_accounts(weights_and_accounts, weights_total);
+            self.compute_adjusted_unconfirmed_adjustments(weights_and_accounts, weights_total);
 
         let still_unchecked_for_disqualified =
             match self.handle_possibly_outweighed_accounts(non_finalized_adjusted_accounts) {
@@ -400,14 +401,14 @@ impl PaymentAdjusterReal {
             Either::Right(with_some_disqualified) => return with_some_disqualified,
         };
 
-        AdjustmentIterationResult::AllAccountsProcessedSmoothly(verified_accounts)
+        AdjustmentIterationResult::AllAccountsProcessed(verified_accounts)
     }
 
-    fn compute_adjusted_but_non_finalized_accounts(
+    fn compute_adjusted_unconfirmed_adjustments(
         &self,
         weights_with_accounts: Vec<(u128, PayableAccount)>,
         weights_total: u128,
-    ) -> Vec<AdjustedAccountBeforeFinalization> {
+    ) -> Vec<UnconfirmedAdjustment> {
         let cw_service_fee_balance = self.inner.unallocated_cw_service_fee_balance_minor();
 
         let multiplication_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
@@ -430,10 +431,12 @@ impl PaymentAdjusterReal {
 
         weights_with_accounts
             .into_iter()
-            .map(|(weight, account)| (account, compute_proposed_adjusted_balance(weight)))
-            .map(|(account, proposed_adjusted_balance)| {
+            .map(|(weight, account)| {
+                let proposed_adjusted_balance = compute_proposed_adjusted_balance(weight);
+
                 proposed_adjusted_balance_diagnostics(&account, proposed_adjusted_balance);
-                AdjustedAccountBeforeFinalization::new(account, proposed_adjusted_balance)
+
+                UnconfirmedAdjustment::new(account, proposed_adjusted_balance, weight)
             })
             .collect()
     }
@@ -476,41 +479,46 @@ impl PaymentAdjusterReal {
 
             let remaining_reverted = remaining
                 .map(|account_info| {
-                    PayableAccount::from((account_info, ProposedAdjustmentResolution::Revert))
+                    PayableAccount::from(NonFinalizedAdjustmentWithResolution::new(
+                        account_info,
+                        AdjustmentResolution::Revert,
+                    ))
                 })
                 .collect();
 
-            Either::Right(AdjustmentIterationResult::SpecialTreatmentNeeded {
+            Either::Right(AdjustmentIterationResult::SpecialTreatmentRequired {
                 case: TreatInsignificantAccount,
-                remaining: remaining_reverted,
+                remaining_undecided_accounts: remaining_reverted,
             })
         } else {
             Either::Left(non_finalized_adjusted_accounts)
         }
     }
 
-    // the term "outweighed account" comes from a phenomenon with the criteria sum of an account
+    // The term "outweighed account" comes from a phenomenon with the criteria sum of an account
     // increased significantly based on a different parameter than the debt size, which could've
     // easily caused we would've granted the account (much) more money than what the accountancy
     // has recorded.
     fn handle_possibly_outweighed_accounts(
         &self,
-        non_finalized_adjusted_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
+        unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
+    ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
         let init = (vec![], vec![]);
 
-        let (outweighed, passing_through) = non_finalized_adjusted_accounts
+        let (outweighed, properly_adjusted_accounts) = unconfirmed_adjustments
             .into_iter()
-            .fold(init, possibly_outweighed_accounts_fold_guts);
+            .fold(init, resolve_possibly_outweighed_account);
 
         if outweighed.is_empty() {
-            Either::Left(passing_through)
+            Either::Left(properly_adjusted_accounts)
         } else {
-            let remaining =
-                finalize_collection(passing_through, ProposedAdjustmentResolution::Revert);
-            Either::Right(AdjustmentIterationResult::SpecialTreatmentNeeded {
-                case: TreatOutweighedAccounts(outweighed),
-                remaining,
+            let remaining_undecided_accounts: Vec<PayableAccount> =
+                convert_collection(properly_adjusted_accounts);
+            let ready_outweighed: Vec<AdjustedAccountBeforeFinalization> =
+                convert_collection(outweighed);
+            Either::Right(AdjustmentIterationResult::SpecialTreatmentRequired {
+                case: TreatOutweighedAccounts(ready_outweighed),
+                remaining_undecided_accounts,
             })
         }
     }
@@ -622,7 +630,7 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AfterAdjustmentSpecialTreatment::TreatInsignificantAccount;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, weights_total};
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
@@ -958,9 +966,11 @@ mod tests {
         // First, let's have an example of why this test is important
         let criteria_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
         let weights_total = weights_total(&criteria_and_accounts);
-        let proposed_adjustments = subject
-            .compute_adjusted_but_non_finalized_accounts(criteria_and_accounts, weights_total);
-        let proposed_adjusted_balance_2 = proposed_adjustments[1].proposed_adjusted_balance;
+        let unconfirmed_adjustments =
+            subject.compute_adjusted_unconfirmed_adjustments(criteria_and_accounts, weights_total);
+        let proposed_adjusted_balance_2 = unconfirmed_adjustments[1]
+            .non_finalized_account
+            .proposed_adjusted_balance;
         // The criteria sum of the second account grew very progressively due to the effect of the greater age;
         // consequences would've been that redistributing the new balances according to the computed criteria would've
         // attributed the second account with a larger amount to pay than it would've had before the test started;
@@ -1040,9 +1050,9 @@ mod tests {
             subject.perform_adjustment_by_service_fee(accounts_with_individual_criteria.clone());
 
         let remaining = match result {
-            AdjustmentIterationResult::SpecialTreatmentNeeded {
+            AdjustmentIterationResult::SpecialTreatmentRequired {
                 case: TreatInsignificantAccount,
-                remaining,
+                remaining_undecided_accounts: remaining,
             } => remaining,
             x => panic!("we expected to see a disqualified account but got: {:?}", x),
         };
@@ -1161,10 +1171,10 @@ mod tests {
     }
 
     #[test]
-    fn qualified_accounts_count_evens_the_payments_count() {
+    fn qualified_accounts_count_before_evens_the_payments_count_after() {
         // Meaning adjustment by service fee but no account elimination
         init_test_logging();
-        let test_name = "qualified_accounts_count_evens_the_payments_count";
+        let test_name = "qualified_accounts_count_before_evens_the_payments_count_after";
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),

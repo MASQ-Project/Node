@@ -9,8 +9,8 @@ use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functi
 };
 use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
-    ProposedAdjustmentResolution,
+    AdjustedAccountBeforeFinalization, AdjustmentResolution, NonFinalizedAdjustmentWithResolution,
+    PercentageAccountInsignificance, UnconfirmedAdjustment,
 };
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -73,59 +73,33 @@ pub fn compute_mul_coefficient_preventing_fractional_numbers(
     // scenario parameters
 }
 
-pub fn possibly_outweighed_accounts_fold_guts(
-    (mut outweighed, mut passing_through): (
-        Vec<AdjustedAccountBeforeFinalization>,
-        Vec<AdjustedAccountBeforeFinalization>,
-    ),
-    current_account_info: AdjustedAccountBeforeFinalization,
-) -> (
-    Vec<AdjustedAccountBeforeFinalization>,
-    Vec<AdjustedAccountBeforeFinalization>,
-) {
-    if current_account_info.proposed_adjusted_balance
-        > current_account_info.original_account.balance_wei
+pub fn resolve_possibly_outweighed_account(
+    (mut outweighed, mut passing_through): (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>),
+    mut current_account_info: UnconfirmedAdjustment,
+) -> (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) {
+    if current_account_info
+        .non_finalized_account
+        .proposed_adjusted_balance
+        > current_account_info
+            .non_finalized_account
+            .original_account
+            .balance_wei
     {
-        possibly_outweighed_accounts_diagnostics(&current_account_info);
+        possibly_outweighed_accounts_diagnostics(&current_account_info.non_finalized_account);
 
-        let new_account_info = AdjustedAccountBeforeFinalization {
-            proposed_adjusted_balance: current_account_info.original_account.balance_wei,
-            ..current_account_info
-        };
+        current_account_info
+            .non_finalized_account
+            .proposed_adjusted_balance = current_account_info
+            .non_finalized_account
+            .original_account
+            .balance_wei;
 
-        outweighed.push(new_account_info);
+        outweighed.push(current_account_info);
         (outweighed, passing_through)
     } else {
         passing_through.push(current_account_info);
         (outweighed, passing_through)
     }
-}
-
-pub fn find_largest_nominated_account<'a>(
-    accounts: &'a [&'a AdjustedAccountBeforeFinalization],
-) -> &'a AdjustedAccountBeforeFinalization {
-    let first_account = &accounts.first().expect("collection was empty");
-    accounts
-        .iter()
-        .fold(**first_account, |largest_so_far, current| {
-            match Ord::cmp(
-                &current.original_account.balance_wei,
-                &largest_so_far.original_account.balance_wei,
-            ) {
-                Ordering::Less => largest_so_far,
-                Ordering::Greater => current,
-                Ordering::Equal => {
-                    // Greater value means younger
-                    if current.original_account.last_paid_timestamp
-                        > largest_so_far.original_account.last_paid_timestamp
-                    {
-                        current
-                    } else {
-                        largest_so_far
-                    }
-                }
-            }
-        })
 }
 
 pub fn exhaust_cw_till_the_last_drop(
@@ -145,7 +119,7 @@ pub fn exhaust_cw_till_the_last_drop(
             )
         });
 
-    let init = CwExhaustingStatus::new(cw_reminder);
+    let init = ConsumingWalletExhaustingStatus::new(cw_reminder);
     approved_accounts
         .into_iter()
         .sorted_by(|info_a, info_b| {
@@ -165,9 +139,9 @@ pub fn exhaust_cw_till_the_last_drop(
 }
 
 fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
-    status: CwExhaustingStatus,
+    status: ConsumingWalletExhaustingStatus,
     non_finalized_account: AdjustedAccountBeforeFinalization,
-) -> CwExhaustingStatus {
+) -> ConsumingWalletExhaustingStatus {
     if status.remainder != 0 {
         let balance_gap_minor = non_finalized_account
             .original_account
@@ -207,7 +181,7 @@ pub fn try_finding_an_account_to_disqualify_in_this_iteration(
         .is_empty()
         .not()
         .then(|| {
-            let account_to_disqualify = find_largest_nominated_account(
+            let account_to_disqualify = find_account_with_smallest_weight(
                 &disqualification_suspected_accounts
             );
 
@@ -233,22 +207,39 @@ pub fn try_finding_an_account_to_disqualify_in_this_iteration(
         })
 }
 
-pub fn finalize_collection(
-    non_finalized_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    resolution: ProposedAdjustmentResolution,
-) -> Vec<PayableAccount> {
-    non_finalized_accounts
-        .into_iter()
-        .map(|account_info| PayableAccount::from((account_info, resolution)))
-        .collect()
+fn find_account_with_smallest_weight<'a>(
+    accounts: &'a [&'a AdjustedAccountBeforeFinalization],
+) -> &'a AdjustedAccountBeforeFinalization {
+    let first_account = &accounts.first().expect("collection was empty");
+    accounts
+        .iter()
+        .fold(**first_account, |largest_so_far, current| {
+            match Ord::cmp(
+                &current.original_account.balance_wei,
+                &largest_so_far.original_account.balance_wei,
+            ) {
+                Ordering::Less => largest_so_far,
+                Ordering::Greater => current,
+                Ordering::Equal => {
+                    // Greater value means younger
+                    if current.original_account.last_paid_timestamp
+                        > largest_so_far.original_account.last_paid_timestamp
+                    {
+                        current
+                    } else {
+                        largest_so_far
+                    }
+                }
+            }
+        })
 }
 
-struct CwExhaustingStatus {
+struct ConsumingWalletExhaustingStatus {
     remainder: u128,
     accounts_finalized_so_far: Vec<PayableAccount>,
 }
 
-impl CwExhaustingStatus {
+impl ConsumingWalletExhaustingStatus {
     fn new(remainder: u128) -> Self {
         Self {
             remainder,
@@ -273,9 +264,9 @@ impl CwExhaustingStatus {
     }
 
     fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
-        let finalized_account = PayableAccount::from((
+        let finalized_account = PayableAccount::from(NonFinalizedAdjustmentWithResolution::new(
             non_finalized_account_info,
-            ProposedAdjustmentResolution::Finalize,
+            AdjustmentResolution::Finalize,
         ));
         self.accounts_finalized_so_far.push(finalized_account);
         self
@@ -299,7 +290,7 @@ pub fn isolate_accounts_from_weights(
         .collect()
 }
 
-pub fn list_accounts_nominated_for_disqualification(
+fn list_accounts_nominated_for_disqualification(
     non_finalized_adjusted_accounts: &[AdjustedAccountBeforeFinalization],
 ) -> Vec<&AdjustedAccountBeforeFinalization> {
     non_finalized_adjusted_accounts
@@ -354,21 +345,31 @@ pub fn x_or_1(x: u128) -> u128 {
     }
 }
 
-type NonFinalizedAccountAndAdjustmentResolution = (
-    AdjustedAccountBeforeFinalization,
-    ProposedAdjustmentResolution,
-);
+impl From<UnconfirmedAdjustment> for PayableAccount {
+    fn from(_: UnconfirmedAdjustment) -> Self {
+        todo!()
+    }
+}
 
-impl From<NonFinalizedAccountAndAdjustmentResolution> for PayableAccount {
-    fn from(
-        (account_info, proposed_adjustment_resolution): NonFinalizedAccountAndAdjustmentResolution,
-    ) -> Self {
-        match proposed_adjustment_resolution {
-            ProposedAdjustmentResolution::Finalize => PayableAccount {
-                balance_wei: account_info.proposed_adjusted_balance,
-                ..account_info.original_account
+impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
+    fn from(_: UnconfirmedAdjustment) -> Self {
+        todo!()
+    }
+}
+
+impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
+    fn from(resolution_info: NonFinalizedAdjustmentWithResolution) -> Self {
+        match resolution_info.adjustment_resolution {
+            // TODO if we do this it means it is an outweighed account and so it has already the balance adjusted
+            AdjustmentResolution::Finalize => PayableAccount {
+                balance_wei: resolution_info
+                    .non_finalized_adjustment
+                    .proposed_adjusted_balance,
+                ..resolution_info.non_finalized_adjustment.original_account
             },
-            ProposedAdjustmentResolution::Revert => account_info.original_account,
+            AdjustmentResolution::Revert => {
+                resolution_info.non_finalized_adjustment.original_account
+            }
         }
     }
 }
@@ -377,16 +378,16 @@ impl From<NonFinalizedAccountAndAdjustmentResolution> for PayableAccount {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, PercentageAccountInsignificance,
+        AdjustedAccountBeforeFinalization, PercentageAccountInsignificance, UnconfirmedAdjustment,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         calculate_disqualification_edge, compute_mul_coefficient_preventing_fractional_numbers,
-        exhaust_cw_till_the_last_drop, find_largest_nominated_account,
+        exhaust_cw_till_the_last_drop, find_account_with_smallest_weight,
         list_accounts_nominated_for_disqualification, log_10, log_2,
-        possibly_outweighed_accounts_fold_guts,
-        try_finding_an_account_to_disqualify_in_this_iteration, weights_total, CwExhaustingStatus,
-        ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
-        MAX_EXPONENT_FOR_10_WITHIN_U128,
+        resolve_possibly_outweighed_account,
+        try_finding_an_account_to_disqualify_in_this_iteration, weights_total,
+        ConsumingWalletExhaustingStatus, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_WITHIN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_accounts, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
@@ -396,6 +397,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
+    use masq_lib::utils::convert_collection;
     use std::time::{Duration, SystemTime};
     use web3::types::U256;
 
@@ -468,7 +470,7 @@ mod tests {
             })
             .collect::<Vec<U256>>();
 
-        let expected_result = vec![
+        let expected_result: Vec<U256> = convert_collection(vec![
             1_000_000_000_u128,
             1_000_000_000_000_000,
             1_000_000_000_000,
@@ -477,10 +479,7 @@ mod tests {
             100_000_000,
             100_000_000,
             100_000_000,
-        ]
-        .into_iter()
-        .map(U256::from)
-        .collect::<Vec<U256>>();
+        ]);
         assert_eq!(result, expected_result)
     }
 
@@ -530,7 +529,7 @@ mod tests {
             .sorted_by(|(idx_a, _, _), (idx_b, _, _)| Ord::cmp(&idx_b, &idx_a))
             .map(|(_, coefficient, weight)| (coefficient, weight))
             .collect::<Vec<(U256, u128)>>();
-        let templates_for_coefficients = vec![
+        let templates_for_coefficients: Vec<U256> = convert_collection(vec![
             100000000000000000000000000000000000000_u128,
             100000000000000000000000000000000000,
             100000000000000000000000000000000000,
@@ -538,10 +537,7 @@ mod tests {
             10000000000000000000000000000000,
             10000000000000000000000000000000,
             100000000000000000000000000000000000,
-        ]
-        .into_iter()
-        .map(U256::from)
-        .collect::<Vec<U256>>();
+        ]);
         // I was trying to write these assertions so that it wouldn't require us to rewrite
         // the expected values everytime someone pokes into the formulas.
         check_relation_to_computed_weight_fairly_but_with_enough_benevolence(
@@ -600,12 +596,13 @@ mod tests {
     }
 
     fn make_non_finalized_adjusted_accounts(
-        payable_accounts: Vec<(PayableAccount, u128)>,
+        payable_accounts: Vec<PayableAccount>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
+        let garbage_proposed_balance = 1_000_000_000; // Unimportant for the usages in the tests this is for
         payable_accounts
             .into_iter()
-            .map(|(original_account, proposed_adjusted_balance)| {
-                AdjustedAccountBeforeFinalization::new(original_account, proposed_adjusted_balance)
+            .map(|original_account| {
+                AdjustedAccountBeforeFinalization::new(original_account, garbage_proposed_balance)
             })
             .collect()
     }
@@ -627,20 +624,20 @@ mod tests {
     }
 
     #[test]
-    fn find_largest_nominated_account_works_for_unequal_balances() {
-        let account_1 = make_payable_account(111);
-        let account_2 = make_payable_account(333);
-        let account_3 = make_payable_account(222);
-        let account_4 = make_payable_account(332);
+    fn find_account_with_smallest_weight_works_for_unequal_weights() {
+        let account_1 = make_payable_account(1000);
+        let account_2 = make_payable_account(3000);
+        let account_3 = make_payable_account(2000);
+        let account_4 = make_payable_account(1000);
         let accounts = make_non_finalized_adjusted_accounts(vec![
-            (account_1, 100_000_000),
-            (account_2.clone(), 222_000_000),
-            (account_3, 300_000_000),
-            (account_4, 400_000_000),
+            account_1,
+            account_2.clone(),
+            account_3,
+            account_4,
         ]);
         let referenced_non_finalized_accounts = by_reference(&accounts);
 
-        let result = find_largest_nominated_account(&referenced_non_finalized_accounts);
+        let result = find_account_with_smallest_weight(&referenced_non_finalized_accounts);
 
         assert_eq!(
             result,
@@ -652,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn find_largest_nominated_account_for_equal_balances_chooses_younger_account() {
+    fn find_account_with_smallest_weight_for_equal_balances_chooses_younger_account() {
         // We prefer to keep the older and so more important accounts in the game
         let now = SystemTime::now();
         let account_1 = make_payable_account(111);
@@ -662,14 +659,14 @@ mod tests {
         let mut account_4 = make_payable_account(333);
         account_4.last_paid_timestamp = now.checked_sub(Duration::from_secs(9999)).unwrap();
         let accounts = make_non_finalized_adjusted_accounts(vec![
-            (account_1, 100_000_000),
-            (account_2, 200_000_000),
-            (account_3, 300_000_000),
-            (account_4.clone(), 444_000_000),
+            account_1,
+            account_2,
+            account_3,
+            account_4.clone(),
         ]);
         let referenced_non_finalized_accounts = by_reference(&accounts);
 
-        let result = find_largest_nominated_account(&referenced_non_finalized_accounts);
+        let result = find_account_with_smallest_weight(&referenced_non_finalized_accounts);
 
         assert_eq!(
             result,
@@ -681,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn find_largest_nominated_account_for_accounts_with_equal_balances_as_well_as_age() {
+    fn find_account_with_smallest_weight_for_accounts_with_equal_balances_as_well_as_age() {
         let account = make_payable_account(111);
         let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");
@@ -689,13 +686,10 @@ mod tests {
         account_1.wallet = wallet_1.clone();
         let mut account_2 = account;
         account_2.wallet = wallet_2;
-        let accounts = make_non_finalized_adjusted_accounts(vec![
-            (account_1.clone(), 100_111_000),
-            (account_2, 200_000_000),
-        ]);
+        let accounts = make_non_finalized_adjusted_accounts(vec![account_1.clone(), account_2]);
         let referenced_non_finalized_accounts = by_reference(&accounts);
 
-        let result = find_largest_nominated_account(&referenced_non_finalized_accounts);
+        let result = find_account_with_smallest_weight(&referenced_non_finalized_accounts);
 
         assert_eq!(
             result,
@@ -708,66 +702,73 @@ mod tests {
 
     #[test]
     fn accounts_with_original_balances_equal_to_the_proposed_ones_are_not_outweighed() {
-        let account_info = AdjustedAccountBeforeFinalization {
-            original_account: PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 9_000_000_000,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
+        let unconfirmed_adjustment = UnconfirmedAdjustment {
+            non_finalized_account: AdjustedAccountBeforeFinalization {
+                original_account: PayableAccount {
+                    wallet: make_wallet("blah"),
+                    balance_wei: 9_000_000_000,
+                    last_paid_timestamp: SystemTime::now(),
+                    pending_payable_opt: None,
+                },
+                proposed_adjusted_balance: 9_000_000_000,
             },
-            proposed_adjusted_balance: 9_000_000_000,
+            weight: 123456,
         };
         let init = (vec![], vec![]);
 
-        let (outweighed, ok) = possibly_outweighed_accounts_fold_guts(init, account_info.clone());
+        let (outweighed, ok) =
+            resolve_possibly_outweighed_account(init, unconfirmed_adjustment.clone());
 
         assert_eq!(outweighed, vec![]);
-        assert_eq!(ok, vec![account_info])
+        assert_eq!(ok, vec![unconfirmed_adjustment])
     }
 
     #[test]
-    fn picks_only_the_biggest_and_youngest_disqualified_account_in_one_iteration() {
-        let test_name = "picks_only_the_biggest_and_youngest_disqualified_account_in_one_iteration";
+    fn only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration() {
+        let test_name =
+            "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
         let now = SystemTime::now();
-        let cw_masq_balance = 2_000_000_000_000;
+        let cw_masq_balance = 200_000_000_000;
         let logger = Logger::new(test_name);
         let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
+        // None of these accounts would be outside the definition for disqualification
+        // even if any of them would be gifted by the complete balance from the cw
         let wallet_1 = make_wallet("abc");
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
-            balance_wei: 700_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
+            balance_wei: 120_000_000_001,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_2 = make_wallet("def");
         let account_2 = PayableAccount {
             wallet: wallet_2.clone(),
-            balance_wei: 333_000_000_000,
+            balance_wei: 120_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_3 = make_wallet("ghi");
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
-            balance_wei: 700_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(99_999)).unwrap(),
+            balance_wei: 119_999_999_999,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(999_999)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_4 = make_wallet("jkl");
         let account_4 = PayableAccount {
             wallet: wallet_4.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(7_000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(999_999)).unwrap(),
             pending_payable_opt: None,
         };
         let weights_and_accounts = subject
             .calculate_weights_for_accounts(vec![account_1, account_2, account_3, account_4]);
         let weights_total = weights_total(&weights_and_accounts);
-        let non_finalized_adjusted_accounts = subject
-            .compute_adjusted_but_non_finalized_accounts(weights_and_accounts, weights_total);
+        let unconfirmed_adjustments =
+            subject.compute_adjusted_unconfirmed_adjustments(weights_and_accounts, weights_total);
 
         let result = try_finding_an_account_to_disqualify_in_this_iteration(
-            &non_finalized_adjusted_accounts,
+            &unconfirmed_adjustments,
             &logger,
         );
 
@@ -816,7 +817,7 @@ mod tests {
     fn exhaustive_status_is_constructed_properly() {
         let cw_balance_remainder = 45678;
 
-        let result = CwExhaustingStatus::new(cw_balance_remainder);
+        let result = ConsumingWalletExhaustingStatus::new(cw_balance_remainder);
 
         assert_eq!(result.remainder, cw_balance_remainder);
         assert_eq!(result.accounts_finalized_so_far, vec![])
