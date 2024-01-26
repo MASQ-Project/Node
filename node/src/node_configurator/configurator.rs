@@ -47,7 +47,7 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    update_consuming_wallet_subs_opt: Option<UpdateConsumingWalletSubs>,
+    update_wallets_subs_opt: Option<UpdateWalletsSubs>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     crashable: bool,
@@ -69,7 +69,7 @@ impl Handler<BindMessage> for Configurator {
                 .configuration_change_msg_sub
                 .clone(),
         );
-        self.update_consuming_wallet_subs_opt = Some(UpdateConsumingWalletSubs {
+        self.update_wallets_subs_opt = Some(UpdateWalletsSubs {
             accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
             blockchain_bridge: msg
                 .peer_actors
@@ -80,13 +80,13 @@ impl Handler<BindMessage> for Configurator {
     }
 }
 
-struct UpdateConsumingWalletSubs {
+struct UpdateWalletsSubs {
     accountant: Recipient<ConfigurationChangeMessage>,
     blockchain_bridge: Recipient<ConfigurationChangeMessage>,
     neighborhood: Recipient<ConfigurationChangeMessage>,
 }
 
-impl UpdateConsumingWalletSubs {
+impl UpdateWalletsSubs {
     fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 3] {
         [
             &self.accountant,
@@ -140,7 +140,7 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            update_consuming_wallet_subs_opt: None,
+            update_wallets_subs_opt: None,
             node_to_ui_sub_opt: None,
             update_min_hops_sub_opt: None,
             crashable,
@@ -880,7 +880,7 @@ impl Configurator {
                     earning_wallet: new_earning_wallet
                 }),
             };
-            self.update_consuming_wallet_subs_opt
+            self.update_wallets_subs_opt
                 .as_ref()
                 .expect("Configuration is unbound")
                 .recipients()
@@ -987,7 +987,7 @@ mod tests {
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
         subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
-        subject.update_consuming_wallet_subs_opt = None;
+        subject.update_wallets_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -1745,6 +1745,14 @@ mod tests {
         );
     }
 
+    fn make_update_wallets_subs() -> UpdateWalletsSubs {
+        UpdateWalletsSubs {
+            accountant: make_recorder().0.start().into(),
+            blockchain_bridge: make_recorder().0.start().into(),
+            neighborhood: make_recorder().0.start().into(),
+        }
+    }
+
     #[test]
     fn handle_recover_wallets_works_with_earning_wallet_derivation_path() {
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1755,6 +1763,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
+        subject.update_wallets_subs_opt = Some(make_update_wallets_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = Some(derivation_path(0, 5));
 
@@ -1810,6 +1819,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
+        subject.update_wallets_subs_opt = Some(make_update_wallets_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request
             .seed_spec_opt
@@ -2952,7 +2962,7 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                update_consuming_wallet_subs_opt: None,
+                update_wallets_subs_opt: None,
                 node_to_ui_sub_opt: None,
                 update_min_hops_sub_opt: None,
                 crashable: false,
