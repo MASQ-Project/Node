@@ -565,8 +565,8 @@ pub struct WalletPair {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigurationChange {
-    UpdateWallets(WalletPair),
     UpdateMinHops(Hops),
+    UpdateWallets(WalletPair),
     // UpdatePassword(String), // TODO: Use me
 }
 

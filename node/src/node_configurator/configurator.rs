@@ -47,9 +47,9 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    update_wallets_subs_opt: Option<UpdateWalletsSubs>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+    update_wallets_subs_opt: Option<UpdateWalletsSubs>,
     crashable: bool,
     logger: Logger,
 }
