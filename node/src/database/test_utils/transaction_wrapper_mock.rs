@@ -12,14 +12,15 @@ use rusqlite::{Error, Statement, ToSql};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-// The qualities of this builder come from the freedom of its usability contrasting with how it
-// creates an encapsulated environment inside which it configures and eventually builds
-// the requested mock. This happens in order to minimize the exposure of the special mock to
-// the outer scope. To such an extend that any developer should become ever that things have been
-// done this way on purpose. The concern was to prevent using the inner transaction wrapper without
-// its outer wrapper that gives it the needed safeness.
+// The qualities of this builder are given by its wide usability contrasting with how it
+// enables creating encapsulated environment, inside which it configures and eventually builds
+// the otherwise inaccessible mock. It minimizes the exposure of the special internal mock
+// to such an extend, that any developer should come to understand that the insulation
+// was done on purpose and should be respected. It's important to prevent use of the inner
+// transaction wrapper without its outer counterpart, because only that one gives it the needed
+// safeness.
 //
-// Read more about the safeness reasons for this layered structure in comments near to these
+// Read more about the improved safeness in this layered structure in comments near to these
 // wrappers.
 
 #[derive(Default)]
@@ -70,9 +71,9 @@ impl TransactionInnerWrapperMockBuilder {
 #[derive(Debug)]
 struct TransactionInnerWrapperMock {
     prepare_params: Arc<Mutex<Vec<String>>>,
-    // This field hosts an object able to produce the requested result based on the configuration
-    // of this mock in the test setup instructions for the given test where the programmer needed to
-    // have a control over the result of the 'prepare' method
+    // This field holds an object that can produce a requested result based on the configuration
+    // of this mock (from the setup of the test) reflecting the programmer's decision that he needs
+    // control over the results coming out of the 'prepare' method
     prepare_results_producer_opt: Option<PrepareMethodResultsProducer>,
     commit_params: Arc<Mutex<Vec<()>>>,
     commit_results: RefCell<Vec<Result<(), Error>>>,
@@ -100,11 +101,11 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
         self.commit_params.lock().unwrap().push(());
 
         let next_result = self.commit_results.borrow_mut().remove(0);
-        // If the commit is meant to succeed we check for the transaction we may keep
-        // in the `PrepareMethodResultsProducer` (design allowing for the initial database interactions
-        // in the test to be run with the genuine prod code statements), and thus all data changes these
-        // statements may claim to introduce (if called) will be recorded in the database and
-        // visible at the end of the test.
+        // If we pull out a result that says success, we check for a transaction inside `PrepareMethodResultsProducer`
+        // that would belong with a connection meant for keeping the real prod code statements, if we find one, we will
+        // commit it now. This design enables to make writes to the database that would've happened in the real life
+        // scenario anyway. The database then will be reliable for assertions in the test, not omitting any steps that
+        // could somehow modify it.
         if next_result.is_ok() {
             if let Some(prepared_results) = self.prepare_results_producer_opt.as_mut() {
                 if let Either::Right(for_both) = &mut prepared_results.setup {
@@ -121,8 +122,8 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 
 // Trying to store a rusqlite 'Statement' inside the TransactionWrapperMock and then placing this
 // combination into the ConnectionWrapperMock placed us before complex lifetime issues. A hypothesis
-// is that the way the language is designed maintaining such relationships between objects may not
-// be achievable.
+// is that because of the design of the language maintaining such relationships between objects
+// may be unachievable.
 
 // Eventually, we decided to take a different approach: radically reduce the excessive use of
 // borrowed references. We had to make the mock much smarter by giving it its own db connection,
@@ -135,17 +136,15 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 // In Rust, no one may write a trait with generic arguments in its methods as long as a trait object
 // is to be formed.
 
-// With that said, we're relieved to have at least one working solution now. Speaking of
-// the 'prepare' method, there wouldn't be an error needed because the production code often handles
-// the results using a simple 'expect'. Since it is not required writing a test for an 'expect',
-// there's nearly no point in exercising an error in this place.
+// With that said, we're relieved to have at least one working solution now. Speaking of the 'prepare'
+// method, an error would be hardly needed because the production code simply unwraps the results by
+// using 'expect'. That is a function excluded from the requirement of writing tests for.
 
-// Our focus must be on the Statement produced by this method. It needs to be understood that
-// the 'prepare' method has a crucial influence on the result of the following function, usually
-// executing this prepared 'Statement'. Fortunately, still with some challenges being always around,
-// we can indirectly steer the course of events of that future call and rely on an exact result to
-// to happen in the test. This approach can be applied for all respective methods such as 'execute',
-// 'query_row', or 'query_map'.
+// The 'Statement' produced by this method must be better understood. The 'prepare' method has
+// a crucial influence on the result of the following function, executing such prepared 'Statement'.
+// Luckily, we can steer the course of events that this next function call will have to go through,
+// able to anticipate, and therefore count on an exact result to happen during the test. This approach
+// can be applied for every related method such as 'execute', 'query_row', or 'query_map'.
 
 #[derive(Debug)]
 struct SetupForOnlyAlteredStmts {
@@ -160,17 +159,21 @@ struct SetupForProdCodeAndAlteredStmts {
     // successful SQL operations would be written into the database right away,
     // which is not how the reality works. On the other hand we do want them to
     // affect the database persistently if the commit point is reached, so that
-    // the test can laid assertions that can be faithful to the expected changes
-    // happening inside the database.
+    // the test can laid down assertions that test the database with maximally
+    // realistic conditions.
     txn_bearing_prod_code_stmts_opt: Option<TransactionSafeWrapper<'static>>,
     queue_with_prod_code_and_altered_stmts: RefCell<Vec<StmtTypeDirective>>,
     // This connection is usually the most important, but using just the prod code
-    // connection meant primarily for the prod-code statements should be also possible.
+    // connection, meant primarily for non-altered statements, should be also possible.
     //
     // Common strategies to use this additional connection:
     //
-    // a) with a connection pointing to another database, usually declared very simple, that allows
-    //    a more direct and clearer way of stimulation of the given error, often very specific,
+    // a) as a connection pointing to another database, usually declared as simple as possible,
+    //    that allows the same kind of error we want to see in the test (often an unusual, corner
+    //    case error), but with a database and carefully arranged situation in which
+    //    the substituted parameters to come into the SQL statement (if any at all), need to
+    //    participate in our arrangement too (rusqlite code would complain otherwise), and that
+    //    combination will cause the error,
     //
     // b) to tickle the database while exercising statements that attempt to change the state of
     //    the database. Since this connection will be read only, it'll generate an error. Thereby,
@@ -190,13 +193,18 @@ impl SetupForProdCodeAndAlteredStmts {
         match self.separate_conn_for_altered_stmts_opt.as_ref() {
             Some(special_conn) => special_conn.prepare(altered_stm),
             None =>
-            // Since all db operations would've happened on a single wrapped txn in reality,
-            // we strive to interact with a txn also here, not with the conn directly.
-            // (In some scarce cases it might be even required, as in providing a 'Statement'
-            // that wouldn't be supposed to stimulate an error whereupon any potential
-            // rollback of this txn should best embody both the prod code statements and
-            // the altered ones together, enabling us to get a realistic state of the db that
-            // we might have decided to test closely by assertions in the test).
+            // In the prod code, all the db operations would've happened on a single wrapped txn,
+            // that's why we strive to manipulate a txn also here, not the conn directly. Most
+            // importantly, sometimes multiple subsequent operations take each the previous one as
+            // necessary base. If the continuity is broken the later statement might not work. If
+            // we record some changes on the transaction, other changes tried to be done from
+            // a different connection might meet a different state of the database and thwart the
+            // efforts. (This behaviour probably depends on the global setup of the db).
+            //
+            //
+            // Also imagine a 'Statement' that wouldn't cause an error whereupon any potential
+            // rollback of this txn should best drag off both the prod code and altered statements
+            // all together, disappearing. If we did not use this txn some of the changes would stay.
             {
                 self.txn_bearing_prod_code_stmts_opt
                     .as_ref()
@@ -209,11 +217,11 @@ impl SetupForProdCodeAndAlteredStmts {
 
 impl Drop for SetupForProdCodeAndAlteredStmts {
     fn drop(&mut self) {
-        // Self contains a reference that doesn't comply with Rust safeness anymore as it has gone
-        // through backward cast from a raw pointer.  We're making sure by this Drop impl that one
+        // The self contains a reference that doesn't comply with Rust safeness anymore as it has gone
+        // through backward cast from a raw pointer. We're making sure by this Drop impl that one
         // part of 'self', the borne txn will deconstruct earlier than what it is referencing, that
-        // is the DB Connection held by one of the other fields of this same struct. Failing that,
-        // we'll have to do with a segmentation error from the OS.
+        // is the DB Connection held by one of the other fields in the same struct. Failing that, we'll
+        // have to do with a segmentation error from the OS.
         drop(self.txn_bearing_prod_code_stmts_opt.take())
     }
 }
