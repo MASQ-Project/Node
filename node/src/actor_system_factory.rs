@@ -451,6 +451,7 @@ impl ActorFactory for ActorFactoryReal {
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let config_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         Self::load_banned_cache(db_initializer, banned_cache_loader, data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
@@ -461,6 +462,7 @@ impl ActorFactory for ActorFactoryReal {
                     pending_payable_dao_factory,
                     receivable_dao_factory,
                     banned_dao_factory,
+                    config_dao_factory,
                 },
             )
         });

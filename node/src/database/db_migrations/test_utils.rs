@@ -3,9 +3,9 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use masq_lib::logger::Logger;
 use masq_lib::utils::to_string;
-use rusqlite::Transaction;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -43,7 +43,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.db_password_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &TransactionSafeWrapper {
         unimplemented!("Not needed so far")
     }
 

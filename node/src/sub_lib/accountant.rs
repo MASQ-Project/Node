@@ -10,6 +10,7 @@ use crate::accountant::{
 };
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -72,6 +73,7 @@ pub struct DaoFactories {
     pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
+    pub config_dao_factory: Box<dyn ConfigDaoFactory>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -174,7 +176,7 @@ pub enum SignConversionError {
 
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Default)]
@@ -184,7 +186,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     fn id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]

@@ -50,7 +50,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         Ok(())
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {
@@ -159,8 +159,8 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::ExternalData;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,

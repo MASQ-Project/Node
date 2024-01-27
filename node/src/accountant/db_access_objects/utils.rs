@@ -4,10 +4,10 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, gwei_to_wei, sign_conversion};
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::accountant::PaymentThresholds;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
@@ -434,7 +434,7 @@ impl ThresholdUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;

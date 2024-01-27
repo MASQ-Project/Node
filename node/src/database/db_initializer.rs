@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -132,15 +132,15 @@ impl DbInitializerReal {
     }
 
     fn create_database_tables(&self, conn: &Connection, external_params: ExternalData) {
-        self.create_config_table(conn);
-        self.initialize_config(conn, external_params);
-        self.create_payable_table(conn);
-        self.create_pending_payable_table(conn);
-        self.create_receivable_table(conn);
-        self.create_banned_table(conn);
+        Self::create_config_table(conn);
+        Self::initialize_config(conn, external_params);
+        Self::create_payable_table(conn);
+        Self::create_pending_payable_table(conn);
+        Self::create_receivable_table(conn);
+        Self::create_banned_table(conn);
     }
 
-    fn create_config_table(&self, conn: &Connection) {
+    pub fn create_config_table(conn: &Connection) {
         conn.execute(
             "create table if not exists config (
                     name text primary key,
@@ -151,7 +151,7 @@ impl DbInitializerReal {
         )
         .expect("Can't create config table");
     }
-    fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
+    fn initialize_config(conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -264,7 +264,7 @@ impl DbInitializerReal {
         Self::set_config_value(conn, "max_block_count", None, false, "maximum block count");
     }
 
-    fn create_pending_payable_table(&self, conn: &Connection) {
+    pub fn create_pending_payable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists pending_payable (
                     rowid integer primary key,
@@ -285,7 +285,7 @@ impl DbInitializerReal {
         .expect("Can't create transaction hash index in pending payments");
     }
 
-    fn create_payable_table(&self, conn: &Connection) {
+    pub fn create_payable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
                     wallet_address text primary key,
@@ -299,7 +299,7 @@ impl DbInitializerReal {
         .expect("Can't create payable table");
     }
 
-    fn create_receivable_table(&self, conn: &Connection) {
+    pub fn create_receivable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
                     wallet_address text primary key,
@@ -312,7 +312,7 @@ impl DbInitializerReal {
         .expect("Can't create receivable table");
     }
 
-    fn create_banned_table(&self, conn: &Connection) {
+    pub fn create_banned_table(conn: &Connection) {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
             [],
@@ -620,113 +620,6 @@ impl Debug for DbInitializationConfig {
                 .map(|pointer| *pointer as usize)
                 .collect::<Vec<_>>(),
         )
-    }
-}
-
-#[cfg(test)]
-pub mod test_utils {
-    use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::DbInitializationConfig;
-    use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use rusqlite::Transaction;
-    use rusqlite::{Error, Statement};
-    use std::cell::RefCell;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Debug, Default)]
-    pub struct ConnectionWrapperMock<'b, 'a: 'b> {
-        prepare_params: Arc<Mutex<Vec<String>>>,
-        prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
-        transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-    }
-
-    unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
-
-    impl<'a: 'b, 'b> ConnectionWrapperMock<'a, 'b> {
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        pub fn prepare_result(self, result: Result<Statement<'a>, Error>) -> Self {
-            self.prepare_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn transaction_result(self, result: Result<Transaction<'b>, Error>) -> Self {
-            self.transaction_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
-        fn prepare(&self, query: &str) -> Result<Statement, Error> {
-            self.prepare_params
-                .lock()
-                .unwrap()
-                .push(String::from(query));
-            self.prepare_results.borrow_mut().remove(0)
-        }
-
-        fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
-            self.transaction_results.borrow_mut().remove(0)
-        }
-    }
-
-    #[derive(Default)]
-    pub struct DbInitializerMock {
-        pub initialize_params: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
-        pub initialize_results:
-            RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
-    }
-
-    impl DbInitializer for DbInitializerMock {
-        fn initialize(
-            &self,
-            path: &Path,
-            init_config: DbInitializationConfig,
-        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            self.initialize_params
-                .lock()
-                .unwrap()
-                .push((path.to_path_buf(), init_config));
-            self.initialize_results.borrow_mut().remove(0)
-        }
-
-        #[allow(unused_variables)]
-        fn initialize_to_version(
-            &self,
-            path: &Path,
-            target_version: usize,
-            init_config: DbInitializationConfig,
-        ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            intentionally_blank!()
-            /*all existing test calls only initialize() in the mocked version,
-            but we need to call initialize_to_version() for the real object
-            in order to carry out some important tests too*/
-        }
-    }
-
-    impl DbInitializerMock {
-        pub fn new() -> Self {
-            Self::default()
-        }
-
-        pub fn initialize_parameters(
-            mut self,
-            parameters: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
-        ) -> DbInitializerMock {
-            self.initialize_params = parameters;
-            self
-        }
-
-        pub fn initialize_result(
-            self,
-            result: Result<Box<dyn ConnectionWrapper>, InitializationError>,
-        ) -> DbInitializerMock {
-            self.initialize_results.borrow_mut().push(result);
-            self
-        }
     }
 }
 

@@ -77,10 +77,10 @@ impl DatabaseMigration for Migrate_4_to_5 {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
     };
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,

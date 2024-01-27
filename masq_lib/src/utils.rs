@@ -412,7 +412,7 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! as_any_in_trait {
+macro_rules! as_any_ref_in_trait {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn std::any::Any {
@@ -423,10 +423,31 @@ macro_rules! as_any_in_trait {
 }
 
 #[macro_export]
-macro_rules! as_any_in_trait_impl {
+macro_rules! as_any_ref_in_trait_impl {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait_impl {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
             self
         }
     };

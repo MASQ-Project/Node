@@ -20,7 +20,6 @@ pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{RpcPayablesFailure};
-
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -291,7 +290,7 @@ pub mod payable_scanner_utils {
             payment_thresholds: &PaymentThresholds,
             x: u64,
         ) -> u128;
-        as_any_in_trait!();
+        as_any_ref_in_trait!();
     }
 
     #[derive(Default)]
@@ -313,7 +312,7 @@ pub mod payable_scanner_utils {
         ) -> u128 {
             ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
         }
-        as_any_in_trait_impl!();
+        as_any_ref_in_trait_impl!();
     }
 }
 

@@ -6,7 +6,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-use masq_lib::{as_any_in_trait_impl, short_writeln};
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -66,7 +66,7 @@ impl Command for WalletAddressesCommand {
         );
         Ok(())
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]

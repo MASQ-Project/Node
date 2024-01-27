@@ -3,8 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;

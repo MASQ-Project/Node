@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::utils::DaoFactoryReal;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
@@ -41,6 +41,12 @@ pub trait ConfigDao {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
+    fn set_by_guest_transaction(
+        &self,
+        txn: &mut TransactionSafeWrapper,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), ConfigDaoError>;
 }
 
 pub struct ConfigDaoReal {
@@ -65,22 +71,40 @@ impl ConfigDao for ConfigDaoReal {
     }
 
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError> {
-        let mut stmt = match self
-            .conn
-            .prepare("update config set value = ? where name = ?")
-        {
-            Ok(stmt) => stmt,
-            // The following line is untested, because we don't know how to trigger it.
-            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
-        };
-        let params: &[&dyn ToSql] = &[&value, &name];
-        handle_update_execution(stmt.execute(params))
+        let prepare_stm = |stm: &str| self.conn.prepare(stm);
+        Self::set_value(prepare_stm, name, value)
+    }
+
+    fn set_by_guest_transaction(
+        &self,
+        txn: &mut TransactionSafeWrapper,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), ConfigDaoError> {
+        let prepare_stm = |stm: &str| txn.prepare(stm);
+        Self::set_value(prepare_stm, name, value)
     }
 }
 
 impl ConfigDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ConfigDaoReal {
         ConfigDaoReal { conn }
+    }
+
+    fn set_value<'a, P>(
+        prepare_stmt: P,
+        name: &str,
+        value: Option<String>,
+    ) -> Result<(), ConfigDaoError>
+    where
+        P: FnOnce(&str) -> Result<Statement<'a>, rusqlite::Error> + 'a,
+    {
+        let mut stmt = match prepare_stmt("update config set value = ? where name = ?") {
+            Ok(stmt) => stmt,
+            Err(e) => return Err(ConfigDaoError::DatabaseError(format!("{}", e))),
+        };
+        let params: &[&dyn ToSql] = &[&value, &name];
+        handle_update_execution(stmt.execute(params))
     }
 }
 
@@ -154,19 +178,18 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
     use masq_lib::constants::{CURRENT_SCHEMA_VERSION, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::Connection;
+    use std::path::Path;
 
     #[test]
     fn get_all_returns_multiple_results() {
         let home_dir =
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
+        let subject = make_subject(&home_dir);
 
         let result = subject.get_all().unwrap();
 
@@ -198,11 +221,7 @@ mod tests {
             "config_dao",
             "get_returns_not_present_if_row_doesnt_exist",
         );
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
+        let subject = make_subject(&home_dir);
 
         let result = subject.get("booga");
 
@@ -212,25 +231,22 @@ mod tests {
     #[test]
     fn set_and_get_work() {
         let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_work");
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
+        let subject = make_subject(&home_dir);
         let modified_value = ConfigDaoRecord::new(
             "consuming_wallet_private_key",
             Some("Two wrongs don't make a right, but two Wrights make an airplane"),
             true,
         );
+
         subject
             .set(
                 "consuming_wallet_private_key",
                 Some("Two wrongs don't make a right, but two Wrights make an airplane".to_string()),
             )
             .unwrap();
-
         let subject_get_all = subject.get_all().unwrap();
         let subject_get = subject.get("consuming_wallet_private_key").unwrap();
+
         assert_contains(&subject_get_all, &modified_value);
         assert_eq!(subject_get, modified_value);
     }
@@ -241,11 +257,7 @@ mod tests {
             "config_dao",
             "setting_nonexistent_value_returns_not_present",
         );
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
+        let subject = make_subject(&home_dir);
 
         let result = subject.set("booga", Some("bigglesworth".to_string()));
 
@@ -258,12 +270,10 @@ mod tests {
             "config_dao",
             "setting_value_to_none_removes_value_but_not_row",
         );
-        let subject = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
-        let _ = subject.set("schema_version", None).unwrap();
+        let subject = make_subject(&home_dir);
+
+        subject.set("schema_version", None).unwrap();
+
         let result = subject.get("schema_version").unwrap();
         assert_eq!(result, ConfigDaoRecord::new("schema_version", None, false));
     }
@@ -278,5 +288,69 @@ mod tests {
                 "Execute returned results - did you mean to call query?".to_string()
             ))
         )
+    }
+
+    #[test]
+    fn set_by_guest_transaction_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("config_dao", "set_by_guest_transaction_works");
+        // We give a useless "Connection" to the DAO object, making it more obvious it was the guest
+        // connection that did all the job
+        let subject = ConfigDaoReal::new(Box::new(ConnectionWrapperMock::default()));
+        // Here we create a database, undoubtedly with the schema same as CURRENT_SCHEMA_VERSION
+        let mut conn = initialize_conn(&home_dir);
+        let mut txn = conn.transaction().unwrap();
+        let different_than_current_schema_version = CURRENT_SCHEMA_VERSION + 3;
+        let dif_schema_version_str = different_than_current_schema_version.to_string();
+
+        subject
+            .set_by_guest_transaction(
+                &mut txn,
+                "schema_version",
+                Some(dif_schema_version_str.clone()),
+            )
+            .unwrap();
+
+        let assert_dao = make_subject(&home_dir);
+        let result_before_commit = assert_dao.get("schema_version").unwrap();
+        assert_eq!(
+            result_before_commit,
+            ConfigDaoRecord::new(
+                "schema_version",
+                Some(&CURRENT_SCHEMA_VERSION.to_string()),
+                false
+            )
+        );
+        txn.commit().unwrap();
+        let result_after_commit = assert_dao.get("schema_version").unwrap();
+        assert_eq!(
+            result_after_commit,
+            ConfigDaoRecord::new("schema_version", Some(&dif_schema_version_str), false)
+        );
+    }
+
+    #[test]
+    fn set_value_handles_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        let prepare_stm = |stm: &str| conn.prepare(stm);
+
+        let result = ConfigDaoReal::set_value(prepare_stm, "bubbles", None);
+
+        assert_eq!(
+            result,
+            Err(ConfigDaoError::DatabaseError(
+                "no such table: config".to_string()
+            ))
+        )
+    }
+
+    fn make_subject(home_dir: &Path) -> ConfigDaoReal {
+        ConfigDaoReal::new(initialize_conn(home_dir))
+    }
+
+    fn initialize_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
+        DbInitializerReal::default()
+            .initialize(home_dir, DbInitializationConfig::test_default())
+            .unwrap()
     }
 }

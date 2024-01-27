@@ -46,8 +46,6 @@ use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -59,6 +57,7 @@ use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
 pub struct Scanners {
     pub payable: Box<dyn MultistagePayableScanner<QualifiedPayablesMessage, SentPayables>>,
@@ -74,27 +73,36 @@ impl Scanners {
         when_pending_too_long_sec: u64,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
+        let payable = Box::new(PayableScanner::new(
+            dao_factories.payable_dao_factory.make(),
+            dao_factories.pending_payable_dao_factory.make(),
+            Rc::clone(&payment_thresholds),
+            Box::new(PaymentAdjusterReal::new()),
+        ));
+
+        let pending_payable = Box::new(PendingPayableScanner::new(
+            dao_factories.payable_dao_factory.make(),
+            dao_factories.pending_payable_dao_factory.make(),
+            Rc::clone(&payment_thresholds),
+            when_pending_too_long_sec,
+            Rc::clone(&financial_statistics),
+        ));
+
+        let persistent_configuration =
+            PersistentConfigurationReal::from(dao_factories.config_dao_factory.make());
+        let receivable = Box::new(ReceivableScanner::new(
+            dao_factories.receivable_dao_factory.make(),
+            dao_factories.banned_dao_factory.make(),
+            Box::new(persistent_configuration),
+            Rc::clone(&payment_thresholds),
+            earning_wallet,
+            financial_statistics,
+        ));
+
         Scanners {
-            payable: Box::new(PayableScanner::new(
-                dao_factories.payable_dao_factory.make(),
-                dao_factories.pending_payable_dao_factory.make(),
-                Rc::clone(&payment_thresholds),
-                Box::new(PaymentAdjusterReal::new()),
-            )),
-            pending_payable: Box::new(PendingPayableScanner::new(
-                dao_factories.payable_dao_factory.make(),
-                dao_factories.pending_payable_dao_factory.make(),
-                Rc::clone(&payment_thresholds),
-                when_pending_too_long_sec,
-                Rc::clone(&financial_statistics),
-            )),
-            receivable: Box::new(ReceivableScanner::new(
-                dao_factories.receivable_dao_factory.make(),
-                dao_factories.banned_dao_factory.make(),
-                Rc::clone(&payment_thresholds),
-                earning_wallet,
-                financial_statistics,
-            )),
+            payable,
+            pending_payable,
+            receivable,
         }
     }
 }
@@ -115,7 +123,8 @@ where
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
 
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
+    as_any_mut_in_trait!();
 }
 
 pub struct ScannerCommon {
@@ -249,7 +258,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
 
     time_marking_methods!(Payables);
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl SolvencySensitivePaymentInstructor for PayableScanner {
@@ -618,7 +627,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
 
     time_marking_methods!(PendingPayables);
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl PendingPayableScanner {
@@ -817,6 +826,7 @@ pub struct ReceivableScanner {
     pub common: ScannerCommon,
     pub receivable_dao: Box<dyn ReceivableDao>,
     pub banned_dao: Box<dyn BannedDao>,
+    pub persistent_configuration: Box<dyn PersistentConfiguration>,
     pub earning_wallet: Rc<Wallet>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
@@ -844,32 +854,29 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         })
     }
 
-    fn finish_scan(
-        &mut self,
-        message: ReceivedPayments,
-        logger: &Logger,
-    ) -> Option<NodeToUiMessage> {
-        if message.payments.is_empty() {
+    fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
+        if msg.payments.is_empty() {
             info!(
                 logger,
-                "No new received payments were detected during the scanning process."
-            )
+                "No newly received payments were detected during the scanning process."
+            );
+
+            match self
+                .persistent_configuration
+                .set_start_block(msg.new_start_block)
+            {
+                Ok(()) => debug!(logger, "Start block updated to {}", msg.new_start_block),
+                Err(e) => panic!(
+                    "Attempt to set new start block to {} failed due to: {:?}",
+                    msg.new_start_block, e
+                ),
+            }
         } else {
-            let total_newly_paid_receivable = message
-                .payments
-                .iter()
-                .fold(0, |so_far, now| so_far + now.wei_amount);
-            self.receivable_dao
-                .as_mut()
-                .more_money_received(message.timestamp, message.payments);
-            self.financial_statistics
-                .borrow_mut()
-                .total_paid_receivable_wei += total_newly_paid_receivable;
+            self.handle_new_received_payments(&msg, logger)
         }
 
         self.mark_as_ended(logger);
-        message
-            .response_skeleton_opt
+        msg.response_skeleton_opt
             .map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
                 body: UiScanResponse {}.tmb(response_skeleton.context_id),
@@ -878,13 +885,15 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
     time_marking_methods!(Receivables);
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
+    as_any_mut_in_trait_impl!();
 }
 
 impl ReceivableScanner {
     pub fn new(
         receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
+        persistent_configuration: Box<dyn PersistentConfiguration>,
         payment_thresholds: Rc<PaymentThresholds>,
         earning_wallet: Rc<Wallet>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
@@ -894,8 +903,44 @@ impl ReceivableScanner {
             earning_wallet,
             receivable_dao,
             banned_dao,
+            persistent_configuration,
             financial_statistics,
         }
+    }
+
+    fn handle_new_received_payments(&mut self, msg: &ReceivedPayments, logger: &Logger) {
+        let mut txn = self
+            .receivable_dao
+            .as_mut()
+            .more_money_received(msg.timestamp, &msg.payments);
+
+        let new_start_block = msg.new_start_block;
+        match self
+            .persistent_configuration
+            .set_start_block_from_txn(new_start_block, &mut txn)
+        {
+            Ok(()) => (),
+            Err(e) => panic!(
+                "Attempt to set new start block to {} failed due to: {:?}",
+                new_start_block, e
+            ),
+        }
+
+        match txn.commit() {
+            Ok(_) => {
+                debug!(logger, "Updated start block to: {}", new_start_block)
+            }
+            Err(e) => panic!("Commit of received transactions failed: {:?}", e),
+        }
+
+        let total_newly_paid_receivable = msg
+            .payments
+            .iter()
+            .fold(0, |so_far, now| so_far + now.wei_amount);
+
+        self.financial_statistics
+            .borrow_mut()
+            .total_paid_receivable_wei += total_newly_paid_receivable;
     }
 
     pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {
@@ -1033,10 +1078,8 @@ pub trait ScanScheduler {
         intentionally_blank!()
     }
 
-    as_any_in_trait!();
-
-    #[cfg(test)]
-    fn as_any_mut(&mut self) -> &mut dyn Any;
+    as_any_ref_in_trait!();
+    as_any_mut_in_trait!();
 }
 
 impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
@@ -1049,14 +1092,9 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
         self.interval
     }
 
-    as_any_in_trait_impl!();
-
-    #[cfg(test)]
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
+    as_any_ref_in_trait_impl!();
+    as_any_mut_in_trait_impl!();
 }
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
@@ -1075,10 +1113,10 @@ mod tests {
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payable_account, make_payables,
         make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
-        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
-        ReceivableScannerBuilder,
+        BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, ReceivableScannerBuilder,
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
@@ -1090,17 +1128,24 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
+    use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
+    use crate::db_config::mocks::ConfigDaoMock;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::make_wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use actix::{Message, System};
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
+    use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1118,9 +1163,14 @@ mod tests {
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_result(PendingPayableDaoMock::new())
             .make_result(PendingPayableDaoMock::new());
-        let receivable_dao_factory =
-            ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
+        let receivable_dao = ReceivableDaoMock::new();
+        let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(receivable_dao);
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao_mock = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let config_dao_factory = ConfigDaoFactoryMock::new().make_result(config_dao_mock);
         let when_pending_too_long_sec = 1234;
         let financial_statistics = FinancialStatistics {
             total_paid_payable_wei: 1,
@@ -1131,12 +1181,13 @@ mod tests {
         let payment_thresholds_rc = Rc::new(payment_thresholds);
         let initial_rc_count = Rc::strong_count(&payment_thresholds_rc);
 
-        let scanners = Scanners::new(
+        let mut scanners = Scanners::new(
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
             Rc::clone(&payment_thresholds_rc),
             Rc::new(earning_wallet.clone()),
@@ -1156,8 +1207,8 @@ mod tests {
             .unwrap();
         let receivable_scanner = scanners
             .receivable
-            .as_any()
-            .downcast_ref::<ReceivableScanner>()
+            .as_any_mut()
+            .downcast_mut::<ReceivableScanner>()
             .unwrap();
         assert_eq!(
             payable_scanner.common.payment_thresholds.as_ref(),
@@ -1193,6 +1244,15 @@ mod tests {
             &payment_thresholds
         );
         assert_eq!(receivable_scanner.common.initiated_at_opt.is_some(), false);
+        receivable_scanner
+            .persistent_configuration
+            .set_start_block(136890)
+            .unwrap();
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("start_block".to_string(), Some("136890".to_string()))]
+        );
         assert_eq!(
             Rc::strong_count(&payment_thresholds_rc),
             initial_rc_count + 3
@@ -2947,22 +3007,57 @@ mod tests {
     }
 
     #[test]
-    fn receivable_scanner_aborts_scan_if_no_payments_were_supplied() {
+    fn receivable_scanner_handles_no_new_payments_found() {
         init_test_logging();
         let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
-        let mut subject = ReceivableScannerBuilder::new().build();
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let new_start_block = 4321;
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
+        let mut subject = ReceivableScannerBuilder::new()
+            .persistent_configuration(persistent_config)
+            .build();
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
+            new_start_block,
             response_skeleton_opt: None,
         };
 
         let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
         assert_eq!(message_opt, None);
+        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
+        assert_eq!(*set_start_block_params, vec![4321]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: No new received payments were detected during the scanning process."
+            "INFO: {test_name}: No newly received payments were detected during the scanning process."
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempt to set new start block to 6709 failed due to: \
+    UninterpretableValue(\"Illiterate database manager\")")]
+    fn no_transactions_received_but_start_block_setting_fails() {
+        init_test_logging();
+        let test_name = "no_transactions_received_but_start_block_setting_fails";
+        let now = SystemTime::now();
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_result(Err(
+            PersistentConfigError::UninterpretableValue("Illiterate database manager".to_string()),
+        ));
+        let mut subject = ReceivableScannerBuilder::new()
+            .persistent_configuration(persistent_config)
+            .build();
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: vec![],
+            new_start_block: 6709,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
     }
 
     #[test]
@@ -2971,11 +3066,23 @@ mod tests {
         let test_name = "receivable_scanner_handles_received_payments_message";
         let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_start_block_from_txn_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_id = ArbitraryIdStamp::new();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()))
+            .set_arbitrary_id_stamp(transaction_id);
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_start_block_from_txn_params(&set_start_block_from_txn_params_arc)
+            .set_start_block_from_txn_result(Ok(()));
         let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
-            .more_money_receivable_result(Ok(()));
+            .more_money_received_params(&more_money_received_params_arc)
+            .more_money_received_result(transaction);
         let mut subject = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
+            .persistent_configuration(persistent_config)
             .build();
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_receivable_wei += 2_222_123_123;
@@ -2995,6 +3102,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: now,
             payments: receivables.clone(),
+            new_start_block: 7890123,
             response_skeleton_opt: None,
         };
         subject.mark_as_started(SystemTime::now());
@@ -3005,14 +3113,98 @@ mod tests {
             .financial_statistics
             .borrow()
             .total_paid_receivable_wei;
-        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
+        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
+        let set_by_guest_transaction_params = set_start_block_from_txn_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_by_guest_transaction_params,
+            vec![(7890123, transaction_id)]
+        );
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Attempt to set new start block to 7890123 failed due to: \
+    DatabaseError(\"Fatigue\")")]
+    fn received_transactions_processed_but_start_block_setting_fails() {
+        init_test_logging();
+        let test_name = "received_transactions_processed_but_start_block_setting_fails";
+        let now = SystemTime::now();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let persistent_config = PersistentConfigurationMock::new().set_start_block_from_txn_result(
+            Err(PersistentConfigError::DatabaseError("Fatigue".to_string())),
+        );
+        let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
+        let mut subject = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .persistent_configuration(persistent_config)
+            .build();
+        let receivables = vec![BlockchainTransaction {
+            block_number: 4578910,
+            from: make_wallet("abc"),
+            wei_amount: 45_780,
+        }];
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: receivables,
+            new_start_block: 7890123,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Commit of received transactions failed: SqliteFailure(Error { code: \
+    InternalMalfunction, extended_code: 0 }, Some(\"blah\"))"
+    )]
+    fn transaction_for_balance_start_block_updates_fails_on_its_commit() {
+        init_test_logging();
+        let test_name = "transaction_for_balance_start_block_updates_fails_on_its_commit";
+        let now = SystemTime::now();
+        let commit_err = Err(rusqlite::Error::SqliteFailure(
+            ffi::Error {
+                code: ErrorCode::InternalMalfunction,
+                extended_code: 0,
+            },
+            Some("blah".to_string()),
+        ));
+        let txn_inner_builder =
+            TransactionInnerWrapperMockBuilder::default().commit_result(commit_err);
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let persistent_config =
+            PersistentConfigurationMock::new().set_start_block_from_txn_result(Ok(()));
+        let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
+        let mut subject = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .persistent_configuration(persistent_config)
+            .build();
+        let receivables = vec![BlockchainTransaction {
+            block_number: 4578910,
+            from: make_wallet("abc"),
+            wei_amount: 45_780,
+        }];
+        let msg = ReceivedPayments {
+            timestamp: now,
+            payments: receivables,
+            new_start_block: 7890123,
+            response_skeleton_opt: None,
+        };
+        // Not necessary, rather for preciseness
+        subject.mark_as_started(SystemTime::now());
+
+        subject.finish_scan(msg, &Logger::new(test_name));
     }
 
     #[test]
