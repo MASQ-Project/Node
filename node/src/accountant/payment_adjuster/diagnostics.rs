@@ -7,7 +7,7 @@ use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_chara
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
+const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
@@ -73,7 +73,9 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+    };
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
@@ -95,12 +97,12 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn account_nominated_for_disqualification_diagnostics(
-        account_info: &AdjustedAccountBeforeFinalization,
+        account_info: &UnconfirmedAdjustment,
         proposed_adjusted_balance: u128,
         disqualification_edge: u128,
     ) {
         diagnostics!(
-            account_info.original_account.wallet,
+            account_info.non_finalized_account.original_account.wallet,
             "ACCOUNT NOMINATED FOR DISQUALIFICATION FOR INSIGNIFICANCE AFTER ADJUSTMENT",
             "Proposed: {}, disqualification limit: {}",
             proposed_adjusted_balance.separate_with_commas(),
@@ -146,7 +148,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn try_finding_an_account_to_disqualify_diagnostics(
-        disqualification_suspected_accounts: &[&AdjustedAccountBeforeFinalization],
+        disqualification_suspected_accounts: &[&UnconfirmedAdjustment],
         wallet: &Wallet,
     ) {
         diagnostics!(
@@ -214,7 +216,7 @@ pub mod formulas_progressive_characteristics {
     // For the purposes of debugging and tuning the formulas up to work well together. It lets you
     // imagine the curve of a criterion in dependence to different supplied input values for
     // the give parameter
-    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
+    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = false;
 
     // You must preserve the 'static' keyword
     //
