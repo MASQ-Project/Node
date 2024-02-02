@@ -13,7 +13,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     PercentageAccountInsignificance, UnconfirmedAdjustment,
 };
 use crate::sub_lib::wallet::Wallet;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use std::cmp::Ordering;
 use std::iter::successors;
@@ -27,6 +27,15 @@ pub const ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE: PercentageAccountInsignificance 
         multiplier: 1,
         divisor: 2,
     };
+
+pub fn found_zero_affordable_accounts(
+    accounts: &Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
+) -> bool {
+    match accounts {
+        Either::Left(vector) => vector.is_empty(),
+        Either::Right(vector) => vector.is_empty(),
+    }
+}
 
 pub fn sum_as<N, T, F>(collection: &[T], arranger: F) -> N
 where
@@ -379,8 +388,8 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         calculate_disqualification_edge, compute_mul_coefficient_preventing_fractional_numbers,
         exhaust_cw_till_the_last_drop, find_account_with_smallest_weight,
-        list_accounts_nominated_for_disqualification, log_10, log_2,
-        resolve_possibly_outweighed_account,
+        found_zero_affordable_accounts, list_accounts_nominated_for_disqualification, log_10,
+        log_2, resolve_possibly_outweighed_account,
         try_finding_an_account_to_disqualify_in_this_iteration, weights_total,
         ConsumingWalletExhaustingStatus, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
         EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_WITHIN_U128,
@@ -408,6 +417,37 @@ mod tests {
                 divisor: 2
             }
         );
+    }
+
+    #[test]
+    fn found_zero_affordable_accounts_returns_true_for_non_finalized_accounts() {
+        let result = found_zero_affordable_accounts(&Either::Left(vec![]));
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn found_zero_affordable_accounts_returns_false_for_non_finalized_accounts() {
+        let result = found_zero_affordable_accounts(&Either::Left(vec![
+            AdjustedAccountBeforeFinalization::new(make_payable_account(456), 1234),
+        ]));
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn found_zero_affordable_accounts_returns_true_for_finalized_accounts() {
+        let result = found_zero_affordable_accounts(&Either::Right(vec![]));
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn found_zero_affordable_accounts_returns_false_for_finalized_accounts() {
+        let result =
+            found_zero_affordable_accounts(&Either::Right(vec![make_payable_account(123)]));
+
+        assert_eq!(result, false)
     }
 
     #[test]

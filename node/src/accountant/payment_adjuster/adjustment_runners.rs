@@ -52,10 +52,9 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: PayableAccount,
     ) -> Self::ReturnType {
-        match adjust_last_one(payment_adjuster, last_account) {
-            Ok(non_finalized_account) => Ok(Either::Left(vec![non_finalized_account])),
-            Err(e) => todo!(),
-        }
+        Ok(Either::Left(empty_or_single_element_vector(
+            adjust_last_one_opt(payment_adjuster, last_account),
+        )))
     }
 
     fn adjust_multiple(
@@ -91,10 +90,10 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: PayableAccount,
     ) -> Self::ReturnType {
-        match adjust_last_one(payment_adjuster, last_account) {
-            Ok(non_finalized_account) => Ok(vec![non_finalized_account]),
-            Err(e) => todo!(),
-        }
+        Ok(empty_or_single_element_vector(adjust_last_one_opt(
+            payment_adjuster,
+            last_account,
+        )))
     }
 
     fn adjust_multiple(
@@ -107,10 +106,10 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     }
 }
 
-fn adjust_last_one(
+fn adjust_last_one_opt(
     payment_adjuster: &PaymentAdjusterReal,
     last_account: PayableAccount,
-) -> Result<AdjustedAccountBeforeFinalization, PaymentAdjusterError> {
+) -> Option<AdjustedAccountBeforeFinalization> {
     let cw_balance = payment_adjuster
         .inner
         .unallocated_cw_service_fee_balance_minor();
@@ -134,8 +133,8 @@ fn adjust_last_one(
     let logger = &payment_adjuster.logger;
 
     match try_finding_an_account_to_disqualify_in_this_iteration(&proposed_adjustment_vec, logger) {
-        Some(_) => Err(PaymentAdjusterError::AllAccountsEliminated),
-        None => Ok(proposed_adjustment_vec.remove(0).non_finalized_account),
+        Some(_) => None,
+        None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
     }
 }
 
@@ -152,14 +151,12 @@ fn empty_or_single_element_vector(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one, empty_or_single_element_vector, AdjustmentRunner,
+        adjust_last_one_opt, empty_or_single_element_vector, AdjustmentRunner,
         ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
-    use crate::accountant::payment_adjuster::{
-        Adjustment, PaymentAdjusterError, PaymentAdjusterReal,
-    };
+    use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::make_payable_account;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -231,11 +228,11 @@ mod tests {
         };
         let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
-        let result = adjust_last_one(&payment_adjuster, account.clone());
+        let result = adjust_last_one_opt(&payment_adjuster, account.clone());
 
         assert_eq!(
             result,
-            Ok(AdjustedAccountBeforeFinalization {
+            Some(AdjustedAccountBeforeFinalization {
                 original_account: account,
                 proposed_adjusted_balance: cw_balance,
             })
@@ -252,9 +249,9 @@ mod tests {
         };
         let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
-        let result = adjust_last_one(&payment_adjuster, account.clone());
+        let result = adjust_last_one_opt(&payment_adjuster, account.clone());
 
-        assert_eq!(result, Err(PaymentAdjusterError::AllAccountsEliminated))
+        assert_eq!(result, None)
     }
 
     #[test]

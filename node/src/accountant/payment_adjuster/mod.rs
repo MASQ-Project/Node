@@ -26,7 +26,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::Require
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, AdjustmentResolution, NonFinalizedAdjustmentWithResolution, RecursionResults, UnconfirmedAdjustment};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, found_zero_affordable_accounts};
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
@@ -179,6 +179,10 @@ impl PaymentAdjusterReal {
             TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
+        if found_zero_affordable_accounts(&accounts) {
+            return Err(PaymentAdjusterError::AllAccountsEliminated);
+        }
+
         match accounts {
             Either::Left(non_exhausted_accounts) => {
                 let original_cw_service_fee_balance_minor =
@@ -192,7 +196,6 @@ impl PaymentAdjusterReal {
             Either::Right(finalized_accounts) => Ok(finalized_accounts),
         }
     }
-
     fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
         unresolved_qualified_accounts: Vec<PayableAccount>,
@@ -297,10 +300,10 @@ impl PaymentAdjusterReal {
                 let here_decided_accounts = match special_case {
                     TreatInsignificantAccount => {
                         if remaining.is_empty() {
-                            debug!(self.logger, "Last remaining account ended up disqualified");
-
-                            todo!("I believe this can never happen!! it would first go by the short path of 'adjust_last_one'");
-                            return Err(PaymentAdjusterError::AllAccountsEliminated);
+                            // a) only one account can be eliminated in a single iteration,
+                            // b) if there is one last undecided account, it goes on into
+                            // a shortcut section, never coming here
+                            unreachable!("Not possible by original design")
                         }
 
                         vec![]
@@ -626,7 +629,7 @@ impl Display for PaymentAdjusterError {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustmentIterationResult;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustmentIterationResult, RequiredSpecialTreatment};
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, weights_total};
     use crate::accountant::payment_adjuster::test_utils::{
@@ -1064,7 +1067,7 @@ mod tests {
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: 3_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(50_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
@@ -1073,7 +1076,13 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = vec![account_1, account_2];
+        let account_3 = PayableAccount {
+            wallet: make_wallet("ghi"),
+            balance_wei: 2_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2, account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
@@ -1101,6 +1110,20 @@ mod tests {
             Ok(_) => panic!("we expected to get an error but it was ok"),
         };
         assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: Not possible by original design"
+    )]
+    fn disqualified_account_with_no_remaining_accounts_is_not_possible() {
+        let mut subject = PaymentAdjusterReal::new();
+        let iteration_result = AdjustmentIterationResult::SpecialTreatmentRequired {
+            case: RequiredSpecialTreatment::TreatInsignificantAccount,
+            remaining_undecided_accounts: vec![],
+        };
+
+        let _ = subject.resolve_current_iteration_result(iteration_result);
     }
 
     #[test]
@@ -1137,11 +1160,14 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup, now);
 
-        // None on the output, because all the accounts were eventually disqualified;
-        // normally, the feasibility check at the entrance wouldn't allow this
-        assert_eq!(result.affordable_accounts, vec![]);
+        // The error isn't important. Received just because we set an almost empty wallet
+        let err = match result {
+            Ok(_) => panic!("we expected err but got ok"),
+            Err(e) => e,
+        };
+        assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated);
         let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
             format!(
                 "INFO: {test_name}: Shortage of MASQ in your consuming wallet impacts on payable \
@@ -1589,7 +1615,7 @@ mod tests {
         // scenario B
         let second_scenario_name =
             merge_test_name_with_test_scenario("first more significant by balance");
-        let expected_wallet_of_the_winning_account = &w2;
+        let expected_wallet_of_the_winning_account = &w1;
 
         test_two_competitive_accounts_with_one_disqualified(
             &second_scenario_name,
@@ -1606,7 +1632,7 @@ mod tests {
         // scenario C
         let third_scenario_name =
             merge_test_name_with_test_scenario("second more significant by age");
-        let expected_wallet_of_the_winning_account = &w1;
+        let expected_wallet_of_the_winning_account = &w2;
 
         test_two_competitive_accounts_with_one_disqualified(
             &third_scenario_name,
@@ -1614,8 +1640,8 @@ mod tests {
                 common: common_input,
                 account_1_balance_positive_correction_minor: 0,
                 account_2_balance_positive_correction_minor: 0,
-                account_1_age_positive_correction_secs: 1,
-                account_2_age_positive_correction_secs: 0,
+                account_1_age_positive_correction_secs: 0,
+                account_2_age_positive_correction_secs: 1,
             },
             expected_wallet_of_the_winning_account,
         );

@@ -1682,8 +1682,7 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not \
         produced any executable payments. Please add funds into your consuming wallet in order to avoid bans \
-        from your creditors. Failure reason: While chances were according to the preliminary analysis, \
-        the adjustment algorithm rejected each payable"
+        from your creditors. Failure reason: The adjustment algorithm had to eliminate each payable given the resources"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
