@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_finding_an_account_to_disqualify_in_this_iteration;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
@@ -35,7 +35,7 @@ pub trait AdjustmentRunner {
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+        weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     ) -> Self::ReturnType;
 }
 
@@ -60,12 +60,12 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+        weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
                 return payment_adjuster.begin_with_adjustment_by_transaction_fee(
-                    weights_and_accounts_in_descending_order,
+                    weighted_accounts_in_descending_order,
                     limit,
                 )
             }
@@ -73,9 +73,8 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
         };
 
         Ok(Either::Left(
-            payment_adjuster.propose_possible_adjustment_recursively(
-                weights_and_accounts_in_descending_order,
-            )?,
+            payment_adjuster
+                .propose_possible_adjustment_recursively(weighted_accounts_in_descending_order)?,
         ))
     }
 }
@@ -99,10 +98,10 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     fn adjust_multiple(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+        weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     ) -> Self::ReturnType {
         payment_adjuster
-            .propose_possible_adjustment_recursively(weights_and_accounts_in_descending_order)
+            .propose_possible_adjustment_recursively(weighted_accounts_in_descending_order)
     }
 }
 
@@ -125,8 +124,7 @@ fn adjust_last_one_opt(
         cw_balance
     };
     let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
-        last_account,
-        u128::MAX, // Doesn't matter really
+        WeightedAccount::new(last_account, u128::MAX), // The weight doesn't matter really and is made up
         proposed_adjusted_balance,
     )];
 

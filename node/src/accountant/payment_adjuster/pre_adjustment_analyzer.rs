@@ -4,7 +4,9 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::log_fns::{
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::TransactionCountsWithin16bits;
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+    TransactionCountsWithin16bits, WeightedAccount,
+};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     calculate_disqualification_edge, sum_as,
 };
@@ -85,14 +87,14 @@ impl PreAdjustmentAnalyzer {
     pub fn check_need_of_adjustment_by_service_fee(
         &self,
         logger: &Logger,
-        payables: Either<&[PayableAccount], &[(u128, PayableAccount)]>,
+        payables: Either<&[PayableAccount], &[WeightedAccount]>,
         cw_service_fee_balance_minor: u128,
     ) -> Result<bool, PaymentAdjusterError> {
         let qualified_payables: Vec<&PayableAccount> = match payables {
             Either::Left(accounts) => accounts.iter().collect(),
-            Either::Right(weights_and_accounts) => weights_and_accounts
+            Either::Right(weighted_accounts) => weighted_accounts
                 .iter()
-                .map(|(_, account)| account)
+                .map(|weighted_account| &weighted_account.account)
                 .collect(),
         };
 

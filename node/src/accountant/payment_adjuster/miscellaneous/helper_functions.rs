@@ -10,7 +10,7 @@ use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functi
 use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentResolution, NonFinalizedAdjustmentWithResolution,
-    PercentageAccountInsignificance, UnconfirmedAdjustment,
+    PercentageAccountInsignificance, UnconfirmedAdjustment, WeightedAccount,
 };
 use crate::sub_lib::wallet::Wallet;
 use itertools::{Either, Itertools};
@@ -45,21 +45,23 @@ where
     collection.iter().map(arranger).sum::<u128>().into()
 }
 
-pub fn weights_total(weights_and_accounts: &[(u128, PayableAccount)]) -> u128 {
-    sum_as(weights_and_accounts, |(weight, _)| *weight)
+pub fn weights_total(weights_and_accounts: &[WeightedAccount]) -> u128 {
+    sum_as(weights_and_accounts, |weighted_account| {
+        weighted_account.weight
+    })
 }
 
 pub fn drop_accounts_that_cannot_be_afforded_due_to_service_fee(
-    weights_and_accounts_in_descending_order: Vec<(u128, PayableAccount)>,
+    weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     affordable_transaction_count: u16,
-) -> Vec<(u128, PayableAccount)> {
+) -> Vec<WeightedAccount> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "keeping {} out of {} accounts",
         affordable_transaction_count,
-        weights_and_accounts_in_descending_order.len()
+        weighted_accounts_in_descending_order.len()
     );
-    weights_and_accounts_in_descending_order
+    weighted_accounts_in_descending_order
         .into_iter()
         .take(affordable_transaction_count as usize)
         .collect()
@@ -274,19 +276,19 @@ impl ConsumingWalletExhaustingStatus {
 }
 
 pub fn sort_in_descendant_order_by_weights(
-    unsorted: impl Iterator<Item = (u128, PayableAccount)>,
-) -> Vec<(u128, PayableAccount)> {
+    unsorted: impl Iterator<Item = WeightedAccount>,
+) -> Vec<WeightedAccount> {
     unsorted
-        .sorted_by(|(weight_a, _), (weight_b, _)| Ord::cmp(weight_b, weight_a))
+        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
         .collect()
 }
 
 pub fn isolate_accounts_from_weights(
-    weights_and_accounts: Vec<(u128, PayableAccount)>,
+    weights_and_accounts: Vec<WeightedAccount>,
 ) -> Vec<PayableAccount> {
     weights_and_accounts
         .into_iter()
-        .map(|(_, account)| account)
+        .map(|weighted_account| weighted_account.account)
         .collect()
 }
 
@@ -384,6 +386,7 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, PercentageAccountInsignificance, UnconfirmedAdjustment,
+        WeightedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         calculate_disqualification_edge, compute_mul_coefficient_preventing_fractional_numbers,
@@ -539,13 +542,17 @@ mod tests {
 
         let results = accounts_with_their_weights
             .into_iter()
-            .map(|(weight, account)| {
+            .map(|weighted_account| {
                 // Scenario simplification: we assume there is always just one account to process in a time
                 let computed_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
                     cw_balance_in_minor,
-                    weight,
+                    weighted_account.weight,
                 );
-                (computed_coefficient, account.wallet, weight)
+                (
+                    computed_coefficient,
+                    weighted_account.account.wallet,
+                    weighted_account.weight,
+                )
             })
             .collect::<Vec<(U256, Wallet, u128)>>();
 
@@ -653,8 +660,10 @@ mod tests {
             |(mut adjustments_so_far, expected_result_opt_so_far), (actual_idx, weight)| {
                 let original_account = make_payable_account(actual_idx as u64);
                 let garbage_proposed_balance = 1_000_000_000; // Unimportant for the usages in the tests this is for;
-                let new_adjustment_to_be_added =
-                    UnconfirmedAdjustment::new(original_account, weight, garbage_proposed_balance);
+                let new_adjustment_to_be_added = UnconfirmedAdjustment::new(
+                    WeightedAccount::new(original_account, weight),
+                    garbage_proposed_balance,
+                );
                 let expected_result_opt =
                     if expected_result_opt_so_far.is_none() && actual_idx == usize_expected_idx {
                         Some(new_adjustment_to_be_added.non_finalized_account.clone())
@@ -950,18 +959,18 @@ mod tests {
         let payable_account_3 = prepare_account(3);
         let edge = calculate_disqualification_edge(account_balance);
         let proposed_ok_balance = edge + 1;
-        let unconfirmed_adjustment_1 =
-            UnconfirmedAdjustment::new(payable_account_1, garbage_weight, proposed_ok_balance);
+        let unconfirmed_adjustment_1 = UnconfirmedAdjustment::new(
+            WeightedAccount::new(payable_account_1, garbage_weight),
+            proposed_ok_balance,
+        );
         let proposed_bad_balance_because_equal = edge;
         let unconfirmed_adjustment_2 = UnconfirmedAdjustment::new(
-            payable_account_2,
-            garbage_weight,
+            WeightedAccount::new(payable_account_2, garbage_weight),
             proposed_bad_balance_because_equal,
         );
         let proposed_bad_balance_because_smaller = edge - 1;
         let unconfirmed_adjustment_3 = UnconfirmedAdjustment::new(
-            payable_account_3,
-            garbage_weight,
+            WeightedAccount::new(payable_account_3, garbage_weight),
             proposed_bad_balance_because_smaller,
         );
         let unconfirmed_adjustments = vec![
@@ -979,7 +988,7 @@ mod tests {
 
     fn get_extreme_weights_and_initial_accounts_order(
         months_of_debt_and_balances: Vec<(usize, u128)>,
-    ) -> (Vec<(u128, PayableAccount)>, Vec<Wallet>) {
+    ) -> (Vec<WeightedAccount>, Vec<Wallet>) {
         let now = SystemTime::now();
         let accounts = make_extreme_accounts(Either::Right(months_of_debt_and_balances), now);
         let wallets_in_order = accounts

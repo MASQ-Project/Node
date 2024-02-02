@@ -2,6 +2,18 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 
+#[derive(Clone)]
+pub struct WeightedAccount {
+    pub account: PayableAccount,
+    pub weight: u128,
+}
+
+impl WeightedAccount {
+    pub fn new(account: PayableAccount, weight: u128) -> Self {
+        Self { account, weight }
+    }
+}
+
 #[derive(Debug)]
 pub enum AdjustmentIterationResult {
     AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
@@ -63,13 +75,13 @@ pub struct UnconfirmedAdjustment {
 }
 
 impl UnconfirmedAdjustment {
-    pub fn new(account: PayableAccount, weight: u128, proposed_adjusted_balance: u128) -> Self {
+    pub fn new(weighted_account: WeightedAccount, proposed_adjusted_balance: u128) -> Self {
         Self {
             non_finalized_account: AdjustedAccountBeforeFinalization::new(
-                account,
+                weighted_account.account,
                 proposed_adjusted_balance,
             ),
-            weight,
+            weight: weighted_account.weight,
         }
     }
 }
