@@ -69,12 +69,14 @@ impl Future for StreamReaderReal {
                         return Err(());
                     } else {
                         // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
-                        warning!(
-                            self.logger,
-                            "Continuing after read error on stream {}: {}",
-                            Self::stringify(self.local_addr, self.peer_addr),
-                            e.to_string()
-                        )
+                        //todo!("Fix error message for widnows 10093");
+                        Self::handle_invalid_connection(&self.logger, e.to_string(), self.local_addr, self.peer_addr);
+                        // warning!(
+                        //     self.logger,
+                        //     "Continuing after read error on stream {}: {}",
+                        //     Self::stringify(self.local_addr, self.peer_addr),
+                        //     e.to_string()
+                        // )
                     }
                 }
             }
@@ -203,6 +205,28 @@ impl StreamReaderReal {
 
     fn stringify(local_addr: SocketAddr, peer_addr: SocketAddr) -> String {
         format!("between local {} and peer {}", local_addr, peer_addr)
+    }
+
+    fn warn_of_invalid_connection(logger: &Logger, e: String, local_addr: SocketAddr, peer_addr: SocketAddr) {
+        warning!(
+           logger,
+            "Continuing after read error on stream {}: {}",
+            Self::stringify(local_addr, peer_addr),
+            e
+        )
+    }
+
+    #[cfg(target_os = "windows")]
+    fn handle_invalid_connection(logger: &Logger, e: String, local_addr: SocketAddr, peer_addr: SocketAddr) {
+        match e.contains("10093") || e.contains("10053") {
+            true => return,
+            false => Self::warn_of_invalid_connection(logger, e, local_addr, peer_addr)
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn handle_invalid_connection(logger: &Logger, e: String, local_addr: SocketAddr, peer_addr: SocketAddr) {
+        Self::warn_of_invalid_connection(logger, e, local_addr, peer_addr)
     }
 }
 

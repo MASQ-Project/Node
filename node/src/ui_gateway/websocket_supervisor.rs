@@ -194,7 +194,7 @@ impl WebSocketSupervisorReal {
 
     }
 
-    pub fn warn_of_invalid_connection<T: Debug>(logger: &Logger, debuggable: T) {
+    fn warn_of_invalid_connection<T: Debug>(logger: &Logger, debuggable: T) {
         warning!(
             logger,
             "Unsuccessful connection to UI port detected: {:?}",
@@ -202,7 +202,7 @@ impl WebSocketSupervisorReal {
         );
     }
 
-    #[cfg(target_os = "Windows")]
+    #[cfg(target_os = "windows")]
     fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
         let error_string = format!("{:?}", e);
         match error_string.contains("10093") || error_string.contains("10053") {
@@ -211,7 +211,7 @@ impl WebSocketSupervisorReal {
         };
     }
 
-    #[cfg(not(target_os = "Windows"))]
+    #[cfg(not(target_os = "windows"))]
     fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
         Self::warn_of_invalid_connection(logger, e)
     }
@@ -788,7 +788,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "Windows"))]
+    #[cfg(not(target_os = "windows"))]
     fn connection_error_with_10093_and_10095_handled_properly() {
         init_test_logging();
         let logger = Logger::new("connection_error_with_10093_handled_properly");
@@ -829,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "Windows")]
+    #[cfg(target_os = "windows")]
     fn connection_error_with_10093_and_10095_handled_properly() {
         init_test_logging();
         let logger = Logger::new("connection_error_with_10093_handled_properly");
