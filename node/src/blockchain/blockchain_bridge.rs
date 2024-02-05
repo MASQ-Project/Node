@@ -1112,7 +1112,6 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(SentPayables))
             .start();
         let wallet_account = make_wallet("blah");
-        // TODO: GH-744 Merge these 3 lines into a test tool function.
         let url = "https://www.example.com";
         let (_event_loop_handle, http) =
             Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();

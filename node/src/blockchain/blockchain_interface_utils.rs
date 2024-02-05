@@ -313,8 +313,12 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
             accounts.clone(),
         )
         .collect()
-        // .map_err(|e| err(e))
-        // TODO: GH-744: Need to fix errors
+        // .map_err(|e| {
+        //     // todo!("sign_and_append_multiple_payments -- map_err");
+        //     return err(e);
+        // })
+        // TODO: GH-744: Need to fix errors -- The current version of futures, doesnt give us enough util to catch errors here.
+        // The thinking is we could return here to fix this after falling behind is completed.
         .and_then(move |hashes_and_paid_amounts| {
             let timestamp = SystemTime::now();
             let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
