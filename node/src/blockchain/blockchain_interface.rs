@@ -299,7 +299,6 @@ pub struct BlockchainInterfaceWeb3<T: BatchTransport + Debug> {
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
-    batch_web3: Web3<Batch<T>>,
     contract: Contract<T>,
 }
 
@@ -493,7 +492,6 @@ where
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport.clone());
-        let batch_web3 = Web3::new(Batch::new(transport));
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
@@ -503,7 +501,6 @@ where
             chain,
             _event_loop_handle: event_loop_handle,
             web3,
-            batch_web3,
             contract,
         }
     }
