@@ -724,9 +724,8 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from_recorder, TestLogOwner};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
@@ -753,8 +752,8 @@ mod tests {
     };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
-    use actix::Recipient;
     use actix::System;
+    use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
     use futures::Future;
     use lazy_static::lazy_static;
@@ -767,7 +766,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, to_string};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -934,9 +933,9 @@ mod tests {
             sudo_user: Option<&str>,
         ) -> EnvironmentWrapperMock {
             EnvironmentWrapperMock {
-                sudo_uid: sudo_uid.map(|s| s.to_string()),
-                sudo_gid: sudo_gid.map(|s| s.to_string()),
-                sudo_user: sudo_user.map(|s| s.to_string()),
+                sudo_uid: sudo_uid.map(to_string),
+                sudo_gid: sudo_gid.map(to_string),
+                sudo_user: sudo_user.map(to_string),
             }
         }
     }
@@ -1294,6 +1293,7 @@ mod tests {
 
     #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+        init_test_logging();
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -2229,7 +2229,9 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                        subs: make_stream_handler_pool_subs_from_recorder(
+                            &stream_handler_pool.start(),
+                        ),
                     }
                 };
 

@@ -128,7 +128,6 @@ mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::main_cryptde;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
@@ -179,7 +178,7 @@ mod tests {
             };
             subject.spawn_stream_reader(
                 &ClientRequestPayload_0v1 {
-                    stream_key: make_meaningless_stream_key(),
+                    stream_key: StreamKey::make_meaningless_stream_key(),
                     sequenced_packet: SequencedPacket {
                         data: vec![],
                         sequence_number: 0,
@@ -212,7 +211,7 @@ mod tests {
         assert_eq!(
             ibsd,
             InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),

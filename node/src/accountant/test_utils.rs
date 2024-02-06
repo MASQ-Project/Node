@@ -3,7 +3,6 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -13,31 +12,52 @@ use crate::accountant::db_access_objects::pending_payable_dao::{
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
+use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
+    MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
-use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::scanners::{
+    BeginScanError, PayableScanner, PendingPayableScanner, PeriodicalScanScheduler,
+    ReceivableScanner, ScanSchedulers, Scanner,
+};
+use crate::accountant::{
+    gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::blockchain_interface::{BlockchainTransaction, HashAndAmount};
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
+use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
-use actix::System;
+use actix::{Message, System};
 use ethereum_types::H256;
+use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::utils::plus;
-use rusqlite::{Connection, Row};
+use masq_lib::messages::ScanType;
+use masq_lib::ui_gateway::NodeToUiMessage;
+use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_time_t(SystemTime::now());
@@ -82,7 +102,7 @@ pub struct AccountantBuilder {
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
     banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
+    config_dao_factory: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
@@ -140,7 +160,7 @@ impl<T> DaoWithDestination<T> {
 
 fn guts_for_dao_factory_queue_initialization<T: Default>(
     customized_supplied_daos: &mut Vec<DaoWithDestination<T>>,
-    acc: Vec<Box<T>>,
+    mut acc: Vec<Box<T>>,
     used_input: usize,
     position: DestinationMarker,
 ) -> (Vec<Box<T>>, usize) {
@@ -151,9 +171,13 @@ fn guts_for_dao_factory_queue_initialization<T: Default>(
         Some(idx) => {
             let customized_dao = customized_supplied_daos.remove(idx).into_inner();
             let used_input_updated = used_input + 1;
-            (plus(acc, Box::new(customized_dao)), used_input_updated)
+            acc.push(Box::new(customized_dao));
+            (acc, used_input_updated)
         }
-        None => (plus(acc, Box::new(Default::default())), used_input),
+        None => {
+            acc.push(Box::new(Default::default()));
+            (acc, used_input)
+        }
     }
 }
 
@@ -304,7 +328,7 @@ impl AccountantBuilder {
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(config_dao)));
+        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
@@ -330,6 +354,9 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
+        let config_dao_factory = self
+            .config_dao_factory
+            .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
             DaoFactories {
@@ -337,6 +364,7 @@ impl AccountantBuilder {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
         );
         if let Some(logger) = self.logger {
@@ -454,27 +482,32 @@ impl BannedDaoFactoryMock {
 }
 
 pub struct ConfigDaoFactoryMock {
-    called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<ConfigDaoMock>>,
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn ConfigDao>>>,
 }
 
 impl ConfigDaoFactory for ConfigDaoFactoryMock {
     fn make(&self) -> Box<dyn ConfigDao> {
-        *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl ConfigDaoFactoryMock {
-    pub fn new(mock: ConfigDaoMock) -> Self {
+    pub fn new() -> Self {
         Self {
-            called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-        self.called = called.clone();
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: ConfigDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }
@@ -636,7 +669,7 @@ pub struct ReceivableDaoMock {
     more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
-    more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
+    more_money_received_results: RefCell<Vec<TransactionSafeWrapper<'static>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
@@ -660,11 +693,16 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>) {
+    fn more_money_received(
+        &mut self,
+        now: SystemTime,
+        transactions: &[BlockchainTransaction],
+    ) -> TransactionSafeWrapper {
         self.more_money_received_parameters
             .lock()
             .unwrap()
-            .push((now, transactions));
+            .push((now, transactions.to_vec()));
+        self.more_money_received_results.borrow_mut().remove(0)
     }
 
     fn new_delinquencies(
@@ -720,7 +758,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_parameters(
+    pub fn more_money_received_params(
         mut self,
         parameters: &Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     ) -> Self {
@@ -728,7 +766,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_result(self, result: Result<(), PayableDaoError>) -> Self {
+    pub fn more_money_received_result(self, result: TransactionSafeWrapper<'static>) -> Self {
         self.more_money_received_results.borrow_mut().push(result);
         self
     }
@@ -1040,6 +1078,7 @@ pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
     pending_payable_dao: PendingPayableDaoMock,
     payment_thresholds: PaymentThresholds,
+    payment_adjuster: PaymentAdjusterMock,
 }
 
 impl PayableScannerBuilder {
@@ -1048,11 +1087,20 @@ impl PayableScannerBuilder {
             payable_dao: PayableDaoMock::new(),
             pending_payable_dao: PendingPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
+            payment_adjuster: PaymentAdjusterMock::default(),
         }
     }
 
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> PayableScannerBuilder {
         self.payable_dao = payable_dao;
+        self
+    }
+
+    pub fn payment_adjuster(
+        mut self,
+        payment_adjuster: PaymentAdjusterMock,
+    ) -> PayableScannerBuilder {
+        self.payment_adjuster = payment_adjuster;
         self
     }
 
@@ -1074,6 +1122,7 @@ impl PayableScannerBuilder {
             Box::new(self.payable_dao),
             Box::new(self.pending_payable_dao),
             Rc::new(self.payment_thresholds),
+            Box::new(self.payment_adjuster),
         )
     }
 }
@@ -1126,6 +1175,7 @@ impl PendingPayableScannerBuilder {
 pub struct ReceivableScannerBuilder {
     receivable_dao: ReceivableDaoMock,
     banned_dao: BannedDaoMock,
+    persistent_configuration: PersistentConfigurationMock,
     payment_thresholds: PaymentThresholds,
     earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
@@ -1136,6 +1186,7 @@ impl ReceivableScannerBuilder {
         Self {
             receivable_dao: ReceivableDaoMock::new(),
             banned_dao: BannedDaoMock::new(),
+            persistent_configuration: PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
@@ -1144,6 +1195,14 @@ impl ReceivableScannerBuilder {
 
     pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
         self.receivable_dao = receivable_dao;
+        self
+    }
+
+    pub fn persistent_configuration(
+        mut self,
+        persistent_config: PersistentConfigurationMock,
+    ) -> Self {
+        self.persistent_configuration = persistent_config;
         self
     }
 
@@ -1166,6 +1225,7 @@ impl ReceivableScannerBuilder {
         ReceivableScanner::new(
             Box::new(self.receivable_dao),
             Box::new(self.banned_dao),
+            Box::new(self.persistent_configuration),
             Rc::new(self.payment_thresholds),
             Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),
@@ -1359,5 +1419,284 @@ impl PayableThresholdsGaugeMock {
             .borrow_mut()
             .push(result);
         self
+    }
+}
+
+pub fn trick_rusqlite_with_read_only_conn(
+    path: &Path,
+    create_table: fn(&Connection),
+) -> Connection {
+    let db_path = path.join("experiment.db");
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
+    create_table(&conn);
+    conn.close().unwrap();
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    conn
+}
+
+#[derive(Default)]
+pub struct PaymentAdjusterMock {
+    search_for_indispensable_adjustment_params:
+        Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+    search_for_indispensable_adjustment_results:
+        RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
+    adjust_payments_results: RefCell<Vec<OutboundPaymentsInstructions>>,
+}
+
+impl PaymentAdjuster for PaymentAdjusterMock {
+    fn search_for_indispensable_adjustment(
+        &self,
+        msg: &BlockchainAgentWithContextMessage,
+        logger: &Logger,
+    ) -> Result<Option<Adjustment>, AnalysisError> {
+        self.search_for_indispensable_adjustment_params
+            .lock()
+            .unwrap()
+            .push((msg.clone(), logger.clone()));
+        self.search_for_indispensable_adjustment_results
+            .borrow_mut()
+            .remove(0)
+    }
+
+    fn adjust_payments(
+        &self,
+        setup: PreparedAdjustment,
+        now: SystemTime,
+        logger: &Logger,
+    ) -> OutboundPaymentsInstructions {
+        self.adjust_payments_params
+            .lock()
+            .unwrap()
+            .push((setup.clone(), now, logger.clone()));
+        self.adjust_payments_results.borrow_mut().remove(0)
+    }
+}
+
+impl PaymentAdjusterMock {
+    pub fn is_adjustment_required_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+    ) -> Self {
+        self.search_for_indispensable_adjustment_params = params.clone();
+        self
+    }
+
+    pub fn is_adjustment_required_result(
+        self,
+        result: Result<Option<Adjustment>, AnalysisError>,
+    ) -> Self {
+        self.search_for_indispensable_adjustment_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn adjust_payments_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
+    ) -> Self {
+        self.adjust_payments_params = params.clone();
+        self
+    }
+
+    pub fn adjust_payments_result(self, result: OutboundPaymentsInstructions) -> Self {
+        self.adjust_payments_results.borrow_mut().push(result);
+        self
+    }
+}
+
+macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
+    ($scanner:ty) => {
+        impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for $scanner {}
+
+        impl SolvencySensitivePaymentInstructor for $scanner {
+            fn try_skipping_payment_adjustment(
+                &self,
+                _msg: BlockchainAgentWithContextMessage,
+                _logger: &Logger,
+            ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
+                intentionally_blank!()
+            }
+
+            fn perform_payment_adjustment(
+                &self,
+                _setup: PreparedAdjustment,
+                _logger: &Logger,
+            ) -> OutboundPaymentsInstructions {
+                intentionally_blank!()
+            }
+        }
+    };
+}
+
+pub struct NullScanner {}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        Err(BeginScanError::CalledFromNullScanner)
+    }
+
+    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        panic!("Called finish_scan() from NullScanner");
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        panic!("Called scan_started_at() from NullScanner");
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        panic!("Called mark_as_started() from NullScanner");
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        panic!("Called mark_as_ended() from NullScanner");
+    }
+
+    as_any_ref_in_trait_impl!();
+}
+
+formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);
+
+impl Default for NullScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NullScanner {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct ScannerMock<BeginMessage, EndMessage> {
+    begin_scan_params: Arc<Mutex<Vec<()>>>,
+    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
+    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
+    stop_system_after_last_message: RefCell<bool>,
+}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+    for ScannerMock<BeginMessage, EndMessage>
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        self.begin_scan_params.lock().unwrap().push(());
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.begin_scan_results.borrow_mut().remove(0)
+    }
+
+    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        self.end_scan_params.lock().unwrap().push(message);
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.end_scan_results.borrow_mut().remove(0)
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        intentionally_blank!()
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        intentionally_blank!()
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        intentionally_blank!()
+    }
+}
+
+impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+    pub fn new() -> Self {
+        Self {
+            begin_scan_params: Arc::new(Mutex::new(vec![])),
+            begin_scan_results: RefCell::new(vec![]),
+            end_scan_params: Arc::new(Mutex::new(vec![])),
+            end_scan_results: RefCell::new(vec![]),
+            stop_system_after_last_message: RefCell::new(false),
+        }
+    }
+
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.begin_scan_params = params.clone();
+        self
+    }
+
+    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
+        self.begin_scan_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn stop_the_system_after_last_msg(self) -> Self {
+        self.stop_system_after_last_message.replace(true);
+        self
+    }
+
+    pub fn is_allowed_to_stop_the_system(&self) -> bool {
+        *self.stop_system_after_last_message.borrow()
+    }
+
+    pub fn is_last_message(&self) -> bool {
+        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
+    }
+
+    pub fn is_last_message_from_begin_scan(&self) -> bool {
+        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+    }
+
+    pub fn is_last_message_from_end_scan(&self) -> bool {
+        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
+    }
+}
+
+formal_traits_for_payable_mid_scan_msg_handling!(ScannerMock<QualifiedPayablesMessage, SentPayables>);
+
+impl ScanSchedulers {
+    pub fn update_scheduler<T: Default + 'static>(
+        &mut self,
+        scan_type: ScanType,
+        handle_opt: Option<Box<dyn NotifyLaterHandle<T, Accountant>>>,
+        interval_opt: Option<Duration>,
+    ) {
+        let scheduler = self
+            .schedulers
+            .get_mut(&scan_type)
+            .unwrap()
+            .as_any_mut()
+            .downcast_mut::<PeriodicalScanScheduler<T>>()
+            .unwrap();
+        if let Some(new_handle) = handle_opt {
+            scheduler.handle = new_handle
+        }
+        if let Some(new_interval) = interval_opt {
+            scheduler.interval = new_interval
+        }
     }
 }

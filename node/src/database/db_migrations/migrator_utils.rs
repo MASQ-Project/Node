@@ -1,17 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
-use rusqlite::{params_from_iter, Error, ToSql, Transaction};
+use masq_lib::utils::{to_string, ExpectValue};
+use rusqlite::{Error, ToSql};
 use std::fmt::{Display, Formatter};
 
 pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
-    fn transaction(&self) -> &Transaction;
+    fn transaction(&self) -> &TransactionSafeWrapper;
     fn execute_upon_transaction<'a>(
         &self,
         sql_statements: &[&'a dyn StatementObject],
@@ -35,7 +35,7 @@ pub trait DBMigrationUtilities {
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
-    root_transaction: Option<Transaction<'a>>,
+    root_transaction: Option<TransactionSafeWrapper<'a>>,
     db_migrator_configuration: DBMigratorInnerConfiguration,
 }
 
@@ -50,7 +50,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         })
     }
 
-    fn root_transaction_ref(&self) -> &Transaction<'a> {
+    fn root_transaction_ref(&self) -> &TransactionSafeWrapper {
         self.root_transaction.as_ref().expectv("root transaction")
     }
 }
@@ -71,7 +71,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .take()
             .expectv("owned root transaction")
             .commit()
-            .map_err(|e| e.to_string())
+            .map_err(to_string)
     }
 
     fn make_mig_declarator<'b>(
@@ -98,14 +98,14 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
 }
 
 struct DBMigDeclaratorReal<'a> {
-    root_transaction_ref: &'a Transaction<'a>,
+    root_transaction_ref: &'a TransactionSafeWrapper<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
 impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
-        root_transaction_ref: &'a Transaction<'a>,
+        root_transaction_ref: &'a TransactionSafeWrapper,
         external: &'a ExternalData,
         logger: &'a Logger,
     ) -> Self {
@@ -122,7 +122,7 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         self.external.db_password_opt.clone()
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &TransactionSafeWrapper {
         self.root_transaction_ref
     }
 
@@ -155,17 +155,17 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
 }
 
 pub trait StatementObject: Display {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()>;
+    fn execute(&self, transaction: &TransactionSafeWrapper) -> rusqlite::Result<()>;
 }
 
 impl StatementObject for &str {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
-        transaction.execute(self, []).map(|_| ())
+    fn execute(&self, transaction: &TransactionSafeWrapper) -> rusqlite::Result<()> {
+        transaction.execute(self, &[]).map(|_| ())
     }
 }
 
 impl StatementObject for String {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &TransactionSafeWrapper) -> rusqlite::Result<()> {
         self.as_str().execute(transaction)
     }
 }
@@ -176,9 +176,16 @@ pub struct StatementWithRusqliteParams {
 }
 
 impl StatementObject for StatementWithRusqliteParams {
-    fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
+    fn execute(&self, transaction: &TransactionSafeWrapper) -> rusqlite::Result<()> {
         transaction
-            .execute(&self.sql_stm, params_from_iter(self.params.iter()))
+            .execute(
+                &self.sql_stm,
+                &self
+                    .params
+                    .iter()
+                    .map(|param| param.as_ref())
+                    .collect::<Vec<&dyn ToSql>>(),
+            )
             .map(|_| ())
     }
 }
@@ -227,11 +234,11 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_migrations::migrator_utils::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
         StatementObject, StatementWithRusqliteParams,
     };
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -294,7 +301,7 @@ mod tests {
         let result = subject.transaction();
 
         result
-            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", [])
+            .execute("CREATE TABLE IF NOT EXISTS test (column TEXT)", &[])
             .unwrap();
         // no panic? Test passes!
     }

@@ -16,13 +16,6 @@ pub enum Chain {
     Dev,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum ChainFamily {
-    Eth,
-    Polygon,
-    Dev,
-}
-
 impl Default for Chain {
     fn default() -> Self {
         DEFAULT_CHAIN
@@ -143,7 +136,6 @@ mod tests {
             literal_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
-            chain_family: ChainFamily::Polygon,
         }
     }
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
@@ -228,11 +228,11 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
+    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
     };

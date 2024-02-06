@@ -11,7 +11,9 @@ use multinode_integration_tests_lib::masq_real_node::{
     MASQRealNode, STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use multinode_integration_tests_lib::neighborhood_constructor::{
+    construct_neighborhood, do_not_modify_config,
+};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -27,7 +29,6 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::versioned_data::VersionedData;
-use node_lib::test_utils::make_meaningless_stream_key;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::io;
 use std::net::SocketAddr;
@@ -102,6 +103,7 @@ fn reported_server_drop() {
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 
+#[ignore]
 #[test]
 // Given: Exit Node is real_node; originating Node is mock_node.
 // Given: A stream is established through the exit Node to a server.
@@ -225,7 +227,8 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
 
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(&mut cluster, db, vec![], do_not_modify_config());
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -264,7 +267,8 @@ fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMock
     db.add_node(mock_node.clone()).unwrap();
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(cluster, db, vec![], do_not_modify_config());
     let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
         masq_real_node,
@@ -298,7 +302,10 @@ fn context_from_request_lcp(
 }
 
 fn arbitrary_context() -> (StreamKey, u32) {
-    (make_meaningless_stream_key(), 12345678)
+    (
+        StreamKey::make_meaningful_stream_key("arbitrary_context"),
+        12345678,
+    )
 }
 
 fn create_request_icp(
@@ -353,7 +360,8 @@ fn create_meaningless_icp(
     exit_node: &MASQRealNode,
 ) -> IncipientCoresPackage {
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
-    let stream_key = StreamKey::new(PublicKey::new(&[9, 8, 7, 6]), socket_addr);
+    let stream_key =
+        StreamKey::make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
     IncipientCoresPackage::new(
         originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(

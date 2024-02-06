@@ -1,29 +1,25 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::db_access_objects::dao_utils::ThresholdUtils;
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, SentPayables};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        PayableTransactionError, ProcessedPayableFallible, RpcPayableFailure,
-    };
+    use crate::accountant::{comma_joined_stringifiable, ProcessedPayableFallible, SentPayables};
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
-    #[cfg(test)]
-    use std::any::Any;
     use std::cmp::Ordering;
     use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
-
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+    use crate::blockchain::blockchain_interface::data_structures::{RpcPayablesFailure};
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -157,8 +153,8 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            Correct(pending_payable) => add_pending_payable(acc, pending_payable),
-            Failed(RpcPayableFailure {
+            Ok(pending_payable) => add_pending_payable(acc, pending_payable),
+            Err(RpcPayablesFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -223,17 +219,32 @@ pub mod payable_scanner_utils {
         }
     }
 
-    pub struct PendingPayableTriple<'a> {
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct PendingPayableMetadata<'a> {
         pub recipient: &'a Wallet,
         pub hash: H256,
         pub rowid_opt: Option<u64>,
     }
 
+    impl<'a> PendingPayableMetadata<'a> {
+        pub fn new(
+            recipient: &'a Wallet,
+            hash: H256,
+            rowid_opt: Option<u64>,
+        ) -> PendingPayableMetadata<'a> {
+            PendingPayableMetadata {
+                recipient,
+                hash,
+                rowid_opt,
+            }
+        }
+    }
+
     pub fn mark_pending_payable_fatal_error(
         sent_payments: &[&PendingPayable],
-        nonexistent: &[PendingPayableTriple],
+        nonexistent: &[PendingPayableMetadata],
         error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[PendingPayableTriple]) -> String,
+        missing_fingerprints_msg_maker: fn(&[PendingPayableMetadata]) -> String,
         logger: &Logger,
     ) {
         if !nonexistent.is_empty() {
@@ -279,7 +290,7 @@ pub mod payable_scanner_utils {
             payment_thresholds: &PaymentThresholds,
             x: u64,
         ) -> u128;
-        declare_as_any!();
+        as_any_ref_in_trait!();
     }
 
     #[derive(Default)]
@@ -301,7 +312,7 @@ pub mod payable_scanner_utils {
         ) -> u128 {
             ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
         }
-        implement_as_any!();
+        as_any_ref_in_trait_impl!();
     }
 }
 
@@ -415,8 +426,8 @@ pub mod receivable_scanner_utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
@@ -428,10 +439,6 @@ mod tests {
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{
-        BlockchainError, PayableTransactionError, RpcPayableFailure,
-    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -439,6 +446,9 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+    use crate::blockchain::blockchain_interface::data_structures::{RpcPayablesFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -508,8 +518,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Correct(correct_payment_1.clone()),
-                Correct(correct_payment_2.clone()),
+                Ok(correct_payment_1.clone()),
+                Ok(correct_payment_2.clone()),
             ]),
             response_skeleton_opt: None,
         };
@@ -550,16 +560,13 @@ mod tests {
             recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
-        let bad_rpc_call = RpcPayableFailure {
-            rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
+        let bad_rpc_call = RpcPayablesFailure {
+            rpc_error: web3::Error::InvalidResponse("That jackass screwed it up".to_string()),
             recipient_wallet: make_wallet("whooa"),
             hash: make_tx_hash(0x315),
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
-                Correct(payable_ok.clone()),
-                Failed(bad_rpc_call.clone()),
-            ]),
+            payment_procedure_result: Ok(vec![Ok(payable_ok.clone()), Err(bad_rpc_call.clone())]),
             response_skeleton_opt: None,
         };
 
@@ -567,9 +574,10 @@ mod tests {
 
         assert_eq!(oks, vec![&payable_ok]);
         assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: 'Got invalid response: \
-         that donkey screwed it up' for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
-          0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
+        'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
+        00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\
+        000000000315. Please check your blockchain service URL configuration.");
     }
 
     #[test]
@@ -755,7 +763,7 @@ mod tests {
     #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
-            PayableTransactionError::TransactionCount(BlockchainError::QueryFailed(
+            PayableTransactionError::TransactionID(BlockchainError::QueryFailed(
                 "blah".to_string(),
             )),
             PayableTransactionError::MissingConsumingWallet,

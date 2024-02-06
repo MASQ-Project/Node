@@ -37,7 +37,7 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directory, ExpectValue};
+use masq_lib::utils::{add_chain_specific_directory, to_string, ExpectValue};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -783,10 +783,7 @@ impl ValueRetriever for DnsServers {
                 if ip_addrs.iter().any(|ip_addr| ip_addr.is_loopback()) {
                     return None;
                 }
-                let dns_servers = ip_addrs
-                    .into_iter()
-                    .map(|ip_addr| ip_addr.to_string())
-                    .join(",");
+                let dns_servers = ip_addrs.into_iter().map(to_string).join(",");
                 Some((dns_servers, Default))
             }
             Err(e) => {
@@ -1192,8 +1189,8 @@ mod tests {
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,

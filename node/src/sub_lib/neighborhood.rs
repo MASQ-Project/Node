@@ -417,7 +417,7 @@ pub struct NeighborhoodSubs {
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
     pub route_query: Recipient<RouteQueryMessage>,
-    pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    pub update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
@@ -544,7 +544,7 @@ pub struct AskAboutDebutGossipMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct NodeRecordMetadataMessage {
+pub struct UpdateNodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub metadata_change: NRMetadataChange,
 }
@@ -664,7 +664,7 @@ mod tests {
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
             route_query: recipient!(recorder, RouteQueryMessage),
-            update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(recorder, UpdateNodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),

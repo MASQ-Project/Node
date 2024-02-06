@@ -24,14 +24,17 @@ pub type BoxedMsgExpected = Box<dyn Any + Send>;
 pub type RefMsgExpected<'a> = &'a (dyn Any + Send);
 
 impl StopConditions {
-    pub fn resolve_stop_conditions<T: PartialEq + Send + 'static>(&mut self, msg: &T) -> bool {
+    pub fn resolve_stop_conditions<T: ForcedMatchable<T> + Send + 'static>(
+        &mut self,
+        msg: &T,
+    ) -> bool {
         match self {
             StopConditions::Any(conditions) => Self::resolve_any::<T>(conditions, msg),
             StopConditions::All(conditions) => Self::resolve_all::<T>(conditions, msg),
         }
     }
 
-    fn resolve_any<T: PartialEq + Send + 'static>(
+    fn resolve_any<T: ForcedMatchable<T> + Send + 'static>(
         conditions: &Vec<StopCondition>,
         msg: &T,
     ) -> bool {
@@ -40,7 +43,7 @@ impl StopConditions {
             .any(|condition| condition.resolve_condition::<T>(msg))
     }
 
-    fn resolve_all<T: PartialEq + Send + 'static>(
+    fn resolve_all<T: ForcedMatchable<T> + Send + 'static>(
         conditions: &mut Vec<StopCondition>,
         msg: &T,
     ) -> bool {
@@ -49,7 +52,7 @@ impl StopConditions {
         conditions.is_empty()
     }
 
-    fn indexes_of_matched_conditions<T: PartialEq + Send + 'static>(
+    fn indexes_of_matched_conditions<T: ForcedMatchable<T> + Send + 'static>(
         conditions: &[StopCondition],
         msg: &T,
     ) -> Vec<usize> {
@@ -82,9 +85,9 @@ impl StopConditions {
 }
 
 impl StopCondition {
-    fn resolve_condition<T: PartialEq + Send + 'static>(&self, msg: &T) -> bool {
+    fn resolve_condition<T: ForcedMatchable<T> + Send + 'static>(&self, msg: &T) -> bool {
         match self {
-            StopCondition::StopOnType(type_id) => Self::matches_stop_on_type::<T>(*type_id),
+            StopCondition::StopOnType(type_id) => Self::matches_stop_on_type::<T>(msg, *type_id),
             StopCondition::StopOnMatch { exemplar } => {
                 Self::matches_stop_on_match::<T>(exemplar, msg)
             }
@@ -94,12 +97,12 @@ impl StopCondition {
         }
     }
 
-    fn matches_stop_on_type<T: 'static>(expected_type_id: TypeId) -> bool {
-        let msg_type_id = TypeId::of::<T>();
-        msg_type_id == expected_type_id
+    fn matches_stop_on_type<T: ForcedMatchable<T>>(msg: &T, expected_type_id: TypeId) -> bool {
+        let correct_msg_type_id = msg.correct_msg_type_id();
+        correct_msg_type_id == expected_type_id
     }
 
-    fn matches_stop_on_match<T: PartialEq + 'static + Send>(
+    fn matches_stop_on_match<T: ForcedMatchable<T> + 'static + Send>(
         exemplar: &BoxedMsgExpected,
         msg: &T,
     ) -> bool {
@@ -114,6 +117,33 @@ impl StopCondition {
         msg: &T,
     ) -> bool {
         predicate(msg as RefMsgExpected)
+    }
+}
+
+pub trait ForcedMatchable<M>: PartialEq + Send {
+    fn correct_msg_type_id(&self) -> TypeId;
+}
+
+pub struct PretendedMatchableWrapper<M: 'static + Send>(pub M);
+
+impl<OuterM, InnerM> ForcedMatchable<OuterM> for PretendedMatchableWrapper<InnerM>
+where
+    OuterM: PartialEq,
+    InnerM: Send,
+{
+    fn correct_msg_type_id(&self) -> TypeId {
+        TypeId::of::<InnerM>()
+    }
+}
+
+impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        panic!(
+            r#"You requested StopCondition::StopOnMatch for message
+            that does not implement PartialEq. Consider two other
+            options: matching the type simply by its TypeId or using
+            a predicate."#
+        )
     }
 }
 

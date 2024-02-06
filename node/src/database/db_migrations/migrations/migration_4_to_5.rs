@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 
@@ -76,11 +76,11 @@ impl DatabaseMigration for Migrate_4_to_5 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t};
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
     };
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,

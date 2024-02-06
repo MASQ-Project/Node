@@ -1,17 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::{
+use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
     PendingPayableRowid, WalletAddress,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{
-    Addition, Subtraction,
-};
-use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
-};
+use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::db_access_objects::dao_utils;
-use crate::accountant::db_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::utils;
+use crate::accountant::db_access_objects::utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
@@ -20,11 +15,10 @@ use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_asso
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
-use itertools::Either::Left;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
@@ -32,6 +26,7 @@ use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
+use itertools::Either;
 use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,21 +41,6 @@ pub struct PayableAccount {
     pub balance_wei: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PendingPayable {
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
-impl PendingPayable {
-    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
-        Self {
-            recipient_wallet,
-            hash,
-        }
-    }
 }
 
 pub trait PayableDao: Debug + Send {
@@ -104,7 +84,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: BigIntDbProcessor<Self>,
+    big_int_db_processor: BigIntDbProcessorReal<Self>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -117,24 +97,28 @@ impl PayableDao for PayableDaoReal {
         let main_sql = "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) \
                 values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do update set \
                 balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet";
-        let overflow_update_clause = "update payable set \
+        let update_clause_with_compensated_overflow = "update payable set \
                 balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet";
 
-        Ok(self.big_int_db_processor.execute(
-            Left(self.conn.as_ref()),
-            BigIntSqlConfig::new(
-                main_sql,
-                overflow_update_clause,
-                SQLParamsBuilder::default()
-                    .key(WalletAddress(wallet))
-                    .wei_change(Addition("balance", amount))
-                    .other_params(vec![Param::new(
-                        (":last_paid_timestamp", &to_time_t(timestamp)),
-                        false,
-                    )])
-                    .build(),
-            ),
-        )?)
+        let last_paid_timestamp = to_time_t(timestamp);
+        let params = SQLParamsBuilder::default()
+            .key(WalletAddress(wallet))
+            .wei_change(WeiChange::new(
+                "balance",
+                amount,
+                WeiChangeDirection::Addition,
+            ))
+            .other_params(vec![ParamByUse::BeforeOverflowOnly(
+                DisplayableRusqliteParamPair::new(":last_paid_timestamp", &last_paid_timestamp),
+            )])
+            .build();
+
+        self.big_int_db_processor.execute(
+            Either::Left(self.conn.as_ref()),
+            BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
+        )?;
+
+        Ok(())
     }
 
     fn mark_pending_payables_rowids(
@@ -164,24 +148,29 @@ impl PayableDao for PayableDaoReal {
         &self,
         confirmed_payables: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
-        confirmed_payables.iter().try_for_each(|fgp| {
+        confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
 
             let main_sql = "update payable set \
                     balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
                     last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
-            let overflow_update_clause = "update payable set \
+            let update_clause_with_compensated_overflow = "update payable set \
                     balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
                     pending_payable_rowid = null where pending_payable_rowid = :rowid";
 
-            let conn = Left(self.conn.as_ref());
-            Ok(self.big_int_db_processor.execute(conn, BigIntSqlConfig::new(
+            let i64_rowid = checked_conversion::<u64, i64>(pending_payable_fingerprint.rowid);
+            let last_paid = to_time_t(pending_payable_fingerprint.timestamp);
+            let params = SQLParamsBuilder::default()
+                .key( PendingPayableRowid(&i64_rowid))
+                .wei_change(WeiChange::new( "balance", pending_payable_fingerprint.amount, WeiChangeDirection::Subtraction))
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
+                .build();
+
+            self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 main_sql,
-                overflow_update_clause,
-                SQLParamsBuilder::default()
-                    .key( PendingPayableRowid(&checked_conversion::<u64, i64>(fgp.rowid)))
-                    .wei_change(Subtraction("balance",fgp.amount))
-                    .other_params(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
-                    .build()))?)
+                update_clause_with_compensated_overflow,
+                params))?;
+
+            Ok(())
         })
     }
 
@@ -207,7 +196,7 @@ impl PayableDao for PayableDaoReal {
                         balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                             high_b, low_b,
                         )),
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: None,
                     })
                 }
@@ -293,7 +282,7 @@ impl PayableDao for PayableDaoReal {
                         balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                             high_bytes, low_bytes,
                         )),
-                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: match rowid {
                             Some(rowid) => Some(PendingPayableId::new(
                                 u64::try_from(rowid).unwrap(),
@@ -318,7 +307,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor: BigIntDbProcessor::default(),
+            big_int_db_processor: BigIntDbProcessorReal::default(),
         }
     }
 
@@ -349,7 +338,7 @@ impl PayableDaoReal {
                 balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                     high_bytes, low_bytes,
                 )),
-                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
                 pending_payable_opt: rowid_opt.map(|rowid| {
                     let hash_str =
                         hash_opt.expect("database corrupt; missing hash but existing rowid");
@@ -402,11 +391,11 @@ impl TableNameDAO for PayableDaoReal {
 
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
-    use crate::accountant::db_access_objects::dao_utils::{
+    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
+    use crate::accountant::db_access_objects::utils::{
         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
-    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
-    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use rusqlite::Row;
@@ -552,16 +541,12 @@ mod mark_pending_payable_associated_functions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
-    use crate::accountant::test_utils::{
-        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
-        make_pending_payable_fingerprint,
-    };
+    use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -569,9 +554,10 @@ mod tests {
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use rusqlite::{Connection as RusqliteConnection, ToSql};
+    use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -676,10 +662,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn more_money_payable_works_for_overflow() {
+    fn more_money_payable_works_for_128_bits_value_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "more_money_payable_works_for_overflow",
+            "more_money_payable_works_for_128_bits_value_overflow",
         );
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
@@ -689,6 +675,26 @@ mod tests {
         );
 
         let _ = subject.more_money_payable(SystemTime::now(), &wallet, u128::MAX);
+    }
+
+    #[test]
+    fn more_money_payable_handles_error() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "more_money_payable_handles_error");
+        let wallet = make_wallet("booga");
+        let conn = payable_read_only_conn(&home_dir);
+        let wrapped_conn = ConnectionWrapperReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.more_money_payable(SystemTime::now(), &wallet, 123456);
+
+        assert_eq!(
+            result,
+            Err(PayableDaoError::RusqliteError("Error from invalid upsert command for payable table \
+            and change of 123456 wei to 'wallet_address = 0x000000000000000000000000000000626f6f6761' \
+            with error 'attempt to write a readonly database'".to_string())
+            )
+        )
     }
 
     #[test]
@@ -856,7 +862,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
-        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
+        let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
@@ -1052,7 +1058,7 @@ mod tests {
             "payable_dao",
             "transaction_confirmed_works_for_generic_sql_error",
         );
-        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
+        let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = Box::new(ConnectionWrapperReal::new(conn));
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         let hash = make_tx_hash(12345);
@@ -1141,27 +1147,6 @@ mod tests {
         assert_eq!(account_1_opt, Some(expected_account));
         let account_2_opt = subject.account_status(&setup_holder.wallet_2);
         assert_eq!(account_2_opt, None);
-    }
-
-    fn trick_rusqlite_with_read_only_conn(path: &Path) -> Connection {
-        let db_path = path.join("experiment.db");
-        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
-        conn.prepare(
-            "
-            create table payable (
-                wallet_address text primary key,
-                balance_high_b integer not null,
-                balance_low_b integer not null,
-                last_paid_timestamp integer not null,
-                pending_payable_rowid integer null)",
-        )
-        .unwrap()
-        .execute([])
-        .unwrap();
-        conn.close().unwrap();
-        let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
-        conn
     }
 
     #[test]
@@ -1585,7 +1570,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = utils::now_time_t();
         insert_payable_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",
@@ -1677,6 +1662,10 @@ mod tests {
     #[test]
     fn payable_dao_implements_dao_table_identifier() {
         assert_eq!(PayableDaoReal::table_name(), "payable")
+    }
+
+    fn payable_read_only_conn(path: &Path) -> Connection {
+        trick_rusqlite_with_read_only_conn(path, DbInitializerReal::create_payable_table)
     }
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal

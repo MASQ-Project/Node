@@ -2,10 +2,12 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod actor_system_factory;
 pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
 pub mod database_utils;
+pub mod http_test_server;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
@@ -15,6 +17,7 @@ pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
+
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
@@ -53,7 +56,6 @@ use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
-use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -173,15 +175,8 @@ impl Waiter {
     }
 }
 
-pub fn make_meaningless_stream_key() -> StreamKey {
-    StreamKey::new(
-        PublicKey::new(&[]),
-        SocketAddr::from_str("4.3.2.1:8765").unwrap(),
-    )
-}
-
 pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
+    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
 }
 
 pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
@@ -282,10 +277,7 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
     ClientRequestPayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
+        stream_key: StreamKey::make_meaningful_stream_key("request"),
         sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
@@ -294,12 +286,9 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
     }
 }
 
-pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
+pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
     ClientResponsePayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
+        stream_key: StreamKey::make_meaningful_stream_key("response"),
         sequenced_packet: SequencedPacket {
             data: make_garbage_data(bytes),
             sequence_number: 0,
@@ -538,6 +527,14 @@ pub struct TestRawTransaction {
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,
     pub data: Vec<u8>,
+}
+
+#[macro_export]
+macro_rules! arbitrary_id_stamp_in_trait {
+    () => {
+        #[cfg(test)]
+        $crate::arbitrary_id_stamp_in_trait_internal___!();
+    };
 }
 
 #[cfg(test)]
@@ -889,7 +886,7 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn permit_to_send_out(mut self) -> Self {
+            pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
                 self
             }
@@ -969,6 +966,7 @@ pub mod unshared_test_utils {
 
     pub mod arbitrary_id_stamp {
         use super::*;
+        use crate::arbitrary_id_stamp_in_trait;
 
         //The issues we are to solve might look as follows:
 
@@ -1000,27 +998,31 @@ pub mod unshared_test_utils {
 
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub struct ArbitraryIdStamp {
-            id: usize,
+            id_opt: Option<usize>,
         }
 
         impl ArbitraryIdStamp {
             pub fn new() -> Self {
+                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                access.0 += 1;
                 ArbitraryIdStamp {
-                    id: {
-                        let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                        access.0 += 1;
-                        access.0
-                    },
+                    id_opt: Some(access.0),
                 }
+            }
+
+            pub fn null() -> Self {
+                ArbitraryIdStamp { id_opt: None }
             }
         }
 
         // To be added together with other methods in your trait
+        // DO NOT USE ME DIRECTLY, USE arbitrary_id_stamp_in_trait INSTEAD!
         #[macro_export]
-        macro_rules! arbitrary_id_stamp_in_trait {
+        macro_rules! arbitrary_id_stamp_in_trait_internal___ {
             () => {
-                #[cfg(test)]
-                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                fn arbitrary_id_stamp(
+                    &self,
+                ) -> crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp {
                     // No necessity to implement this method for all impls,
                     // basically you want to do that just for the mock version
 
@@ -1043,7 +1045,23 @@ pub mod unshared_test_utils {
         macro_rules! arbitrary_id_stamp_in_trait_impl {
             () => {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                    *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+                    match self.arbitrary_id_stamp_opt {
+                        Some(id) => id,
+                        // In some implementations of mocks that have methods demanding args, the best we can do in order to
+                        // capture and examine these args in assertions is to receive the ArbitraryIdStamp of the given
+                        // argument.
+                        // If such strategy is once decided for, transfers of this id will have to happen in all the tests
+                        // relying on this mock, while also calling the intended method. So even in cases where we certainly
+                        // are not really interested in checking that id, if we ignored that, the call of this method would
+                        // blow up because the field that stores it is likely optional, with the value defaulted to None.
+                        //
+                        // As prevention of confusion from putting a requirement on devs to set the id stamp even though
+                        // they're not planning to use it, we have a null type of that stamp to be there at most cases.
+                        // As a result, we don't risk a direct punishment (for the None value being the problem) but also
+                        // we'll set the assertion on fire if it doesn't match the expected id in tests where we suddenly
+                        // do care
+                        None => ArbitraryIdStamp::null(),
+                    }
                 }
             };
         }
@@ -1175,6 +1193,28 @@ pub mod unshared_test_utils {
 
                 num
             }
+        }
+    }
+
+    pub struct SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub address_leaker: Sender<Addr<A>>,
+    }
+
+    impl<A> SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub fn send_leaker_msg_and_return_meaningless_subs<S>(
+            &self,
+            addr: &Addr<A>,
+            make_subs_from_recorder_fn: fn(&Addr<Recorder>) -> S,
+        ) -> S {
+            self.address_leaker.try_send(addr.clone()).unwrap();
+            let meaningless_addr = Recorder::new().start();
+            make_subs_from_recorder_fn(&meaningless_addr)
         }
     }
 }

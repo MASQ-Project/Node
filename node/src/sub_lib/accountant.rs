@@ -3,19 +3,20 @@ use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
-    checked_conversion, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
-    ReportTransactionReceipts, ScanError, SentPayables,
+    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
+    SentPayables,
 };
+use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -72,12 +73,13 @@ pub struct DaoFactories {
     pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
+    pub config_dao_factory: Box<dyn ConfigDaoFactory>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
-    pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
+    pub pending_payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
@@ -94,8 +96,7 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_consuming_wallet_balances_and_qualified_payables:
-        Recipient<ConsumingWalletBalancesAndQualifiedPayables>,
+    pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
@@ -110,13 +111,9 @@ impl Debug for AccountantSubs {
     }
 }
 
-pub trait AccountantSubsFactory {
-    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs;
-}
-
 pub struct AccountantSubsFactoryReal {}
 
-impl AccountantSubsFactory for AccountantSubsFactoryReal {
+impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
         Accountant::make_subs_from(addr)
     }
@@ -179,7 +176,7 @@ pub enum SignConversionError {
 
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Default)]
@@ -189,7 +186,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     fn id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]
@@ -197,10 +194,9 @@ mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
-        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
-        TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactoryReal, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
+        ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};

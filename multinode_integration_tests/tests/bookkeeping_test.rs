@@ -6,9 +6,9 @@ use multinode_integration_tests_lib::masq_real_node::{
     STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
-use node_lib::accountant::db_access_objects::dao_utils::CustomQuery;
 use node_lib::accountant::db_access_objects::payable_dao::PayableAccount;
 use node_lib::accountant::db_access_objects::receivable_dao::ReceivableAccount;
+use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;

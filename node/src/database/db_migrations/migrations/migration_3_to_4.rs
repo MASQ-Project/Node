@@ -125,7 +125,7 @@ mod tests {
     };
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::derivation_path;
+    use masq_lib::utils::{derivation_path, to_string};
     use rand::Rng;
     use rusqlite::ToSql;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -294,9 +294,9 @@ mod tests {
         seed_encrypted_opt: Option<&str>,
     ) -> String {
         let mig_declarator = &DBMigDeclaratorMock::default();
-        let consuming_path_opt = consuming_path_opt.map(|str| str.to_string());
-        let example_encrypted_opt = example_encrypted_opt.map(|str| str.to_string());
-        let seed_encrypted_opt = seed_encrypted_opt.map(|str| str.to_string());
+        let consuming_path_opt = consuming_path_opt.map(to_string);
+        let example_encrypted_opt = example_encrypted_opt.map(to_string);
+        let seed_encrypted_opt = seed_encrypted_opt.map(to_string);
         let panic = catch_unwind(AssertUnwindSafe(|| {
             Migrate_3_to_4::maybe_exchange_seed_for_private_key(
                 consuming_path_opt,

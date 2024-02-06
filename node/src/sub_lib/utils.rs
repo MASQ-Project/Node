@@ -9,8 +9,6 @@ use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
-#[cfg(test)]
-use std::any::Any;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -151,7 +149,7 @@ where
         interval: Duration,
         ctx: &mut Context<A>,
     ) -> Box<dyn NLSpawnHandleHolder>;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Default)]
@@ -181,7 +179,7 @@ where
         let handle = ctx.notify_later(msg, interval);
         Box::new(NLSpawnHandleHolderReal::new(handle))
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait NotifyHandle<M, A>
@@ -189,7 +187,7 @@ where
     A: Actor<Context = Context<A>>,
 {
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>);
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 impl<M, A> Default for Box<dyn NotifyHandle<M, A>>
@@ -236,7 +234,7 @@ where
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
         ctx.notify(msg)
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! {

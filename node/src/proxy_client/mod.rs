@@ -601,7 +601,7 @@ mod tests {
     #[should_panic(expected = "StreamHandlerPool unbound")]
     fn panics_if_unbound() {
         let request = ClientRequestPayload_0v1 {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"HEAD http://www.nyan.cat/ HTTP/1.1\r\n\r\n".to_vec(),
                 sequence_number: 0,
@@ -641,7 +641,7 @@ mod tests {
     fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
             let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
@@ -677,7 +677,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let return_route = make_meaningless_route();
         let originator_key = make_meaningless_public_key();
         let stream_key_inner = stream_key.clone();
@@ -744,7 +744,7 @@ mod tests {
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
         let cryptde = main_cryptde();
         let request = ClientRequestPayload_0v1 {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
                 sequence_number: 0,
@@ -804,7 +804,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let request = ClientRequestPayload_0v1 {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
                 sequence_number: 0,
@@ -861,7 +861,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let request = ClientRequestPayload_0v1 {
-            stream_key: make_meaningless_stream_key(),
+            stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
                 data: b"inbound data".to_vec(),
                 sequence_number: 0,
@@ -926,11 +926,12 @@ mod tests {
     #[test]
     fn inbound_server_data_is_translated_to_cores_packages() {
         init_test_logging();
+        let test_name = "inbound_server_data_is_translated_to_cores_packages";
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new(test_name);
         let route = make_meaningless_route();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
@@ -948,6 +949,7 @@ mod tests {
                 paying_wallet: Some(make_wallet("paying")),
             },
         );
+        subject.logger = Logger::new(test_name);
         let subject_addr: Addr<ProxyClient> = subject.start();
         let peer_actors = peer_actors_builder()
             .hopper(hopper)
@@ -1068,17 +1070,18 @@ mod tests {
         );
         assert_eq!(accountant_recording.len(), 2);
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: {test_name}: Received InboundServerData from 1.2.3.4:5678: stream MBqy2yoLFeyqzyArXNTwzbNG16c, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: {test_name}: Received InboundServerData (last_data) from 1.2.3.4:5678: stream MBqy2yoLFeyqzyArXNTwzbNG16c, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
     #[test]
     fn inbound_server_data_without_paying_wallet_does_not_report_exit_service() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system =
+            System::new("inbound_server_data_without_paying_wallet_does_not_report_exit_service");
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1128,9 +1131,9 @@ mod tests {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let system = System::new("error_creating_incipient_cores_package_is_logged_and_dropped");
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1178,7 +1181,7 @@ mod tests {
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
         let mut subject = ProxyClient::new(ProxyClientConfig {

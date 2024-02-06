@@ -1069,6 +1069,7 @@ mod tests {
     fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory(
     ) {
         running_test();
+        let _guard = EnvironmentGuard::new();
         let home_dir = Path::new("/home/cooga");
         let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
         let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");

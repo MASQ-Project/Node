@@ -321,10 +321,7 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
-    slice
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<String>>()
+    slice.iter().map(to_string).collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -389,6 +386,14 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
+// A handy function for closures
+pub fn to_string<D>(displayable: D) -> String
+where
+    D: Display,
+{
+    displayable.to_string()
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -407,10 +412,10 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! declare_as_any {
+macro_rules! as_any_ref_in_trait {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             use masq_lib::intentionally_blank;
             intentionally_blank!()
         }
@@ -418,13 +423,44 @@ macro_rules! declare_as_any {
 }
 
 #[macro_export]
-macro_rules! implement_as_any {
+macro_rules! as_any_ref_in_trait_impl {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             self
         }
     };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait_impl {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! test_only_use {
+    ($($use_clause: item),+) => {
+      $(
+        #[cfg(test)]
+        $use_clause
+      )+
+    }
 }
 
 #[macro_export(local_inner_macros)]

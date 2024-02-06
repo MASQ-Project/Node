@@ -40,7 +40,7 @@ use masq_lib::constants::{
     UNKNOWN_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::logger::Logger;
-use masq_lib::utils::derivation_path;
+use masq_lib::utils::{derivation_path, to_string};
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -438,11 +438,7 @@ impl Configurator {
         let mnemonic = Bip39::mnemonic(mnemonic_type, language);
         let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
         let seed = Bip39::seed(&mnemonic, &mnemonic_passphrase);
-        let phrase_words: Vec<String> = mnemonic
-            .into_phrase()
-            .split(' ')
-            .map(|w| w.to_string())
-            .collect();
+        let phrase_words: Vec<String> = mnemonic.into_phrase().split(' ').map(to_string).collect();
         Ok((seed, phrase_words))
     }
 
@@ -554,12 +550,19 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let max_block_count_opt = match persistent_config.max_block_count() {
+            Ok(value) => value,
+            Err(e) => panic!(
+                "Database corruption: Could not read max block count: {:?}",
+                e
+            ),
+        };
         let neighborhood_mode =
             Self::value_required(persistent_config.neighborhood_mode(), "neighborhoodMode")?
                 .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(|p| p.to_string());
+                .map(to_string);
         let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) =
             match good_password_opt {
                 Some(password) => {
@@ -623,6 +626,7 @@ impl Configurator {
             clandestine_port,
             chain_name,
             gas_price,
+            max_block_count_opt,
             neighborhood_mode,
             consuming_wallet_private_key_opt,
             consuming_wallet_address_opt,
@@ -2417,6 +2421,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(Some(100000)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
@@ -2442,6 +2447,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: Some(100000),
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
                 consuming_wallet_address_opt: None,
@@ -2545,6 +2551,7 @@ mod tests {
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(None))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -2572,6 +2579,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: None,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
@@ -2611,6 +2619,118 @@ mod tests {
     }
 
     #[test]
+    fn configuration_handles_retrieving_all_possible_none_values() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(None))
+            .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(None))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ZeroHop))
+            .mapping_protocol_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(None))
+            .past_neighbors_result(Ok(None))
+            .rate_pack_result(Ok(RatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            }))
+            .scan_intervals_result(Ok(ScanIntervals {
+                pending_payable_scan_interval: Default::default(),
+                payable_scan_interval: Default::default(),
+                receivable_scan_interval: Default::default(),
+            }))
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                debt_threshold_gwei: 0,
+                maturity_threshold_sec: 0,
+                payment_grace_period_sec: 0,
+                permanent_debt_allowed_gwei: 0,
+                threshold_interval_sec: 0,
+                unban_below_gwei: 0,
+            }));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: None,
+                },
+                4321,
+            ))
+            .unwrap();
+
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                blockchain_service_url_opt: None,
+                current_schema_version: "3".to_string(),
+                clandestine_port: 1234,
+                chain_name: "ropsten".to_string(),
+                gas_price: 2345,
+                max_block_count_opt: None,
+                neighborhood_mode: String::from("zero-hop"),
+                consuming_wallet_private_key_opt: None,
+                consuming_wallet_address_opt: None,
+                earning_wallet_address_opt: None,
+                port_mapping_protocol_opt: None,
+                past_neighbors: vec![],
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 0,
+                    debt_threshold_gwei: 0,
+                    maturity_threshold_sec: 0,
+                    payment_grace_period_sec: 0,
+                    permanent_debt_allowed_gwei: 0,
+                    unban_below_gwei: 0
+                },
+                rate_pack: UiRatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0
+                },
+                start_block: 3456,
+                scan_intervals: UiScanIntervals {
+                    pending_payable_sec: 0,
+                    payable_sec: 0,
+                    receivable_sec: 0
+                }
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database corruption: Could not read max block count: DatabaseError(\"Corruption\")"
+    )]
+    fn configuration_panic_on_error_retrieving_max_block_count() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(Some("4a5e43b54c6C56Ebf7".to_string())))
+            .start_block_result(Ok(3456))
+            .max_block_count_result(Err(PersistentConfigError::DatabaseError(
+                "Corruption".to_string(),
+            )));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let _result = subject.handle_configuration(
+            UiConfigurationRequest {
+                db_password_opt: Some("password".to_string()),
+            },
+            4321,
+        );
+    }
+
+    #[test]
     fn configuration_handles_check_password_error() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
@@ -2647,6 +2767,7 @@ mod tests {
                 "0x0123456789012345678901234567890123456789".to_string(),
             )))
             .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(Some(100000)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .consuming_wallet_private_key_result(cwpk);

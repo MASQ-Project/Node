@@ -75,7 +75,7 @@ impl ClientRequestPayloadFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
+    use crate::test_utils::main_cryptde;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -96,15 +96,16 @@ mod tests {
             data: data.clone().into(),
         };
         let cryptde = main_cryptde();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 1,
@@ -120,6 +121,7 @@ mod tests {
 
     #[test]
     fn handles_http_with_no_port() {
+        let test_name = "handles_http_with_no_port";
         let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
@@ -131,15 +133,16 @@ mod tests {
             data: data.clone().into(),
         };
         let cryptde = main_cryptde();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 1,
@@ -184,16 +187,17 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 0,
@@ -209,6 +213,7 @@ mod tests {
 
     #[test]
     fn handles_tls_without_hostname() {
+        let test_name = "handles_tls_without_hostname";
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -233,15 +238,16 @@ mod tests {
             data: data.clone().into(),
         };
         let cryptde = main_cryptde();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(
             result,
             Some(ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 sequenced_packet: SequencedPacket {
                     data: data.into(),
                     sequence_number: 0,
@@ -258,6 +264,7 @@ mod tests {
     #[test]
     fn makes_no_payload_if_origin_port_is_not_specified() {
         init_test_logging();
+        let test_name = "makes_no_payload_if_origin_port_is_not_specified";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -268,20 +275,22 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
         };
         let cryptde = main_cryptde();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: test: No origin port specified with 3-byte non-clandestine packet: [16, 17, 18]",
+            &format!("ERROR: {test_name}: No origin port specified with 3-byte non-clandestine packet: [16, 17, 18]"),
         );
     }
 
     #[test]
     fn makes_no_payload_if_origin_port_is_unknown() {
         init_test_logging();
+        let test_name = "makes_no_payload_if_origin_port_is_unknown";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -292,13 +301,14 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
         };
         let cryptde = main_cryptde();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new ().exists_log_containing ("ERROR: test: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]");
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]"));
     }
 
     #[test]
@@ -317,7 +327,12 @@ mod tests {
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject
-            .make(&ibcd, make_meaningless_stream_key(), cryptde, &logger)
+            .make(
+                &ibcd,
+                StreamKey::make_meaningless_stream_key(),
+                cryptde,
+                &logger,
+            )
             .unwrap();
 
         assert_eq!(result.sequenced_packet.sequence_number, 1);
@@ -326,6 +341,7 @@ mod tests {
     #[test]
     fn makes_no_payload_if_sequence_number_is_unknown() {
         init_test_logging();
+        let test_name = "makes_no_payload_if_sequence_number_is_unknown";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
@@ -336,14 +352,15 @@ mod tests {
             data: vec![1, 3, 5, 7],
         };
         let cryptde = main_cryptde();
-        let logger = Logger::new("test");
+        let logger = Logger::new(test_name);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: test: internal error: got IBCD with no sequence number and 4 bytes",
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: internal error: got IBCD with no sequence number and 4 bytes"
+        ));
     }
 }

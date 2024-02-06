@@ -1,14 +1,12 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
-use masq_lib::implement_as_any;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::gas_price_arg;
 use masq_lib::shared_schema::min_hops_arg;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -55,7 +53,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 const SET_CONFIGURATION_ABOUT: &str =
