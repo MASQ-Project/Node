@@ -23,7 +23,7 @@ use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::
     PendingPayableScanReport,
 };
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::PendingPayableId;
+use crate::accountant::{PaymentsAndStartBlock, PendingPayableId, ReceivedPaymentsError};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -855,24 +855,32 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
-        if msg.payments.is_empty() {
-            info!(
-                logger,
-                "No newly received payments were detected during the scanning process."
-            );
-
-            match self
-                .persistent_configuration
-                .set_start_block(msg.new_start_block)
-            {
-                Ok(()) => debug!(logger, "Start block updated to {}", msg.new_start_block),
-                Err(e) => panic!(
-                    "Attempt to set new start block to {} failed due to: {:?}",
-                    msg.new_start_block, e
-                ),
+        todo!("GH-744: We want to refactor and test drive this");
+        match msg.scan_result {
+            Ok(payments_and_start_block) => {
+                self.handle_new_received_payments(&payments_and_start_block, msg.timestamp, logger);
             }
-        } else {
-            self.handle_new_received_payments(&msg, logger)
+            Err(e) => match e {
+                ReceivedPaymentsError::ExceededBlockScanLimit(max_block_count) => {
+                    debug!(logger, "Writing max_block_count({})", max_block_count);
+                    self.persistent_configuration
+                        .set_max_block_count(Some(max_block_count))
+                        .map_or_else(|_| {
+                            warning!(logger, "{:?} update max_block_count to {}. Scheduling next scan with that limit.", e, max_block_count);
+                        },
+                        |e| {
+                            warning!(logger, "Writing max_block_count failed: {:?}", e);
+                        },
+                    )
+                }
+                ReceivedPaymentsError::OtherRPCError(rpc_error) => {
+                    warning!(
+                        logger,
+                        "Attempted to retrieve received payments but failed: {:?}",
+                        rpc_error
+                    );
+                }
+            },
         }
 
         self.mark_as_ended(logger);
@@ -908,39 +916,64 @@ impl ReceivableScanner {
         }
     }
 
-    fn handle_new_received_payments(&mut self, msg: &ReceivedPayments, logger: &Logger) {
-        let mut txn = self
-            .receivable_dao
-            .as_mut()
-            .more_money_received(msg.timestamp, &msg.payments);
-
-        let new_start_block = msg.new_start_block;
-        match self
-            .persistent_configuration
-            .set_start_block_from_txn(new_start_block, &mut txn)
-        {
-            Ok(()) => (),
-            Err(e) => panic!(
-                "Attempt to set new start block to {} failed due to: {:?}",
-                new_start_block, e
-            ),
-        }
-
-        match txn.commit() {
-            Ok(_) => {
-                debug!(logger, "Updated start block to: {}", new_start_block)
+    fn handle_new_received_payments(
+        &mut self,
+        payments_and_start_block: &PaymentsAndStartBlock,
+        timestamp: SystemTime,
+        logger: &Logger,
+    ) {
+        todo!("GH-744: We want to refactor and test drive this");
+        if payments_and_start_block.payments.is_empty() {
+            info!(
+                logger,
+                "No newly received payments were detected during the scanning process."
+            );
+            let new_start_block = payments_and_start_block.new_start_block;
+            match self
+                .persistent_configuration
+                .set_start_block(new_start_block)
+            {
+                Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
+                Err(e) => panic!(
+                    "Attempt to set new start block to {} failed due to: {:?}",
+                    new_start_block, e
+                ),
             }
-            Err(e) => panic!("Commit of received transactions failed: {:?}", e),
+            debug!(logger, "Updated start block to: {}", new_start_block)
+        } else {
+            let mut txn = self
+                .receivable_dao
+                .as_mut()
+                .more_money_received(timestamp, &payments_and_start_block.payments);
+
+            let new_start_block = payments_and_start_block.new_start_block;
+            match self
+                .persistent_configuration
+                .set_start_block_from_txn(new_start_block, &mut txn)
+            {
+                Ok(()) => (),
+                Err(e) => panic!(
+                    "Attempt to set new start block to {} failed due to: {:?}",
+                    new_start_block, e
+                ),
+            }
+
+            match txn.commit() {
+                Ok(_) => {
+                    debug!(logger, "Updated start block to: {}", new_start_block)
+                }
+                Err(e) => panic!("Commit of received transactions failed: {:?}", e),
+            }
+
+            let total_newly_paid_receivable = payments_and_start_block
+                .payments
+                .iter()
+                .fold(0, |so_far, now| so_far + now.wei_amount);
+
+            self.financial_statistics
+                .borrow_mut()
+                .total_paid_receivable_wei += total_newly_paid_receivable;
         }
-
-        let total_newly_paid_receivable = msg
-            .payments
-            .iter()
-            .fold(0, |so_far, now| so_far + now.wei_amount);
-
-        self.financial_statistics
-            .borrow_mut()
-            .total_paid_receivable_wei += total_newly_paid_receivable;
     }
 
     pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {

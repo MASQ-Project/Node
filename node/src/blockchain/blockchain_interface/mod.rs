@@ -6,30 +6,34 @@ pub mod data_structures;
 pub mod lower_level_interface;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
 };
-use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RetrievedBlockchainTransactions,
-};
+use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
+use ethereum_types::U256;
+use futures::Future;
+use masq_lib::blockchains::chains::Chain;
+use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, H256};
+use web3::{BatchTransport, Web3};
 
-pub trait BlockchainInterface {
+pub trait BlockchainInterface<T: BatchTransport = Http> {
     fn contract_address(&self) -> Address;
+
+    fn get_chain(&self) -> Chain;
+
+    fn get_batch_web3(&self) -> Web3<Batch<T>>;
 
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
 
     fn build_blockchain_agent(
         &self,
@@ -37,12 +41,20 @@ pub trait BlockchainInterface {
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>;
 
-    fn send_batch_of_payables(
+    fn get_transaction_fee_balance(
         &self,
-        agent: Box<dyn BlockchainAgent>,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
+
+    fn get_token_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
+
+    fn get_transaction_count(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 

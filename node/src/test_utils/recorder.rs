@@ -172,7 +172,7 @@ recorder_message_handler_t_m_p!(StartMessage);
 recorder_message_handler_t_m_p!(StreamShutdownMsg);
 recorder_message_handler_t_m_p!(TransmitDataMsg);
 recorder_message_handler_t_m_p!(UpdateNodeRecordMetadataMessage);
-recorder_message_handler!(UpdateStartBlockMessage);
+recorder_message_handler_t_m_p!(UpdateStartBlockMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where

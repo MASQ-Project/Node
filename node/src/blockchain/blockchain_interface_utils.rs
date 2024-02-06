@@ -1,15 +1,17 @@
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::{
-    to_wei, HashAndAmount, PayableTransactionError, ProcessedPayableFallible, RpcPayableFailure,
-    TRANSFER_METHOD_ID,
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+    to_wei, HashAndAmount, ProcessedPayableFallible, RpcPayableFailure, TRANSFER_METHOD_ID,
 };
+
+use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use futures::future::err;
 use futures::stream::FuturesOrdered;
 use futures::{Future, Stream};
-use masq_lib::blockchains::chains::{Chain, ChainFamily};
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use serde_json::Value;
 use std::iter::once;
@@ -21,12 +23,19 @@ use web3::Error as Web3Error;
 use web3::{BatchTransport, Web3};
 
 fn base_gas_limit(chain: Chain) -> u64 {
-    match chain.rec().chain_family {
-        ChainFamily::Polygon => 70_000,
-        ChainFamily::Eth => 55_000,
-        ChainFamily::Dev => 55_000,
+    //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
+    match chain {
+        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
     }
 }
+
+// fn web3_gas_limit_const_part(chain: Chain) -> u64 {
+//     match chain {
+//         Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+//         Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+//     }
+// }
 
 pub fn advance_used_nonce(current_nonce: U256) -> U256 {
     current_nonce
@@ -359,11 +368,10 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::from_time_t;
+    // use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::make_payable_account_with_wallet_and_balance_and_timestamp_opt;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -383,6 +391,8 @@ mod tests {
     use std::time::SystemTime;
     use web3::Error as Web3Error;
     use web3::Error::Unreachable;
+    use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::ProcessedPayableFallible::{Correct, Failed};
 
     #[test]
     fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
@@ -1026,9 +1036,9 @@ mod tests {
         };
 
         let nonce_correct_type = U256::from(nonce);
-        let gas_price = match chain.rec().chain_family {
-            ChainFamily::Eth => TEST_GAS_PRICE_ETH,
-            ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
+        let gas_price = match chain {
+            Chain::EthMainnet => TEST_GAS_PRICE_ETH,
+            Chain::PolyMainnet => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(

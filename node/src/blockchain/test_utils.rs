@@ -3,12 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
-    ProcessedPayableFallible, ResultForBalance, ResultForReceipt, REQUESTS_IN_PARALLEL,
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
@@ -32,16 +28,12 @@ use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::to_string;
-use masq_lib::blockchains::chains::Chain;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, U256};
-use web3::{BatchTransport, Error as Web3Error};
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, SignedTransaction, U256};
+use web3::types::{Address, BlockNumber, SignedTransaction, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
@@ -99,12 +91,21 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn get_chain(&self) -> Chain {
-        self.get_chain_results.borrow_mut().remove(0)
+        todo!()
     }
 
     fn get_batch_web3(&self) -> Web3<Batch<Http>> {
-        self.get_batch_web3_results.borrow_mut().remove(0)
+        todo!()
     }
+
+    // TODO: GH-744 Unsure if we need this...
+    // fn get_chain(&self) -> Chain {
+    //     self.get_chain_results.borrow_mut().remove(0)
+    // }
+    //
+    // fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+    //     self.get_batch_web3_results.borrow_mut().remove(0)
+    // }
 
     fn retrieve_transactions(
         &self,
@@ -123,70 +124,73 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn build_blockchain_agent(
-    &self,
-    consuming_wallet: &Wallet,
-    persistent_config: &dyn PersistentConfiguration,
+        &self,
+        consuming_wallet: &Wallet,
+        persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
         self.build_blockchain_agent_params.lock().unwrap().push((
-        consuming_wallet.clone(),
-        persistent_config.arbitrary_id_stamp(),
+            consuming_wallet.clone(),
+            persistent_config.arbitrary_id_stamp(),
         ));
         self.build_blockchain_agent_results.borrow_mut().remove(0)
     }
 
-    fn send_batch_of_payables(
-    &self,
-    agent: Box<dyn BlockchainAgent>,
-    new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-    accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.send_batch_of_payables_params.lock().unwrap().push((
-        agent.arbitrary_id_stamp(),
-        new_fingerprints_recipient.clone(),
-        accounts.to_vec(),
-        ));
-        self.send_batch_of_payables_results.borrow_mut().remove(0)
-    }
+    // fn send_batch_of_payables(
+    //     &self,
+    //     agent: Box<dyn BlockchainAgent>,
+    //     new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
+    //     accounts: &[PayableAccount],
+    // ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+    //     self.send_batch_of_payables_params.lock().unwrap().push((
+    //         agent.arbitrary_id_stamp(),
+    //         new_fingerprints_recipient.clone(),
+    //         accounts.to_vec(),
+    //     ));
+    //     self.send_batch_of_payables_results.borrow_mut().remove(0)
+    // }
 
     fn get_transaction_fee_balance(
         &self,
         address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        self.get_transaction_fee_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        Box::new(result(
-            self.get_transaction_fee_balance_results
-                .borrow_mut()
-                .remove(0),
-        ))
+        todo!("GH-744: Come back to this - This function has moved to lower interface")
+        // self.get_transaction_fee_balance_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(address.clone());
+        // Box::new(result(
+        //     self.get_transaction_fee_balance_results
+        //         .borrow_mut()
+        //         .remove(0),
+        // ))
     }
 
     fn get_token_balance(
         &self,
         address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        self.get_token_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        Box::new(result(
-            self.get_token_balance_results.borrow_mut().remove(0),
-        ))
+        todo!("GH-744: Come back to this - This function has moved to lower interface")
+        // self.get_token_balance_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(address.clone());
+        // Box::new(result(
+        //     self.get_token_balance_results.borrow_mut().remove(0),
+        // ))
     }
 
     fn get_transaction_count(
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        Box::new(result(
-            self.get_transaction_count_results.borrow_mut().remove(0),
-        ))
+        todo!("GH-744: Come back to this - This function has moved to lower interface")
+        // self.get_transaction_count_parameters
+        //     .lock()
+        //     .unwrap()
+        //     .push(wallet.clone());
+        // Box::new(result(
+        //     self.get_transaction_count_results.borrow_mut().remove(0),
+        // ))
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
@@ -264,12 +268,12 @@ impl BlockchainInterfaceMock {
     }
 
     pub fn get_chain_result(self, result: Chain) -> Self {
-    self.get_chain_results.borrow_mut().push(result);
+        self.get_chain_results.borrow_mut().push(result);
         self
     }
 
     pub fn get_batch_web3_result(self, result: Web3<Batch<Http>>) -> Self {
-    self.get_batch_web3_results.borrow_mut().push(result);
+        self.get_batch_web3_results.borrow_mut().push(result);
         self
     }
 

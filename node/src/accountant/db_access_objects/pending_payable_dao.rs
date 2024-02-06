@@ -6,8 +6,7 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::HashAndAmount;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -265,7 +264,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-    use crate::blockchain::blockchain_interface::HashAndAmount;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -462,10 +461,22 @@ mod tests {
         // this test, and in the end, I delete the first one. It leaves a single record still in but with the rowid 2 instead of
         // just an ambiguous 1
         subject
-            .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
+            .insert_new_fingerprints(
+                &[HashAndAmount {
+                    hash: hash_2,
+                    amount: 8901234,
+                }],
+                SystemTime::now(),
+            )
             .unwrap();
         subject
-            .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
+            .insert_new_fingerprints(
+                &[HashAndAmount {
+                    hash: hash_3,
+                    amount: 1234567,
+                }],
+                SystemTime::now(),
+            )
             .unwrap();
         subject.delete_fingerprints(&[1]).unwrap();
 

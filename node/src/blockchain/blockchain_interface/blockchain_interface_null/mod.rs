@@ -2,19 +2,22 @@
 
 pub mod lower_level_interface_null;
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use ethereum_types::U256;
+use futures::Future;
+use futures::future::result;
+use web3::transports::{Batch, Http};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use masq_lib::logger::Logger;
 use web3::types::{Address, BlockNumber, H160, H256};
+use web3::Web3;
+use masq_lib::blockchains::chains::Chain;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt};
-use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
+use crate::blockchain::blockchain_interface::data_structures::{RetrievedBlockchainTransactions};
 
 pub struct BlockchainInterfaceNull {
     logger: Logger,
@@ -27,13 +30,23 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         H160::zero()
     }
 
+    fn get_chain(&self) -> Chain {
+        todo!()
+    }
+
+    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+        todo!()
+    }
+
     fn retrieve_transactions(
         &self,
         _start_block: BlockNumber,
         _end_block: BlockNumber,
-        _wallet: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.handle_uninitialized_interface("retrieve transactions")
+        _recipient: &Wallet,
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
+        Box::new(result(
+            self.handle_uninitialized_interface("retrieve transactions"),
+        ))
     }
 
     fn build_blockchain_agent(
@@ -44,14 +57,35 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("build blockchain agent")
     }
 
-    fn send_batch_of_payables(
+    fn get_transaction_fee_balance(
         &self,
-        _agent: Box<dyn BlockchainAgent>,
-        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.handle_uninitialized_interface("pay for payables")
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!()
     }
+
+    fn get_token_balance(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!()
+    }
+
+    fn get_transaction_count(
+        &self,
+        address: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!()
+    }
+
+    // fn send_batch_of_payables(
+    //     &self,
+    //     _agent: Box<dyn BlockchainAgent>,
+    //     _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
+    //     _accounts: &[PayableAccount],
+    // ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
+    //     self.handle_uninitialized_interface("pay for payables")
+    // }
 
     fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
         self.handle_uninitialized_interface("get transaction receipt")
@@ -74,7 +108,7 @@ impl Default for BlockchainInterfaceNull {
     }
 }
 
-trait BlockchainInterfaceUninitializedError {
+pub trait BlockchainInterfaceUninitializedError {
     fn error() -> Self;
 }
 
@@ -130,8 +164,6 @@ impl BlockchainInterfaceNull {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
-    use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::{
         BlockchainInterfaceNull, BlockchainInterfaceUninitializedError,
@@ -139,15 +171,13 @@ mod tests {
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::make_recorder;
-    use actix::Actor;
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::{BlockNumber, H160};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
-
+    use futures::Future;
     fn make_subject(test_name: &str) -> BlockchainInterfaceNull {
         let logger = Logger::new(test_name);
         let lower_level_interface = Box::new(LowBlockChainIntNull::new(&logger));
@@ -170,11 +200,13 @@ mod tests {
         let test_name = "blockchain_interface_null_retrieves_no_transactions";
         let wallet = make_wallet("blah");
 
-        let result = make_subject(test_name).retrieve_transactions(
-            BlockNumber::Number(U64::zero()),
-            BlockNumber::Latest,
-            &wallet,
-        );
+        let result = make_subject(test_name)
+            .retrieve_transactions(
+                BlockNumber::Number(U64::zero()),
+                BlockNumber::Latest,
+                &wallet,
+            )
+            .wait();
 
         assert_eq!(
             result,
@@ -213,24 +245,25 @@ mod tests {
 
     #[test]
     fn blockchain_interface_null_cannot_send_batch_of_payables() {
-        init_test_logging();
-        let test_name = "blockchain_interface_null_cannot_send_batch_of_payables";
-        let (recorder, _, _) = make_recorder();
-        let recipient = recorder.start().recipient();
-        let accounts = vec![make_payable_account(111)];
-        let agent = Box::new(BlockchainAgentNull::new());
-
-        let result = make_subject(test_name).send_batch_of_payables(agent, &recipient, &accounts);
-
-        assert_eq!(
-            result,
-            Err(PayableTransactionError::UninitializedBlockchainInterface)
-        );
-        let expected_log_msg = format!(
-            "ERROR: {test_name}: Failed to pay for payables with uninitialized blockchain \
-            interface. Parameter blockchain-service-url is missing."
-        );
-        TestLogHandler::new().exists_log_containing(expected_log_msg.as_str());
+        todo!("GH-744: send_batch_of_payables was removed");
+        // init_test_logging();
+        // let test_name = "blockchain_interface_null_cannot_send_batch_of_payables";
+        // let (recorder, _, _) = make_recorder();
+        // let recipient = recorder.start().recipient();
+        // let accounts = vec![make_payable_account(111)];
+        // let agent = Box::new(BlockchainAgentNull::new());
+        //
+        // let result = make_subject(test_name).send_batch_of_payables(agent, &recipient, &accounts);
+        //
+        // assert_eq!(
+        //     result,
+        //     Err(PayableTransactionError::UninitializedBlockchainInterface)
+        // );
+        // let expected_log_msg = format!(
+        //     "ERROR: {test_name}: Failed to pay for payables with uninitialized blockchain \
+        //     interface. Parameter blockchain-service-url is missing."
+        // );
+        // TestLogHandler::new().exists_log_containing(expected_log_msg.as_str());
     }
 
     #[test]
