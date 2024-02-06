@@ -165,6 +165,9 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 }
                 self.search_for_a_new_route();
             }
+            ConfigurationChange::UpdatePassword(new_password) => {
+                self.db_password_opt = Some(new_password);
+            }
         }
     }
 }
@@ -1585,11 +1588,6 @@ impl Neighborhood {
         self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         debug!(self.logger, "The value of min_hops ({}-hop -> {}-hop) and db_patch_size ({} -> {}) has been changed", prev_min_hops, self.min_hops, prev_db_patch_size, self.db_patch_size);
     }
-
-    // GH-728
-    fn handle_new_password(&mut self, new_password: String) {
-        self.db_password_opt = Some(new_password);
-    }
 }
 
 pub fn regenerate_signed_gossip(
@@ -1701,7 +1699,7 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
+    use crate::sub_lib::neighborhood::ConfigurationChange::{UpdatePassword, UpdateWallets};
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -5862,29 +5860,28 @@ mod tests {
 
     #[test]
     fn password_can_be_updated_using_configuration_change_msg() {
-        todo!("modify this test to update the consuming wallet instead");
-        // let system = System::new("password_can_be_updated_using_configuration_change_msg");
-        // let mut subject = make_standard_subject();
-        // subject.db_password_opt = Some("old_password".to_string());
-        // let subject_addr = subject.start();
-        // let peer_actors = peer_actors_builder().build();
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        //
-        // subject_addr
-        //     .try_send(ConfigurationChangeMessage {
-        //         change: UpdatePassword("new_password".to_string()),
-        //     })
-        //     .unwrap();
-        //
-        // subject_addr
-        //     .try_send(AssertionsMessage {
-        //         assertions: Box::new(|subject: &mut Neighborhood| {
-        //             assert_eq!(subject.db_password_opt, Some("new_password".to_string()))
-        //         }),
-        //     })
-        //     .unwrap();
-        // System::current().stop();
-        // assert_eq!(system.run(), 0);
+        let system = System::new("password_can_be_updated_using_configuration_change_msg");
+        let mut subject = make_standard_subject();
+        subject.db_password_opt = Some("old_password".to_string());
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdatePassword("new_password".to_string()),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(|subject: &mut Neighborhood| {
+                    assert_eq!(subject.db_password_opt, Some("new_password".to_string()))
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
@@ -5915,55 +5912,6 @@ mod tests {
             .unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
-    }
-
-    #[test]
-    fn new_password_message_works() {
-        todo!("change this test to use ConfigurationChangeMessage instead");
-        // let system = System::new("test");
-        // let mut subject = make_standard_subject();
-        // let root_node_record = subject.neighborhood_database.root().clone();
-        // let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        // let persistent_config = PersistentConfigurationMock::new()
-        //     .set_past_neighbors_params(&set_past_neighbors_params_arc)
-        //     .set_past_neighbors_result(Ok(()));
-        // subject.persistent_config_opt = Some(Box::new(persistent_config));
-        // let subject_addr = subject.start();
-        // let peer_actors = peer_actors_builder().build();
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        //
-        // // GH-728
-        // subject_addr
-        //     .try_send(NewPasswordMessage {
-        //         new_password: "borkety-bork".to_string(),
-        //     })
-        //     .unwrap();
-        //
-        // let mut db = db_from_node(&root_node_record);
-        // let new_neighbor = make_node_record(1324, true);
-        // db.add_node(new_neighbor.clone()).unwrap();
-        // db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
-        // db.node_by_key_mut(root_node_record.public_key())
-        //     .unwrap()
-        //     .resign();
-        // db.node_by_key_mut(new_neighbor.public_key())
-        //     .unwrap()
-        //     .resign();
-        // let gossip = GossipBuilder::new(&db)
-        //     .node(new_neighbor.public_key(), true)
-        //     .build();
-        // let cores_package = ExpiredCoresPackage {
-        //     immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
-        //     paying_wallet: None,
-        //     remaining_route: make_meaningless_route(),
-        //     payload: gossip,
-        //     payload_len: 0,
-        // };
-        // subject_addr.try_send(cores_package).unwrap();
-        // System::current().stop();
-        // system.run();
-        // let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
-        // assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     #[test]
