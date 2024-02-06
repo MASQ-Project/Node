@@ -23,7 +23,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
-use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
+use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -110,9 +110,12 @@ impl SkeletonOptHolder for RetrieveTransactions {
 impl Handler<ConfigurationChangeMessage> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!("handler for BlockchainBridge");
-        // TODO: GH-728 - what should we do once the message is received
+    fn handle(&mut self, msg: ConfigurationChangeMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let ConfigurationChange::UpdateWallets(wallet_pair) = msg.change {
+            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+        } else {
+            todo!("figure out bro")
+        }
     }
 }
 
@@ -578,6 +581,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256};
+    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
+    use crate::sub_lib::neighborhood::WalletPair;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -665,29 +670,38 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_updates_password_when_it_receives_configuration_change_msg() {
-        todo!("remove this test");
-        // let system = System::new(
-        //     "blockchain_bridge_updates_password_when_it_receives_configuration_change_msg",
-        // );
-        // let subject = BlockchainBridge::new(
-        //     stub_bi(),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
-        // let subject_addr = subject.start();
-        // let peer_actors = peer_actors_builder().build();
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        //
-        // subject_addr
-        //     .try_send(ConfigurationChangeMessage {
-        //         change: UpdatePassword("new_password".to_string()),
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop();
-        // assert_eq!(system.run(), 0);
+    fn blockchain_bridge_updates_wallets_when_it_receives_configuration_change_msg() {
+        let system = System::new(
+            "blockchain_bridge_updates_wallets_when_it_receives_configuration_change_msg",
+        );
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let earning_wallet = make_wallet("earning");
+        let subject = BlockchainBridge::new(
+            stub_bi(),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
+        );
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdateWallets(WalletPair {
+                    consuming_wallet: consuming_wallet.clone(),
+                    earning_wallet,
+                }),
+            })
+            .unwrap();
+
+        subject_addr.try_send(AssertionsMessage {
+            assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
+                assert_eq!(blockchain_bridge.consuming_wallet_opt, Some(consuming_wallet))
+            }),
+        }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]

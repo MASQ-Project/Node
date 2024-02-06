@@ -1701,6 +1701,7 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -5884,6 +5885,36 @@ mod tests {
         //     .unwrap();
         // System::current().stop();
         // assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    fn neighborhood_updates_wallets_when_it_receives_configuration_change_msg() {
+        let system = System::new("neighborhood_updates_wallets_when_it_receives_configuration_change_msg");
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let earning_wallet = make_wallet("earning");
+        let subject = make_standard_subject();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdateWallets(WalletPair {
+                    consuming_wallet: consuming_wallet.clone(),
+                    earning_wallet,
+                }),
+            })
+            .unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(|neighborhood: &mut Neighborhood| {
+                    assert_eq!(neighborhood.consuming_wallet_opt, Some(consuming_wallet))
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]

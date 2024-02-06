@@ -43,7 +43,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
+use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -167,8 +167,13 @@ impl Handler<BindMessage> for Accountant {
 impl Handler<ConfigurationChangeMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ConfigurationChangeMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!("handler for Accountant");
+    fn handle(&mut self, msg: ConfigurationChangeMessage, _ctx: &mut Self::Context) -> Self::Result {
+        if let ConfigurationChange::UpdateWallets(wallet_pair) = msg.change {
+            self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
+            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+        } else {
+            todo!("figure out something for this");
+        }
     }
 }
 
@@ -1064,6 +1069,8 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::TransactionReceipt;
+    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
+    use crate::sub_lib::neighborhood::WalletPair;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1205,26 +1212,36 @@ mod tests {
     }
 
     #[test]
-    fn accountant_updates_password_when_it_receives_configuration_change_msg() {
-        todo!("either remove this test or modify it");
-        // let system =
-        //     System::new("accountant_updates_password_when_it_receives_configuration_change_msg");
-        // let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        // let subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .build();
-        // let subject_addr = subject.start();
-        // let peer_actors = peer_actors_builder().build();
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        //
-        // subject_addr
-        //     .try_send(ConfigurationChangeMessage {
-        //         change: UpdatePassword("new_password".to_string()),
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop();
-        // assert_eq!(system.run(), 0);
+    fn accountant_updates_wallets_when_it_receives_configuration_change_msg() {
+        let system =
+            System::new("accountant_updates_wallets_when_it_receives_configuration_change_msg");
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let earning_wallet = make_wallet("earning");
+        let config = bc_from_earning_wallet(earning_wallet.clone());
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .build();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(ConfigurationChangeMessage {
+                change: UpdateWallets(WalletPair {
+                    consuming_wallet: consuming_wallet.clone(),
+                    earning_wallet: earning_wallet.clone(),
+                }),
+            })
+            .unwrap();
+
+        subject_addr.try_send(AssertionsMessage {
+            assertions: Box::new(move |accountant: &mut Accountant| {
+                assert_eq!(accountant.consuming_wallet_opt, Some(consuming_wallet));
+                assert_eq!(accountant.earning_wallet, Rc::new(earning_wallet))
+            }),
+        }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
