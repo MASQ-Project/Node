@@ -101,6 +101,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         if let Ok((body, context_id)) = UiChangePasswordRequest::fmb(msg.body.clone()) {
+            // TODO: GH-728: Send a ConfigurationChangeMessage that the password has changed
             let client_id = msg.client_id;
             self.call_handler(msg, |c| {
                 c.handle_change_password(body, client_id, context_id)
