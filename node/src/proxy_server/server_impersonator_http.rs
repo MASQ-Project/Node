@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::ServerImpersonator;
-use crate::sub_lib::cryptde::PublicKey;
 
 pub struct ServerImpersonatorHttp {}
 
@@ -20,11 +19,7 @@ impl ServerImpersonator for ServerImpersonatorHttp {
         )
     }
 
-    fn dns_resolution_failure_response(
-        &self,
-        exit_key: &PublicKey,
-        server_name_opt: Option<String>,
-    ) -> Vec<u8> {
+    fn dns_resolution_failure_response(&self, server_name_opt: Option<String>) -> Vec<u8> {
         let (server_name, quoted_server_name) = match &server_name_opt {
             Some(name) => (name.clone(), format!("\"{}\"", name)),
             None => ("<unspecified>".to_string(), "<unspecified>".to_string()),
@@ -32,13 +27,10 @@ impl ServerImpersonator for ServerImpersonatorHttp {
         ServerImpersonatorHttp::make_error_response(
             503,
             "DNS Resolution Problem",
-            &format!("Exit Node couldn't resolve {}", quoted_server_name),
+            &format!("Exit Nodes couldn't resolve {}", quoted_server_name),
             &format!(
-                "We chose the exit Node {} for your request to {}; but when it asked \
-        its DNS server to look up the IP address for {}, it wasn't found. If {} exists, \
-        it will need to be looked up by a different exit Node. We've deprioritized this exit Node. \
-        Reload the page, and we'll try to find another.",
-                exit_key, server_name, server_name, server_name
+                "DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address {}",
+                server_name
             ),
         )
     }
@@ -205,19 +197,13 @@ mod tests {
     fn dns_resolution_failure_response_with_server_name_produces_expected_error_page() {
         let subject = ServerImpersonatorHttp {};
 
-        let result = subject.dns_resolution_failure_response(
-            &PublicKey::new(&b"exit"[..]),
-            Some("server.com".to_string()),
-        );
+        let result = subject.dns_resolution_failure_response(Some("server.com".to_string()));
 
         let expected = ServerImpersonatorHttp::make_error_response(
             503,
             "DNS Resolution Problem",
-            "Exit Node couldn't resolve \"server.com\"",
-            "We chose the exit Node ZXhpdA for your request to server.com; but when it asked its DNS server \
-            to look up the IP address for server.com, it wasn't found. If server.com exists, \
-            it will need to be looked up by a different exit Node. We've deprioritized this exit Node. \
-            Reload the page, and we'll try to find another.",
+            "Exit Nodes couldn't resolve \"server.com\"",
+            "DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address server.com",
         );
         assert_eq!(expected, result);
     }
@@ -226,16 +212,13 @@ mod tests {
     fn dns_resolution_failure_response_without_server_name_produces_expected_error_page() {
         let subject = ServerImpersonatorHttp {};
 
-        let result = subject.dns_resolution_failure_response(&PublicKey::new(&b"exit"[..]), None);
+        let result = subject.dns_resolution_failure_response(None);
 
         let expected = ServerImpersonatorHttp::make_error_response(
             503,
             "DNS Resolution Problem",
-            "Exit Node couldn't resolve <unspecified>",
-            "We chose the exit Node ZXhpdA for your request to <unspecified>; but when it asked its DNS server \
-            to look up the IP address for <unspecified>, it wasn't found. If <unspecified> exists, \
-            it will need to be looked up by a different exit Node. We've deprioritized this exit Node. \
-            Reload the page, and we'll try to find another.",
+            "Exit Nodes couldn't resolve <unspecified>",
+            "DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address <unspecified>",
         );
         assert_eq!(expected, result);
     }

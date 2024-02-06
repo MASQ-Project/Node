@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
@@ -64,6 +65,8 @@ pub struct PersistentConfigurationMock {
     max_block_count_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
     set_max_block_count_params: Arc<Mutex<Vec<Option<u64>>>>,
     set_max_block_count_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    set_start_block_from_txn_params: Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+    set_start_block_from_txn_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
     set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
     set_payment_thresholds_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -247,6 +250,17 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.set_max_block_count_results)
     }
 
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_start_block_from_txn_params
+            .lock()
+            .unwrap()
+            .push((value, transaction.arbitrary_id_stamp()));
+        Self::result_from(&self.set_start_block_from_txn_results)
+    }
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -567,6 +581,24 @@ impl PersistentConfigurationMock {
 
     pub fn set_max_block_count_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_max_block_count_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_start_block_from_txn_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+    ) -> Self {
+        self.set_start_block_from_txn_params = params.clone();
+        self
+    }
+
+    pub fn set_start_block_from_txn_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> Self {
+        self.set_start_block_from_txn_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

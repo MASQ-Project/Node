@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::banned_dao::BannedCacheLoader;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]

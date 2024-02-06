@@ -20,7 +20,7 @@ pub trait PaymentAdjuster {
         logger: &Logger,
     ) -> OutboundPaymentsInstructions;
 
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 pub struct PaymentAdjusterReal {}
@@ -43,7 +43,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         todo!("this function is dead until the card GH-711 is played")
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl PaymentAdjusterReal {

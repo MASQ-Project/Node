@@ -59,13 +59,13 @@ pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
     pub protocol: ProxyProtocol,
-    pub server_name_opt: Option<String>,
+    pub hostname_opt: Option<String>,
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
-pub struct AddRouteMessage {
+pub struct AddRouteResultMessage {
     pub stream_key: StreamKey,
-    pub route: RouteQueryResponse,
+    pub result: Result<RouteQueryResponse, String>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -76,9 +76,9 @@ pub struct ProxyServerSubs {
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload_0v1>>,
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure_0v1>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
-    pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
+    pub route_result_sub: Recipient<AddRouteResultMessage>,
 }
 
 impl Debug for ProxyServerSubs {
@@ -107,9 +107,9 @@ mod tests {
                 ExpiredCoresPackage<DnsResolveFailure_0v1>
             ),
             add_return_route: recipient!(recorder, AddReturnRouteMessage),
-            add_route: recipient!(recorder, AddRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
+            route_result_sub: recipient!(recorder, AddRouteResultMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");
