@@ -63,9 +63,10 @@ impl<'a> MultiConfig<'a> {
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged: Box<dyn VirtualCommandLine> = vcls
+        let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
+
         let arg_matches = match schema
             .clone()
             .get_matches_from_safe(merged.args().into_iter())
@@ -78,6 +79,7 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
+
         Ok(MultiConfig { arg_matches })
     }
 
@@ -224,6 +226,9 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+    fn is_computed(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -347,8 +352,17 @@ impl EnvironmentVcl {
     }
 }
 
+#[derive(Debug)]
 pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
+}
+
+impl Clone for ConfigFileVcl {
+    fn clone(&self) -> Self {
+        ConfigFileVcl {
+            vcl_args: self.vcl_args.iter().map(|arg| arg.dup()).collect(),
+        }
+    }
 }
 
 impl VirtualCommandLine for ConfigFileVcl {
@@ -375,8 +389,8 @@ impl Display for ConfigFileVclError {
         match self {
             ConfigFileVclError::OpenError(path, _) => write!(
                 fmt,
-                "Couldn't open configuration file {:?}. Are you sure it exists?",
-                path
+                "Couldn't open configuration file \"{}\". Are you sure it exists?",
+                path.to_string_lossy()
             ),
             ConfigFileVclError::CorruptUtf8(path) => write!(
                 fmt,

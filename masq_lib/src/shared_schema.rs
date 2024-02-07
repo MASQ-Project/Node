@@ -235,7 +235,6 @@ pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("config-file")
         .long("config-file")
         .value_name("FILE-PATH")
-        .default_value("config.toml")
         .min_values(0)
         .max_values(1)
         .required(false)
