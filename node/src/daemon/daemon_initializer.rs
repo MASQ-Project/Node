@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use masq_lib::utils::ExpectValue;
 use std::path::PathBuf;
 use std::str::FromStr;
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::Networking::WinSock::WSAStartup;
 
 const WSADESCRIPTION_LEN: u32 = 128;
