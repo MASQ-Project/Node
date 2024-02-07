@@ -49,6 +49,7 @@ pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+    update_password_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     update_wallets_subs_opt: Option<UpdateWalletsSubs>,
     crashable: bool,
     logger: Logger,
@@ -68,6 +69,9 @@ impl Handler<BindMessage> for Configurator {
                 .neighborhood
                 .configuration_change_msg_sub
                 .clone(),
+        );
+        self.update_password_sub_opt = Some(
+            msg.peer_actors.neighborhood.configuration_change_msg_sub.clone()
         );
         self.update_wallets_subs_opt = Some(UpdateWalletsSubs {
             accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
@@ -141,9 +145,10 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            update_wallets_subs_opt: None,
             node_to_ui_sub_opt: None,
             update_min_hops_sub_opt: None,
+            update_password_sub_opt: None,
+            update_wallets_subs_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -182,6 +187,7 @@ impl Configurator {
         {
             Ok(_) => {
                 let broadcast = UiNewPasswordBroadcast {}.tmb(0);
+                self.send_new_password_to_subs(msg.new_password);
                 self.send_to_ui_gateway(MessageTarget::AllExcept(client_id), broadcast);
                 UiChangePasswordResponse {}.tmb(context_id)
             }
@@ -871,6 +877,24 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
+    fn send_new_password_to_subs(&self, new_password: String) {
+        let msg = ConfigurationChangeMessage {
+            change: ConfigurationChange::UpdatePassword(new_password),
+        };
+        self.update_password_sub_opt.as_ref().expect("Configuration is unbound").try_send(msg).expect("Update Password recipient is dead");
+        // todo!("send the message");
+        // self.update_wallets_subs_opt
+        //     .as_ref()
+        //     .expect("Configuration is unbound")
+        //     .recipients()
+        //     .iter()
+        //     .for_each(|recipient| {
+        //         recipient
+        //             .try_send(msg.clone())
+        //             .expect("Update Password recipient is dead")
+        //     });
+    }
+
     fn send_new_consuming_wallet_to_subs(&self, db_password: &str) {
         let consuming_wallet_result_opt = self.persistent_config.as_ref().consuming_wallet(db_password);
         let earning_wallet_result_opt = self.persistent_config.as_ref().earning_wallet();
@@ -889,7 +913,7 @@ impl Configurator {
                 .for_each(|recipient| {
                     recipient
                         .try_send(msg.clone())
-                        .expect("Update Consuming Wallet recipient is dead")
+                        .expect("Update Wallets recipient is dead")
                 });
         } else {
             panic!("Unable to retrieve wallets from persistent configuration")
@@ -982,12 +1006,13 @@ mod tests {
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
         let (neighborhood, _, _) = make_recorder();
-        let neighborhood_addr = neighborhood.start();
+        let neighborhood_sub = neighborhood.start().recipient();
 
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.update_min_hops_sub_opt = Some(neighborhood_addr.recipient());
+        subject.update_min_hops_sub_opt = Some(neighborhood_sub.clone());
+        subject.update_password_sub_opt = Some(neighborhood_sub);
         subject.update_wallets_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
@@ -1102,18 +1127,52 @@ mod tests {
     }
 
     #[test]
-    fn consuming_wallet_is_updated_in_other_actors_when_modified() {
-        assert_consuming_wallet_is_updated_in_other_actors(NodeFromUiMessage {
+    fn the_password_is_synchronised_among_other_actors_when_modified() {
+        let system = System::new("the_password_is_synchronised_among_other_actors_when_modified");
+        let new_password = "omae wa mou shindeiru";
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .change_password_result(Ok(()));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiChangePasswordRequest { old_password_opt: None, new_password: new_password.to_string() }.tmb(4321),
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let expected_configuration_msg = ConfigurationChangeMessage {
+            change: ConfigurationChange::UpdatePassword(new_password.to_string())
+        };
+        assert_eq!(
+            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
+            &expected_configuration_msg
+        );
+    }
+
+    #[test]
+    fn the_wallets_are_synchronised_among_other_actors_when_modified() {
+        assert_wallets_synchronisation_among_other_actors(NodeFromUiMessage {
             client_id: 1234,
             body: make_example_generate_wallets_request().tmb(4321),
         });
-        assert_consuming_wallet_is_updated_in_other_actors(NodeFromUiMessage {
+        assert_wallets_synchronisation_among_other_actors(NodeFromUiMessage {
             client_id: 1234,
             body: make_example_recover_wallets_request_with_paths().tmb(4321),
         });
     }
 
-    fn assert_consuming_wallet_is_updated_in_other_actors(msg: NodeFromUiMessage) {
+    fn assert_wallets_synchronisation_among_other_actors(msg: NodeFromUiMessage) {
         let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
         let consuming_wallet = make_paying_wallet(b"consuming");
         let earning_wallet = make_wallet("earning");
@@ -2963,9 +3022,10 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                update_wallets_subs_opt: None,
                 node_to_ui_sub_opt: None,
                 update_min_hops_sub_opt: None,
+                update_password_sub_opt: None,
+                update_wallets_subs_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }
