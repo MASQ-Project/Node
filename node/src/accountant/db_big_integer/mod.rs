@@ -2,5 +2,4 @@
 
 pub mod big_int_db_processor;
 pub mod big_int_divider;
-#[cfg(test)]
-mod test_utils;
+pub mod test_utils;

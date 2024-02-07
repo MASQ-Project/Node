@@ -5,10 +5,10 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
-use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
+use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::collections::hash_map::Entry;

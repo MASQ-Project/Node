@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::as_any_in_trait_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
 use masq_lib::utils::to_string;
@@ -51,7 +51,7 @@ impl Command for CheckPasswordCommand {
         Ok(())
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl CheckPasswordCommand {

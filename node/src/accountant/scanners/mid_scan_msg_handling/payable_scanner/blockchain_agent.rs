@@ -32,6 +32,6 @@ pub trait BlockchainAgent: Send {
     fn dup(&self) -> Box<dyn BlockchainAgent> {
         intentionally_blank!()
     }
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
     arbitrary_id_stamp_in_trait!();
 }
