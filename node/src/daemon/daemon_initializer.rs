@@ -22,6 +22,10 @@ use std::collections::HashMap;
 use masq_lib::utils::ExpectValue;
 use std::path::PathBuf;
 use std::str::FromStr;
+use windows_sys::Win32::Networking::WinSock::WSAStartup;
+
+const WSADESCRIPTION_LEN: u32 = 128;
+const WSASYS_STATUS_LEN: u32 = 128;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -62,6 +66,16 @@ impl ChannelFactory for ChannelFactoryReal {
     }
 }
 
+    pub struct WSADATA {
+        pub wVersion: u16,
+        pub wHighVersion: u16,
+        pub iMaxSockets: u16,
+        pub iMaxUdpDg: u16,
+        pub lpVendorInfo: *mut i8,
+        pub szDescription: [i8; (WSADESCRIPTION_LEN + 1) as usize],
+        pub szSystemStatus: [i8; (WSASYS_STATUS_LEN + 1) as usize],
+    }
+
 pub struct DaemonInitializerReal {
     config: InitializationConfig,
     channel_factory: Box<dyn ChannelFactory>,
@@ -71,6 +85,15 @@ pub struct DaemonInitializerReal {
 
 impl DaemonInitializer for DaemonInitializerReal {
     fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> RunModeResult {
+        let wsa_startup_init = WSAStartup(WSADATA {
+            wVersion: 0,
+            wHighVersion: 0,
+            iMaxSockets: 0,
+            iMaxUdpDg: 0,
+            lpVendorInfo: (),
+            szDescription: [],
+            szSystemStatus: [],
+        });
         if port_is_busy(self.config.ui_port) {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));

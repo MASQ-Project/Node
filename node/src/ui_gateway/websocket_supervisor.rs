@@ -19,8 +19,6 @@ use masq_lib::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use masq_lib::utils::{localhost, ExpectValue};
 use std::any::Any;
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::io;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -30,7 +28,7 @@ use websocket::client::r#async::Framed;
 use websocket::r#async::MessageCodec;
 use websocket::r#async::TcpStream;
 use websocket::server::r#async::{Server, Incoming};
-use websocket::server::upgrade::{HyperIntoWsError, WsUpgrade};
+use websocket::server::upgrade::WsUpgrade;
 use websocket::OwnedMessage;
 use websocket::server::InvalidConnection;
 use websocket::WebSocketError;
@@ -185,7 +183,12 @@ impl WebSocketSupervisorReal {
             .then(move |result| match result {
                 Ok(x) => ok(Some(x)),
                 Err(e) => {
-                    Self::handle_invalid_connection(&logger_clone, e);
+                    // Self::handle_invalid_connection(&logger_clone, e);
+                    warning!(
+                        logger_clone,
+                        "Unsuccessful connection to UI port detected: {:?}",
+                        e
+                    );
                     ok(None)
                 }
             })
@@ -194,27 +197,27 @@ impl WebSocketSupervisorReal {
 
     }
 
-    fn warn_of_invalid_connection<T: Debug>(logger: &Logger, debuggable: T) {
-        warning!(
-            logger,
-            "Unsuccessful connection to UI port detected: {:?}",
-            debuggable
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
-        let error_string = format!("{:?}", e);
-        match error_string.contains("10093") || error_string.contains("10053") {
-                true => return,
-                false => Self::warn_of_invalid_connection(logger, e)
-        };
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
-        Self::warn_of_invalid_connection(logger, e)
-    }
+    // fn warn_of_invalid_connection<T: Debug>(logger: &Logger, debuggable: T) {
+    //     warning!(
+    //         logger,
+    //         "Unsuccessful connection to UI port detected: {:?}",
+    //         debuggable
+    //     );
+    // }
+    //
+    // #[cfg(target_os = "windows")]
+    // fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
+    //     let error_string = format!("{:?}", e);
+    //     match error_string.contains("10093") || error_string.contains("10053") {
+    //             true => return,
+    //             false => Self::warn_of_invalid_connection(logger, e)
+    //     };
+    // }
+    //
+    // #[cfg(not(target_os = "windows"))]
+    // fn handle_invalid_connection(logger: &Logger, e: InvalidConnection<TcpStream, BytesMut>) {
+    //     Self::warn_of_invalid_connection(logger, e)
+    // }
 
     fn handle_upgrade_request(
         upgrade: WsUpgrade<TcpStream, BytesMut>,
@@ -641,7 +644,6 @@ mod tests {
     use websocket::stream::sync::TcpStream;
     use websocket::ClientBuilder;
     use websocket::Message;
-    use websocket::server::InvalidConnection;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: ClientWrapperMock) -> u64 {
@@ -787,83 +789,83 @@ mod tests {
         addr.recipient::<NodeFromUiMessage>()
     }
 
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn connection_error_with_10093_and_10095_handled_properly() {
-        init_test_logging();
-        let logger = Logger::new("connection_error_with_10093_handled_properly");
-        let connection_error: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10093)).into(),
-        };
-        let connection_error2: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10053)).into(),
-        };
-        let connection_error3: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10005)).into(),
-        };
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error);
-
-        TestLogHandler::new().exists_log_containing("connection_error_with_10093_handled_properly");
-
-        let logger = Logger::new("connection_error_with_10053_handled_properly");
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error2);
-
-        TestLogHandler::new().exists_log_containing("connection_error_with_10053_handled_properly");
-
-        let logger = Logger::new("connection_error_with_10005_handled_properly");
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error3);
-
-        TestLogHandler::new().exists_log_containing("connection_error_with_10005_handled_properly");
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn connection_error_with_10093_and_10095_handled_properly() {
-        init_test_logging();
-        let logger = Logger::new("connection_error_with_10093_handled_properly");
-        let connection_error: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10093)).into(),
-        };
-        let connection_error2: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10053)).into(),
-        };
-        let connection_error3: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
-            stream: None,
-            parsed: None,
-            buffer: None,
-            error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10005)).into(),
-        };
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error);
-
-        TestLogHandler::new().exists_no_log_containing("connection_error_with_10093_handled_properly");
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error2);
-
-        TestLogHandler::new().exists_no_log_containing("connection_error_with_10093_handled_properly");
-
-        WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error3);
-
-        TestLogHandler::new().exists_log_containing("connection_error_with_10093_handled_properly");
-    }
+    // #[test]
+    // #[cfg(not(target_os = "windows"))]
+    // fn connection_error_with_10093_and_10095_handled_properly() {
+    //     init_test_logging();
+    //     let logger = Logger::new("connection_error_with_10093_handled_properly");
+    //     let connection_error: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10093)).into(),
+    //     };
+    //     let connection_error2: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10053)).into(),
+    //     };
+    //     let connection_error3: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10005)).into(),
+    //     };
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error);
+    //
+    //     TestLogHandler::new().exists_log_containing("connection_error_with_10093_handled_properly");
+    //
+    //     let logger = Logger::new("connection_error_with_10053_handled_properly");
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error2);
+    //
+    //     TestLogHandler::new().exists_log_containing("connection_error_with_10053_handled_properly");
+    //
+    //     let logger = Logger::new("connection_error_with_10005_handled_properly");
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error3);
+    //
+    //     TestLogHandler::new().exists_log_containing("connection_error_with_10005_handled_properly");
+    // }
+    //
+    // #[test]
+    // #[cfg(target_os = "windows")]
+    // fn connection_error_with_10093_and_10095_handled_properly() {
+    //     init_test_logging();
+    //     let logger = Logger::new("connection_error_with_10093_handled_properly");
+    //     let connection_error: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10093)).into(),
+    //     };
+    //     let connection_error2: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10053)).into(),
+    //     };
+    //     let connection_error3: InvalidConnection<TcpStreamAsync, BytesMut> = InvalidConnection {
+    //         stream: None,
+    //         parsed: None,
+    //         buffer: None,
+    //         error: HyperIntoWsError::Io(io::Error::from_raw_os_error(10005)).into(),
+    //     };
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error);
+    //
+    //     TestLogHandler::new().exists_no_log_containing("connection_error_with_10093_handled_properly");
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error2);
+    //
+    //     TestLogHandler::new().exists_no_log_containing("connection_error_with_10093_handled_properly");
+    //
+    //     WebSocketSupervisorReal::handle_invalid_connection(&logger, connection_error3);
+    //
+    //     TestLogHandler::new().exists_log_containing("connection_error_with_10093_handled_properly");
+    // }
 
     #[test]
     fn logs_pre_upgrade_connection_errors() {
