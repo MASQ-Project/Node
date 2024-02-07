@@ -48,7 +48,7 @@ pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,
-    pub sub: Recipient<StreamShutdownMsg>,
+    pub dispatcher_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl Debug for RemoveStreamMsg {
@@ -77,27 +77,20 @@ impl Debug for PoolBindMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::test_utils::recorder::peer_actors_builder;
-    use actix::System;
-
-    impl PartialEq for AddStreamMsg {
-        fn eq(&self, _other: &Self) -> bool {
-            // We need to implement PartialEq so that AddStreamMsg can be received by the Recorder;
-            // but AddStreamMsg breaks the rules for an actor message by containing references to
-            // outside resources (namely, an I/O stream) and therefore cannot have a real implementation
-            // of PartialEq. So here we break the rules again to patch up the problems created by
-            // the first breach of the rules. Don't move this into the production tree; it only needs
-            // to be here for the Recorder, and the Recorder is only in the test tree.
-            intentionally_blank!()
-        }
-    }
+    use crate::node_test_utils::make_stream_handler_pool_subs_from_recorder;
+    use crate::test_utils::recorder::{
+        make_dispatcher_subs_from_recorder, make_recorder, peer_actors_builder,
+    };
+    use actix::{Actor, System};
 
     #[test]
     fn pool_bind_message_is_debug() {
         let _system = System::new("test");
-        let dispatcher_subs = peer_actors_builder().build().dispatcher;
-        let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
+        let (dispatcher, _, _) = make_recorder();
+        let dispatcher_subs = make_dispatcher_subs_from_recorder(&dispatcher.start());
+        let (stream_handler_pool, _, _) = make_recorder();
+        let stream_handler_pool_subs =
+            make_stream_handler_pool_subs_from_recorder(&stream_handler_pool.start());
         let neighborhood_subs = peer_actors_builder().build().neighborhood;
         let subject = PoolBindMessage {
             dispatcher_subs,

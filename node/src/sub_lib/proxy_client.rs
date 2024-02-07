@@ -107,13 +107,12 @@ pub struct InboundServerData {
 mod tests {
     use super::*;
     use crate::sub_lib::peer_actors::BindMessage;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
-        let stream_key: StreamKey = make_meaningless_stream_key();
+        let stream_key: StreamKey = StreamKey::make_meaningless_stream_key();
 
         let payload = ClientResponsePayload_0v1::make_terminating_payload(stream_key);
 

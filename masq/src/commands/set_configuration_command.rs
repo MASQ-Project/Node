@@ -1,14 +1,12 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
-use masq_lib::implement_as_any;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
-use masq_lib::shared_schema::common_validators;
-use masq_lib::shared_schema::GAS_PRICE_HELP;
+use masq_lib::shared_schema::gas_price_arg;
+use masq_lib::shared_schema::min_hops_arg;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -55,7 +53,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 const SET_CONFIGURATION_ABOUT: &str =
@@ -63,18 +61,15 @@ const SET_CONFIGURATION_ABOUT: &str =
 const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
+pub fn set_configurationify<'a>(shared_schema_arg: Arg<'a, 'a>) -> Arg<'a, 'a> {
+    shared_schema_arg.takes_value(true).min_values(1)
+}
+
 pub fn set_configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("set-configuration")
         .about(SET_CONFIGURATION_ABOUT)
-        .arg(
-            Arg::with_name("gas-price")
-                .help(&GAS_PRICE_HELP)
-                .long("gas-price")
-                .value_name("GAS-PRICE")
-                .takes_value(true)
-                .required(false)
-                .validator(common_validators::validate_gas_price),
-        )
+        .arg(set_configurationify(gas_price_arg()))
+        .arg(set_configurationify(min_hops_arg()))
         .arg(
             Arg::with_name("start-block")
                 .help(START_BLOCK_HELP)
@@ -86,7 +81,7 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
         )
         .group(
             ArgGroup::with_name("parameter")
-                .args(&["gas-price", "start-block"])
+                .args(&["gas-price", "min-hops", "start-block"])
                 .required(true),
         )
 }
@@ -135,16 +130,51 @@ mod tests {
 
     #[test]
     fn command_execution_works_all_fine() {
+        test_command_execution("--start-block", "123456");
+        test_command_execution("--gas-price", "123456");
+        test_command_execution("--min-hops", "6");
+    }
+
+    #[test]
+    fn set_configuration_command_throws_err_for_missing_values() {
+        set_configuration_command_throws_err_for_missing_value("--start-block");
+        set_configuration_command_throws_err_for_missing_value("--gas-price");
+        set_configuration_command_throws_err_for_missing_value("--min-hops");
+    }
+
+    #[test]
+    fn set_configuration_command_throws_err_for_invalid_arg() {
+        let (invalid_arg, some_value) = ("--invalid-arg", "123");
+
+        let result = SetConfigurationCommand::new(&[
+            "set-configuration".to_string(),
+            invalid_arg.to_string(),
+            some_value.to_string(),
+        ]);
+
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Found argument"), "{}", err_msg);
+        assert!(err_msg.contains("--invalid-arg"), "{}", err_msg);
+        assert!(
+            err_msg.contains("which wasn't expected, or isn't valid in this context"),
+            "{}",
+            err_msg
+        );
+    }
+
+    fn test_command_execution(name: &str, value: &str) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
-        let subject = SetConfigurationCommand {
-            name: "start-block".to_string(),
-            value: "123456".to_string(),
-        };
+        let subject = SetConfigurationCommand::new(&[
+            "set-configuration".to_string(),
+            name.to_string(),
+            value.to_string(),
+        ])
+        .unwrap();
 
         let result = subject.execute(&mut context);
 
@@ -154,16 +184,31 @@ mod tests {
             *transact_params,
             vec![(
                 UiSetConfigurationRequest {
-                    name: "start-block".to_string(),
-                    value: "123456".to_string()
+                    name: name[2..].to_string(),
+                    value: value.to_string(),
                 }
                 .tmb(0),
                 1000
             )]
         );
         let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
+        assert_eq!(&stderr.get_string(), "");
         let stdout = stdout_arc.lock().unwrap();
         assert_eq!(&stdout.get_string(), "Parameter was successfully set\n");
+    }
+
+    fn set_configuration_command_throws_err_for_missing_value(name: &str) {
+        let result =
+            SetConfigurationCommand::new(&["set-configuration".to_string(), name.to_string()]);
+
+        let err_msg_fragment = "requires a value but none was supplied";
+        let actual_err_msg = result.err().unwrap();
+        assert_eq!(
+            actual_err_msg.contains(err_msg_fragment),
+            true,
+            "'{}' did not contain '{}'",
+            actual_err_msg,
+            err_msg_fragment
+        );
     }
 }

@@ -11,32 +11,32 @@ use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
-#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub struct Bip32ECKeyProvider {
+#[allow(clippy::upper_case_acronyms)]
+pub struct Bip32EncryptionKeyProvider {
     secret_raw: Vec<u8>,
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<Secp256k1SecretKey> for &Bip32ECKeyProvider {
+impl Into<Secp256k1SecretKey> for &Bip32EncryptionKeyProvider {
     fn into(self) -> Secp256k1SecretKey {
         secp256k1secrets::key::SecretKey::from_slice(&self.secret_raw).expect("internal error")
     }
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<EthsignSecretKey> for &Bip32ECKeyProvider {
+impl Into<EthsignSecretKey> for &Bip32EncryptionKeyProvider {
     fn into(self) -> EthsignSecretKey {
         EthsignSecretKey::from_raw(self.secret_raw.as_ref()).expect("internal error")
     }
 }
 
-impl Bip32ECKeyProvider {
+impl Bip32EncryptionKeyProvider {
     const SECRET_KEY_LENGTH: usize = 32;
 
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;
-        Ok(Bip32ECKeyProvider {
+        Ok(Bip32EncryptionKeyProvider {
             secret_raw: secret_raw.to_vec(),
         })
     }
@@ -83,7 +83,7 @@ impl Bip32ECKeyProvider {
     }
 }
 
-impl TryFrom<(&[u8], &str)> for Bip32ECKeyProvider {
+impl TryFrom<(&[u8], &str)> for Bip32EncryptionKeyProvider {
     type Error = String;
 
     fn try_from(seed_path: (&[u8], &str)) -> Result<Self, Self::Error> {
@@ -99,7 +99,7 @@ impl TryFrom<(&[u8], &str)> for Bip32ECKeyProvider {
     }
 }
 
-impl<'de> Deserialize<'de> for Bip32ECKeyProvider {
+impl<'de> Deserialize<'de> for Bip32EncryptionKeyProvider {
     fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
     where
         D: Deserializer<'de>,
@@ -112,7 +112,7 @@ impl<'de> Deserialize<'de> for Bip32ECKeyProvider {
     }
 }
 
-impl Serialize for Bip32ECKeyProvider {
+impl Serialize for Bip32EncryptionKeyProvider {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -128,15 +128,15 @@ impl Serialize for Bip32ECKeyProvider {
     }
 }
 
-impl PartialEq<Bip32ECKeyProvider> for Bip32ECKeyProvider {
-    fn eq(&self, other: &Bip32ECKeyProvider) -> bool {
+impl PartialEq<Bip32EncryptionKeyProvider> for Bip32EncryptionKeyProvider {
+    fn eq(&self, other: &Bip32EncryptionKeyProvider) -> bool {
         self.public_key().bytes().as_ref() == other.public_key().bytes().as_ref()
     }
 }
 
-impl Eq for Bip32ECKeyProvider {}
+impl Eq for Bip32EncryptionKeyProvider {}
 
-impl Hash for Bip32ECKeyProvider {
+impl Hash for Bip32EncryptionKeyProvider {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.public_key().bytes().hash(state);
     }
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(Bip32ECKeyProvider::SECRET_KEY_LENGTH, 32);
+        assert_eq!(Bip32EncryptionKeyProvider::SECRET_KEY_LENGTH, 32);
     }
 
     #[test]
@@ -165,7 +165,7 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let bip32eckey_provider = Bip32ECKeyProvider::try_from((
+        let bip32eckey_provider = Bip32EncryptionKeyProvider::try_from((
             seed.as_ref(),
             DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
         ))
@@ -186,9 +186,11 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let bip32eckey_provider =
-            Bip32ECKeyProvider::try_from((seed.as_ref(), DEFAULT_EARNING_DERIVATION_PATH.as_str()))
-                .unwrap();
+        let bip32eckey_provider = Bip32EncryptionKeyProvider::try_from((
+            seed.as_ref(),
+            DEFAULT_EARNING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
         let address: Address = bip32eckey_provider.address();
         let expected_address: Address =
             serde_json::from_str::<Address>("\"0x20eF925bBbFca786bd426BaED8c6Ae45e4284e12\"")
@@ -207,7 +209,7 @@ mod tests {
         let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
         let seed = Seed::new(&mnemonic, "");
 
-        let key_provider = Bip32ECKeyProvider::try_from((
+        let key_provider = Bip32EncryptionKeyProvider::try_from((
             seed.as_bytes(),
             DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
         ))
@@ -248,7 +250,7 @@ mod tests {
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
         assert_eq!(
-            Bip32ECKeyProvider::try_from((seed.as_ref(), "")).unwrap_err(),
+            Bip32EncryptionKeyProvider::try_from((seed.as_ref(), "")).unwrap_err(),
             "InvalidDerivationPath".to_string()
         );
     }
@@ -256,23 +258,26 @@ mod tests {
     #[test]
     fn bip32_try_from_errors_with_empty_seed() {
         assert_eq!(
-            Bip32ECKeyProvider::try_from(("".as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap_err(),
+            Bip32EncryptionKeyProvider::try_from((
+                "".as_ref(),
+                DEFAULT_CONSUMING_DERIVATION_PATH.as_str()
+            ))
+            .unwrap_err(),
             "Invalid Seed Length: 0".to_string()
         );
     }
 
-    fn keypair_a() -> Bip32ECKeyProvider {
+    fn keypair_a() -> Bip32EncryptionKeyProvider {
         let numbers = (0u8..32u8).collect::<Vec<u8>>();
-        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
+        Bip32EncryptionKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn keypair_b() -> Bip32ECKeyProvider {
+    fn keypair_b() -> Bip32EncryptionKeyProvider {
         let numbers = (1u8..33u8).collect::<Vec<u8>>();
-        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
+        Bip32EncryptionKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn hash(keypair: &Bip32ECKeyProvider) -> u64 {
+    fn hash(keypair: &Bip32EncryptionKeyProvider) -> u64 {
         let mut hasher = DefaultHasher::new();
         keypair.hash(&mut hasher);
         hasher.finish()
@@ -304,7 +309,7 @@ mod tests {
     fn from_raw_secret_validates_correct_length_happy_path() {
         let secret_raw: Vec<u8> = (0..32u8).collect();
 
-        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice()).unwrap();
+        let result = Bip32EncryptionKeyProvider::from_raw_secret(secret_raw.as_slice()).unwrap();
 
         assert_eq!(result.secret_raw, secret_raw)
     }
@@ -313,7 +318,7 @@ mod tests {
     fn from_raw_secret_complains_about_input_too_long() {
         let secret_raw: Vec<u8> = (0..33u8).collect();
 
-        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice());
+        let result = Bip32EncryptionKeyProvider::from_raw_secret(secret_raw.as_slice());
 
         assert_eq!(
             result,
@@ -325,7 +330,7 @@ mod tests {
     fn from_raw_secret_complains_about_input_too_short() {
         let secret_raw: Vec<u8> = (0..31u8).collect();
 
-        let result = Bip32ECKeyProvider::from_raw_secret(secret_raw.as_slice());
+        let result = Bip32EncryptionKeyProvider::from_raw_secret(secret_raw.as_slice());
 
         assert_eq!(
             result,

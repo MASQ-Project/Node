@@ -266,9 +266,8 @@ impl OverallConnectionStatus {
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
         logger: &Logger,
     ) {
-        // TODO: Modify this fn when you're implementing the regressing transitions
         let prev_stage = self.stage;
-        if new_stage as usize > prev_stage as usize {
+        if new_stage != prev_stage {
             self.stage = new_stage;
             OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
             debug!(
@@ -909,9 +908,9 @@ mod tests {
     }
 
     #[test]
-    fn doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated() {
+    fn does_not_send_message_to_the_ui_in_case_the_stage_has_not_updated() {
         init_test_logging();
-        let test_name = "doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated";
+        let test_name = "does_not_send_message_to_the_ui_in_case_the_stage_has_not_updated";
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
         let new_stage = initial_stage;
 
@@ -928,21 +927,29 @@ mod tests {
     }
 
     #[test]
-    fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
-    ) {
+    fn sends_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor() {
         init_test_logging();
-        let test_name = "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
+        let test_name = "sends_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
         let initial_stage = OverallConnectionStage::RouteFound;
         let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
             assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
 
-        assert_eq!(stage, initial_stage);
-        assert_eq!(message_opt, None);
+        assert_eq!(stage, new_stage);
+        assert_eq!(
+            message_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: new_stage.into()
+                }
+                .tmb(0)
+            })
+        );
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: {}: There was an attempt to update the stage of OverallConnectionStatus \
-            from {:?} to {:?}. The request has been discarded.",
+            "DEBUG: {}: The stage of OverallConnectionStatus has been changed \
+                from {:?} to {:?}. A message to the UI was also sent.",
             test_name, initial_stage, new_stage
         ));
     }

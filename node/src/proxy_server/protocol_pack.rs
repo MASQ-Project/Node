@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
-use crate::sub_lib::cryptde::{PlainData, PublicKey};
+use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -58,10 +58,6 @@ pub fn from_ibcd(ibcd: &InboundClientData) -> Result<Box<dyn ProtocolPack>, Stri
 
 pub trait ServerImpersonator {
     fn route_query_failure_response(&self, server_name: &str) -> Vec<u8>;
-    fn dns_resolution_failure_response(
-        &self,
-        exit_key: &PublicKey,
-        server_name_opt: Option<String>,
-    ) -> Vec<u8>;
+    fn dns_resolution_failure_response(&self, server_name_opt: Option<String>) -> Vec<u8>;
     fn consuming_wallet_absent(&self) -> Vec<u8>;
 }

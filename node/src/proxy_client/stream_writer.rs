@@ -155,7 +155,6 @@ impl StreamWriter {
 mod tests {
     use super::*;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -171,7 +170,7 @@ mod tests {
         let packet_b: Vec<u8> = vec![2, 4, 10, 8, 6, 3];
         let packet_c: Vec<u8> = vec![1, 0, 1, 2];
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
@@ -266,7 +265,7 @@ mod tests {
 
     #[test]
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
             Ok(Async::Ready(Some(SequencedPacket {
@@ -297,7 +296,7 @@ mod tests {
     fn stream_writer_returns_not_ready_when_the_channel_is_not_ready() {
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![Ok(Async::NotReady)];
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let writer = WriteHalfWrapperMock::new().poll_write_result(Ok(Async::Ready(5)));
 
         let mut subject = StreamWriter::new(
@@ -316,7 +315,7 @@ mod tests {
     fn stream_writer_logs_error_and_continues_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
         let text_data = b"These are the times";
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
@@ -349,7 +348,7 @@ mod tests {
 
     #[test]
     fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let first_data = &b"These are the times"[..];
         let second_data = &b"These are the other times"[..];
 
@@ -391,7 +390,7 @@ mod tests {
 
     #[test]
     fn stream_writer_exits_if_channel_is_closed() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
             Ok(Async::Ready(Some(SequencedPacket {
@@ -420,7 +419,7 @@ mod tests {
         rx_to_write.poll_results = vec![Err(())];
         let writer = WriteHalfWrapperMock::new();
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("4.2.3.4:5678").unwrap();
 
         let mut subject = StreamWriter::new(Box::new(writer), peer_addr, rx_to_write, stream_key);
@@ -432,7 +431,7 @@ mod tests {
     fn dead_stream_error_generates_log_and_returns_err() {
         init_test_logging();
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
             Ok(Async::Ready(Some(SequencedPacket {
@@ -465,7 +464,7 @@ mod tests {
 
     #[test]
     fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec![
             Ok(Async::Ready(Some(SequencedPacket {
@@ -498,7 +497,7 @@ mod tests {
 
     #[test]
     fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec![
             Ok(Async::Ready(Some(SequencedPacket::new(
@@ -542,7 +541,7 @@ mod tests {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
@@ -594,7 +593,7 @@ mod tests {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![
@@ -651,7 +650,7 @@ mod tests {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
         rx_to_write.poll_results = vec![

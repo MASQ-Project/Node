@@ -19,7 +19,9 @@ use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::cryptde_real::CryptDEReal;
 use node_lib::sub_lib::framer::Framer;
-use node_lib::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+use node_lib::sub_lib::hopper::{
+    ExpiredCoresPackage, IncipientCoresPackage, MessageType, MessageTypeLite,
+};
 use node_lib::sub_lib::neighborhood::{GossipFailure_0v1, RatePack, DEFAULT_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::route::Route;
@@ -392,6 +394,32 @@ impl MASQMockNode {
         let live_cores_package =
             serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_data.as_slice()).unwrap();
         Ok((socket_from, socket_to, live_cores_package))
+    }
+
+    pub fn wait_for_specific_package(
+        &self,
+        message_type_lite: MessageTypeLite,
+        immediate_neighbor: SocketAddr,
+    ) -> Option<ExpiredCoresPackage<MessageType>> {
+        let public_key = self.main_public_key();
+        let cryptde = CryptDENull::from(public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+        loop {
+            if let Ok((_, _, live_cores_package)) =
+                self.wait_for_package(&JsonMasquerader::new(), Duration::from_secs(2))
+            {
+                let (_, intended_exit_public_key) =
+                    CryptDENull::extract_key_pair(public_key.len(), &live_cores_package.payload);
+                assert_eq!(&intended_exit_public_key, public_key);
+                let expired_cores_package = live_cores_package
+                    .to_expired(immediate_neighbor, &cryptde, &cryptde)
+                    .unwrap();
+                if message_type_lite == expired_cores_package.payload.clone().into() {
+                    return Some(expired_cores_package);
+                }
+            } else {
+                return None;
+            }
+        }
     }
 
     pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip_0v1, IpAddr)> {

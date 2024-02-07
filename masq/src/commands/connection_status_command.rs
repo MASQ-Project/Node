@@ -6,14 +6,12 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, SubCommand};
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,7 +62,7 @@ impl Command for ConnectionStatusCommand {
         }
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl ConnectionStatusCommand {

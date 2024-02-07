@@ -74,6 +74,28 @@ pub enum MessageType {
     DnsResolveFailed(VersionedData<DnsResolveFailure_0v1>),
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MessageTypeLite {
+    ClientRequest,
+    ClientResponse,
+    Gossip,
+    GossipFailure,
+    DnsResolveFailed,
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<MessageTypeLite> for MessageType {
+    fn into(self) -> MessageTypeLite {
+        match self {
+            MessageType::ClientRequest(_) => MessageTypeLite::ClientRequest,
+            MessageType::ClientResponse(_) => MessageTypeLite::ClientResponse,
+            MessageType::Gossip(_) => MessageTypeLite::Gossip,
+            MessageType::GossipFailure(_) => MessageTypeLite::GossipFailure,
+            MessageType::DnsResolveFailed(_) => MessageTypeLite::DnsResolveFailed,
+        }
+    }
+}
+
 impl IncipientCoresPackage {
     pub fn new(
         cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
@@ -292,5 +314,28 @@ mod tests {
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);
         assert_eq!(subject.payload_len, 42);
+    }
+
+    #[test]
+    fn message_type_can_be_converted_in_to_message_type_lite() {
+        let dns_resolve_failed =
+            MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_response =
+            MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_request = MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip_failure = MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip = MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![]));
+
+        let dns_resolve_failed_result: MessageTypeLite = dns_resolve_failed.into();
+        let client_response_result: MessageTypeLite = client_response.into();
+        let client_request_result: MessageTypeLite = client_request.into();
+        let gossip_failure_result: MessageTypeLite = gossip_failure.into();
+        let gossip_result: MessageTypeLite = gossip.into();
+
+        assert_eq!(dns_resolve_failed_result, MessageTypeLite::DnsResolveFailed);
+        assert_eq!(client_response_result, MessageTypeLite::ClientResponse);
+        assert_eq!(client_request_result, MessageTypeLite::ClientRequest);
+        assert_eq!(gossip_failure_result, MessageTypeLite::GossipFailure);
+        assert_eq!(gossip_result, MessageTypeLite::Gossip);
     }
 }

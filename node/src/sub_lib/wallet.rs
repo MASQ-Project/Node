@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::blockchain::bip32::Bip32ECKeyProvider;
+use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::PublicKey as CryptdePublicKey;
@@ -38,7 +38,7 @@ impl Display for WalletError {
 #[derive(Debug)]
 pub enum WalletKind {
     Address(Address),
-    SecretKey(Bip32ECKeyProvider),
+    SecretKey(Bip32EncryptionKeyProvider),
     PublicKey(PublicKey),
     Uninitialized,
 }
@@ -48,7 +48,7 @@ impl Clone for WalletKind {
         match self {
             WalletKind::Address(address) => WalletKind::Address(H160(address.0)),
             WalletKind::SecretKey(keypair) => WalletKind::SecretKey(
-                Bip32ECKeyProvider::from_raw_secret(keypair.clone_secret().as_ref())
+                Bip32EncryptionKeyProvider::from_raw_secret(keypair.clone_secret().as_ref())
                     .expect("failed to clone once checked secret"),
             ),
             WalletKind::PublicKey(public) => WalletKind::PublicKey(
@@ -129,6 +129,12 @@ impl Wallet {
             WalletKind::PublicKey(public) => H160(*public.address()),
             WalletKind::SecretKey(key_provider) => key_provider.address(),
             WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
+        }
+    }
+
+    pub fn null() -> Self {
+        Wallet {
+            kind: WalletKind::Uninitialized,
         }
     }
 
@@ -233,8 +239,8 @@ impl From<PublicKey> for Wallet {
     }
 }
 
-impl From<Bip32ECKeyProvider> for Wallet {
-    fn from(keypair: Bip32ECKeyProvider) -> Self {
+impl From<Bip32EncryptionKeyProvider> for Wallet {
+    fn from(keypair: Bip32EncryptionKeyProvider) -> Self {
         Self {
             kind: WalletKind::SecretKey(keypair),
         }
@@ -265,10 +271,10 @@ impl FromSql for Wallet {
     }
 }
 
-impl TryInto<Bip32ECKeyProvider> for Wallet {
+impl TryInto<Bip32EncryptionKeyProvider> for Wallet {
     type Error = String;
 
-    fn try_into(self) -> Result<Bip32ECKeyProvider, Self::Error> {
+    fn try_into(self) -> Result<Bip32EncryptionKeyProvider, Self::Error> {
         match self.kind {
             WalletKind::SecretKey(keypair) => Ok(keypair),
             _ => Err("Wallet contains no secret key: can't convert to Bip32KeyPair".to_string()),
@@ -493,13 +499,28 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyProvider::try_from((expected_seed.as_bytes(), derivation_path.as_str()))
-                .unwrap(),
+            Bip32EncryptionKeyProvider::try_from((
+                expected_seed.as_bytes(),
+                derivation_path.as_str(),
+            ))
+            .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
 
         assert_eq!(result, "0x28330c4b886fc83bd6e3409a9eae776c19403c2e")
+    }
+
+    #[test]
+    fn null_wallet() {
+        let result = Wallet::null();
+
+        assert_eq!(
+            result,
+            Wallet {
+                kind: WalletKind::Uninitialized
+            }
+        )
     }
 
     #[test]
@@ -529,7 +550,7 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair = Bip32ECKeyProvider::try_from((
+        let keypair = Bip32EncryptionKeyProvider::try_from((
             seed.as_ref(),
             DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
         ))
@@ -552,7 +573,7 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair = Bip32ECKeyProvider::try_from((
+        let keypair = Bip32EncryptionKeyProvider::try_from((
             seed.as_ref(),
             DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
         ))
@@ -647,15 +668,17 @@ mod tests {
     #[test]
     fn can_convert_to_keypair_if_came_from_keypair() {
         let secret_key_text = "0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
-        let keypair =
-            Bip32ECKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
-                .unwrap();
-        let expected_keypair =
-            Bip32ECKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
-                .unwrap();
+        let keypair = Bip32EncryptionKeyProvider::from_raw_secret(
+            &secret_key_text.from_hex::<Vec<u8>>().unwrap(),
+        )
+        .unwrap();
+        let expected_keypair = Bip32EncryptionKeyProvider::from_raw_secret(
+            &secret_key_text.from_hex::<Vec<u8>>().unwrap(),
+        )
+        .unwrap();
         let subject = Wallet::from(keypair);
 
-        let result: Bip32ECKeyProvider = subject.try_into().unwrap();
+        let result: Bip32EncryptionKeyProvider = subject.try_into().unwrap();
 
         assert_eq!(result, expected_keypair);
     }
@@ -664,7 +687,7 @@ mod tests {
     fn cant_convert_to_keypair_if_didnt_come_from_keypair() {
         let subject = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
-        let result: Result<Bip32ECKeyProvider, String> = subject.try_into();
+        let result: Result<Bip32EncryptionKeyProvider, String> = subject.try_into();
 
         assert_eq!(
             result,
@@ -698,14 +721,14 @@ mod tests {
         }
     }
 
-    fn keypair_a() -> Bip32ECKeyProvider {
+    fn keypair_a() -> Bip32EncryptionKeyProvider {
         let numbers = (0u8..32u8).collect::<Vec<u8>>();
-        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
+        Bip32EncryptionKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn keypair_b() -> Bip32ECKeyProvider {
+    fn keypair_b() -> Bip32EncryptionKeyProvider {
         let numbers = (1u8..33u8).collect::<Vec<u8>>();
-        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
+        Bip32EncryptionKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
     fn hash(wallet: &Wallet) -> u64 {

@@ -3,8 +3,9 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use masq_lib::logger::Logger;
-use rusqlite::Transaction;
+use masq_lib::utils::to_string;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +43,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.db_password_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &TransactionSafeWrapper {
         unimplemented!("Not needed so far")
     }
 
@@ -53,7 +54,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.execute_upon_transaction_params.lock().unwrap().push(
             sql_statements
                 .iter()
-                .map(|stm_obj| stm_obj.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>(),
         );
         self.execute_upon_transaction_results.borrow_mut().remove(0)

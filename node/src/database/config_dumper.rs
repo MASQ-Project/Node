@@ -27,8 +27,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
-#[cfg(test)]
-use std::any::Any;
 use std::path::{Path, PathBuf};
 
 pub struct DumpConfigRunnerReal {
@@ -52,7 +50,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {
@@ -161,8 +159,8 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::ExternalData;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,

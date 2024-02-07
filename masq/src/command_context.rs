@@ -11,6 +11,8 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 
+pub const DEFAULT_TRANSACT_TIMEOUT_MILLIS: u64 = 1000;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
     ConnectionRefused(String),
@@ -151,6 +153,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handler::BroadcastHandleInactive;
+    use crate::test_utils::mocks::TRANSACT_TIMEOUT_MILLIS_FOR_TESTS;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
@@ -159,6 +162,11 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+
+    #[test]
+    fn constant_has_correct_values() {
+        assert_eq!(DEFAULT_TRANSACT_TIMEOUT_MILLIS, 1000);
+    }
 
     #[test]
     fn error_conversion_happy_path() {
@@ -233,7 +241,12 @@ mod tests {
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
 
-        let response = subject.transact(UiShutdownRequest {}.tmb(1), 1000).unwrap();
+        let response = subject
+            .transact(
+                UiShutdownRequest {}.tmb(1),
+                TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+            )
+            .unwrap();
         let mut input = String::new();
         subject.stdin().read_to_string(&mut input).unwrap();
         write!(subject.stdout(), "This is stdout.").unwrap();
@@ -283,7 +296,10 @@ mod tests {
         let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject.transact(
+            UiSetupRequest { values: vec![] }.tmb(1),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        );
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
         stop_handle.stop();
@@ -298,7 +314,10 @@ mod tests {
         let broadcast_handle = BroadcastHandleInactive;
         let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject.transact(
+            UiSetupRequest { values: vec![] }.tmb(1),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        );
 
         match response {
             Err(ConnectionDropped(_)) => (),

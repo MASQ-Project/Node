@@ -1,19 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
-use std::any::Any;
-
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
 use lazy_static::lazy_static;
-use masq_lib::implement_as_any;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
 use masq_lib::short_writeln;
-use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
+use masq_lib::utils::{to_string, DEFAULT_CONSUMING_DERIVATION_PATH};
 
 lazy_static! {
     static ref CONSUMING_PATH_HELP: String = format!(
@@ -85,8 +82,8 @@ impl GenerateWalletsCommand {
             Err(e) => return Err(format!("{}", e)),
         };
 
-        let consuming_path_opt = matches.value_of("consuming-path").map(|p| p.to_string());
-        let earning_path_opt = matches.value_of("earning-path").map(|p| p.to_string());
+        let consuming_path_opt = matches.value_of("consuming-path").map(to_string);
+        let earning_path_opt = matches.value_of("earning-path").map(to_string);
         let seed_spec_opt = if consuming_path_opt.is_some() || earning_path_opt.is_some() {
             Some(SeedSpec {
                 word_count: matches
@@ -99,7 +96,7 @@ impl GenerateWalletsCommand {
                     .value_of("language")
                     .expect("language not properly defaulted")
                     .to_string(),
-                passphrase_opt: matches.value_of("passphrase").map(|s| s.to_string()),
+                passphrase_opt: matches.value_of("passphrase").map(to_string),
             })
         } else {
             None
@@ -168,7 +165,7 @@ impl Command for GenerateWalletsCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn generate_wallets_subcommand() -> App<'static, 'static> {
