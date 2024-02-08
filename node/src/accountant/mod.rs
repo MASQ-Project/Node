@@ -173,7 +173,7 @@ impl Handler<ConfigurationChangeMessage> for Accountant {
             self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
         } else {
-            todo!("figure out something for this");
+            trace!(self.logger, "Unexpected message received: {:?}", msg);
         }
     }
 }
@@ -1074,7 +1074,7 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::TransactionReceipt;
-    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
+    use crate::sub_lib::neighborhood::ConfigurationChange::{UpdatePassword, UpdateWallets};
     use crate::sub_lib::neighborhood::WalletPair;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1231,7 +1231,7 @@ mod tests {
             System::new("accountant_updates_wallets_when_it_receives_configuration_change_msg");
         let consuming_wallet = make_paying_wallet(b"consuming");
         let earning_wallet = make_wallet("earning");
-        let config = bc_from_earning_wallet(earning_wallet.clone());
+        let config = make_bc_with_defaults();
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
@@ -1256,6 +1256,33 @@ mod tests {
         }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    fn accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg() {
+        init_test_logging();
+        let test_name = "accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg";
+        let system =
+            System::new(test_name);
+        let config = make_bc_with_defaults();
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .build();
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let unexpected_msg = ConfigurationChangeMessage {
+            change: UpdatePassword("new password".to_string()),
+        };
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(unexpected_msg.clone())
+            .unwrap();
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        TestLogHandler::new().exists_log_containing(&format!("TRACE: {test_name}: Unexpected message received: {:?}", unexpected_msg));
     }
 
     #[test]
