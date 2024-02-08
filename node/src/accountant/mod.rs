@@ -168,7 +168,11 @@ impl Handler<BindMessage> for Accountant {
 impl Handler<ConfigurationChangeMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ConfigurationChangeMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: ConfigurationChangeMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         if let ConfigurationChange::UpdateWallets(wallet_pair) = msg.change {
             self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
@@ -1035,6 +1039,10 @@ mod tests {
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+    use crate::sub_lib::neighborhood::ConfigurationChange::{
+        UpdateMinHops, UpdatePassword, UpdateWallets,
+    };
+    use crate::sub_lib::neighborhood::{Hops, WalletPair};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1074,8 +1082,6 @@ mod tests {
     use std::time::Duration;
     use std::vec;
     use web3::types::TransactionReceipt;
-    use crate::sub_lib::neighborhood::ConfigurationChange::{UpdatePassword, UpdateWallets};
-    use crate::sub_lib::neighborhood::WalletPair;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1226,63 +1232,62 @@ mod tests {
     }
 
     #[test]
-    fn accountant_updates_wallets_when_it_receives_configuration_change_msg() {
-        let system =
-            System::new("accountant_updates_wallets_when_it_receives_configuration_change_msg");
-        let consuming_wallet = make_paying_wallet(b"consuming");
-        let earning_wallet = make_wallet("earning");
-        let config = make_bc_with_defaults();
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .build();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: UpdateWallets(WalletPair {
-                    consuming_wallet: consuming_wallet.clone(),
-                    earning_wallet: earning_wallet.clone(),
-                }),
-            })
-            .unwrap();
-
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new(move |accountant: &mut Accountant| {
-                assert_eq!(accountant.consuming_wallet_opt, Some(consuming_wallet));
-                assert_eq!(accountant.earning_wallet, Rc::new(earning_wallet))
+    fn accountant_handles_configuration_change_msg() {
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateWallets(WalletPair {
+                consuming_wallet: make_paying_wallet(b"paying"),
+                earning_wallet: make_wallet("earning"),
             }),
-        }).unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdatePassword("new password".to_string()),
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateMinHops(Hops::FourHops),
+        })
     }
 
-    #[test]
-    fn accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg() {
+    fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
         init_test_logging();
-        let test_name = "accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg";
-        let system =
-            System::new(test_name);
+        let test_name =
+            "accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg";
+        let system = System::new(test_name);
         let config = make_bc_with_defaults();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
-        let unexpected_msg = ConfigurationChangeMessage {
-            change: UpdatePassword("new password".to_string()),
-        };
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr
-            .try_send(unexpected_msg.clone())
-            .unwrap();
+        subject_addr.try_send(msg.clone()).unwrap();
 
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |accountant: &mut Accountant| match msg.change {
+                    ConfigurationChange::UpdateWallets(wallet_pair) => {
+                        assert_eq!(
+                            accountant.consuming_wallet_opt,
+                            Some(wallet_pair.consuming_wallet)
+                        );
+                        assert_eq!(
+                            accountant.earning_wallet,
+                            Rc::new(wallet_pair.earning_wallet)
+                        )
+                    }
+                    ConfigurationChange::UpdatePassword(_)
+                    | ConfigurationChange::UpdateMinHops(_) => {
+                        let _ = TestLogHandler::new().exists_log_containing(&format!(
+                            "TRACE: {test_name}: Unexpected message received: {:?}",
+                            msg
+                        ));
+                    }
+                }),
+            })
+            .unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
-        TestLogHandler::new().exists_log_containing(&format!("TRACE: {test_name}: Unexpected message received: {:?}", unexpected_msg));
     }
 
     #[test]
