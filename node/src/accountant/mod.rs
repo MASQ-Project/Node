@@ -1235,8 +1235,8 @@ mod tests {
     fn accountant_handles_configuration_change_msg() {
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
             change: UpdateWallets(WalletPair {
-                consuming_wallet: make_paying_wallet(b"paying"),
-                earning_wallet: make_wallet("earning"),
+                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                earning_wallet: make_wallet("new_earning_wallet"),
             }),
         });
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
@@ -1249,8 +1249,7 @@ mod tests {
 
     fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
         init_test_logging();
-        let test_name =
-            "accountant_logs_and_ignores_when_it_receives_unexpected_configuration_change_msg";
+        let test_name = "assert_handling_of_configuration_change_msg";
         let system = System::new(test_name);
         let config = make_bc_with_defaults();
         let mut subject = AccountantBuilder::default()
