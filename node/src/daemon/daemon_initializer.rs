@@ -23,7 +23,9 @@ use masq_lib::utils::ExpectValue;
 use std::path::PathBuf;
 use std::str::FromStr;
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Networking::WinSock::WSAStartup;
+use windows::{core::*, Win32::Networking::WinSock::WSAStartup};
+use windows::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
+//use windows_sys::Win32::Networking::WinSock::WSAStartup;
 
 const WSADESCRIPTION_LEN: u32 = 128;
 const WSASYS_STATUS_LEN: u32 = 128;
@@ -67,15 +69,15 @@ impl ChannelFactory for ChannelFactoryReal {
     }
 }
 
-    pub struct WSADATA {
-        pub wVersion: u16,
-        pub wHighVersion: u16,
-        pub iMaxSockets: u16,
-        pub iMaxUdpDg: u16,
-        pub lpVendorInfo: *mut i8,
-        pub szDescription: [i8; (WSADESCRIPTION_LEN + 1) as usize],
-        pub szSystemStatus: [i8; (WSASYS_STATUS_LEN + 1) as usize],
-    }
+/*pub struct WSADATA {
+    pub wVersion: u16,
+    pub wHighVersion: u16,
+    pub iMaxSockets: u16,
+    pub iMaxUdpDg: u16,
+    pub lpVendorInfo: *mut i8,
+    pub szDescription: [i8; (WSADESCRIPTION_LEN + 1) as usize],
+    pub szSystemStatus: [i8; (WSASYS_STATUS_LEN + 1) as usize],
+}*/
 
 pub struct DaemonInitializerReal {
     config: InitializationConfig,
@@ -86,15 +88,19 @@ pub struct DaemonInitializerReal {
 
 impl DaemonInitializer for DaemonInitializerReal {
     fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> RunModeResult {
-        let wsa_startup_init = WSAStartup(WSADATA {
-            wVersion: 0,
-            wHighVersion: 0,
+        let lp_vendor: *mut u8 = 1 as *mut u8;
+        let wsdata: *mut windows::Win32::Networking::WinSock::WSADATA = windows::Win32::Networking::WinSock::WSADATA {
+            wVersion:  2.2 as u16,
+            wHighVersion: 2.2 as u16,
             iMaxSockets: 0,
-            iMaxUdpDg: 0,
-            lpVendorInfo: (),
-            szDescription: [],
-            szSystemStatus: [],
-        });
+            iMaxUdpDg: SO_MAX_MSG_SIZE as u16,
+            lpVendorInfo: PSTR::from_raw(lp_vendor),
+            szDescription: [1u8; WSADESCRIPTION_LEN + 1 as u32],
+            szSystemStatus: [1u8; WSASYS_STATUS_LEN + 1 as u32],
+        };
+        let wsa_startup_init = unsafe {
+            WSAStartup(2.2 as u16, wsdata)
+        };
         if port_is_busy(self.config.ui_port) {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));
