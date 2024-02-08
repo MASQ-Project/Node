@@ -5,6 +5,7 @@ mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
 mod inner;
+mod loading_test;
 mod log_fns;
 mod miscellaneous;
 mod pre_adjustment_analyzer;
@@ -239,6 +240,10 @@ impl PaymentAdjusterReal {
                 already_known_affordable_transaction_count,
             );
         let unallocated_balance = self.inner.unallocated_cw_service_fee_balance_minor();
+        let original_service_fee_balance = self.inner.original_cw_service_fee_balance_minor();
+        if unallocated_balance != original_service_fee_balance {
+            todo!("this is also weird...should be original balance, not unallocated")
+        }
 
         let is_service_fee_adjustment_needed =
             match self.analyzer.check_need_of_adjustment_by_service_fee(
@@ -309,6 +314,9 @@ impl PaymentAdjusterReal {
                         vec![]
                     }
                     TreatOutweighedAccounts(outweighed) => {
+                        if remaining.is_empty() {
+                            todo!("this is so wierd")
+                        }
                         self.adjust_cw_balance_down_as_result_of_current_iteration(&outweighed);
                         outweighed
                     }
@@ -456,6 +464,7 @@ impl PaymentAdjusterReal {
         multiplication_coefficient: U256,
     ) -> U256 {
         let cw_service_fee_balance = U256::from(cw_service_fee_balance);
+        eprintln!("weights total: {}", weights_total.separate_with_commas());
         let weights_total = U256::from(weights_total);
 
         cw_service_fee_balance
@@ -518,10 +527,10 @@ impl PaymentAdjusterReal {
         } else {
             let remaining_undecided_accounts: Vec<PayableAccount> =
                 convert_collection(properly_adjusted_accounts);
-            let ready_outweighed: Vec<AdjustedAccountBeforeFinalization> =
+            let pre_processed_outweighed: Vec<AdjustedAccountBeforeFinalization> =
                 convert_collection(outweighed);
             Either::Right(AdjustmentIterationResult::SpecialTreatmentRequired {
-                case: TreatOutweighedAccounts(ready_outweighed),
+                case: TreatOutweighedAccounts(pre_processed_outweighed),
                 remaining_undecided_accounts,
             })
         }

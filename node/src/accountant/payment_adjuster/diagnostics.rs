@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[cfg(test)]
 use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_characteristics::{
@@ -7,7 +7,7 @@ use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_chara
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
+const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 

@@ -4,6 +4,7 @@ use crate::accountant::payment_adjuster::criteria_calculators::{
     CalculatorInputHolder, CalculatorType, CriterionCalculator,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
+use thousands::Separable;
 
 // This parameter affects the steepness inversely, but just slowly.
 //
@@ -34,6 +35,7 @@ impl BalanceCriterionCalculator {
     pub fn new() -> Self {
         let formula = Box::new(|balance_minor_holder: CalculatorInputHolder| {
             let balance_minor = balance_minor_holder.balance_input();
+            eprintln!("balance minor: {}", balance_minor.separate_with_commas());
             let argument_for_log = Self::calculate_binary_argument(balance_minor);
             let binary_weight = Self::nonzero_log2(argument_for_log);
             balance_minor

@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
@@ -105,11 +105,11 @@ pub fn resolve_possibly_outweighed_account(
             .balance_wei;
 
         outweighed.push(current_adjustment_info);
-        (outweighed, passing_through)
     } else {
         passing_through.push(current_adjustment_info);
-        (outweighed, passing_through)
     }
+
+    (outweighed, passing_through)
 }
 
 pub fn exhaust_cw_till_the_last_drop(
