@@ -110,11 +110,15 @@ impl SkeletonOptHolder for RetrieveTransactions {
 impl Handler<ConfigurationChangeMessage> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: ConfigurationChangeMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(
+        &mut self,
+        msg: ConfigurationChangeMessage,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
         if let ConfigurationChange::UpdateWallets(wallet_pair) = msg.change {
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
         } else {
-            todo!("figure out bro")
+            trace!(self.logger, "Unexpected message received: {:?}", msg);
         }
     }
 }
@@ -534,7 +538,8 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::test_utils::{make_pending_payable_fingerprint, AccountantBuilder};
+    use crate::accountant::Accountant;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -549,6 +554,10 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
+    use crate::sub_lib::neighborhood::ConfigurationChange::{
+        UpdateMinHops, UpdatePassword, UpdateWallets,
+    };
+    use crate::sub_lib::neighborhood::{Hops, WalletPair};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
@@ -556,7 +565,8 @@ mod tests {
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
+        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -569,11 +579,10 @@ mod tests {
     use rustc_hex::FromHex;
     use std::any::TypeId;
     use std::path::Path;
+    use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256};
-    use crate::sub_lib::neighborhood::ConfigurationChange::UpdateWallets;
-    use crate::sub_lib::neighborhood::WalletPair;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -686,11 +695,75 @@ mod tests {
             })
             .unwrap();
 
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
-                assert_eq!(blockchain_bridge.consuming_wallet_opt, Some(consuming_wallet))
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
+                    assert_eq!(
+                        blockchain_bridge.consuming_wallet_opt,
+                        Some(consuming_wallet)
+                    )
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+    }
+
+    #[test]
+    fn blockchain_bridge_handles_configuration_change_msg() {
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateWallets(WalletPair {
+                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                earning_wallet: make_wallet("new_earning_wallet"),
             }),
-        }).unwrap();
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdatePassword("new password".to_string()),
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateMinHops(Hops::FourHops),
+        })
+    }
+
+    fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
+        init_test_logging();
+        let test_name = "assert_handling_of_configuration_change_msg";
+        let system = System::new(test_name);
+        let config = make_bc_with_defaults();
+        let mut subject = BlockchainBridge::new(
+            stub_bi(),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            None,
+        );
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |blockchain_bridge: &mut BlockchainBridge| {
+                    match msg.change {
+                        ConfigurationChange::UpdateWallets(wallet_pair) => {
+                            assert_eq!(
+                                blockchain_bridge.consuming_wallet_opt,
+                                Some(wallet_pair.consuming_wallet)
+                            );
+                        }
+                        ConfigurationChange::UpdatePassword(_)
+                        | ConfigurationChange::UpdateMinHops(_) => {
+                            let _ = TestLogHandler::new().exists_log_containing(&format!(
+                                "TRACE: {test_name}: Unexpected message received: {:?}",
+                                msg
+                            ));
+                        }
+                    }
+                }),
+            })
+            .unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
     }
