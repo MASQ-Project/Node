@@ -5950,37 +5950,6 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_updates_wallets_when_it_receives_configuration_change_msg() {
-        let system =
-            System::new("neighborhood_updates_wallets_when_it_receives_configuration_change_msg");
-        let consuming_wallet = make_paying_wallet(b"consuming");
-        let earning_wallet = make_wallet("earning");
-        let subject = make_standard_subject();
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: UpdateWallets(WalletPair {
-                    consuming_wallet: consuming_wallet.clone(),
-                    earning_wallet,
-                }),
-            })
-            .unwrap();
-
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(|neighborhood: &mut Neighborhood| {
-                    assert_eq!(neighborhood.consuming_wallet_opt, Some(consuming_wallet))
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-    }
-
-    #[test]
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]

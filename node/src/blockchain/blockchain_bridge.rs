@@ -670,46 +670,6 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_updates_wallets_when_it_receives_configuration_change_msg() {
-        let system = System::new(
-            "blockchain_bridge_updates_wallets_when_it_receives_configuration_change_msg",
-        );
-        let consuming_wallet = make_paying_wallet(b"consuming");
-        let earning_wallet = make_wallet("earning");
-        let subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: UpdateWallets(WalletPair {
-                    consuming_wallet: consuming_wallet.clone(),
-                    earning_wallet,
-                }),
-            })
-            .unwrap();
-
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
-                    assert_eq!(
-                        blockchain_bridge.consuming_wallet_opt,
-                        Some(consuming_wallet)
-                    )
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-    }
-
-    #[test]
     fn blockchain_bridge_handles_configuration_change_msg() {
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
             change: UpdateWallets(WalletPair {
