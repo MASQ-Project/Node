@@ -1635,6 +1635,7 @@ mod tests {
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
     use std::path::Path;
+    use std::rc::Rc;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1660,7 +1661,10 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage, ExpectedServices, NeighborhoodMode, WalletPair};
+    use crate::sub_lib::neighborhood::{
+        AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage,
+        ExpectedServices, NeighborhoodMode, WalletPair,
+    };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::peer_actors::PeerActors;
@@ -1682,24 +1686,27 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
-        make_node_to_ui_recipient, make_recipient_and_recording_arc,
+        assert_on_initialization_with_panic_on_migration, make_bc_with_defaults,
+        make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::accountant::test_utils::{bc_from_earning_wallet, AccountantBuilder};
+    use crate::accountant::Accountant;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::sub_lib::neighborhood::ConfigurationChange::{
+        UpdateMinHops, UpdatePassword, UpdateWallets,
+    };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::sub_lib::neighborhood::ConfigurationChange::{UpdatePassword, UpdateWallets};
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -3011,8 +3018,8 @@ mod tests {
                 change: ConfigurationChange::UpdateWallets(WalletPair {
                     consuming_wallet: expected_consuming_wallet,
                     earning_wallet: make_wallet("earning"),
-                    })
-                })
+                }),
+            })
             .unwrap();
         let route_request_2 =
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
@@ -3025,6 +3032,64 @@ mod tests {
 
         assert_eq!(route_1, expected_before_route);
         assert_eq!(route_2, expected_after_route);
+    }
+
+    #[test]
+    fn neighborhood_handles_configuration_change_msg() {
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateWallets(WalletPair {
+                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                earning_wallet: make_wallet("new_earning_wallet"),
+            }),
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdatePassword("new password".to_string()),
+        });
+        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
+            change: UpdateMinHops(Hops::FourHops),
+        })
+    }
+
+    fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
+        init_test_logging();
+        let test_name = "assert_handling_of_configuration_change_msg";
+        let system = System::new(test_name);
+        let config = make_bc_with_defaults();
+        let mut subject = make_standard_subject();
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |neighborhood: &mut Neighborhood| match msg.change {
+                    ConfigurationChange::UpdateWallets(wallet_pair) => {
+                        assert_eq!(
+                            neighborhood.consuming_wallet_opt,
+                            Some(wallet_pair.consuming_wallet)
+                        );
+                    }
+                    ConfigurationChange::UpdatePassword(new_password) => {
+                        assert_eq!(neighborhood.db_password_opt, Some(new_password))
+                    }
+                    ConfigurationChange::UpdateMinHops(new_min_hops) => {
+                        let expected_db_patch_size =
+                            Neighborhood::calculate_db_patch_size(new_min_hops);
+                        assert_eq!(neighborhood.min_hops, new_min_hops);
+                        assert_eq!(neighborhood.db_patch_size, expected_db_patch_size);
+                        assert_eq!(
+                            neighborhood.overall_connection_status.stage,
+                            OverallConnectionStage::NotConnected
+                        );
+                    }
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
@@ -5886,7 +5951,8 @@ mod tests {
 
     #[test]
     fn neighborhood_updates_wallets_when_it_receives_configuration_change_msg() {
-        let system = System::new("neighborhood_updates_wallets_when_it_receives_configuration_change_msg");
+        let system =
+            System::new("neighborhood_updates_wallets_when_it_receives_configuration_change_msg");
         let consuming_wallet = make_paying_wallet(b"consuming");
         let earning_wallet = make_wallet("earning");
         let subject = make_standard_subject();
