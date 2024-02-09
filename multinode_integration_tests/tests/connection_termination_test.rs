@@ -116,27 +116,28 @@ fn actual_server_drop() {
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
-    mock_node
-        .transmit_package(
-            mock_node.port_list()[0],
-            create_request_icp(
-                &mock_node,
-                &real_node,
-                stream_key,
-                return_route_id,
-                &server,
-                cluster.chain,
-            ),
-            &masquerader,
-            real_node.main_public_key(),
-            real_node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-    server.wait_for_chunk(Duration::from_secs(2)).unwrap();
-    server.send_chunk(HTTP_RESPONSE);
-    mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(2))
-        .unwrap();
+    let index: u64 = 0;
+    request_server_payload(
+        index,
+        &cluster,
+        &real_node,
+        &mock_node,
+        &mut server,
+        &masquerader,
+        stream_key,
+        return_route_id,
+    );
+    let index: u64 = 1;
+    request_server_payload(
+        index,
+        &cluster,
+        &real_node,
+        &mock_node,
+        &mut server,
+        &masquerader,
+        stream_key,
+        return_route_id,
+    );
 
     server.shutdown();
 
@@ -165,6 +166,40 @@ fn actual_server_drop() {
     assert!(payload.sequenced_packet.last_data);
 }
 
+fn request_server_payload(
+    index: u64,
+    cluster: &MASQNodeCluster,
+    real_node: &MASQRealNode,
+    mock_node: &MASQMockNode,
+    server: &mut MASQNodeServer,
+    masquerader: &JsonMasquerader,
+    stream_key: StreamKey,
+    return_route_id: u32,
+) {
+    mock_node
+        .transmit_package(
+            mock_node.port_list()[0],
+            create_request_icp(
+                index,
+                &mock_node,
+                &real_node,
+                stream_key,
+                return_route_id,
+                &server,
+                cluster.chain,
+            ),
+            masquerader,
+            real_node.main_public_key(),
+            real_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    server.wait_for_chunk(Duration::from_secs(2)).unwrap();
+    server.send_chunk(HTTP_RESPONSE);
+    mock_node
+        .wait_for_package(masquerader, Duration::from_secs(2))
+        .unwrap();
+}
+
 #[test]
 // Given: Exit Node is real_node; originating Node is mock_node.
 // Given: A stream is established through the exit Node to a server.
@@ -178,10 +213,12 @@ fn reported_client_drop() {
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
+    let index: u64 = 0;
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
             create_request_icp(
+                index,
                 &mock_node,
                 &real_node,
                 stream_key,
@@ -309,6 +346,7 @@ fn arbitrary_context() -> (StreamKey, u32) {
 }
 
 fn create_request_icp(
+    index: u64,
     originating_node: &MASQMockNode,
     exit_node: &MASQRealNode,
     stream_key: StreamKey,
@@ -343,7 +381,7 @@ fn create_request_icp(
             &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
             &ClientRequestPayload_0v1 {
                 stream_key,
-                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
+                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), index, false),
                 target_hostname: Some(format!("{}", server.local_addr().ip())),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,

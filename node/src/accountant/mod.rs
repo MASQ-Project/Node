@@ -4604,7 +4604,6 @@ mod tests {
             let factory = Accountant::dao_factory(data_dir);
             factory.make();
         };
-
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 }
