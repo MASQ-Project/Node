@@ -4,15 +4,15 @@ use crate::accountant::payment_adjuster::criteria_calculators::{
     CalculatorInputHolder, CalculatorType, CriterionCalculator,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
-use thousands::Separable;
 
 // This parameter affects the steepness inversely, but just slowly.
 //
-// Don't worry to change the number; it's not as scientific as it looks,
-// I arrived at it after many attempts, true, but only until I became
-// aligned with the tuning compared to the values gotten from the Age
-// parameter (to reproduce the process you probably need to use
-// the rendering tools from the diagnostics module)
+// Don't worry to joggle with this number; it's not as scientific as it looks like.
+// True, I arrived at it after many attempts when I finally became aligned with
+// the tuning, compared to the values the Age criterion calculator get
+// (in order to follow my steps you'll need to enable the rendering tools from
+// the 'diagnostics' module giving you a close look into the characteristics of
+// the formulas and therefore also the effects of your new settings)
 const BALANCE_LOG_2_ARG_DIVISOR: u128 = 18_490_000;
 // This parameter affects the steepness analogously, but energetically
 const BALANCE_FINAL_MULTIPLIER: u128 = 2;
@@ -35,7 +35,6 @@ impl BalanceCriterionCalculator {
     pub fn new() -> Self {
         let formula = Box::new(|balance_minor_holder: CalculatorInputHolder| {
             let balance_minor = balance_minor_holder.balance_input();
-            eprintln!("balance minor: {}", balance_minor.separate_with_commas());
             let argument_for_log = Self::calculate_binary_argument(balance_minor);
             let binary_weight = Self::nonzero_log2(argument_for_log);
             balance_minor

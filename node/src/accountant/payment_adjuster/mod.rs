@@ -315,14 +315,17 @@ impl PaymentAdjusterReal {
                     }
                     TreatOutweighedAccounts(outweighed) => {
                         if remaining.is_empty() {
+                            //TODO explain in a comment
+                            // now I know that: if an account is disqualified it can happen that
+                            // the cw balance become sufficient for the rest of accounts, proceeding to another
+                            // iteration, this results in all accounts classified as outweighed!!
                             todo!("this is so wierd")
                         }
-                        self.adjust_cw_balance_down_as_result_of_current_iteration(&outweighed);
+                        self.adjust_remaining_uallocated_cw_balance_down(&outweighed);
                         outweighed
                     }
                 };
 
-                // Note: There always must be at least one remaining account besides an outweighed one, by definition
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustments_recursively(
                         remaining,
@@ -464,7 +467,6 @@ impl PaymentAdjusterReal {
         multiplication_coefficient: U256,
     ) -> U256 {
         let cw_service_fee_balance = U256::from(cw_service_fee_balance);
-        eprintln!("weights total: {}", weights_total.separate_with_commas());
         let weights_total = U256::from(weights_total);
 
         cw_service_fee_balance
@@ -536,7 +538,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn adjust_cw_balance_down_as_result_of_current_iteration(
+    fn adjust_remaining_uallocated_cw_balance_down(
         &mut self,
         processed_outweighed: &[AdjustedAccountBeforeFinalization],
     ) {
