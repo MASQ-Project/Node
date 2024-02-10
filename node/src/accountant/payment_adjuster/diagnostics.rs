@@ -13,45 +13,68 @@ pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
 
 #[macro_export]
 macro_rules! diagnostics {
-    // Display a brief description and values from a collection
+    // Displays only a description of an event
+    ($description: literal) => {
+       diagnostics(
+           None::<fn()->String>,
+           $description,
+           None::<fn()->String>
+       )
+    };
+    // Displays a brief description and values from a collection
     ($description: literal, $debuggable_collection: expr) => {
         collection_diagnostics($description, $debuggable_collection)
     };
-    // Display a brief description and formatted literal with arguments
+    // Displays a brief description and formatted literal with arguments
     ($description: literal, $($formatted_values: tt)*) => {
-        diagnostics(None::<fn()->String>, $description, || format!($($formatted_values)*))
+        diagnostics(
+            None::<fn()->String>,
+            $description,
+            Some(|| format!($($formatted_values)*))
+        )
     };
-    // Display an account by wallet address, brief description and formatted literal with arguments
+    // Displays an account by wallet address, brief description and formatted literal with arguments
     ($wallet_ref: expr, $description: expr,  $($formatted_values: tt)*) => {
         diagnostics(
             Some(||$wallet_ref.to_string()),
             $description,
-            || format!($($formatted_values)*)
+            Some(|| format!($($formatted_values)*))
         )
     };
 }
 
 // Intended to be used through the overloaded macro diagnostics!() for better clearness
 // and differentiation from the primary functionality
-pub fn diagnostics<F1, F2>(subject_renderer_opt: Option<F1>, description: &str, value_renderer: F2)
-where
-    F1: Fn() -> String,
-    F2: Fn() -> String,
+pub fn diagnostics<F1, F2>(
+    subject_renderer_opt: Option<F1>,
+    description: &str,
+    value_renderer_opt: Option<F2>,
+) where
+    F1: FnOnce() -> String,
+    F2: FnOnce() -> String,
 {
     if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
-        let subject = if let Some(subject_renderer) = subject_renderer_opt {
-            subject_renderer()
-        } else {
-            "".to_string()
-        };
+        let subject = no_text_or_by_renderer(subject_renderer_opt);
+        let values = no_text_or_by_renderer(value_renderer_opt);
         eprintln!(
-            "{:<subject_column_length$} {:<length$} {}",
+            "{:<subject_column_length$} {:<description_length$} {}",
             subject,
             description,
-            value_renderer(),
+            values,
             subject_column_length = WALLET_ADDRESS_LENGTH,
-            length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
+            description_length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
         )
+    }
+}
+
+fn no_text_or_by_renderer<F>(renderer_opt: Option<F>) -> String
+where
+    F: FnOnce() -> String,
+{
+    if let Some(renderer) = renderer_opt {
+        renderer()
+    } else {
+        "".to_string()
     }
 }
 

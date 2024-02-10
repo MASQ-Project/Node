@@ -27,14 +27,15 @@ fn loading_test_with_randomized_params() {
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
+    let number_of_requested_scenarios = 100;
 
-    let scenarios = generate_scenarios(&mut gn, now, 100);
+    let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
 
     let scenario_results = scenarios
         .into_iter()
         .map(|prepared_adjustment| {
             let account_infos =
-                suck_off_account_infos(&prepared_adjustment.qualified_payables, now);
+                preserve_account_infos(&prepared_adjustment.qualified_payables, now);
             let required_adjustment = prepared_adjustment.adjustment.clone();
             let cw_service_fee_balance_minor =
                 prepared_adjustment.agent.service_fee_balance_minor();
@@ -50,7 +51,10 @@ fn loading_test_with_randomized_params() {
         })
         .collect();
 
-    render_results(scenario_results)
+    render_results_to_file_and_attempt_basic_assertions(
+        scenario_results,
+        number_of_requested_scenarios,
+    )
 }
 
 fn generate_scenarios(
@@ -77,20 +81,21 @@ fn make_single_scenario(gn: &mut ThreadRng, now: SystemTime) -> PreparedAdjustme
 fn make_qualified_payables(
     gn: &mut ThreadRng,
     now: SystemTime,
-    cw_service_fee_balance: u128,
+    cw_service_fee_balance_minor: u128,
 ) -> Vec<PayableAccount> {
     let accounts_count = generate_non_zero_usize(gn, 20) + 1;
-    let average_portion = cw_service_fee_balance / accounts_count as u128;
+    let average_portion_as_base = cw_service_fee_balance_minor / accounts_count as u128;
     (0..accounts_count)
         .map(|idx| {
             let wallet = make_wallet(&format!("wallet{}", idx));
             let debt_age = 2000 + generate_non_zero_usize(gn, 200000);
-            let balance_wei =
-                average_portion + average_portion / 100 * generate_non_zero_usize(gn, 1000) as u128;
+            let balance_wei = average_portion_as_base
+                + ((average_portion_as_base / 100) * generate_non_zero_usize(gn, 1000) as u128);
+            let last_paid_timestamp = from_time_t(to_time_t(now) - debt_age as i64);
             PayableAccount {
                 wallet,
                 balance_wei,
-                last_paid_timestamp: from_time_t(to_time_t(now) - debt_age as i64),
+                last_paid_timestamp,
                 pending_payable_opt: None,
             }
         })
@@ -109,8 +114,9 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
     let also_by_transaction_fee = generate_boolean(gn);
     if also_by_transaction_fee && accounts_count > 2 {
         let can_afford = generate_non_zero_usize(gn, accounts_count);
+        let affordable_transaction_count = u16::try_from(can_afford).unwrap();
         Adjustment::TransactionFeeInPriority {
-            affordable_transaction_count: u16::try_from(can_afford).unwrap(),
+            affordable_transaction_count,
         }
     } else {
         Adjustment::ByServiceFee
@@ -118,7 +124,7 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
 }
 
 fn prepare_single_scenario_result(
-    result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
+    payment_adjuster_result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
     account_infos: Vec<AccountInfo>,
     required_adjustment: Adjustment,
     cw_service_fee_balance_minor: u128,
@@ -127,7 +133,7 @@ fn prepare_single_scenario_result(
         cw_service_fee_balance_minor,
         required_adjustment,
     };
-    let result = match result {
+    let reinterpreted_result = match payment_adjuster_result {
         Ok(outbound_payment_instructions) => {
             let mut adjusted_accounts = outbound_payment_instructions.affordable_accounts;
             let adjusted_accounts = account_infos
@@ -140,7 +146,7 @@ fn prepare_single_scenario_result(
                 sort_interpretable_adjustments(adjusted_accounts);
             Ok(SuccessfulAdjustment {
                 common,
-                sorted_interpretable_adjustments,
+                partially_sorted_interpretable_adjustments: sorted_interpretable_adjustments,
             })
         }
         Err(adjuster_error) => Err(FailedAdjustment {
@@ -150,7 +156,7 @@ fn prepare_single_scenario_result(
         }),
     };
 
-    ScenarioResult::new(result)
+    ScenarioResult::new(reinterpreted_result)
 }
 
 struct ScenarioResult {
@@ -165,7 +171,7 @@ impl ScenarioResult {
 
 struct SuccessfulAdjustment {
     common: CommonScenarioInfo,
-    sorted_interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
+    partially_sorted_interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
 }
 
 struct FailedAdjustment {
@@ -174,7 +180,7 @@ struct FailedAdjustment {
     adjuster_error: PaymentAdjusterError,
 }
 
-fn suck_off_account_infos(accounts: &[PayableAccount], now: SystemTime) -> Vec<AccountInfo> {
+fn preserve_account_infos(accounts: &[PayableAccount], now: SystemTime) -> Vec<AccountInfo> {
     accounts
         .iter()
         .map(|account| AccountInfo {
@@ -188,18 +194,60 @@ fn suck_off_account_infos(accounts: &[PayableAccount], now: SystemTime) -> Vec<A
         .collect()
 }
 
-fn render_results(scenario_results: Vec<ScenarioResult>) {
+fn render_results_to_file_and_attempt_basic_assertions(
+    scenario_results: Vec<ScenarioResult>,
+    number_of_requested_scenarios: usize,
+) {
     let file_dir = ensure_node_home_directory_exists("payment_adjuster", "loading_test");
     let mut file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
-    scenario_results
+    let init = TestOverallOutput::default();
+    let overall_output = scenario_results
         .into_iter()
-        .for_each(|scenario_result| render_single_scenario(&mut file, scenario_result))
+        .fold(init, |acc, scenario_result| {
+            process_single_scenario(&mut file, acc, scenario_result)
+        });
+
+    let total_scenarios_evaluated = overall_output.oks
+        + overall_output.all_accounts_eliminated
+        + overall_output.insufficient_service_fee_balance;
+    assert_eq!(
+        total_scenarios_evaluated, number_of_requested_scenarios,
+        "Evaluated scenarios count ({}) != requested scenarios count ({})",
+        total_scenarios_evaluated, number_of_requested_scenarios
+    );
+    // This assertions depends heavily on the setup for the scenario generator!!
+    // It rather indicates how well the setting is so that you can adjust it eventually,
+    // to see more relevant results
+    let ok_percentage = (overall_output.oks * 100) / total_scenarios_evaluated;
+    let required_success_rate = 70;
+    assert!(
+        ok_percentage >= required_success_rate,
+        "Not at least {}% from {} of PaymentAdjuster runs finished with success",
+        required_success_rate,
+        total_scenarios_evaluated
+    );
 }
 
-fn render_single_scenario(file: &mut File, scenario: ScenarioResult) {
+fn process_single_scenario(
+    file: &mut File,
+    mut test_overall_output: TestOverallOutput,
+    scenario: ScenarioResult,
+) -> TestOverallOutput {
     match scenario.result {
-        Ok(positive) => render_positive_scenario(file, positive),
-        Err(negative) => render_negative_scenario(file, negative),
+        Ok(positive) => {
+            render_positive_scenario(file, positive);
+            test_overall_output.oks += 1;
+            test_overall_output
+        }
+        Err(negative) => {
+            match negative.adjuster_error{
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => {panic!("impossible in this kind of test without the initial check")}
+                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated { .. } => {test_overall_output.insufficient_service_fee_balance += 1}
+                PaymentAdjusterError::AllAccountsEliminated => {test_overall_output.all_accounts_eliminated += 1}
+            }
+            render_negative_scenario(file, negative);
+            test_overall_output
+        }
     }
 }
 
@@ -224,9 +272,9 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
         result.common.required_adjustment,
     );
     write_thin_dividing_line(file);
-    let adjusted_accounts = result.sorted_interpretable_adjustments;
+    let adjusted_accounts = result.partially_sorted_interpretable_adjustments;
     adjusted_accounts.into_iter().for_each(|account| {
-        single_account_liner(
+        single_account_output(
             file,
             account.initial_balance,
             account.debt_age_s,
@@ -238,7 +286,7 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
 const BALANCE_COLUMN_WIDTH: usize = 30;
 const AGE_COLUMN_WIDTH: usize = 7;
 
-fn single_account_liner(
+fn single_account_output(
     file: &mut File,
     balance_minor: u128,
     age_s: u64,
@@ -321,7 +369,7 @@ fn render_negative_scenario(file: &mut File, negative_result: FailedAdjustment) 
     );
     write_thin_dividing_line(file);
     negative_result.account_infos.iter().for_each(|account| {
-        single_account_liner(
+        single_account_output(
             file,
             account.initially_requested_service_fee_minor,
             account.debt_age_s,
@@ -375,11 +423,13 @@ fn generate_boolean(gn: &mut ThreadRng) -> bool {
     gn.gen()
 }
 
-// struct ResultTypesCounter {
-//     oks: usize,
-//     all_accounts_eliminated: usize,
-//     other_errors: usize,
-// }
+#[derive(Default)]
+struct TestOverallOutput {
+    oks: usize,
+    // Errors
+    all_accounts_eliminated: usize,
+    insufficient_service_fee_balance: usize,
+}
 
 struct CommonScenarioInfo {
     cw_service_fee_balance_minor: u128,

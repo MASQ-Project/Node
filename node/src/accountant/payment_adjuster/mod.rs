@@ -5,10 +5,12 @@ mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
 mod inner;
+#[cfg(test)]
 mod loading_test;
 mod log_fns;
 mod miscellaneous;
 mod pre_adjustment_analyzer;
+#[cfg(test)]
 mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -27,7 +29,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::Require
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, AdjustmentResolution, NonFinalizedAdjustmentWithResolution, RecursionResults, UnconfirmedAdjustment, WeightedAccount};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, isolate_accounts_from_weights, drop_accounts_that_cannot_be_afforded_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, found_zero_affordable_accounts};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, isolate_accounts_from_weights, drop_unaffordable_accounts_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, found_zero_affordable_accounts};
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
@@ -235,21 +237,17 @@ impl PaymentAdjusterReal {
         PaymentAdjusterError,
     > {
         let accounts_with_criteria_affordable_by_transaction_fee =
-            drop_accounts_that_cannot_be_afforded_due_to_service_fee(
+            drop_unaffordable_accounts_due_to_service_fee(
                 weighted_accounts_in_descending_order,
                 already_known_affordable_transaction_count,
             );
-        let unallocated_balance = self.inner.unallocated_cw_service_fee_balance_minor();
-        let original_service_fee_balance = self.inner.original_cw_service_fee_balance_minor();
-        if unallocated_balance != original_service_fee_balance {
-            todo!("this is also weird...should be original balance, not unallocated")
-        }
+        let cw_service_fee_balance = self.inner.original_cw_service_fee_balance_minor();
 
         let is_service_fee_adjustment_needed =
             match self.analyzer.check_need_of_adjustment_by_service_fee(
                 &self.logger,
                 Either::Right(&accounts_with_criteria_affordable_by_transaction_fee),
-                unallocated_balance,
+                cw_service_fee_balance,
             ) {
                 Ok(answer) => answer,
                 Err(e) => {
@@ -260,6 +258,8 @@ impl PaymentAdjusterReal {
 
         match is_service_fee_adjustment_needed {
             true => {
+                diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
+
                 let adjustment_result_before_verification = self
                     .propose_possible_adjustment_recursively(
                         accounts_with_criteria_affordable_by_transaction_fee,

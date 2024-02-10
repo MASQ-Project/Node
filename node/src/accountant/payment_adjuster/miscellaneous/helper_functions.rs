@@ -51,7 +51,7 @@ pub fn weights_total(weights_and_accounts: &[WeightedAccount]) -> u128 {
     })
 }
 
-pub fn drop_accounts_that_cannot_be_afforded_due_to_service_fee(
+pub fn drop_unaffordable_accounts_due_to_service_fee(
     weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     affordable_transaction_count: u16,
 ) -> Vec<WeightedAccount> {
