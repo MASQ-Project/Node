@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = true;
 
-pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 60;
+pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 58;
 
 #[macro_export]
 macro_rules! diagnostics {
@@ -54,15 +54,17 @@ pub fn diagnostics<F1, F2>(
     F2: FnOnce() -> String,
 {
     if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
+        let subject_column_length = if subject_renderer_opt.is_some() {
+            WALLET_ADDRESS_LENGTH + 2
+        } else {
+            0
+        };
         let subject = no_text_or_by_renderer(subject_renderer_opt);
         let values = no_text_or_by_renderer(value_renderer_opt);
+        let description_length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH;
         eprintln!(
-            "{:<subject_column_length$} {:<description_length$} {}",
-            subject,
-            description,
-            values,
-            subject_column_length = WALLET_ADDRESS_LENGTH,
-            description_length = DIAGNOSTICS_MIDDLE_COLUMN_WIDTH
+            "\n{:<subject_column_length$}{:<description_length$}  {}",
+            subject, description, values,
         )
     }
 }
@@ -192,7 +194,7 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             wallet_ref,
             "PARTIAL CRITERION CALCULATED",
-            "{:<width$} {} and summed up as {}",
+            "For {:<width$} {} and summed up to {}",
             calculator.calculator_type(),
             criterion.separate_with_commas(),
             added_in_the_sum.separate_with_commas(),

@@ -208,7 +208,7 @@ impl PaymentAdjusterReal {
         AR: AdjustmentRunner<ReturnType = RT>,
     {
         diagnostics!(
-            "\nUNRESOLVED QUALIFIED ACCOUNTS:",
+            "\nUNRESOLVED QUALIFIED ACCOUNTS IN CURRENT ITERATION:",
             &unresolved_qualified_accounts
         );
 
@@ -285,7 +285,10 @@ impl PaymentAdjusterReal {
 
         let merged = recursion_results.merge_results_from_recursion();
 
-        diagnostics!("\nFINAL ADJUSTED ACCOUNTS:", &merged);
+        diagnostics!(
+            "\nFINAL SET OF ADJUSTED ACCOUNTS IN CURRENT ITERATION:",
+            &merged
+        );
 
         Ok(merged)
     }
