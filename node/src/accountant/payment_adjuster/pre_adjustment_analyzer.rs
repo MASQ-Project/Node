@@ -148,7 +148,7 @@ impl TransactionFeeAdjustmentPossibilityVerifier {
         } else {
             let total_amount_demanded_minor = sum_as(accounts, |account| account.balance_wei);
             Err(
-                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: accounts.len(),
                     total_amount_demanded_minor,
                     cw_service_fee_balance_minor,
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 3,
                     total_amount_demanded_minor: 2_000_000_000 + 2_000_000_002 + 1_000_000_002,
                     cw_service_fee_balance_minor: cw_service_fee_balance

@@ -55,7 +55,7 @@ fn loading_test_with_randomized_params() {
                     Some(_) => ()
                 };
                 Some(scenario)}
-                Err(PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {..}) => {
+                Err(PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {..}) => {
                     output_collector.test_overall_output_collector.scenarios_eliminated_before_adjustment_started += 1;
                     None
                 }
@@ -340,10 +340,16 @@ fn process_single_scenario(
             test_overall_output
         }
         Err(negative) => {
-            match negative.adjuster_error{
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => {panic!("impossible in this kind of test without the initial check")}
-                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated { .. } => {test_overall_output.insufficient_service_fee_balance += 1}
-                PaymentAdjusterError::AllAccountsEliminated => {test_overall_output.all_accounts_eliminated += 1}
+            match negative.adjuster_error {
+                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => {
+                    panic!("impossible in this kind of test without the initial check")
+                }
+                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+                    ..
+                } => test_overall_output.insufficient_service_fee_balance += 1,
+                PaymentAdjusterError::AllAccountsEliminated => {
+                    test_overall_output.all_accounts_eliminated += 1
+                }
             }
             render_negative_scenario(file, negative);
             test_overall_output

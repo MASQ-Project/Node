@@ -597,7 +597,7 @@ pub enum PaymentAdjusterError {
         per_transaction_requirement_minor: u128,
         cw_transaction_fee_balance_minor: U256,
     },
-    RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+    NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
         number_of_accounts: usize,
         total_amount_demanded_minor: u128,
         cw_service_fee_balance_minor: u128,
@@ -621,23 +621,23 @@ impl Display for PaymentAdjusterError {
                 per_transaction_requirement_minor.separate_with_commas(),
                 cw_transaction_fee_balance_minor.separate_with_commas()
             ),
-            PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts,
                 total_amount_demanded_minor,
                 cw_service_fee_balance_minor,
             } => write!(
                 f,
-                "Analysis projected a possibility for an adjustment leaving each of the transactions \
-                with an uneconomical portion of money compared to the whole bills. Please proceed \
-                by sending funds to your consuming wallet. Number of canceled payments: {}. \
-                Total amount demanded: {} wei. Consuming wallet balance: {} wei",
+                "Found a smaller service fee balance than it does for a single payment. \
+                Number of canceled payments: {}. Total amount demanded: {} wei. Consuming \
+                wallet balance: {} wei",
                 number_of_accounts.separate_with_commas(),
                 total_amount_demanded_minor.separate_with_commas(),
                 cw_service_fee_balance_minor.separate_with_commas()
             ),
             PaymentAdjusterError::AllAccountsEliminated => write!(
                 f,
-                "The adjustment algorithm had to eliminate each payable given the resources."
+                "The adjustment algorithm had to eliminate each payable from payments \
+                due to luck of resources."
             ),
         }
     }
@@ -832,7 +832,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 3,
                     total_amount_demanded_minor: 920_000_000_000,
                     cw_service_fee_balance_minor
@@ -877,30 +877,30 @@ mod tests {
     fn payment_adjuster_error_implements_display() {
         vec![
             (
-                PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
-                        number_of_accounts: 5,
+                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+                    number_of_accounts: 5,
                     total_amount_demanded_minor: 6_000_000_000,
                     cw_service_fee_balance_minor: 333_000_000,
-                    },
-                "Analysis projected a possibility for an adjustment leaving each of \
-                the transactions with an uneconomical portion of money compared to the whole bills. \
-                Please proceed by sending funds to your consuming wallet. Number of canceled \
-                payments: 5. Total amount demanded: 6,000,000,000 wei. Consuming wallet balance: \
-                333,000,000 wei",
+                },
+                "Found a smaller service fee balance than it does for a single payment. \
+                Number of canceled payments: 5. Total amount demanded: 6,000,000,000 wei. \
+                Consuming wallet balance: 333,000,000 wei",
             ),
             (
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
-                        number_of_accounts: 4,
-                        per_transaction_requirement_minor: 70_000_000_000_000,
-                        cw_transaction_fee_balance_minor: U256::from(90_000),
-                    },
-                "Found a smaller transaction fee balance than it does for a single payment. \
-                Number of canceled payments: 4. Transaction fee by single account: \
-                70,000,000,000,000 wei. Consuming wallet balance: 90,000 wei",
+                    number_of_accounts: 4,
+                    per_transaction_requirement_minor: 70_000_000_000_000,
+                    cw_transaction_fee_balance_minor: U256::from(90_000),
+                },
+                "Found a smaller transaction fee balance than it does for a single \
+                payment. Number of canceled payments: 4. Transaction fee by single \
+                account: 70,000,000,000,000 wei. Consuming wallet balance: 90,000 \
+                wei",
             ),
             (
                 PaymentAdjusterError::AllAccountsEliminated,
-                "The adjustment algorithm had to eliminate each payable given the resources.",
+                "The adjustment algorithm had to eliminate each payable from payments \
+                due to luck of resources.",
             ),
         ]
         .into_iter()
@@ -1797,7 +1797,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            PaymentAdjusterError::RiskOfWastefulAdjustmentWithAllAccountsEventuallyEliminated {
+            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts: 2,
                 total_amount_demanded_minor: 333_000_000_000_000 + 222_000_000_000_000,
                 cw_service_fee_balance_minor: service_fee_balance_in_minor_units
