@@ -26,7 +26,9 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::configuration_change_subs::UpdateWalletsSubs;
+use crate::node_configurator::configuration_change_subs::{
+    ConfigurationChangeSubs, UpdateWalletsSubs,
+};
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
 use crate::sub_lib::neighborhood::{
     ConfigurationChange, ConfigurationChangeMessage, Hops, WalletPair,
@@ -53,7 +55,7 @@ pub struct Configurator {
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
     update_password_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
-    update_wallets_subs_opt: Option<UpdateWalletsSubs>,
+    update_wallets_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
     crashable: bool,
     logger: Logger,
 }
@@ -79,14 +81,14 @@ impl Handler<BindMessage> for Configurator {
                 .configuration_change_msg_sub
                 .clone(),
         );
-        self.update_wallets_subs_opt = Some(UpdateWalletsSubs {
+        self.update_wallets_subs_opt = Some(Box::new(UpdateWalletsSubs {
             accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
             blockchain_bridge: msg
                 .peer_actors
                 .blockchain_bridge
                 .configuration_change_msg_sub,
             neighborhood: msg.peer_actors.neighborhood.configuration_change_msg_sub,
-        });
+        }));
     }
 }
 
@@ -1805,7 +1807,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_wallets_subs_opt = Some(make_update_wallets_subs());
+        subject.update_wallets_subs_opt = Some(Box::new(make_update_wallets_subs()));
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = Some(derivation_path(0, 5));
 
@@ -1861,7 +1863,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_wallets_subs_opt = Some(make_update_wallets_subs());
+        subject.update_wallets_subs_opt = Some(Box::new(make_update_wallets_subs()));
         let mut request = make_example_recover_wallets_request_with_paths();
         request
             .seed_spec_opt
