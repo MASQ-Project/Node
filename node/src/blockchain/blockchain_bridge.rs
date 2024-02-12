@@ -538,8 +538,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
-    use crate::accountant::test_utils::{make_pending_payable_fingerprint, AccountantBuilder};
-    use crate::accountant::Accountant;
+    use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -565,8 +564,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
-        ZERO,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -579,7 +577,6 @@ mod tests {
     use rustc_hex::FromHex;
     use std::any::TypeId;
     use std::path::Path;
-    use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256};
@@ -689,7 +686,6 @@ mod tests {
         init_test_logging();
         let test_name = "assert_handling_of_configuration_change_msg";
         let system = System::new(test_name);
-        let config = make_bc_with_defaults();
         let mut subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(PersistentConfigurationMock::default()),

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+pub mod configuration_change_subs;
 pub mod configurator;
 pub mod node_configurator_initialization;
 pub mod node_configurator_standard;

@@ -26,6 +26,7 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::node_configurator::configuration_change_subs::UpdateWalletsSubs;
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
 use crate::sub_lib::neighborhood::{
     ConfigurationChange, ConfigurationChangeMessage, Hops, WalletPair,
@@ -86,22 +87,6 @@ impl Handler<BindMessage> for Configurator {
                 .configuration_change_msg_sub,
             neighborhood: msg.peer_actors.neighborhood.configuration_change_msg_sub,
         });
-    }
-}
-
-struct UpdateWalletsSubs {
-    accountant: Recipient<ConfigurationChangeMessage>,
-    blockchain_bridge: Recipient<ConfigurationChangeMessage>,
-    neighborhood: Recipient<ConfigurationChangeMessage>,
-}
-
-impl UpdateWalletsSubs {
-    fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 3] {
-        [
-            &self.accountant,
-            &self.blockchain_bridge,
-            &self.neighborhood,
-        ]
     }
 }
 

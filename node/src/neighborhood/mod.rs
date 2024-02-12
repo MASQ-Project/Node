@@ -1635,7 +1635,6 @@ mod tests {
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
     use std::path::Path;
-    use std::rc::Rc;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1686,16 +1685,15 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, make_bc_with_defaults,
-        make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
+        assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
+        make_node_to_ui_recipient, make_recipient_and_recording_arc,
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
-    use crate::accountant::test_utils::{bc_from_earning_wallet, AccountantBuilder};
-    use crate::accountant::Accountant;
+    use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
@@ -3055,7 +3053,6 @@ mod tests {
         init_test_logging();
         let test_name = "assert_handling_of_configuration_change_msg";
         let system = System::new(test_name);
-        let config = make_bc_with_defaults();
         let mut subject = make_standard_subject();
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
