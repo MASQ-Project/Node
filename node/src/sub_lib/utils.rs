@@ -14,6 +14,13 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Networking::WinSock::WSAStartup;
+#[cfg(target_os = "windows")]
+use windows_sys::core::PSTR;
+
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
     ErrorKind::ConnectionAborted,
@@ -249,6 +256,32 @@ pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Pat
 pub struct MessageScheduler<M: Message> {
     pub scheduled_msg: M,
     pub delay: Duration,
+}
+
+#[cfg(target_os = "windows")]
+pub unsafe fn wsa_startup_init() {
+    let lp_vendor: *mut u8 = 1 as *mut u8;
+    let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA = &mut windows_sys::Win32::Networking::WinSock::WSADATA {
+        wVersion:  2.2 as u16,
+        wHighVersion: 2.2 as u16,
+        iMaxSockets: 0,
+        iMaxUdpDg: SO_MAX_MSG_SIZE as u16,
+        lpVendorInfo: lp_vendor as PSTR,
+        szDescription: [1u8; 257usize],
+        szSystemStatus: [1u8; 129usize],
+    } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
+
+    let wsa_startup_init: i32 = WSAStartup(2.2 as u16, wsdata);
+
+    match wsa_startup_init {
+        0 => println!("WSAStartup was called and started successfully"),
+        10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. "),
+        10092 => panic!("WSAStartup: The version of Windows Sockets support requested is not provided by this particular Windows Sockets implementation."),
+        10036 => panic!("WSAStartup: A blocking Windows Sockets 1.1 operation is in progress."),
+        10067 => panic!("WSAStartup: A limit on the number of tasks supported by the Windows Sockets implementation has been reached. "),
+        10014 => panic!("WSAStartup: The lpWSAData parameter is not a valid pointer."),
+        _ => panic!("WSAStartup: WSAStartup returned unimplemented error")
+    };
 }
 
 #[cfg(test)]

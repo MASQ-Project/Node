@@ -7,6 +7,8 @@ use crate::node_configurator::node_configurator_standard::server_initializer_col
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
+#[cfg(target_os = "windows")]
+use crate::sub_lib::utils::wsa_startup_init;
 use backtrace::Backtrace;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
@@ -37,6 +39,11 @@ pub struct ServerInitializerReal {
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+
+        #[cfg(target_os = "windows")]
+        unsafe {
+            wsa_startup_init();
+        }
 
         let result: RunModeResult = Ok(())
             .combine_results(

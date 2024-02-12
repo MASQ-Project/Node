@@ -63,9 +63,9 @@ unindent = "0.1.7"
 variant_count = "1.1.0"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
+windows-sys = { version = "0.52.0", features = ["Win32_Networking", "Win32_Networking_WinSock"] }
 secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
 uuid = "0.7.4"
-windows-sys = { version = "0.52.0", features = [] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"
@@ -79,9 +79,6 @@ openssl = {version = "0.10.38", features = ["vendored"]}
 winreg = "0.10.1"
 ipconfig = "0.2.2"
 
-[dependencies.windows]
-version = "0.52"
-features = ["Win32_Networking", "Win32_Networking_WinSock"]
 
 [dev-dependencies]
 base58 = "0.2.0"
