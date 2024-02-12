@@ -2984,6 +2984,7 @@ mod tests {
 
     #[test]
     fn can_update_consuming_wallet_with_configuration_change_msg() {
+        // TODO: GH-728 - figure out whether we need this test or not?
         let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
         let (o, r, e, mut subject) = make_o_r_e_subject();
@@ -3123,7 +3124,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_can_be_changed_during_runtime_using_configuration_change_msg() {
+    fn min_hops_change_triggers_node_to_ui_broadcast_message() {
         init_test_logging();
         let test_name = "min_hops_can_be_changed_during_runtime_using_configuration_change_msg";
         let new_min_hops = Hops::FourHops;
