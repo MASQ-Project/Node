@@ -156,7 +156,7 @@ where
         interval: Duration,
         ctx: &mut Context<A>,
     ) -> Box<dyn NLSpawnHandleHolder>;
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Default)]
@@ -186,7 +186,7 @@ where
         let handle = ctx.notify_later(msg, interval);
         Box::new(NLSpawnHandleHolderReal::new(handle))
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait NotifyHandle<M, A>
@@ -194,7 +194,7 @@ where
     A: Actor<Context = Context<A>>,
 {
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>);
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 impl<M, A> Default for Box<dyn NotifyHandle<M, A>>
@@ -241,7 +241,7 @@ where
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
         ctx.notify(msg)
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! {

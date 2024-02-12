@@ -65,7 +65,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         &*self.lower_level_interface
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl Default for BlockchainInterfaceNull {

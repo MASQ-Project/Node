@@ -88,7 +88,7 @@ impl DaemonInitializer for DaemonInitializerReal {
         self.split(system, receiver);
         Ok(())
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait Rerunner {

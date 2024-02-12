@@ -18,7 +18,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals, DirsWrapper, DirsWrapperReal,
+    data_directory_from_context, determine_user_specific_data, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
 use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
@@ -46,10 +46,16 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
-    blanked_arg: "chain",
-    linked_arg: "data-directory",
-}];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[
+    // If we have chain A and data directory X, and then an incoming_setup arrives with chain blanked out and data
+    // directory Y, we'll preserve the blank chain, but resurrect data directory X. (I'm not sure this is correct;
+    // perhaps if we're going to take advantage of a default chain, we should also use the default chain's data
+    // directory. --Dan)
+    ErrorSensitiveArgPair {
+        blanked_arg: "chain",
+        linked_arg: "data-directory",
+    },
+];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -110,6 +116,10 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("DEFAULTS", &default_setup);
         eprintln_setup("EXISTING", &existing_setup);
         eprintln_setup("BLANKED-OUT FORMER VALUES", &blanked_out_former_values);
+        eprintln_setup(
+            "PREVENTION TO ERR INDUCED SETUP IMPAIRMENTS",
+            &prevention_to_err_induced_setup_impairments,
+        );
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
@@ -487,21 +497,24 @@ impl SetupReporterReal {
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
         }
-        if environment {
-            vcls.push(Box::new(EnvironmentVcl::new(&app)));
-        }
         if config_file {
             let command_line = match command_line_opt {
                 Some(command_line) => command_line,
                 None => vec![],
             };
-            let (config_file_path, user_specified, _data_directory, _real_user) =
-                determine_fundamentals(dirs_wrapper, &app, &command_line)?;
-            let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
+            let user_specific_data =
+                determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
+            let config_file_vcl = match ConfigFileVcl::new(
+                &user_specific_data.config_file.item,
+                user_specific_data.config_file.user_specified,
+            ) {
                 Ok(cfv) => cfv,
                 Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
             };
             vcls.push(Box::new(config_file_vcl));
+        }
+        if environment {
+            vcls.push(Box::new(EnvironmentVcl::new(&app)));
         }
         make_new_multi_config(&app, vcls)
     }
@@ -1189,8 +1202,8 @@ mod tests {
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -1213,6 +1226,7 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
+    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyMumbai;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -1292,7 +1306,7 @@ mod tests {
     fn everything_in_defaults_is_properly_constructed() {
         let result = SetupReporterReal::get_default_params();
 
-        assert_eq!(result.is_empty(), false, "{:?}", result); // if we don't have any defaults, let's get rid of all this
+        assert_eq!(result.is_empty(), true, "{:?}", result); // if we have any defaults, let's get back to false statement here and assert right value line below
         result.into_iter().for_each(|(name, value)| {
             assert_eq!(name, value.name);
             assert_eq!(value.status, Default);
@@ -1387,7 +1401,7 @@ mod tests {
             ),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
             (
@@ -1566,7 +1580,7 @@ mod tests {
             ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "Message", Set),
             ("data-directory", chain_specific_data_dir.to_str().unwrap(), Set),
@@ -1639,7 +1653,7 @@ mod tests {
             ("blockchain-service-url", "https://example3.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Error", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -1694,7 +1708,10 @@ mod tests {
                 .write_all(b"clandestine-port = \"7788\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
-            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"Error\"\n").unwrap();
+            config_file
+                .write_all(b"db-password = \"mainnetPassword\"\n")
+                .unwrap();
             config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
@@ -1708,7 +1725,7 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
-                .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .write_all(b"neighborhood-mode = \"standard\"\n")
                 .unwrap();
             config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
@@ -1789,7 +1806,7 @@ mod tests {
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "8877", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             (
                 "consuming-private-key",
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
@@ -1948,7 +1965,7 @@ mod tests {
             ("blockchain-service-url", "", Required),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -2026,6 +2043,58 @@ mod tests {
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_tilde_in_config_file_path() {
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_tilde_in_data_directory",
+        );
+        let data_dir = base_dir.join("data_dir");
+        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
+        let mut config_file = File::create(
+            home_dir()
+                .expect("expect home dir")
+                .join("masqhome")
+                .join("config.toml"),
+        )
+        .unwrap();
+        config_file
+            .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
+            .unwrap();
+        let existing_setup = setup_cluster_from(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![
+            ("data-directory", "~/masqhome"),
+            ("config-file", "~/masqhome/config.toml"),
+        ]
+        .into_iter()
+        .map(|(name, value)| UiSetupRequestValue::new(name, value))
+        .collect_vec();
+
+        let expected_config_file_data = "https://www.mainnet.com";
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
+        assert_eq!(actual_config_file_data, expected_config_file_data);
     }
 
     #[test]
@@ -2627,10 +2696,7 @@ mod tests {
             .calculate_configured_setup(&setup, &data_directory)
             .0;
 
-        assert_eq!(
-            result.get("config-file").unwrap().value,
-            "config.toml".to_string()
-        );
+        assert_eq!(result.get("config-file").unwrap().value, "".to_string());
         assert_eq!(
             result.get("gas-price").unwrap().value,
             GasPrice {}

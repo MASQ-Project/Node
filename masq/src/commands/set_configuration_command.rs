@@ -1,7 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
-use masq_lib::as_any_in_trait_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::gas_price_arg;
 use masq_lib::shared_schema::min_hops_arg;
@@ -53,7 +53,7 @@ impl Command for SetConfigurationCommand {
         Ok(())
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 const SET_CONFIGURATION_ABOUT: &str =
