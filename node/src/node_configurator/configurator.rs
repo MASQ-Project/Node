@@ -894,13 +894,7 @@ impl Configurator {
             self.update_wallets_subs_opt
                 .as_ref()
                 .expect("Configuration is unbound")
-                .recipients()
-                .iter()
-                .for_each(|recipient| {
-                    recipient
-                        .try_send(msg.clone())
-                        .expect("Update Wallets recipient is dead")
-                });
+                .send_msg_to_subs(msg);
         } else {
             panic!("Unable to retrieve wallets from persistent configuration")
         };

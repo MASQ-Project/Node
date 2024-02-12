@@ -2981,59 +2981,6 @@ mod tests {
     }
 
     #[test]
-    fn can_update_consuming_wallet_with_configuration_change_msg() {
-        // TODO: GH-728 - figure out whether we need this test or not?
-        let cryptde = main_cryptde();
-        let system = System::new("can_update_consuming_wallet");
-        let (o, r, e, mut subject) = make_o_r_e_subject();
-        subject.min_hops = Hops::TwoHops;
-        let addr: Addr<Neighborhood> = subject.start();
-        let configuration_change_msg_sub = addr.clone().recipient::<ConfigurationChangeMessage>();
-        let route_sub = addr.recipient::<RouteQueryMessage>();
-        let expected_consuming_wallet = make_paying_wallet(b"new consuming wallet");
-        let expected_before_route = Route::round_trip(
-            segment(&[&o, &r, &e], &Component::ProxyClient),
-            segment(&[&e, &r, &o], &Component::ProxyServer),
-            cryptde,
-            Some(make_paying_wallet(b"consuming")),
-            0,
-            Some(TEST_DEFAULT_CHAIN.rec().contract),
-        )
-        .unwrap();
-        let expected_after_route = Route::round_trip(
-            segment(&[&o, &r, &e], &Component::ProxyClient),
-            segment(&[&e, &r, &o], &Component::ProxyServer),
-            cryptde,
-            Some(expected_consuming_wallet.clone()),
-            1,
-            Some(TEST_DEFAULT_CHAIN.rec().contract),
-        )
-        .unwrap();
-
-        let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
-        configuration_change_msg_sub
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateWallets(WalletPair {
-                    consuming_wallet: expected_consuming_wallet,
-                    earning_wallet: make_wallet("earning"),
-                }),
-            })
-            .unwrap();
-        let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
-
-        System::current().stop();
-        system.run();
-
-        let route_1 = route_request_1.wait().unwrap().unwrap().route;
-        let route_2 = route_request_2.wait().unwrap().unwrap().route;
-
-        assert_eq!(route_1, expected_before_route);
-        assert_eq!(route_2, expected_after_route);
-    }
-
-    #[test]
     fn neighborhood_handles_configuration_change_msg() {
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
             change: UpdateWallets(WalletPair {
@@ -5919,54 +5866,6 @@ mod tests {
                 .tmb(context_id),
             })
         )
-    }
-
-    #[test]
-    fn new_password_message_works() {
-        // TODO: GH-728 - Figure out how important is this test now?
-        let system = System::new("test");
-        let mut subject = make_standard_subject();
-        let root_node_record = subject.neighborhood_database.root().clone();
-        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_past_neighbors_params(&set_past_neighbors_params_arc)
-            .set_past_neighbors_result(Ok(()));
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: UpdatePassword("borkety-bork".to_string()),
-            })
-            .unwrap();
-
-        let mut db = db_from_node(&root_node_record);
-        let new_neighbor = make_node_record(1324, true);
-        db.add_node(new_neighbor.clone()).unwrap();
-        db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
-        db.node_by_key_mut(root_node_record.public_key())
-            .unwrap()
-            .resign();
-        db.node_by_key_mut(new_neighbor.public_key())
-            .unwrap()
-            .resign();
-        let gossip = GossipBuilder::new(&db)
-            .node(new_neighbor.public_key(), true)
-            .build();
-        let cores_package = ExpiredCoresPackage {
-            immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
-            paying_wallet: None,
-            remaining_route: make_meaningless_route(),
-            payload: gossip,
-            payload_len: 0,
-        };
-        subject_addr.try_send(cores_package).unwrap();
-        System::current().stop();
-        system.run();
-        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
-        assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     #[test]

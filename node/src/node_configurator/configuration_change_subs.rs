@@ -10,11 +10,19 @@ pub struct UpdateWalletsSubs {
 }
 
 impl UpdateWalletsSubs {
-    pub fn recipients(&self) -> [&Recipient<ConfigurationChangeMessage>; 3] {
-        [
+    fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
+        vec![
             &self.accountant,
             &self.blockchain_bridge,
             &self.neighborhood,
         ]
+    }
+
+    pub fn send_msg_to_subs(&self, msg: ConfigurationChangeMessage) {
+        self.recipients().iter().for_each(|recipient| {
+            recipient
+                .try_send(msg.clone())
+                .expect("Update Wallets recipient is dead")
+        })
     }
 }
