@@ -74,9 +74,8 @@ pub struct DaemonInitializerReal {
 impl DaemonInitializer for DaemonInitializerReal {
     fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> RunModeResult {
         #[cfg(target_os = "windows")]
-        unsafe {
-            wsa_startup_init();
-        }
+        wsa_startup_init();
+
         if port_is_busy(self.config.ui_port) {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));

@@ -15,11 +15,11 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Networking::WinSock::WSAStartup;
-#[cfg(target_os = "windows")]
-use windows_sys::core::PSTR;
+mod win_cfg {
+    pub use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
+    pub use windows_sys::Win32::Networking::WinSock::WSAStartup;
+    pub use windows_sys::core::PSTR;
+}
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -259,24 +259,24 @@ pub struct MessageScheduler<M: Message> {
 }
 
 #[cfg(target_os = "windows")]
-pub unsafe fn wsa_startup_init() {
-    //TODO make this fn safe by pulling out the WSAStartup call into separate fn
+pub fn wsa_startup_init() {
     let lp_vendor: *mut u8 = 1 as *mut u8;
     let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA = &mut windows_sys::Win32::Networking::WinSock::WSADATA {
         wVersion:  2.2 as u16,
         wHighVersion: 2.2 as u16,
         iMaxSockets: 0,
-        iMaxUdpDg: SO_MAX_MSG_SIZE as u16,
-        lpVendorInfo: lp_vendor as PSTR,
+        iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
+        lpVendorInfo: lp_vendor as win_cfg::PSTR,
         szDescription: [1u8; 257usize],
         szSystemStatus: [1u8; 129usize],
     } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
 
-    let wsa_startup_init: i32 = WSAStartup(2.2 as u16, wsdata);
+    let wsa_startup_init: i32 = unsafe {
+        wsa_startup_call(2.2 as u16, wsdata)
+    };
 
-    //TODO find the way to pull the error messages from the library by send errCode to windows-sys then I can change match to if (wsa_startup_init != 0) statement
     match wsa_startup_init {
-        0 => println!("WSAStartup was called and started successfully"),
+        0 => {},
         10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. "),
         10092 => panic!("WSAStartup: The version of Windows Sockets support requested is not provided by this particular Windows Sockets implementation."),
         10036 => panic!("WSAStartup: A blocking Windows Sockets 1.1 operation is in progress."),
@@ -284,6 +284,11 @@ pub unsafe fn wsa_startup_init() {
         10014 => panic!("WSAStartup: The lpWSAData parameter is not a valid pointer."),
         _ => panic!("WSAStartup: WSAStartup returned unimplemented error")
     };
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn wsa_startup_call(version: u16, wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA) -> i32 {
+    win_cfg::WSAStartup(version, wsdata)
 }
 
 #[cfg(test)]

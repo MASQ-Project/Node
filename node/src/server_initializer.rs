@@ -41,9 +41,7 @@ impl ServerInitializer for ServerInitializerReal {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
 
         #[cfg(target_os = "windows")]
-        unsafe {
-            wsa_startup_init();
-        }
+        wsa_startup_init();
 
         let result: RunModeResult = Ok(())
             .combine_results(
