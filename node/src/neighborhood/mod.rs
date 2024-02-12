@@ -5924,29 +5924,51 @@ mod tests {
     }
 
     #[test]
-    fn password_can_be_updated_using_configuration_change_msg() {
-        let system = System::new("password_can_be_updated_using_configuration_change_msg");
+    fn new_password_message_works() {
+        // TODO: Figure out how important is this test now?
+        let system = System::new("test");
         let mut subject = make_standard_subject();
-        subject.db_password_opt = Some("old_password".to_string());
+        let root_node_record = subject.neighborhood_database.root().clone();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
             .try_send(ConfigurationChangeMessage {
-                change: UpdatePassword("new_password".to_string()),
+                change: UpdatePassword("borkety-bork".to_string()),
             })
             .unwrap();
 
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(|subject: &mut Neighborhood| {
-                    assert_eq!(subject.db_password_opt, Some("new_password".to_string()))
-                }),
-            })
-            .unwrap();
+        let mut db = db_from_node(&root_node_record);
+        let new_neighbor = make_node_record(1324, true);
+        db.add_node(new_neighbor.clone()).unwrap();
+        db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
+        db.node_by_key_mut(root_node_record.public_key())
+            .unwrap()
+            .resign();
+        db.node_by_key_mut(new_neighbor.public_key())
+            .unwrap()
+            .resign();
+        let gossip = GossipBuilder::new(&db)
+            .node(new_neighbor.public_key(), true)
+            .build();
+        let cores_package = ExpiredCoresPackage {
+            immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
+            paying_wallet: None,
+            remaining_route: make_meaningless_route(),
+            payload: gossip,
+            payload_len: 0,
+        };
+        subject_addr.try_send(cores_package).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        system.run();
+        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     #[test]
