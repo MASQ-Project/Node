@@ -5925,7 +5925,7 @@ mod tests {
 
     #[test]
     fn new_password_message_works() {
-        // TODO: Figure out how important is this test now?
+        // TODO: GH-728 - Figure out how important is this test now?
         let system = System::new("test");
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
