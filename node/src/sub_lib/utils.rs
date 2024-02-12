@@ -16,9 +16,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
 mod win_cfg {
-    pub use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
-    pub use windows_sys::Win32::Networking::WinSock::WSAStartup;
     pub use windows_sys::core::PSTR;
+    pub use windows_sys::Win32::Networking::WinSock::WSAStartup;
+    pub use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
 }
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -261,19 +261,18 @@ pub struct MessageScheduler<M: Message> {
 #[cfg(target_os = "windows")]
 pub fn wsa_startup_init() {
     let lp_vendor: *mut u8 = 1 as *mut u8;
-    let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA = &mut windows_sys::Win32::Networking::WinSock::WSADATA {
-        wVersion:  2.2 as u16,
-        wHighVersion: 2.2 as u16,
-        iMaxSockets: 0,
-        iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
-        lpVendorInfo: lp_vendor as win_cfg::PSTR,
-        szDescription: [1u8; 257usize],
-        szSystemStatus: [1u8; 129usize],
-    } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
+    let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA =
+        &mut windows_sys::Win32::Networking::WinSock::WSADATA {
+            wVersion: 2.2 as u16,
+            wHighVersion: 2.2 as u16,
+            iMaxSockets: 0,
+            iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
+            lpVendorInfo: lp_vendor as win_cfg::PSTR,
+            szDescription: [1u8; 257usize],
+            szSystemStatus: [1u8; 129usize],
+        } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
 
-    let wsa_startup_init: i32 = unsafe {
-        wsa_startup_call(2.2 as u16, wsdata)
-    };
+    let wsa_startup_init: i32 = unsafe { wsa_startup_call(2.2 as u16, wsdata) };
 
     match wsa_startup_init {
         0 => {},
@@ -287,7 +286,10 @@ pub fn wsa_startup_init() {
 }
 
 #[cfg(target_os = "windows")]
-unsafe fn wsa_startup_call(version: u16, wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA) -> i32 {
+unsafe fn wsa_startup_call(
+    version: u16,
+    wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA,
+) -> i32 {
     win_cfg::WSAStartup(version, wsdata)
 }
 

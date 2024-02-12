@@ -23,14 +23,14 @@ use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::reactor::Handle;
-use websocket::r#async::server::Upgrade;
 use websocket::client::r#async::Framed;
+use websocket::r#async::server::Upgrade;
 use websocket::r#async::MessageCodec;
 use websocket::r#async::TcpStream;
-use websocket::server::r#async::{Server, Incoming};
+use websocket::server::r#async::{Incoming, Server};
 use websocket::server::upgrade::WsUpgrade;
-use websocket::OwnedMessage;
 use websocket::server::InvalidConnection;
+use websocket::OwnedMessage;
 use websocket::WebSocketError;
 
 trait ClientWrapper: Send + Any {
@@ -177,7 +177,10 @@ impl WebSocketSupervisorReal {
     fn remove_failures(
         stream: Incoming<TcpStream>,
         logger: &Logger,
-    ) -> impl Stream<Item = (Upgrade<TcpStream>, SocketAddr), Error = InvalidConnection<TcpStream, BytesMut>> {
+    ) -> impl Stream<
+        Item = (Upgrade<TcpStream>, SocketAddr),
+        Error = InvalidConnection<TcpStream, BytesMut>,
+    > {
         let logger_clone = logger.clone();
         stream
             .then(move |result| match result {
@@ -193,7 +196,6 @@ impl WebSocketSupervisorReal {
             })
             .filter(|option| option.is_some())
             .map(|option| option.expect("A None magically got through the filter"))
-
     }
 
     fn handle_upgrade_request(
