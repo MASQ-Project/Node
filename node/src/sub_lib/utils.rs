@@ -260,6 +260,7 @@ pub struct MessageScheduler<M: Message> {
 
 #[cfg(target_os = "windows")]
 pub unsafe fn wsa_startup_init() {
+    //TODO make this fn safe by pulling out the WSAStartup call into separate fn
     let lp_vendor: *mut u8 = 1 as *mut u8;
     let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA = &mut windows_sys::Win32::Networking::WinSock::WSADATA {
         wVersion:  2.2 as u16,
@@ -273,6 +274,7 @@ pub unsafe fn wsa_startup_init() {
 
     let wsa_startup_init: i32 = WSAStartup(2.2 as u16, wsdata);
 
+    //TODO find the way to pull the error messages from the library by send errCode to windows-sys then I can change match to if (wsa_startup_init != 0) statement
     match wsa_startup_init {
         0 => println!("WSAStartup was called and started successfully"),
         10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. "),
