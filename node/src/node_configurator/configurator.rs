@@ -27,7 +27,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::node_configurator::configuration_change_subs::{
-    ConfigurationChangeSubs, UpdateWalletsSubs,
+    ConfigurationChangeSubs, UpdateMinHopsSubs, UpdatePasswordSubs, UpdateWalletsSubs,
 };
 use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
 use crate::sub_lib::neighborhood::{
@@ -53,8 +53,8 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
-    update_password_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+    update_min_hops_sub_opt: Option<Box<dyn ConfigurationChangeSubs>>,
+    update_password_sub_opt: Option<Box<dyn ConfigurationChangeSubs>>,
     update_wallets_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
     crashable: bool,
     logger: Logger,
@@ -69,18 +69,20 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.update_min_hops_sub_opt = Some(
-            msg.peer_actors
+        self.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+            neighborhood: msg
+                .peer_actors
                 .neighborhood
                 .configuration_change_msg_sub
                 .clone(),
-        );
-        self.update_password_sub_opt = Some(
-            msg.peer_actors
+        }));
+        self.update_password_sub_opt = Some(Box::new(UpdatePasswordSubs {
+            neighborhood: msg
+                .peer_actors
                 .neighborhood
                 .configuration_change_msg_sub
                 .clone(),
-        );
+        }));
         self.update_wallets_subs_opt = Some(Box::new(UpdateWalletsSubs {
             accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
             blockchain_bridge: msg
@@ -732,23 +734,15 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        let update_min_hops_sub_opt = self.update_min_hops_sub_opt.clone();
-        let logger = &self.logger;
         debug!(
-            logger,
+            self.logger,
             "A request from UI received: {:?} from context id: {}", msg, context_id
         );
-        match Self::unfriendly_handle_set_configuration(
-            msg,
-            context_id,
-            &mut self.persistent_config,
-            update_min_hops_sub_opt,
-            logger,
-        ) {
-            Ok(message_body) => message_body,
+        match self.unfriendly_handle_set_configuration(msg) {
+            Ok(()) => UiSetConfigurationResponse {}.tmb(context_id),
             Err((code, msg)) => {
                 error!(
-                    logger,
+                    self.logger,
                     "{}",
                     format!("The UiSetConfigurationRequest failed with an error {code}: {msg}")
                 );
@@ -762,26 +756,30 @@ impl Configurator {
     }
 
     fn unfriendly_handle_set_configuration(
+        &mut self,
         msg: UiSetConfigurationRequest,
-        context_id: u64,
-        persistent_config: &mut Box<dyn PersistentConfiguration>,
-        update_min_hops_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
-        logger: &Logger,
-    ) -> Result<MessageBody, MessageError> {
+    ) -> Result<(), MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
         match password {
             None => {
+                let persistent_config = &mut self.persistent_config;
+
                 if "gas-price" == &msg.name {
                     Self::set_gas_price(msg.value, persistent_config)?;
                 } else if "start-block" == &msg.name {
                     Self::set_start_block(msg.value, persistent_config)?;
                 } else if "min-hops" == &msg.name {
+                    let update_min_hops_subs = self
+                        .update_min_hops_sub_opt
+                        .as_ref()
+                        .expect("UpdateMinHopsSubs is not properly initialized");
+                    let logger = self.logger.clone();
                     Self::set_min_hops(
                         msg.value,
                         persistent_config,
-                        update_min_hops_sub_opt,
-                        logger,
+                        update_min_hops_subs,
+                        &logger,
                     )?;
                 } else {
                     return Err((
@@ -795,7 +793,7 @@ impl Configurator {
             }
         };
 
-        Ok(UiSetConfigurationResponse {}.tmb(context_id))
+        Ok(())
     }
 
     fn set_gas_price(
@@ -815,7 +813,7 @@ impl Configurator {
     fn set_min_hops(
         string_number: String,
         config: &mut Box<dyn PersistentConfiguration>,
-        configuration_change_msg_sub_opt: Option<Recipient<ConfigurationChangeMessage>>,
+        update_min_hops_subs: &Box<dyn ConfigurationChangeSubs>,
         logger: &Logger,
     ) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&string_number) {
@@ -831,13 +829,9 @@ impl Configurator {
                     "The value of min-hops has been changed to {}-hop inside the database",
                     min_hops
                 );
-                configuration_change_msg_sub_opt
-                    .as_ref()
-                    .expect("Configurator is unbound")
-                    .try_send(ConfigurationChangeMessage {
-                        change: UpdateMinHops(min_hops),
-                    })
-                    .expect("Neighborhood is dead");
+                update_min_hops_subs.send_msg_to_subs(ConfigurationChangeMessage {
+                    change: UpdateMinHops(min_hops),
+                });
                 Ok(())
             }
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e))),
@@ -873,9 +867,8 @@ impl Configurator {
         };
         self.update_password_sub_opt
             .as_ref()
-            .expect("Configuration is unbound")
-            .try_send(msg)
-            .expect("Update Password recipient is dead");
+            .expect("UpdatePasswordSubs is uninitialized")
+            .send_msg_to_subs(msg);
     }
 
     fn send_new_consuming_wallet_to_subs(&self, db_password: &str) {
@@ -970,6 +963,14 @@ mod tests {
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
 
+    struct ConfigurationChangeSubsNull;
+
+    impl ConfigurationChangeSubs for ConfigurationChangeSubsNull {
+        fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
+            vec![]
+        }
+    }
+
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "CONFIGURATOR")
@@ -992,8 +993,10 @@ mod tests {
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.update_min_hops_sub_opt = Some(neighborhood_sub.clone());
-        subject.update_password_sub_opt = Some(neighborhood_sub);
+        subject.update_min_hops_sub_opt = Some(Box::new(ConfigurationChangeSubsNull));
+        subject.update_password_sub_opt = Some(Box::new(UpdatePasswordSubs {
+            neighborhood: neighborhood_sub,
+        }));
         subject.update_wallets_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
@@ -2325,11 +2328,12 @@ mod tests {
             .set_min_hops_result(Ok(()));
         let system = System::new("handle_set_configuration_works_for_min_hops");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let neighborhood_addr = neighborhood.start();
+        let neighborhood_sub = neighborhood.start().recipient();
         let mut subject = make_subject(Some(persistent_config));
         subject.logger = Logger::new(test_name);
-        subject.update_min_hops_sub_opt =
-            Some(neighborhood_addr.recipient::<ConfigurationChangeMessage>());
+        subject.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+            neighborhood: neighborhood_sub,
+        }));
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2371,6 +2375,7 @@ mod tests {
         init_test_logging();
         let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
+        subject.update_min_hops_sub_opt = Some(Box::new(ConfigurationChangeSubsNull));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -2407,11 +2412,13 @@ mod tests {
         let system =
             System::new("handle_set_configuration_handles_failure_on_min_hops_database_issue");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let configuration_change_msg_sub = neighborhood
+        let neighborhood_sub = neighborhood
             .start()
             .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_min_hops_sub_opt = Some(configuration_change_msg_sub);
+        subject.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+            neighborhood: neighborhood_sub,
+        }));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(

@@ -10,8 +10,28 @@ pub trait ConfigurationChangeSubs {
         self.recipients().iter().for_each(|recipient| {
             recipient
                 .try_send(msg.clone())
-                .expect("Update Wallets recipient is dead")
+                .expect("ConfigurationChangeMessage recipient is dead")
         })
+    }
+}
+
+pub struct UpdateMinHopsSubs {
+    pub neighborhood: Recipient<ConfigurationChangeMessage>,
+}
+
+impl ConfigurationChangeSubs for UpdateMinHopsSubs {
+    fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
+        vec![&self.neighborhood]
+    }
+}
+
+pub struct UpdatePasswordSubs {
+    pub neighborhood: Recipient<ConfigurationChangeMessage>,
+}
+
+impl ConfigurationChangeSubs for UpdatePasswordSubs {
+    fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
+        vec![&self.neighborhood]
     }
 }
 
