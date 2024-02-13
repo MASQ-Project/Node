@@ -1700,9 +1700,6 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
-    use crate::sub_lib::neighborhood::ConfigurationChange::{
-        UpdateMinHops, UpdatePassword, UpdateWallets,
-    };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -2983,16 +2980,16 @@ mod tests {
     #[test]
     fn neighborhood_handles_configuration_change_msg() {
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdateWallets(WalletPair {
+            change: ConfigurationChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
                 earning_wallet: make_wallet("new_earning_wallet"),
             }),
         });
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdatePassword("new password".to_string()),
+            change: ConfigurationChange::UpdatePassword("new password".to_string()),
         });
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdateMinHops(Hops::FourHops),
+            change: ConfigurationChange::UpdateMinHops(Hops::FourHops),
         })
     }
 

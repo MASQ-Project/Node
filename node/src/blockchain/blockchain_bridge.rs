@@ -553,9 +553,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
-    use crate::sub_lib::neighborhood::ConfigurationChange::{
-        UpdateMinHops, UpdatePassword, UpdateWallets,
-    };
+    use crate::sub_lib::neighborhood::ConfigurationChange;
     use crate::sub_lib::neighborhood::{Hops, WalletPair};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
@@ -669,16 +667,16 @@ mod tests {
     #[test]
     fn blockchain_bridge_handles_configuration_change_msg() {
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdateWallets(WalletPair {
+            change: ConfigurationChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
                 earning_wallet: make_wallet("new_earning_wallet"),
             }),
         });
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdatePassword("new password".to_string()),
+            change: ConfigurationChange::UpdatePassword("new password".to_string()),
         });
         assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: UpdateMinHops(Hops::FourHops),
+            change: ConfigurationChange::UpdateMinHops(Hops::FourHops),
         })
     }
 
