@@ -967,7 +967,7 @@ mod tests {
 
     impl ConfigurationChangeSubs for ConfigurationChangeSubsNull {
         fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
-            vec![]
+            panic!("You're attempting to retrieve recipients from ConfigurationChangeSubsNull.")
         }
     }
 
@@ -1110,6 +1110,7 @@ mod tests {
 
     #[test]
     fn the_password_is_synchronised_among_other_actors_when_modified() {
+        // TODO: GH-728: Maybe we need to make this test stronger again
         let system = System::new("the_password_is_synchronised_among_other_actors_when_modified");
         let new_password = "omae wa mou shindeiru";
         let persistent_config = PersistentConfigurationMock::new()
