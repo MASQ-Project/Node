@@ -773,7 +773,8 @@ impl Configurator {
                     let update_min_hops_subs = self
                         .update_min_hops_subs_opt
                         .as_ref()
-                        .expect("UpdateMinHopsSubs is not properly initialized");
+                        .expect("UpdateMinHopsSubs is not properly initialized")
+                        .as_ref();
                     let logger = self.logger.clone();
                     Self::set_min_hops(
                         msg.value,
@@ -813,7 +814,7 @@ impl Configurator {
     fn set_min_hops(
         string_number: String,
         config: &mut Box<dyn PersistentConfiguration>,
-        update_min_hops_subs: &Box<dyn ConfigurationChangeSubs>,
+        update_min_hops_subs: &dyn ConfigurationChangeSubs,
         logger: &Logger,
     ) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&string_number) {
