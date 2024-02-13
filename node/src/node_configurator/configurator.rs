@@ -53,8 +53,8 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    update_min_hops_sub_opt: Option<Box<dyn ConfigurationChangeSubs>>,
-    update_password_sub_opt: Option<Box<dyn ConfigurationChangeSubs>>,
+    update_min_hops_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
+    update_password_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
     update_wallets_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
     crashable: bool,
     logger: Logger,
@@ -69,14 +69,14 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+        self.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
             neighborhood: msg
                 .peer_actors
                 .neighborhood
                 .configuration_change_msg_sub
                 .clone(),
         }));
-        self.update_password_sub_opt = Some(Box::new(UpdatePasswordSubs {
+        self.update_password_subs_opt = Some(Box::new(UpdatePasswordSubs {
             neighborhood: msg
                 .peer_actors
                 .neighborhood
@@ -138,8 +138,8 @@ impl Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub_opt: None,
-            update_min_hops_sub_opt: None,
-            update_password_sub_opt: None,
+            update_min_hops_subs_opt: None,
+            update_password_subs_opt: None,
             update_wallets_subs_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
@@ -271,7 +271,7 @@ impl Configurator {
         match Self::unfriendly_handle_generate_wallets(msg, context_id, &mut self.persistent_config)
         {
             Ok(message_body) => {
-                self.send_new_consuming_wallet_to_subs(&db_password);
+                self.send_updated_wallets_to_subs(&db_password);
                 message_body
             }
             Err((code, msg)) => MessageBody {
@@ -291,7 +291,7 @@ impl Configurator {
         match Self::unfriendly_handle_recover_wallets(msg, context_id, &mut self.persistent_config)
         {
             Ok(message_body) => {
-                self.send_new_consuming_wallet_to_subs(&db_password);
+                self.send_updated_wallets_to_subs(&db_password);
                 message_body
             }
             Err((code, msg)) => MessageBody {
@@ -771,7 +771,7 @@ impl Configurator {
                     Self::set_start_block(msg.value, persistent_config)?;
                 } else if "min-hops" == &msg.name {
                     let update_min_hops_subs = self
-                        .update_min_hops_sub_opt
+                        .update_min_hops_subs_opt
                         .as_ref()
                         .expect("UpdateMinHopsSubs is not properly initialized");
                     let logger = self.logger.clone();
@@ -865,13 +865,13 @@ impl Configurator {
         let msg = ConfigurationChangeMessage {
             change: ConfigurationChange::UpdatePassword(new_password),
         };
-        self.update_password_sub_opt
+        self.update_password_subs_opt
             .as_ref()
             .expect("UpdatePasswordSubs is uninitialized")
             .send_msg_to_subs(msg);
     }
 
-    fn send_new_consuming_wallet_to_subs(&self, db_password: &str) {
+    fn send_updated_wallets_to_subs(&self, db_password: &str) {
         let consuming_wallet_result_opt = self
             .persistent_config
             .as_ref()
@@ -993,11 +993,9 @@ mod tests {
         let mut subject = Configurator::new(data_dir, false);
 
         subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.update_min_hops_sub_opt = Some(Box::new(ConfigurationChangeSubsNull));
-        subject.update_password_sub_opt = Some(Box::new(UpdatePasswordSubs {
+        subject.update_password_subs_opt = Some(Box::new(UpdatePasswordSubs {
             neighborhood: neighborhood_sub,
         }));
-        subject.update_wallets_subs_opt = None;
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -2331,7 +2329,7 @@ mod tests {
         let neighborhood_sub = neighborhood.start().recipient();
         let mut subject = make_subject(Some(persistent_config));
         subject.logger = Logger::new(test_name);
-        subject.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+        subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
             neighborhood: neighborhood_sub,
         }));
 
@@ -2375,7 +2373,7 @@ mod tests {
         init_test_logging();
         let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
-        subject.update_min_hops_sub_opt = Some(Box::new(ConfigurationChangeSubsNull));
+        subject.update_min_hops_subs_opt = Some(Box::new(ConfigurationChangeSubsNull));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -2416,7 +2414,7 @@ mod tests {
             .start()
             .recipient::<ConfigurationChangeMessage>();
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_min_hops_sub_opt = Some(Box::new(UpdateMinHopsSubs {
+        subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
             neighborhood: neighborhood_sub,
         }));
         subject.logger = Logger::new(test_name);
@@ -3014,8 +3012,8 @@ mod tests {
             Configurator {
                 persistent_config,
                 node_to_ui_sub_opt: None,
-                update_min_hops_sub_opt: None,
-                update_password_sub_opt: None,
+                update_min_hops_subs_opt: None,
+                update_password_subs_opt: None,
                 update_wallets_subs_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
