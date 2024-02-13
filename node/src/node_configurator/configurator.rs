@@ -1110,7 +1110,6 @@ mod tests {
 
     #[test]
     fn the_password_is_synchronised_among_other_actors_when_modified() {
-        // TODO: GH-728: Maybe we need to make this test stronger again
         let system = System::new("the_password_is_synchronised_among_other_actors_when_modified");
         let new_password = "omae wa mou shindeiru";
         let persistent_config = PersistentConfigurationMock::new()
@@ -1119,7 +1118,11 @@ mod tests {
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood)
+            .ui_gateway(ui_gateway)
+            .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
@@ -1139,9 +1142,24 @@ mod tests {
         let expected_configuration_msg = ConfigurationChangeMessage {
             change: ConfigurationChange::UpdatePassword(new_password.to_string()),
         };
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
             &expected_configuration_msg
+        );
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: MessageTarget::AllExcept(1234),
+                body: UiNewPasswordBroadcast {}.tmb(0)
+            }
+        );
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(1),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiChangePasswordResponse {}.tmb(4321)
+            }
         );
     }
 
