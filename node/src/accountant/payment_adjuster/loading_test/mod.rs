@@ -1,6 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#![cfg(test)]
+#![cfg(feature = "occasional_test")]
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
@@ -26,6 +26,17 @@ use web3::types::U256;
 
 #[test]
 fn loading_test_with_randomized_params() {
+    // This test needs to be understood as a generator of extensive amount of scenarios that
+    // the PaymentAdjuster might come to be asked to resolve while there are quite many combinations
+    // that a human has a hard time with to imagine, now we ought to think that some of them might
+    // be corner cases that there wasn't awareness of when it was being designed. Therefore, the main
+    // purpose of this test is to prove that out of a huge number of tries the PaymentAdjuster always
+    // comes along fairly well, especially, that it cannot kill the Node by an accidental panic or
+    // that it can live up to its original purpose and vast majority of the attempted adjustments
+    // end up with reasonable results. That said, a smaller amount of these attempts are expected
+    // to be vain because of some chance always be there that with a given combination of payables
+    // the algorithm will go step by step eliminating completely all accounts. There's hardly
+    // a way for the adjustment procedure as it proceeds now to anticipate if this is going to happen.
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
@@ -110,10 +121,6 @@ fn generate_scenarios(
 }
 
 fn make_single_scenario(gn: &mut ThreadRng, now: SystemTime) -> PreparedAdjustment {
-    // let cw_service_fee_balance = {
-    //     let base = generate_non_zero_usize(gn, usize::MAX) as u128;
-    //     base * generate_non_zero_usize(gn, 1000) as u128
-    // };
     let (cw_service_fee_balance, qualified_payables) = make_qualified_payables(gn, now);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, qualified_payables.len());

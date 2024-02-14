@@ -1663,15 +1663,15 @@ mod tests {
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
-            If matured payables stay untreated long, your creditors may impose a ban on you"
+            If mature payables stay untreated long, your creditors may impose ban on you"
         ));
     }
 
     #[test]
-    fn payment_adjuster_throws_out_an_error_it_became_dirty_from_the_job_on_the_adjustment() {
+    fn payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong() {
         init_test_logging();
         let test_name =
-            "payment_adjuster_throws_out_an_error_it_became_dirty_from_the_job_on_the_adjustment";
+            "payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
@@ -1680,23 +1680,22 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Payment adjustment has not \
-        produced any executable payments. Please add funds into your consuming wallet in order to avoid bans \
-        from your creditors. Failure reason: The adjustment algorithm had to eliminate each payable given the resources"
+            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please add funds \
+        into your consuming wallet in order to avoid bans from your creditors. Failure reason: The adjustment \
+        algorithm had to eliminate each payable due to lack of resources"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. \
-            If matured payables stay untreated long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If mature payables stay untreated long, your \
+            creditors may impose ban on you"
         ));
     }
 
     #[test]
-    fn error_from_payment_adjuster_is_not_sent_by_an_exclusive_message_to_ui_if_not_manually_requested(
-    ) {
+    fn payment_adjuster_error_is_not_sent_by_exclusive_msg_to_ui_if_scan_not_manually_requested() {
         init_test_logging();
-        let test_name = "error_from_payment_adjuster_is_not_sent_by_an_exclusive_message_to_ui_if_not_manually_requested";
+        let test_name = "payment_adjuster_error_is_not_sent_by_exclusive_msg_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
@@ -1725,8 +1724,8 @@ mod tests {
         // Test didn't blow up while the subject was unbound to other actors
         // therefore we didn't attempt to send the NodeUiMessage
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. \
-            If matured payables stay untreated long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated long, \
+            your creditors may impose a ban on you"
         ));
     }
 
