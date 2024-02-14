@@ -29,7 +29,6 @@ use crate::db_config::persistent_configuration::{
 use crate::node_configurator::config_change_subs::{
     ConfigChangeSubs, UpdateMinHopsSubs, UpdatePasswordSubs, UpdateWalletsSubs,
 };
-use crate::sub_lib::neighborhood::ConfigChange::UpdateMinHops;
 use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg, Hops, WalletPair};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -817,7 +816,7 @@ impl Configurator {
                     min_hops
                 );
                 update_min_hops_subs.send_msg_to_subs(ConfigChangeMsg {
-                    change: UpdateMinHops(min_hops),
+                    change: ConfigChange::UpdateMinHops(min_hops),
                 });
                 Ok(())
             }

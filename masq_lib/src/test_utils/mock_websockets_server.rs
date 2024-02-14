@@ -386,7 +386,7 @@ mod tests {
     use crate::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiChangePasswordRequest,
         UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiConfigChangedBroadcast, UiDescriptorRequest, UiDescriptorResponse,
+        UiConfigurationChangedBroadcast, UiDescriptorRequest, UiDescriptorResponse,
         UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
@@ -458,7 +458,7 @@ mod tests {
         ////////////////////////////////////////////////////////////////////////////////////////////
         let conversation_number_one_response = UiCheckPasswordResponse { matches: false };
         let conversation_number_two_response = UiCheckPasswordResponse { matches: true };
-        let broadcast_number_one = UiConfigChangedBroadcast {}.tmb(0);
+        let broadcast_number_one = UiConfigurationChangedBroadcast {}.tmb(0);
         let broadcast_number_two = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::NoInformation,
@@ -497,7 +497,7 @@ mod tests {
             conversation_number_two_response.matches
         );
 
-        let _received_message_number_three: UiConfigChangedBroadcast =
+        let _received_message_number_three: UiConfigurationChangedBroadcast =
             connection.skip_until_received().unwrap();
 
         let _received_message_number_four: UiNodeCrashedBroadcast =
