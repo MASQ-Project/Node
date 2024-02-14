@@ -13,7 +13,6 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use windows_sys::Win32::Networking::WinSock::;
 
 #[cfg(target_os = "windows")]
 mod win_cfg {
