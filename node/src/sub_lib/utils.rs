@@ -13,13 +13,13 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use windows_sys::Win32::Networking::WinSock::{WSADESCRIPTION_LEN, WSASYS_STATUS_LEN};
+use windows_sys::Win32::Networking::WinSock::;
 
 #[cfg(target_os = "windows")]
 mod win_cfg {
     pub use windows_sys::core::PSTR;
     pub use windows_sys::Win32::Networking::WinSock::WSAStartup;
-    pub use windows_sys::Win32::Networking::WinSock::SO_MAX_MSG_SIZE;
+    pub use windows_sys::Win32::Networking::WinSock::{SO_MAX_MSG_SIZE, WSADESCRIPTION_LEN, WSASYS_STATUS_LEN};
 }
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
