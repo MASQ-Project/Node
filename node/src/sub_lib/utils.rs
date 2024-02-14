@@ -13,6 +13,7 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use windows_sys::Win32::Networking::WinSock::{WSADESCRIPTION_LEN, WSASYS_STATUS_LEN};
 
 #[cfg(target_os = "windows")]
 mod win_cfg {
@@ -260,28 +261,28 @@ pub struct MessageScheduler<M: Message> {
 
 #[cfg(target_os = "windows")]
 pub fn wsa_startup_init() {
-    let lp_vendor: *mut u8 = 1 as *mut u8;
+    let lp_vendor: *mut u8 = 0 as *mut u8;
     let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA =
         &mut windows_sys::Win32::Networking::WinSock::WSADATA {
-            wVersion: 2.2 as u16,
-            wHighVersion: 2.2 as u16,
+            wVersion: 0x0202 as u16,
+            wHighVersion: 0x0202 as u16,
             iMaxSockets: 0,
             iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
             lpVendorInfo: lp_vendor as win_cfg::PSTR,
-            szDescription: [1u8; 257usize],
-            szSystemStatus: [1u8; 129usize],
+            szDescription: [0u8; WSADESCRIPTION_LEN as usize + 1usize],
+            szSystemStatus: [0u8; WSASYS_STATUS_LEN as usize + 1usize],
         } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
 
-    let wsa_startup_init: i32 = unsafe { wsa_startup_call(2.2 as u16, wsdata) };
+    let wsa_startup_init: i32 = unsafe { wsa_startup_call(0x0202u16, wsdata) };
 
     match wsa_startup_init {
         0 => {},
-        10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. "),
-        10092 => panic!("WSAStartup: The version of Windows Sockets support requested is not provided by this particular Windows Sockets implementation."),
-        10036 => panic!("WSAStartup: A blocking Windows Sockets 1.1 operation is in progress."),
-        10067 => panic!("WSAStartup: A limit on the number of tasks supported by the Windows Sockets implementation has been reached. "),
-        10014 => panic!("WSAStartup: The lpWSAData parameter is not a valid pointer."),
-        _ => panic!("WSAStartup: WSAStartup returned unimplemented error")
+        10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. Error code: 10091"),
+        10092 => panic!("WSAStartup: The version of Windows Sockets support requested is not provided by this particular Windows Sockets implementation. Error code: 10092"),
+        10036 => panic!("WSAStartup: A blocking Windows Sockets 1.1 operation is in progress. Error code: 10036"),
+        10067 => panic!("WSAStartup: A limit on the number of tasks supported by the Windows Sockets implementation has been reached. Error code: 10067"),
+        10014 => panic!("WSAStartup: The lpWSAData parameter is not a valid pointer. Error code: 10014"),
+        x => panic!("WSAStartup: WSAStartup returned unimplemented error: {}", x)
     };
 }
 
