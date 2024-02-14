@@ -48,8 +48,8 @@ use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
-use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
-use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage};
+use crate::sub_lib::neighborhood::{ConfigChange, RemoveNeighborMessage};
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
@@ -137,19 +137,15 @@ impl Handler<NewPublicIp> for Neighborhood {
     }
 }
 
-impl Handler<ConfigurationChangeMessage> for Neighborhood {
+impl Handler<ConfigChangeMsg> for Neighborhood {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: ConfigurationChangeMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
         match msg.change {
-            ConfigurationChange::UpdateWallets(new_wallet_pair) => {
+            ConfigChange::UpdateWallets(new_wallet_pair) => {
                 self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
             }
-            ConfigurationChange::UpdateMinHops(new_min_hops) => {
+            ConfigChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
                 if self.overall_connection_status.can_make_routes() {
                     let node_to_ui_recipient = self
@@ -165,7 +161,7 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
                 }
                 self.search_for_a_new_route();
             }
-            ConfigurationChange::UpdatePassword(new_password) => {
+            ConfigChange::UpdatePassword(new_password) => {
                 self.db_password_opt = Some(new_password);
             }
         }
@@ -504,7 +500,7 @@ impl Neighborhood {
                 .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
-            configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
+            config_change_msg_sub: addr.clone().recipient::<ConfigChangeMsg>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
@@ -1661,8 +1657,8 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage,
-        ExpectedServices, NeighborhoodMode, WalletPair,
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
+        NeighborhoodMode, WalletPair,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
@@ -2978,24 +2974,24 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_handles_configuration_change_msg() {
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateWallets(WalletPair {
+    fn neighborhood_handles_config_change_msg() {
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
                 earning_wallet: make_wallet("new_earning_wallet"),
             }),
         });
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword("new password".to_string()),
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword("new password".to_string()),
         });
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateMinHops(Hops::FourHops),
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdateMinHops(Hops::FourHops),
         })
     }
 
-    fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
+    fn assert_handling_of_config_change_msg(msg: ConfigChangeMsg) {
         init_test_logging();
-        let test_name = "assert_handling_of_configuration_change_msg";
+        let test_name = "assert_handling_of_config_change_msg";
         let system = System::new(test_name);
         let mut subject = make_standard_subject();
         subject.logger = Logger::new(test_name);
@@ -3008,16 +3004,16 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |neighborhood: &mut Neighborhood| match msg.change {
-                    ConfigurationChange::UpdateWallets(wallet_pair) => {
+                    ConfigChange::UpdateWallets(wallet_pair) => {
                         assert_eq!(
                             neighborhood.consuming_wallet_opt,
                             Some(wallet_pair.consuming_wallet)
                         );
                     }
-                    ConfigurationChange::UpdatePassword(new_password) => {
+                    ConfigChange::UpdatePassword(new_password) => {
                         assert_eq!(neighborhood.db_password_opt, Some(new_password))
                     }
-                    ConfigurationChange::UpdateMinHops(new_min_hops) => {
+                    ConfigChange::UpdateMinHops(new_min_hops) => {
                         let expected_db_patch_size =
                             Neighborhood::calculate_db_patch_size(new_min_hops);
                         assert_eq!(neighborhood.min_hops, new_min_hops);
@@ -3067,7 +3063,7 @@ mod tests {
     #[test]
     fn min_hops_change_triggers_node_to_ui_broadcast_message() {
         init_test_logging();
-        let test_name = "min_hops_can_be_changed_during_runtime_using_configuration_change_msg";
+        let test_name = "min_hops_can_be_changed_during_runtime_using_config_change_msg";
         let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
@@ -3080,8 +3076,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateMinHops(new_min_hops),
+            .try_send(ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops),
             })
             .unwrap();
 
@@ -3139,8 +3135,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateMinHops(new_min_hops),
+            .try_send(ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops),
             })
             .unwrap();
 

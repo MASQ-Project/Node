@@ -11,7 +11,7 @@ use crate::accountant::{
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::db_config::config_dao::ConfigDaoFactory;
-use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
+use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -93,7 +93,7 @@ impl Default for ScanIntervals {
 #[derive(Clone, PartialEq, Eq)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,
-    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub start: Recipient<StartMessage>,
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,

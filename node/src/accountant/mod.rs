@@ -43,7 +43,7 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::neighborhood::{ConfigurationChange, ConfigurationChangeMessage};
+use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -165,15 +165,11 @@ impl Handler<BindMessage> for Accountant {
     }
 }
 
-impl Handler<ConfigurationChangeMessage> for Accountant {
+impl Handler<ConfigChangeMsg> for Accountant {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: ConfigurationChangeMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        if let ConfigurationChange::UpdateWallets(wallet_pair) = msg.change {
+    fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
+        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
             self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
         } else {
@@ -465,7 +461,7 @@ impl Accountant {
     pub fn make_subs_from(addr: &Addr<Accountant>) -> AccountantSubs {
         AccountantSubs {
             bind: recipient!(addr, BindMessage),
-            configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
+            config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
             start: recipient!(addr, StartMessage),
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
@@ -1039,7 +1035,7 @@ mod tests {
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-    use crate::sub_lib::neighborhood::ConfigurationChange;
+    use crate::sub_lib::neighborhood::ConfigChange;
     use crate::sub_lib::neighborhood::{Hops, WalletPair};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -1230,24 +1226,24 @@ mod tests {
     }
 
     #[test]
-    fn accountant_handles_configuration_change_msg() {
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateWallets(WalletPair {
+    fn accountant_handles_config_change_msg() {
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
                 earning_wallet: make_wallet("new_earning_wallet"),
             }),
         });
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword("new password".to_string()),
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword("new password".to_string()),
         });
-        assert_handling_of_configuration_change_msg(ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateMinHops(Hops::FourHops),
+        assert_handling_of_config_change_msg(ConfigChangeMsg {
+            change: ConfigChange::UpdateMinHops(Hops::FourHops),
         })
     }
 
-    fn assert_handling_of_configuration_change_msg(msg: ConfigurationChangeMessage) {
+    fn assert_handling_of_config_change_msg(msg: ConfigChangeMsg) {
         init_test_logging();
-        let test_name = "assert_handling_of_configuration_change_msg";
+        let test_name = "assert_handling_of_config_change_msg";
         let system = System::new(test_name);
         let config = make_bc_with_defaults();
         let mut subject = AccountantBuilder::default()
@@ -1263,7 +1259,7 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |accountant: &mut Accountant| match msg.change {
-                    ConfigurationChange::UpdateWallets(wallet_pair) => {
+                    ConfigChange::UpdateWallets(wallet_pair) => {
                         assert_eq!(
                             accountant.consuming_wallet_opt,
                             Some(wallet_pair.consuming_wallet)
@@ -1273,8 +1269,7 @@ mod tests {
                             Rc::new(wallet_pair.earning_wallet)
                         )
                     }
-                    ConfigurationChange::UpdatePassword(_)
-                    | ConfigurationChange::UpdateMinHops(_) => {
+                    ConfigChange::UpdatePassword(_) | ConfigChange::UpdateMinHops(_) => {
                         let _ = TestLogHandler::new().exists_log_containing(&format!(
                             "TRACE: {test_name}: Unexpected message received: {:?}",
                             msg

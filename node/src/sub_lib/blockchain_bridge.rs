@@ -5,7 +5,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::sub_lib::neighborhood::ConfigurationChangeMessage;
+use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -27,7 +27,7 @@ pub struct BlockchainBridgeConfig {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
-    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
     pub qualified_payables: Recipient<QualifiedPayablesMessage>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,

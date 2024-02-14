@@ -421,7 +421,7 @@ pub struct NeighborhoodSubs {
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
-    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
@@ -553,8 +553,8 @@ pub enum NRMetadataChange {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct ConfigurationChangeMessage {
-    pub change: ConfigurationChange,
+pub struct ConfigChangeMsg {
+    pub change: ConfigChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -564,7 +564,7 @@ pub struct WalletPair {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ConfigurationChange {
+pub enum ConfigChange {
     UpdateMinHops(Hops),
     UpdatePassword(String),
     UpdateWallets(WalletPair),
@@ -674,7 +674,7 @@ mod tests {
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
-            configuration_change_msg_sub: recipient!(recorder, ConfigurationChangeMessage),
+            config_change_msg_sub: recipient!(recorder, ConfigChangeMsg),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),

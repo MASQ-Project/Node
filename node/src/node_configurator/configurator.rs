@@ -26,13 +26,11 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::configuration_change_subs::{
-    ConfigurationChangeSubs, UpdateMinHopsSubs, UpdatePasswordSubs, UpdateWalletsSubs,
+use crate::node_configurator::config_change_subs::{
+    ConfigChangeSubs, UpdateMinHopsSubs, UpdatePasswordSubs, UpdateWalletsSubs,
 };
-use crate::sub_lib::neighborhood::ConfigurationChange::UpdateMinHops;
-use crate::sub_lib::neighborhood::{
-    ConfigurationChange, ConfigurationChangeMessage, Hops, WalletPair,
-};
+use crate::sub_lib::neighborhood::ConfigChange::UpdateMinHops;
+use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg, Hops, WalletPair};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -53,9 +51,9 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    update_min_hops_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
-    update_password_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
-    update_wallets_subs_opt: Option<Box<dyn ConfigurationChangeSubs>>,
+    update_min_hops_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
+    update_password_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
+    update_wallets_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
     crashable: bool,
     logger: Logger,
 }
@@ -70,26 +68,15 @@ impl Handler<BindMessage> for Configurator {
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
         self.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
-            neighborhood: msg
-                .peer_actors
-                .neighborhood
-                .configuration_change_msg_sub
-                .clone(),
+            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub.clone(),
         }));
         self.update_password_subs_opt = Some(Box::new(UpdatePasswordSubs {
-            neighborhood: msg
-                .peer_actors
-                .neighborhood
-                .configuration_change_msg_sub
-                .clone(),
+            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub.clone(),
         }));
         self.update_wallets_subs_opt = Some(Box::new(UpdateWalletsSubs {
-            accountant: msg.peer_actors.accountant.configuration_change_msg_sub,
-            blockchain_bridge: msg
-                .peer_actors
-                .blockchain_bridge
-                .configuration_change_msg_sub,
-            neighborhood: msg.peer_actors.neighborhood.configuration_change_msg_sub,
+            accountant: msg.peer_actors.accountant.config_change_msg_sub,
+            blockchain_bridge: msg.peer_actors.blockchain_bridge.config_change_msg_sub,
+            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub,
         }));
     }
 }
@@ -775,12 +762,11 @@ impl Configurator {
                         .as_ref()
                         .expect("UpdateMinHopsSubs is not properly initialized")
                         .as_ref();
-                    let logger = self.logger.clone();
                     Self::set_min_hops(
                         msg.value,
                         persistent_config,
                         update_min_hops_subs,
-                        &logger,
+                        &self.logger,
                     )?;
                 } else {
                     return Err((
@@ -814,7 +800,7 @@ impl Configurator {
     fn set_min_hops(
         string_number: String,
         config: &mut Box<dyn PersistentConfiguration>,
-        update_min_hops_subs: &dyn ConfigurationChangeSubs,
+        update_min_hops_subs: &dyn ConfigChangeSubs,
         logger: &Logger,
     ) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&string_number) {
@@ -830,7 +816,7 @@ impl Configurator {
                     "The value of min-hops has been changed to {}-hop inside the database",
                     min_hops
                 );
-                update_min_hops_subs.send_msg_to_subs(ConfigurationChangeMessage {
+                update_min_hops_subs.send_msg_to_subs(ConfigChangeMsg {
                     change: UpdateMinHops(min_hops),
                 });
                 Ok(())
@@ -863,8 +849,8 @@ impl Configurator {
     }
 
     fn send_new_password_to_subs(&self, new_password: String) {
-        let msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword(new_password),
+        let msg = ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword(new_password),
         };
         self.update_password_subs_opt
             .as_ref()
@@ -881,8 +867,8 @@ impl Configurator {
         if let (Ok(Some(new_consuming_wallet)), Ok(Some(new_earning_wallet))) =
             (consuming_wallet_result_opt, earning_wallet_result_opt)
         {
-            let msg = ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateWallets(WalletPair {
+            let msg = ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
                     consuming_wallet: new_consuming_wallet,
                     earning_wallet: new_earning_wallet,
                 }),
@@ -948,7 +934,7 @@ mod tests {
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::neighborhood::{ConfigurationChange, NodeDescriptor, RatePack};
+    use crate::sub_lib::neighborhood::{ConfigChange, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
@@ -964,11 +950,11 @@ mod tests {
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
 
-    struct ConfigurationChangeSubsNull;
+    struct ConfigChangeSubsNull;
 
-    impl ConfigurationChangeSubs for ConfigurationChangeSubsNull {
-        fn recipients(&self) -> Vec<&Recipient<ConfigurationChangeMessage>> {
-            panic!("You're attempting to retrieve recipients from ConfigurationChangeSubsNull.")
+    impl ConfigChangeSubs for ConfigChangeSubsNull {
+        fn recipients(&self) -> Vec<&Recipient<ConfigChangeMsg>> {
+            panic!("You're attempting to retrieve recipients from ConfigChangeSubsNull.")
         }
     }
 
@@ -1140,12 +1126,12 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let expected_configuration_msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdatePassword(new_password.to_string()),
+        let expected_configuration_msg = ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword(new_password.to_string()),
         };
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
-            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
+            neighborhood_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
         assert_eq!(
@@ -1204,22 +1190,22 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let expected_configuration_msg = ConfigurationChangeMessage {
-            change: ConfigurationChange::UpdateWallets(WalletPair {
+        let expected_configuration_msg = ConfigChangeMsg {
+            change: ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet,
                 earning_wallet,
             }),
         };
         assert_eq!(
-            accountant_recording.get_record::<ConfigurationChangeMessage>(0),
+            accountant_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
         assert_eq!(
-            blockchain_bridge_recording.get_record::<ConfigurationChangeMessage>(0),
+            blockchain_bridge_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
         assert_eq!(
-            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0),
+            neighborhood_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
     }
@@ -2364,8 +2350,7 @@ mod tests {
         System::current().stop();
         system.run();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        let message_to_neighborhood =
-            neighborhood_recording.get_record::<ConfigurationChangeMessage>(0);
+        let message_to_neighborhood = neighborhood_recording.get_record::<ConfigChangeMsg>(0);
         let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
         let min_hops_in_db = set_min_hops_params.get(0).unwrap();
         assert_eq!(
@@ -2378,8 +2363,8 @@ mod tests {
         );
         assert_eq!(
             message_to_neighborhood,
-            &ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateMinHops(new_min_hops)
+            &ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops)
             }
         );
         assert_eq!(*min_hops_in_db, new_min_hops);
@@ -2393,7 +2378,7 @@ mod tests {
         init_test_logging();
         let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
-        subject.update_min_hops_subs_opt = Some(Box::new(ConfigurationChangeSubsNull));
+        subject.update_min_hops_subs_opt = Some(Box::new(ConfigChangeSubsNull));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -2430,9 +2415,7 @@ mod tests {
         let system =
             System::new("handle_set_configuration_handles_failure_on_min_hops_database_issue");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let neighborhood_sub = neighborhood
-            .start()
-            .recipient::<ConfigurationChangeMessage>();
+        let neighborhood_sub = neighborhood.start().recipient::<ConfigChangeMsg>();
         let mut subject = make_subject(Some(persistent_config));
         subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
             neighborhood: neighborhood_sub,

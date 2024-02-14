@@ -461,8 +461,8 @@ pub struct UiCheckPasswordResponse {
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct UiConfigurationChangedBroadcast {}
-fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
+pub struct UiConfigChangedBroadcast {}
+fire_and_forget_message!(UiConfigChangedBroadcast, "configurationChanged");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationRequest {
