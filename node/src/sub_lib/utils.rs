@@ -270,8 +270,8 @@ pub fn wsa_startup_init() {
             iMaxSockets: 0,
             iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
             lpVendorInfo: lp_vendor as win_cfg::PSTR,
-            szDescription: [0u8; WSADESCRIPTION_LEN as usize + 1usize],
-            szSystemStatus: [0u8; WSASYS_STATUS_LEN as usize + 1usize],
+            szDescription: [0u8; win_cfg::WSADESCRIPTION_LEN as usize + 1usize],
+            szSystemStatus: [0u8; win_cfg::WSASYS_STATUS_LEN as usize + 1usize],
         } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
 
     let wsa_startup_init: i32 = unsafe { wsa_startup_call(0x0202u16, wsdata) };
