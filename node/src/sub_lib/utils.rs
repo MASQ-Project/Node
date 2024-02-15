@@ -262,11 +262,11 @@ pub struct MessageScheduler<M: Message> {
 
 #[cfg(target_os = "windows")]
 pub fn wsa_startup_init() {
-    let lp_vendor: *mut u8 = 0 as *mut u8;
+    let lp_vendor: *mut u8 = std::ptr::null_mut::<u8>();
     let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA =
         &mut windows_sys::Win32::Networking::WinSock::WSADATA {
-            wVersion: 0x0202 as u16,
-            wHighVersion: 0x0202 as u16,
+            wVersion: 0x0202_u16,
+            wHighVersion: 0x0202_u16,
             iMaxSockets: 0,
             iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
             lpVendorInfo: lp_vendor as win_cfg::PSTR,
