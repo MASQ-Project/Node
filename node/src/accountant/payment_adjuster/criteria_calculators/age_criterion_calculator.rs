@@ -42,7 +42,7 @@ impl AgeCriterionCalculator {
                 let log_multiplier = Self::compute_descending_multiplier(elapsed_secs, divisor);
 
                 (elapsed_secs as u128)
-                    .checked_pow(AGE_MAIN_EXPONENT)
+                    .checked_pow(AGE_EXPONENT_FOR_BASE)
                     .expect("pow overflow")
                     .checked_div(divisor)
                     .expect("div overflow")
@@ -105,11 +105,7 @@ impl AgeCriterionCalculator {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::{
-        AgeCriterionCalculator, AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP,
-        AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, AGE_DESC_MULTIPLIER_LOG_STRESS_EXP,
-        AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_MAIN_EXPONENT,
-    };
+    use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::{AgeCriterionCalculator, AGE_DESC_MULTIPLIER_ARG_EXP, AGE_DESC_MULTIPLIER_DIVISOR_EXP, AGE_DESC_MULTIPLIER_DIVISOR_MULTIPLIER, AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, AGE_EXPONENT_FOR_BASE, AGE_MULTIPLIER_FOR_BASE};
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CalculatorType, CriterionCalculator,
     };
@@ -118,7 +114,8 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(AGE_MAIN_EXPONENT, 3);
+        assert_eq!(AGE_MULTIPLIER_FOR_BASE, 2);
+        assert_eq!(AGE_EXPONENT_FOR_BASE, 3);
         assert_eq!(AGE_DESC_MULTIPLIER_ARG_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_EXP, 2);
         assert_eq!(AGE_DESC_MULTIPLIER_LOG_STRESS_MULTIPLIER, 1_000);
@@ -213,7 +210,7 @@ mod tests {
             let log_multiplier =
                 AgeCriterionCalculator::compute_descending_multiplier(elapsed_secs, divisor);
             (elapsed_secs as u128)
-                .checked_pow(AGE_MAIN_EXPONENT)
+                .checked_pow(AGE_EXPONENT_FOR_BASE)
                 .unwrap()
                 .checked_div(divisor)
                 .unwrap()

@@ -7,7 +7,7 @@ pub trait PaymentAdjusterInner {
     fn transaction_fee_count_limit_opt(&self) -> Option<u16>;
     fn original_cw_service_fee_balance_minor(&self) -> u128;
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128;
-    fn update_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128);
+    fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128);
 }
 
 pub struct PaymentAdjusterInnerReal {
@@ -45,11 +45,11 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128 {
         self.unallocated_cw_service_fee_balance_minor
     }
-    fn update_unallocated_cw_service_fee_balance_minor(&mut self, subtrahend: u128) {
+    fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, subtrahend: u128) {
         let updated_thought_cw_balance = self
             .unallocated_cw_service_fee_balance_minor
             .checked_sub(subtrahend)
-            .expect("got into negative numbers");
+            .expect("should never go beyond zero");
         self.unallocated_cw_service_fee_balance_minor = updated_thought_cw_balance
     }
 }
@@ -78,9 +78,9 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerNull {
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128 {
         PaymentAdjusterInnerNull::panicking_operation("unallocated_cw_service_fee_balance_minor()")
     }
-    fn update_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128) {
+    fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128) {
         PaymentAdjusterInnerNull::panicking_operation(
-            "update_unallocated_cw_service_fee_balance_minor()",
+            "subtract_from_unallocated_cw_service_fee_balance_minor()",
         )
     }
 }
@@ -160,11 +160,11 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the update_unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+        expected = "Broken code: Called the null implementation of the subtract_from_unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_update_unallocated_cw_service_fee_balance_minor() {
+    fn inner_null_calling_subtract_from_unallocated_cw_service_fee_balance_minor() {
         let mut subject = PaymentAdjusterInnerNull {};
 
-        let _ = subject.update_unallocated_cw_service_fee_balance_minor(123);
+        let _ = subject.subtract_from_unallocated_cw_service_fee_balance_minor(123);
     }
 }

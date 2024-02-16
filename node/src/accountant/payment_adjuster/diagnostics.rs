@@ -7,7 +7,7 @@ use crate::accountant::payment_adjuster::diagnostics::formulas_progressive_chara
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
+const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = true;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 58;
 
@@ -241,7 +241,7 @@ pub mod formulas_progressive_characteristics {
     // For the purposes of debugging and tuning the formulas up to work well together. It lets you
     // imagine the curve of a criterion in dependence to different supplied input values for
     // the give parameter
-    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = false;
+    pub const COMPUTE_FORMULAS_CHARACTERISTICS: bool = true;
 
     // You must preserve the 'static' keyword
     //

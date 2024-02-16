@@ -211,6 +211,7 @@ impl PaymentAdjusterReal {
             "\nUNRESOLVED QUALIFIED ACCOUNTS IN CURRENT ITERATION:",
             &unresolved_qualified_accounts
         );
+        eprintln!("Unallocated balance for this iteration: {}", self.inner.unallocated_cw_service_fee_balance_minor().separate_with_commas());
 
         if unresolved_qualified_accounts.len() == 1 {
             let last_one = unresolved_qualified_accounts
@@ -264,7 +265,7 @@ impl PaymentAdjusterReal {
                     .propose_possible_adjustment_recursively(
                         accounts_with_criteria_affordable_by_transaction_fee,
                     );
-                Ok(Either::Left(adjustment_result_before_verification?))
+                Ok(Either::Left(adjustment_result_before_verification))
             }
             false => {
                 let finalized_accounts = isolate_accounts_from_weights(
@@ -278,10 +279,10 @@ impl PaymentAdjusterReal {
     fn propose_possible_adjustment_recursively(
         &mut self,
         weighed_accounts: Vec<WeightedAccount>,
-    ) -> Result<Vec<AdjustedAccountBeforeFinalization>, PaymentAdjusterError> {
+    ) -> Vec<AdjustedAccountBeforeFinalization> {
         let current_iteration_result = self.perform_adjustment_by_service_fee(weighed_accounts);
 
-        let recursion_results = self.resolve_current_iteration_result(current_iteration_result)?;
+        let recursion_results = self.resolve_current_iteration_result(current_iteration_result);
 
         let merged = recursion_results.merge_results_from_recursion();
 
@@ -290,55 +291,52 @@ impl PaymentAdjusterReal {
             &merged
         );
 
-        Ok(merged)
+        merged
     }
 
     fn resolve_current_iteration_result(
         &mut self,
         adjustment_iteration_result: AdjustmentIterationResult,
-    ) -> Result<RecursionResults, PaymentAdjusterError> {
+    ) -> RecursionResults {
         match adjustment_iteration_result {
             AdjustmentIterationResult::AllAccountsProcessed(decided_accounts) => {
-                Ok(RecursionResults::new(decided_accounts, vec![]))
+                RecursionResults::new(decided_accounts, vec![])
             }
             AdjustmentIterationResult::SpecialTreatmentRequired {
                 case: special_case,
-                remaining_undecided_accounts: remaining,
+                remaining_undecided_accounts,
             } => {
                 let here_decided_accounts = match special_case {
                     TreatInsignificantAccount => {
-                        if remaining.is_empty() {
+                        if remaining_undecided_accounts.is_empty() {
                             // a) only one account can be eliminated in a single iteration,
-                            // b) if there is one last undecided account, it goes on into
-                            // a shortcut section, never coming here
+                            // b) if there is one last undecided account, it goes on through
+                            // a shortcut, not reaching out here
                             unreachable!("Not possible by original design")
                         }
 
                         vec![]
                     }
                     TreatOutweighedAccounts(outweighed) => {
-                        if remaining.is_empty() {
+                        if remaining_undecided_accounts.is_empty() {
                             //TODO explain in a comment
                             // now I know that: if an account is disqualified it can happen that
                             // the cw balance become sufficient for the rest of accounts, proceeding to another
                             // iteration, this results in all accounts classified as outweighed!!
                             todo!("this is so wierd")
                         }
-                        self.adjust_remaining_uallocated_cw_balance_down(&outweighed);
+                        self.adjust_remaining_unallocated_cw_balance_down(&outweighed);
                         outweighed
                     }
                 };
 
                 let down_stream_decided_accounts = self
                     .calculate_criteria_and_propose_adjustments_recursively(
-                        remaining,
+                        remaining_undecided_accounts,
                         ServiceFeeOnlyAdjustmentRunner {},
-                    )?;
+                    );
 
-                Ok(RecursionResults::new(
-                    here_decided_accounts,
-                    down_stream_decided_accounts,
-                ))
+                RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
             }
         }
     }
@@ -541,7 +539,7 @@ impl PaymentAdjusterReal {
         }
     }
 
-    fn adjust_remaining_uallocated_cw_balance_down(
+    fn adjust_remaining_unallocated_cw_balance_down(
         &mut self,
         processed_outweighed: &[AdjustedAccountBeforeFinalization],
     ) {
@@ -549,7 +547,7 @@ impl PaymentAdjusterReal {
             account.proposed_adjusted_balance
         });
         self.inner
-            .update_unallocated_cw_service_fee_balance_minor(subtrahend_total);
+            .subtract_from_unallocated_cw_service_fee_balance_minor(subtrahend_total);
 
         diagnostics!(
             "LOWERED CW BALANCE",
@@ -1141,6 +1139,67 @@ mod tests {
         };
 
         let _ = subject.resolve_current_iteration_result(iteration_result);
+    }
+
+    #[test]
+    fn disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(){
+        init_test_logging();
+        let test_name = "disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them";
+        let now = SystemTime::now();
+        let balance_1 = 80_000_000_000_000_000_000;
+        let account_1 = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: balance_1,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(24_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let balance_2 = 60_000_000_000_000_000_000;
+        let account_2 = PayableAccount {
+            wallet: make_wallet("def"),
+            balance_wei: balance_2,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(200_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let balance_3 = 40_000_000_000_000_000_000;
+        let account_3 = PayableAccount {
+            wallet: make_wallet("ghi"),
+            balance_wei: balance_3,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(160_000)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let mut subject = PaymentAdjusterReal::new();
+        subject.logger = Logger::new(test_name);
+        let agent_id_stamp = ArbitraryIdStamp::new();
+        let accounts_sum: u128 = balance_1 + balance_2 + balance_3;
+        let service_fee_balance_in_minor_units = accounts_sum - ((balance_1*90)/100);
+        let agent = {
+            let mock = BlockchainAgentMock::default()
+                .set_arbitrary_id_stamp(agent_id_stamp)
+                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
+            Box::new(mock)
+        };
+        let adjustment_setup = PreparedAdjustment {
+            qualified_payables,
+            agent,
+            adjustment: Adjustment::ByServiceFee,
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+
+        let expected_affordable_accounts = {
+            vec![account_2, account_3]
+        };
+        assert_eq!(
+            result.affordable_accounts,
+            expected_affordable_accounts
+        );
+        assert_eq!(result.response_skeleton_opt, None);
+        assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        let log_msg = format!(
+            "DEBUG: {test_name}: "
+        );
     }
 
     #[test]
