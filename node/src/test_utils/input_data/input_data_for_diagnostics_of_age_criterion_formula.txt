@@ -31,7 +31,19 @@
             "55_333_000",
             "200_300_400",
             "500_000_000",
+            "4_000_000_000",
             "7_000_000_000",
+            "7_900_000_000",
+            #
+            # There is little anomaly between these values, a shift back caused by the attempts for cutting off
+            # the generally progressive curve for deceleration. While the cutback is almost never a dominate factor
+            # in the curve, here it cuts more than the base can grow there by, but just for a while. It seems
+            # tolerable speaking of debt ages larger than 24 years
+            #
+            "8_000_000_000",
+            "9_000_000_000",
+            "11_000_000_000",
+            "15_000_000_000",
             "78_000_000_000",
             "444_333_444_444"
     ],
@@ -54,6 +66,10 @@
             {
                 "value": "604_800",
                 "label": "WEEK"
+            },
+            {
+                "value": "2_628_000",
+                "label": "MONTH"
             }
     ]
 }

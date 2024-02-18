@@ -211,7 +211,12 @@ impl PaymentAdjusterReal {
             "\nUNRESOLVED QUALIFIED ACCOUNTS IN CURRENT ITERATION:",
             &unresolved_qualified_accounts
         );
-        eprintln!("Unallocated balance for this iteration: {}", self.inner.unallocated_cw_service_fee_balance_minor().separate_with_commas());
+        eprintln!(
+            "Unallocated balance for this iteration: {}",
+            self.inner
+                .unallocated_cw_service_fee_balance_minor()
+                .separate_with_commas()
+        );
 
         if unresolved_qualified_accounts.len() == 1 {
             let last_one = unresolved_qualified_accounts
@@ -1142,7 +1147,8 @@ mod tests {
     }
 
     #[test]
-    fn disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(){
+    fn disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(
+    ) {
         init_test_logging();
         let test_name = "disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them";
         let now = SystemTime::now();
@@ -1172,7 +1178,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let accounts_sum: u128 = balance_1 + balance_2 + balance_3;
-        let service_fee_balance_in_minor_units = accounts_sum - ((balance_1*90)/100);
+        let service_fee_balance_in_minor_units = accounts_sum - ((balance_1 * 90) / 100);
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
@@ -1188,18 +1194,11 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        let expected_affordable_accounts = {
-            vec![account_2, account_3]
-        };
-        assert_eq!(
-            result.affordable_accounts,
-            expected_affordable_accounts
-        );
+        let expected_affordable_accounts = { vec![account_2, account_3] };
+        assert_eq!(result.affordable_accounts, expected_affordable_accounts);
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
-        let log_msg = format!(
-            "DEBUG: {test_name}: "
-        );
+        let log_msg = format!("DEBUG: {test_name}: ");
     }
 
     #[test]

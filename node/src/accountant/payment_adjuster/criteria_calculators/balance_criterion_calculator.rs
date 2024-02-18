@@ -7,12 +7,12 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_2;
 
 // This parameter affects the steepness inversely, but just slowly.
 //
-// Don't worry to joggle with this number; it's not as scientific as it looks like.
-// True, I arrived at it after many attempts when I finally became aligned with
-// the tuning, compared to the values the Age criterion calculator get
-// (in order to follow my steps you'll need to enable the rendering tools from
-// the 'diagnostics' module giving you a close look into the characteristics of
-// the formulas and therefore also the effects of your new settings)
+// Don't worry to joggle with this number; it's not as scientific as it looks like. True, I arrived at it after many
+// attempts when I finally aligned myself with the tuning. The issue is it needs to be carefully compared to the values
+// the Age criterion calculator yields.
+// (If you are preparing to follow my steps you'll need to enable the rendering from the 'diagnostics' module, getting
+// back a chance for a close look into each characteristics of the calculators formulas and therefore also how sync
+// they are. See and think about the effects of your new settings)
 const BALANCE_LOG_2_ARG_DIVISOR: u128 = 18_490_000;
 // This parameter affects the steepness analogously, but energetically
 const BALANCE_FINAL_MULTIPLIER: u128 = 2;
@@ -67,11 +67,19 @@ mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CalculatorType, CriterionCalculator,
     };
+    use crate::accountant::payment_adjuster::test_utils::assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_changes;
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(BALANCE_LOG_2_ARG_DIVISOR, 18_490_000);
-        assert_eq!(BALANCE_FINAL_MULTIPLIER, 2)
+        let constants_and_their_expected_values: Vec<(i128, i128)> = vec![
+            (BALANCE_LOG_2_ARG_DIVISOR.try_into().unwrap(), 18_490_000),
+            (BALANCE_FINAL_MULTIPLIER.try_into().unwrap(), 2),
+        ];
+
+        assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_changes(
+            &constants_and_their_expected_values,
+            18490002,
+        )
     }
 
     #[test]

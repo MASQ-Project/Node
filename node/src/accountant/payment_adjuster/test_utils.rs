@@ -63,3 +63,32 @@ pub fn make_extreme_accounts(
         })
         .collect()
 }
+
+pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_changes(
+    constants_and_expected_values: &[(i128, i128)],
+    expected_num_sum: i128,
+) {
+    constants_and_expected_values.iter().enumerate().for_each(
+        |(idx, (constant, expected_value))| {
+            assert_eq!(
+                constant, expected_value,
+                "constant wrong value at position {}",
+                idx
+            )
+        },
+    );
+
+    // This matters only if the constants participate in the calculator's formula. If that's not true, simply update
+    // the num sum and ignore the concern about synchronization
+    let actual_sum: i128 = constants_and_expected_values
+        .iter()
+        .map(|(val, _)| *val)
+        .sum();
+    assert_eq!(actual_sum, expected_num_sum,
+               "The sum of constants used to calibre the calculator has changed, therefore you ought to see about \n\
+               maintenance of the whole system with its all parameters (e.g. debt age, debt balance,...) and make \n\
+               sure the weights coming from them are sensibly proportionate. There is a tool that can help you with \n\
+               that, look for a global flag in the file 'diagnostics' in the PaymentAdjuster module. It will enable \n\
+               rendering characteristics of the curves the calculations of these parameters are based on."
+    )
+}
