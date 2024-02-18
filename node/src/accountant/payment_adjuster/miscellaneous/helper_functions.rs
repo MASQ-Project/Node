@@ -328,8 +328,7 @@ pub fn calculate_disqualification_edge(account_balance: u128) -> u128 {
         / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
 }
 
-// Replace with std lib method log10() for u128 which will be introduced by
-// Rust 1.67.0; this was written using 1.63.0
+// Replace with std lib method log10() for u128 which will be introduced by Rust 1.67.0; this was written using 1.63.0
 pub fn log_10(num: u128) -> usize {
     successors(Some(num), |&n| (n >= 10).then(|| n / 10)).count()
 }
@@ -345,7 +344,7 @@ pub fn log_2(x: u128) -> u32 {
     num_bits::<i128>() as u32 - x.leading_zeros() - 1
 }
 
-pub fn x_or_1(x: u128) -> u128 {
+pub fn nonzero_positive(x: u128) -> u128 {
     if x == 0 {
         1
     } else {

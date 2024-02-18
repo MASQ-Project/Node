@@ -315,8 +315,8 @@ impl PaymentAdjusterReal {
                     TreatInsignificantAccount => {
                         if remaining_undecided_accounts.is_empty() {
                             // a) only one account can be eliminated in a single iteration,
-                            // b) if there is one last undecided account, it goes on through
-                            // a shortcut, not reaching out here
+                            // b) if there is one last undecided account, it goes on through a shortcut, not reaching
+                            // out down here
                             unreachable!("Not possible by original design")
                         }
 
@@ -324,12 +324,12 @@ impl PaymentAdjusterReal {
                     }
                     TreatOutweighedAccounts(outweighed) => {
                         if remaining_undecided_accounts.is_empty() {
-                            //TODO explain in a comment
-                            // now I know that: if an account is disqualified it can happen that
-                            // the cw balance become sufficient for the rest of accounts, proceeding to another
-                            // iteration, this results in all accounts classified as outweighed!!
-                            todo!("this is so wierd")
+                            debug!(self.logger, "Every account outweighed (Probably excessive funds after preceding \
+                            disqualification). Returning from recursion");
+
+                            return RecursionResults::new(outweighed, vec![]);
                         }
+
                         self.adjust_remaining_unallocated_cw_balance_down(&outweighed);
                         outweighed
                     }
@@ -1147,10 +1147,10 @@ mod tests {
     }
 
     #[test]
-    fn disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(
+    fn account_disqualification_causes_all_other_accounts_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(
     ) {
         init_test_logging();
-        let test_name = "disqualification_causes_every_other_account_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them";
+        let test_name = "account_disqualification_causes_all_other_accounts_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them";
         let now = SystemTime::now();
         let balance_1 = 80_000_000_000_000_000_000;
         let account_1 = PayableAccount {
@@ -1198,7 +1198,10 @@ mod tests {
         assert_eq!(result.affordable_accounts, expected_affordable_accounts);
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
-        let log_msg = format!("DEBUG: {test_name}: ");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Every account outweighed (Probably \
+        excessive funds after preceding disqualification). Returning from recursion"
+        ));
     }
 
     #[test]
@@ -1207,8 +1210,8 @@ mod tests {
         let test_name =
             "overloading_with_exaggerated_debt_conditions_to_see_if_we_can_pass_through_safely";
         let now = SystemTime::now();
-        // Each of the 3 accounts refers to a debt sized as the entire masq token supply and being
-        // 10 years old which generates enormously large numbers in the criteria
+        // Each of the 3 accounts refers to a debt sized as the entire masq token supply and being 10 years old which
+        // generates enormously large numbers in the criteria
         let qualified_payables = {
             let debt_age_in_months = vec![120, 120, 120];
             make_extreme_accounts(
@@ -1269,26 +1272,29 @@ mod tests {
     }
 
     #[test]
-    fn qualified_accounts_count_before_evens_the_payments_count_after() {
+    fn qualified_accounts_count_before_equals_the_payments_count_after() {
         // Meaning adjustment by service fee but no account elimination
         init_test_logging();
-        let test_name = "qualified_accounts_count_before_evens_the_payments_count_after";
+        let test_name = "qualified_accounts_count_before_equals_the_payments_count_after";
         let now = SystemTime::now();
+        let balance_1 = 4_444_444_444_444_444_444;
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 4_444_444_444_444_444_444,
+            balance_wei: balance_1,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
             pending_payable_opt: None,
         };
+        let balance_2 = 6_000_000_000_000_000_000;
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 6_000_000_000_000_000_000,
+            balance_wei: balance_2,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
             pending_payable_opt: None,
         };
+        let balance_3 = 6_666_666_666_000_000_000;
         let account_3 = PayableAccount {
             wallet: make_wallet("ghi"),
-            balance_wei: 6_666_666_666_000_000_000,
+            balance_wei: balance_3,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
             pending_payable_opt: None,
         };
@@ -1296,9 +1302,8 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let accounts_sum: u128 =
-            4_444_444_444_444_444_444 + 6_000_000_000_000_000_000 + 6_666_666_666_000_000_000;
-        let service_fee_balance_in_minor_units = accounts_sum - 2_000_000_000_000_000_000;
+        let accounts_sum = balance_1 + balance_2 + balance_3;
+        let service_fee_balance_in_minor_units = accounts_sum - 3_000_000_000_000_000_000;
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
@@ -1314,20 +1319,20 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        let expected_balance_1 = 3_900_336_673_839_282_582;
-        let expected_balance_2 = 5_817_708_802_473_506_572;
-        let expected_balance_3 = 5_393_065_634_131_655_290;
+        let expected_adjusted_balance_1 = 3_878_112_909_226_659_278;
+        let expected_adjusted_balance_2 = 5_941_743_288_347_289_696;
+        let expected_adjusted_balance_3 = 4_291_254_912_870_495_470;
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
-                balance_wei: expected_balance_1,
+                balance_wei: expected_adjusted_balance_1,
                 ..account_1
             };
             let account_2_adjusted = PayableAccount {
-                balance_wei: expected_balance_2,
+                balance_wei: expected_adjusted_balance_2,
                 ..account_2
             };
             let account_3_adjusted = PayableAccount {
-                balance_wei: expected_balance_3,
+                balance_wei: expected_adjusted_balance_3,
                 ..account_3
             };
             vec![account_2_adjusted, account_3_adjusted, account_1_adjusted]
@@ -1345,15 +1350,18 @@ mod tests {
 |                                           Original
 |                                           Adjusted
 |
-|0x0000000000000000000000000000000000646566 6,000,000,000,000,000,000
+|0x0000000000000000000000000000000000646566 {}
 |                                           {}
-|0x0000000000000000000000000000000000676869 6,666,666,666,000,000,000
+|0x0000000000000000000000000000000000676869 {}
 |                                           {}
-|0x0000000000000000000000000000000000616263 4,444,444,444,444,444,444
+|0x0000000000000000000000000000000000616263 {}
 |                                           {}",
-            expected_balance_2.separate_with_commas(),
-            expected_balance_3.separate_with_commas(),
-            expected_balance_1.separate_with_commas()
+            balance_2.separate_with_commas(),
+            expected_adjusted_balance_2.separate_with_commas(),
+            balance_3.separate_with_commas(),
+            expected_adjusted_balance_3.separate_with_commas(),
+            balance_1.separate_with_commas(),
+            expected_adjusted_balance_1.separate_with_commas()
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
@@ -1478,8 +1486,7 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        // Account_1, the least important one, was eliminated for not big enough
-        // transaction fee balance
+        // Account_1, the least important one, was eliminated for not big enough transaction fee balance
         let expected_accounts = {
             let account_2_adjusted = PayableAccount {
                 balance_wei: 222_000_000_000_000,
@@ -1537,8 +1544,7 @@ mod tests {
             client_id: 111,
             context_id: 234,
         });
-        // Another place where I pick a populated response
-        // skeleton for hardening
+        // Another place where I pick a populated response skeleton for hardening
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent,
@@ -1568,7 +1574,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Shortage of MASQ \
         in your consuming wallet impacts on payable 0x000000000000000000000000000000000067686b, \
-        ruled out from this round of payments. The proposed adjustment 69,153,137,093 wei was less \
+        ruled out from this round of payments. The proposed adjustment 79,556,958,958 wei was less \
         than half of the recorded debt, 600,000,000,000 wei"
         ));
     }

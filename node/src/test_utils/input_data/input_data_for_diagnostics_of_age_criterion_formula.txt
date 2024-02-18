@@ -13,6 +13,9 @@
 # If the same value has been defined by any of the other categories, marked values will replace them with no conflict.
 #
 {
+    # anomalies: places where the trend changes from ascending in the big picture to a short descending one. Such places
+    # are always minor and limited so the major trend continues after an interruption. It's always a question how big
+    # issue this is, usually none at all, because the bounces are shallow.
     "literals": [
             "1",
             "5",
@@ -20,6 +23,9 @@
             "25",
             "44",
             "50",
+            #
+            # Local anomaly* somewhere near here
+            #
             "75",
             "180",
             "600",
@@ -35,10 +41,8 @@
             "7_000_000_000",
             "7_900_000_000",
             #
-            # There is little anomaly between these values, a shift back caused by the attempts for cutting off
-            # the generally progressive curve for deceleration. While the cutback is almost never a dominate factor
-            # in the curve, here it cuts more than the base can grow there by, but just for a while. It seems
-            # tolerable speaking of debt ages larger than 24 years
+            # A bit more significant anomaly* in a long range of values, however, if taken seriously, we speak of
+            # section on the time scale representing approximately 24 years. This makes the issue irrelevant.
             #
             "8_000_000_000",
             "9_000_000_000",
