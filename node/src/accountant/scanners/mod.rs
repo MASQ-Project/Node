@@ -1138,7 +1138,9 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::test_utils::{
+        make_empty_payments_and_start_block, protect_payables_in_test,
+    };
     use crate::accountant::scanners::{
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, ScanSchedulers,
         Scanner, ScannerCommon, Scanners,
@@ -3051,10 +3053,11 @@ mod tests {
         let mut subject = ReceivableScannerBuilder::new()
             .persistent_configuration(persistent_config)
             .build();
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.new_start_block = new_start_block;
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
-            payments: vec![],
-            new_start_block,
+            scan_result: Ok(scan_result),
             response_skeleton_opt: None,
         };
 
@@ -3083,10 +3086,10 @@ mod tests {
             .build();
         let msg = ReceivedPayments {
             timestamp: now,
-            payments: vec![],
-            new_start_block: 6709,
+            scan_result: Ok(make_empty_payments_and_start_block()),
             response_skeleton_opt: None,
         };
+
         // Not necessary, rather for preciseness
         subject.mark_as_started(SystemTime::now());
 
@@ -3132,10 +3135,12 @@ mod tests {
                 wei_amount: 3_333_345,
             },
         ];
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.new_start_block = 7890123;
+        scan_result.payments = receivables.clone();
         let msg = ReceivedPayments {
             timestamp: now,
-            payments: receivables.clone(),
-            new_start_block: 7890123,
+            scan_result: Ok(scan_result),
             response_skeleton_opt: None,
         };
         subject.mark_as_started(SystemTime::now());
@@ -3185,10 +3190,11 @@ mod tests {
             from: make_wallet("abc"),
             wei_amount: 45_780,
         }];
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.payments = receivables;
         let msg = ReceivedPayments {
             timestamp: now,
-            payments: receivables,
-            new_start_block: 7890123,
+            scan_result: Ok(scan_result),
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness
@@ -3228,10 +3234,11 @@ mod tests {
             from: make_wallet("abc"),
             wei_amount: 45_780,
         }];
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.payments = receivables;
         let msg = ReceivedPayments {
             timestamp: now,
-            payments: receivables,
-            new_start_block: 7890123,
+            scan_result: Ok(scan_result),
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness

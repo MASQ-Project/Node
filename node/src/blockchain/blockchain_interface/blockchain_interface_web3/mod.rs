@@ -27,6 +27,7 @@ use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -543,6 +544,7 @@ where
             chain,
             gas_limit_const_part,
             _event_loop_handle: event_loop_handle,
+            // lower_interface: lower_level_blockchain_interface,
             web3,
             contract,
         }

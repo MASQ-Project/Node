@@ -583,7 +583,12 @@ impl BlockchainBridge {
             .as_ref()
             .expect("BlockchainBridge is unbound")
             .clone();
-        let received_payments_subs = self
+        let received_payments_subs_ok_case = self
+            .received_payments_subs_opt
+            .as_ref()
+            .expect("Accountant is unbound")
+            .clone();
+        let received_payments_subs_error_case = self
             .received_payments_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
@@ -592,7 +597,7 @@ impl BlockchainBridge {
         Box::new(
             self.blockchain_interface
                 .retrieve_transactions(start_block, end_block, &msg.recipient)
-                .map_err(|e| {
+                .map_err(move |e| {
                     todo!("GH-744: We need to test drive this refactored code");
 
                     let received_payments_error =
@@ -606,7 +611,7 @@ impl BlockchainBridge {
                             )),
                         };
 
-                    received_payments_subs
+                    received_payments_subs_error_case
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
                             scan_result: Err(received_payments_error),
@@ -619,14 +624,14 @@ impl BlockchainBridge {
                     )
                 })
                 .and_then(move |transactions| {
-                    todo!("GH-744: We need to test drive this refactored code, we removed UpdateStartBlockMessage");
+                    todo!("GH-744: -STOP- We need to test drive this refactored code, we removed UpdateStartBlockMessage");
 
                     let payments_and_start_block = PaymentsAndStartBlock {
                         payments: transactions.transactions,
                         new_start_block: transactions.new_start_block,
                     };
 
-                    received_payments_subs
+                    received_payments_subs_ok_case
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
                             scan_result: Ok(payments_and_start_block),
@@ -846,7 +851,9 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::test_utils::{
+        make_empty_payments_and_start_block, protect_payables_in_test,
+    };
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
@@ -2092,12 +2099,14 @@ mod tests {
         assert_eq!(accountant_received_payment.len(), 1);
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments.timestamp, after);
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.payments = expected_transactions.transactions;
+        scan_result.new_start_block = 8675309u64;
         assert_eq!(
             received_payments,
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
-                payments: expected_transactions.transactions,
-                new_start_block: 8675309u64,
+                scan_result: Ok(scan_result),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -2198,8 +2207,10 @@ mod tests {
             received_payments_message,
             &ReceivedPayments {
                 timestamp: received_payments_message.timestamp,
-                payments: expected_transactions.transactions,
-                new_start_block: 9876,
+                scan_result: Ok(PaymentsAndStartBlock {
+                    payments: expected_transactions.transactions,
+                    new_start_block: 9876,
+                }),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -2467,13 +2478,14 @@ mod tests {
     #[test]
     fn extract_max_block_range_from_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs block range too large, range: 33636, max: 3500\", data: None }".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(3500u64), max_block_count);
     }
@@ -2481,13 +2493,13 @@ mod tests {
     #[test]
     fn extract_max_block_range_from_pokt_error_response() {
         let result = BlockchainError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(100000u64), max_block_count);
     }
@@ -2502,13 +2514,13 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_ankr_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32600), message: \"block range is too wide\", data: None }".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
     }
@@ -2520,13 +2532,13 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_matic_vigil_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\", data: None }".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1000), max_block_count);
     }
@@ -2538,13 +2550,13 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_blockpi_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs is limited to 1024 block range. Please check the parameter requirements at  https://docs.blockpi.io/documentations/api-reference\", data: None }".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1024), max_block_count);
     }
@@ -2558,13 +2570,13 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_blastapi_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32601), message: \"Method not found\", data: \"'eth_getLogs' is not available on our public API. Head over to https://docs.blastapi.io/blast-documentation/tutorials-and-guides/using-blast-to-get-a-blockchain-endpoint for more information\" }".to_string());
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
     }
@@ -2574,13 +2586,13 @@ mod tests {
         let result = BlockchainError::QueryFailed(
             "Got invalid response: Expected batch, got single.".to_string(),
         );
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let max_block_count = subject.extract_max_block_count(result);
+        // let subject = BlockchainBridge::new(
+        //     Box::new(BlockchainInterfaceMock::default()),
+        //     Box::new(PersistentConfigurationMock::default()),
+        //     false,
+        //     None,
+        // );
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1000), max_block_count);
     }

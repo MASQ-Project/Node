@@ -113,12 +113,13 @@ pub struct ResponseSkeleton {
     pub context_id: u64,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct PaymentsAndStartBlock {
     pub payments: Vec<BlockchainTransaction>,
     pub new_start_block: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReceivedPaymentsError {
     ExceededBlockScanLimit(u64),
     OtherRPCError(String),
@@ -1013,7 +1014,9 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::test_utils::{
+        make_empty_payments_and_start_block, protect_payables_in_test,
+    };
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1292,8 +1295,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
-            payments: vec![],
-            new_start_block: 1234567,
+            scan_result: Ok(make_empty_payments_and_start_block()),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1919,12 +1921,13 @@ mod tests {
             .build();
         let system = System::new("accountant_uses_receivables_dao_to_process_received_payments");
         let subject = accountant.start();
-
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.payments = vec![expected_receivable_1.clone(), expected_receivable_2.clone()];
+        scan_result.new_start_block = 123456789;
         subject
             .try_send(ReceivedPayments {
                 timestamp: now,
-                payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
-                new_start_block: 123456789,
+                scan_result: Ok(scan_result),
                 response_skeleton_opt: None,
             })
             .expect("unexpected actix error");
