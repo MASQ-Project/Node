@@ -7,6 +7,8 @@ use crate::node_configurator::node_configurator_standard::server_initializer_col
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
+#[cfg(target_os = "windows")]
+use crate::sub_lib::utils::wsa_startup_init;
 use backtrace::Backtrace;
 use clap::value_t;
 use flexi_logger::{
@@ -41,6 +43,9 @@ impl ServerInitializer for ServerInitializerReal {
             .expect("ServerInitializer: Real user not present in Multi Config");
         let data_directory = value_m!(multi_config, "data-directory", String)
             .expect("ServerInitializer: Data directory not present in Multi Config");
+
+        #[cfg(target_os = "windows")]
+        wsa_startup_init();
 
         let result: RunModeResult = Ok(())
             .combine_results(

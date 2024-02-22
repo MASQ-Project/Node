@@ -10,6 +10,8 @@ use crate::node_configurator::port_is_busy;
 use crate::run_modes_factories::{DIClusteredParams, DaemonInitializer, RunModeResult};
 use crate::sub_lib::main_tools::main_with_args;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
+#[cfg(target_os = "windows")]
+use crate::sub_lib::utils::wsa_startup_init;
 use crate::ui_gateway::UiGateway;
 use actix::{Actor, System, SystemRunner};
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -71,6 +73,9 @@ pub struct DaemonInitializerReal {
 
 impl DaemonInitializer for DaemonInitializerReal {
     fn go(&mut self, _streams: &mut StdStreams<'_>, _args: &[String]) -> RunModeResult {
+        #[cfg(target_os = "windows")]
+        wsa_startup_init();
+
         if port_is_busy(self.config.ui_port) {
             let message = format!("There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port);
             return Err(ConfiguratorError::required("ui-port", message.as_str()));

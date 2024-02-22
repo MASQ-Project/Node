@@ -14,6 +14,15 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(target_os = "windows")]
+mod win_cfg {
+    pub use windows_sys::core::PSTR;
+    pub use windows_sys::Win32::Networking::WinSock::WSAStartup;
+    pub use windows_sys::Win32::Networking::WinSock::{
+        SO_MAX_MSG_SIZE, WSADESCRIPTION_LEN, WSASYS_STATUS_LEN,
+    };
+}
+
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
     ErrorKind::ConnectionAborted,
@@ -249,6 +258,41 @@ pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Pat
 pub struct MessageScheduler<M: Message> {
     pub scheduled_msg: M,
     pub delay: Duration,
+}
+
+#[cfg(target_os = "windows")]
+pub fn wsa_startup_init() {
+    let lp_vendor: *mut u8 = std::ptr::null_mut::<u8>();
+    let wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA =
+        &mut windows_sys::Win32::Networking::WinSock::WSADATA {
+            wVersion: 0x0202_u16,
+            wHighVersion: 0x0202_u16,
+            iMaxSockets: 0,
+            iMaxUdpDg: win_cfg::SO_MAX_MSG_SIZE as u16,
+            lpVendorInfo: lp_vendor as win_cfg::PSTR,
+            szDescription: [0u8; win_cfg::WSADESCRIPTION_LEN as usize + 1usize],
+            szSystemStatus: [0u8; win_cfg::WSASYS_STATUS_LEN as usize + 1usize],
+        } as *mut windows_sys::Win32::Networking::WinSock::WSADATA;
+
+    let wsa_startup_init: i32 = unsafe { wsa_startup_call(0x0202u16, wsdata) };
+
+    match wsa_startup_init {
+        0 => {},
+        10091 => panic!("WSAStartup: The underlying network subsystem is not ready for network communication. Error code: 10091"),
+        10092 => panic!("WSAStartup: The version of Windows Sockets support requested is not provided by this particular Windows Sockets implementation. Error code: 10092"),
+        10036 => panic!("WSAStartup: A blocking Windows Sockets 1.1 operation is in progress. Error code: 10036"),
+        10067 => panic!("WSAStartup: A limit on the number of tasks supported by the Windows Sockets implementation has been reached. Error code: 10067"),
+        10014 => panic!("WSAStartup: The lpWSAData parameter is not a valid pointer. Error code: 10014"),
+        x => panic!("WSAStartup: WSAStartup returned unimplemented error: {}", x)
+    };
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn wsa_startup_call(
+    version: u16,
+    wsdata: *mut windows_sys::Win32::Networking::WinSock::WSADATA,
+) -> i32 {
+    win_cfg::WSAStartup(version, wsdata)
 }
 
 #[cfg(test)]

@@ -19,16 +19,17 @@ use masq_lib::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use masq_lib::utils::{localhost, ExpectValue};
 use std::any::Any;
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::reactor::Handle;
 use websocket::client::r#async::Framed;
+use websocket::r#async::server::Upgrade;
 use websocket::r#async::MessageCodec;
 use websocket::r#async::TcpStream;
-use websocket::server::r#async::Server;
+use websocket::server::r#async::{Incoming, Server};
 use websocket::server::upgrade::WsUpgrade;
+use websocket::server::InvalidConnection;
 use websocket::OwnedMessage;
 use websocket::WebSocketError;
 
@@ -173,21 +174,24 @@ impl WebSocketSupervisorReal {
         })
     }
 
-    fn remove_failures<I, E: Debug>(
-        stream: impl Stream<Item = I, Error = E>,
+    fn remove_failures(
+        stream: Incoming<TcpStream>,
         logger: &Logger,
-    ) -> impl Stream<Item = I, Error = E> {
+    ) -> impl Stream<
+        Item = (Upgrade<TcpStream>, SocketAddr),
+        Error = InvalidConnection<TcpStream, BytesMut>,
+    > {
         let logger_clone = logger.clone();
         stream
             .then(move |result| match result {
-                Ok(x) => ok::<Option<I>, E>(Some(x)),
+                Ok(x) => ok(Some(x)),
                 Err(e) => {
                     warning!(
                         logger_clone,
                         "Unsuccessful connection to UI port detected: {:?}",
                         e
                     );
-                    ok::<Option<I>, E>(None)
+                    ok(None)
                 }
             })
             .filter(|option| option.is_some())
