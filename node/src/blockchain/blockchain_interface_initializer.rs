@@ -46,21 +46,51 @@ mod tests {
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use masq_lib::blockchains::chains::Chain;
 
+    use futures::Future;
+    use serde_json::Value;
     use std::net::Ipv4Addr;
+    use web3::transports::Http;
 
-    use crate::blockchain::blockchain_interface::test_utils::test_blockchain_interface_is_connected_and_functioning;
-
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+        BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+    };
+    use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::test_utils::http_test_server::TestServer;
+    use crate::test_utils::make_wallet;
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::utils::find_free_port;
 
     #[test]
     fn initialize_web3_interface_works() {
-        let subject_factory = |port: u16, chain: Chain| {
-            let subject = BlockchainInterfaceInitializer {};
-            let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
-            subject.initialize_web3_interface(server_url, chain)
-        };
+        let port = find_free_port();
+        let test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
+        );
+        let wallet = make_wallet("123");
+        let chain = Chain::PolyMainnet;
+        let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
+        let (event_loop_handle, transport) =
+            Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let _ = subject
+            .get_web3()
+            .eth()
+            .balance(wallet.address(), None)
+            .wait();
+        //TODO: GH-744: Subject call is returning an error due to test_servers response, come back to this.
 
-        test_blockchain_interface_is_connected_and_functioning(subject_factory)
+        let requests = test_server.requests_so_far();
+        let bodies: Vec<Value> = requests
+            .into_iter()
+            .map(|request| serde_json::from_slice(&request.body()).unwrap())
+            .collect();
+
+        assert_eq!(bodies[0]["params"][0].to_string(), format!("\"{wallet}\""));
+        assert_eq!(
+            bodies[0]["method"].to_string(),
+            format!("\"eth_getBalance\"")
+        );
     }
 
     #[test]

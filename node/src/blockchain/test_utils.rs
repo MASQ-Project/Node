@@ -32,6 +32,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, SignedTransaction, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -94,7 +95,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         todo!()
     }
 
-    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+    fn get_contract(&self) -> Contract<Http> {
+        todo!()
+    }
+
+    fn get_web3(&self) -> Web3<Http> {
+        todo!()
+    }
+
+    fn get_web3_batch(&self) -> Web3<Batch<Http>> {
         todo!()
     }
 

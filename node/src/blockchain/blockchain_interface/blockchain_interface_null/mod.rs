@@ -5,6 +5,7 @@ pub mod lower_level_interface_null;
 use ethereum_types::U256;
 use futures::Future;
 use futures::future::result;
+use web3::contract::Contract;
 use web3::transports::{Batch, Http};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
@@ -34,7 +35,15 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         todo!()
     }
 
-    fn get_batch_web3(&self) -> Web3<Batch<Http>> {
+    fn get_contract(&self) -> Contract<Http> {
+        todo!()
+    }
+
+    fn get_web3(&self) -> Web3<Http> {
+        todo!()
+    }
+
+    fn get_web3_batch(&self) -> Web3<Batch<Http>> {
         todo!()
     }
 

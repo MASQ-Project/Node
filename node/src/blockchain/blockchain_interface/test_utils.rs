@@ -97,34 +97,31 @@ impl LowBlockchainIntMock {
     }
 }
 
-pub fn test_blockchain_interface_is_connected_and_functioning<F>(subject_factory: F)
-where
-    F: Fn(u16, Chain) -> Box<dyn BlockchainInterface>,
-{
-    let port = find_free_port();
-    let test_server = TestServer::start(
-        port,
-        vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-    );
-    let wallet = make_wallet("123");
-    let chain = Chain::PolyMainnet;
-    let subject = subject_factory(port, chain);
-
-    // no assertion for the result, we anticipate an error from a badly formatted response from the server;
-    // yet enough to prove we have a proper connection
-    let _ = subject.lower_interface().get_service_fee_balance(&wallet);
-
-    let requests = test_server.requests_so_far();
-    let bodies: Vec<Value> = requests
-        .into_iter()
-        .map(|request| serde_json::from_slice(&request.body()).unwrap())
-        .collect();
-    assert_eq!(
-        bodies[0]["params"][0]["data"].to_string()[35..75],
-        wallet.to_string()[2..]
-    );
-    assert_eq!(
-        bodies[0]["params"][0]["to"],
-        format!("{:?}", chain.rec().contract)
-    );
-}
+// pub fn test_blockchain_interface_is_connected_and_functioning(port: u16, chain: Chain) {
+//     // let port = find_free_port();
+//     let test_server = TestServer::start(
+//         port,
+//         vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
+//     );
+//     let wallet = make_wallet("123");
+//     // let chain = Chain::PolyMainnet;
+//     let subject = make_subject() subject_factory(port, chain);
+//
+//     // no assertion for the result, we anticipate an error from a badly formatted response from the server;
+//     // yet enough to prove we have a proper connection
+//     let _ = subject.lower_interface().get_service_fee_balance(&wallet);
+//
+//     let requests = test_server.requests_so_far();
+//     let bodies: Vec<Value> = requests
+//         .into_iter()
+//         .map(|request| serde_json::from_slice(&request.body()).unwrap())
+//         .collect();
+//     assert_eq!(
+//         bodies[0]["params"][0]["data"].to_string()[35..75],
+//         wallet.to_string()[2..]
+//     );
+//     assert_eq!(
+//         bodies[0]["params"][0]["to"],
+//         format!("{:?}", chain.rec().contract)
+//     );
+// }
