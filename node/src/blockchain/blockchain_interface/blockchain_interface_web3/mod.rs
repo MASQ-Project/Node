@@ -27,7 +27,9 @@ use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
 use web3::{BatchTransport, Error as Web3Error, Web3};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -396,62 +398,77 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
-        todo!("GH-744: Come back to this");
-        // let gas_price_gwei = match persistent_config.gas_price() {
-        //     Ok(price) => price,
-        //     Err(e) => return Err(BlockchainAgentBuildError::GasPrice(e)),
-        // };
-        //
-        // let transaction_fee_balance = match self
-        //     .lower_interface
-        //     .get_transaction_fee_balance(consuming_wallet)
-        // {
-        //     Ok(balance) => balance,
-        //     Err(e) => {
-        //         return Err(BlockchainAgentBuildError::TransactionFeeBalance(
-        //             consuming_wallet.clone(),
-        //             e,
-        //         ))
-        //     }
-        // };
-        //
-        // let masq_token_balance = match self
-        //     .lower_interface
-        //     .get_service_fee_balance(consuming_wallet)
-        // {
-        //     Ok(balance) => balance,
-        //     Err(e) => {
-        //         return Err(BlockchainAgentBuildError::ServiceFeeBalance(
-        //             consuming_wallet.clone(),
-        //             e,
-        //         ))
-        //     }
-        // };
-        //
-        // let pending_transaction_id = match self.lower_interface.get_transaction_id(consuming_wallet)
-        // {
-        //     Ok(id) => id,
-        //     Err(e) => {
-        //         return Err(BlockchainAgentBuildError::TransactionID(
-        //             consuming_wallet.clone(),
-        //             e,
-        //         ))
-        //     }
-        // };
-        //
-        // let consuming_wallet_balances = ConsumingWalletBalances {
-        //     transaction_fee_balance_in_minor_units: transaction_fee_balance,
-        //     masq_token_balance_in_minor_units: masq_token_balance,
-        // };
-        // let consuming_wallet = consuming_wallet.clone();
-        //
-        // Ok(Box::new(BlockchainAgentWeb3::new(
-        //     gas_price_gwei,
-        //     self.gas_limit_const_part,
-        //     consuming_wallet,
-        //     consuming_wallet_balances,
-        //     pending_transaction_id,
-        // )))
+        // todo!("GH-744: Come back to this - build_blockchain_agent");
+        let gas_price_gwei = match persistent_config.gas_price() {
+            Ok(price) => price,
+            Err(e) => return Err(BlockchainAgentBuildError::GasPrice(e)),
+        };
+
+        let transaction_fee_balance = match self.get_transaction_fee_balance(consuming_wallet) {
+            // IS Future
+            Ok(balance) => balance,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionFeeBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let masq_token_balance = match self.get_service_fee_balance(consuming_wallet) {
+            // IS Future
+            Ok(balance) => balance,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::ServiceFeeBalance(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let pending_transaction_id = match self.lower_interface.get_transaction_id(consuming_wallet)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                return Err(BlockchainAgentBuildError::TransactionID(
+                    consuming_wallet.clone(),
+                    e,
+                ))
+            }
+        };
+
+        let consuming_wallet_balances = ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: transaction_fee_balance,
+            masq_token_balance_in_minor_units: masq_token_balance,
+        };
+        let consuming_wallet = consuming_wallet.clone();
+
+        Ok(Box::new(BlockchainAgentWeb3::new(
+            gas_price_gwei,
+            self.gas_limit_const_part,
+            consuming_wallet,
+            consuming_wallet_balances,
+            pending_transaction_id,
+        )))
+    }
+
+    fn get_service_fee_balance(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(
+            self.get_contract()
+                .query(
+                    "balanceOf",
+                    wallet.address(),
+                    None,
+                    Options::default(),
+                    None,
+                )
+                .map_err(|e| {
+                    BlockchainError::QueryFailed(format!("{:?} for wallet {}", e, wallet))
+                }),
+        )
     }
 
     fn get_transaction_fee_balance(

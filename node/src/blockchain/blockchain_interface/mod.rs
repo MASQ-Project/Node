@@ -14,11 +14,12 @@ use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchai
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
+use std::format;
 // use ethabi::Contract;
 use ethereum_types::U256;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use web3::contract::Contract;
+use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, H256};
 use web3::{BatchTransport, Web3};
@@ -44,6 +45,10 @@ pub trait BlockchainInterface {
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
     ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>;
+    fn get_service_fee_balance(
+        &self,
+        wallet: &Wallet,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_fee_balance(
         &self,
