@@ -50,9 +50,11 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    update_min_hops_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
-    update_password_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
-    update_wallets_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
+    config_change_subs_opt: Option<Vec<Recipient<ConfigChangeMsg>>>,
+    // all actors
+    // update_min_hops_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
+    // update_password_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
+    // update_wallets_subs_opt: Option<Box<dyn ConfigChangeSubs>>,
     crashable: bool,
     logger: Logger,
 }
@@ -66,17 +68,7 @@ impl Handler<BindMessage> for Configurator {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
-            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub.clone(),
-        }));
-        self.update_password_subs_opt = Some(Box::new(UpdatePasswordSubs {
-            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub.clone(),
-        }));
-        self.update_wallets_subs_opt = Some(Box::new(UpdateWalletsSubs {
-            accountant: msg.peer_actors.accountant.config_change_msg_sub,
-            blockchain_bridge: msg.peer_actors.blockchain_bridge.config_change_msg_sub,
-            neighborhood: msg.peer_actors.neighborhood.config_change_msg_sub,
-        }));
+        self.config_change_subs_opt = Some(msg.peer_actors.config_change_subs());
     }
 }
 
@@ -124,9 +116,7 @@ impl Configurator {
         Configurator {
             persistent_config,
             node_to_ui_sub_opt: None,
-            update_min_hops_subs_opt: None,
-            update_password_subs_opt: None,
-            update_wallets_subs_opt: None,
+            config_change_subs_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -756,17 +746,18 @@ impl Configurator {
                 } else if "start-block" == &msg.name {
                     Self::set_start_block(msg.value, persistent_config)?;
                 } else if "min-hops" == &msg.name {
-                    let update_min_hops_subs = self
-                        .update_min_hops_subs_opt
-                        .as_ref()
-                        .expect("UpdateMinHopsSubs is not properly initialized")
-                        .as_ref();
-                    Self::set_min_hops(
-                        msg.value,
-                        persistent_config,
-                        update_min_hops_subs,
-                        &self.logger,
-                    )?;
+                    todo!("GH-728: Send it to all actors.");
+                    // let update_min_hops_subs = self
+                    //     .update_min_hops_subs_opt
+                    //     .as_ref()
+                    //     .expect("UpdateMinHopsSubs is not properly initialized")
+                    //     .as_ref();
+                    // Self::set_min_hops(
+                    //     msg.value,
+                    //     persistent_config,
+                    //     update_min_hops_subs,
+                    //     &self.logger,
+                    // )?;
                 } else {
                     return Err((
                         UNRECOGNIZED_PARAMETER,
@@ -847,14 +838,24 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
+    fn send_config_change_msg(&self, msg: ConfigChangeMsg)
+    {
+        self.config_change_subs_opt
+            .as_ref()
+            .expect("ConfigChangeSubs are uninitialized")
+            .iter()
+            .for_each(|recipient| {
+                recipient
+                    .try_send(msg.clone())
+                    .expect("ConfigChangeMsg recipient is dead")
+            })
+    }
+
     fn send_new_password_to_subs(&self, new_password: String) {
         let msg = ConfigChangeMsg {
             change: ConfigChange::UpdatePassword(new_password),
         };
-        self.update_password_subs_opt
-            .as_ref()
-            .expect("UpdatePasswordSubs is uninitialized")
-            .send_msg_to_subs(msg);
+        self.send_config_change_msg(msg);
     }
 
     fn send_updated_wallets_to_subs(&self, db_password: &str) {
@@ -866,16 +867,12 @@ impl Configurator {
         if let (Ok(Some(new_consuming_wallet)), Ok(Some(new_earning_wallet))) =
             (consuming_wallet_result_opt, earning_wallet_result_opt)
         {
-            let msg = ConfigChangeMsg {
+            self.send_config_change_msg(ConfigChangeMsg {
                 change: ConfigChange::UpdateWallets(WalletPair {
                     consuming_wallet: new_consuming_wallet,
                     earning_wallet: new_earning_wallet,
                 }),
-            };
-            self.update_wallets_subs_opt
-                .as_ref()
-                .expect("Configuration is unbound")
-                .send_msg_to_subs(msg);
+            });
         } else {
             panic!("Unable to retrieve wallets from persistent configuration")
         };
@@ -971,17 +968,11 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         )));
-        let (recorder, _, _) = make_recorder();
-        let recorder_addr = recorder.start();
-        let (neighborhood, _, _) = make_recorder();
-        let neighborhood_sub = neighborhood.start().recipient();
-
+        let peer_actors = peer_actors_builder().build();
         let mut subject = Configurator::new(data_dir, false);
+        subject.config_change_subs_opt = Some(peer_actors.config_change_subs());
+        subject.node_to_ui_sub_opt = Some(peer_actors.ui_gateway.node_to_ui_message_sub);
 
-        subject.node_to_ui_sub_opt = Some(recorder_addr.recipient());
-        subject.update_password_subs_opt = Some(Box::new(UpdatePasswordSubs {
-            neighborhood: neighborhood_sub,
-        }));
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -990,6 +981,7 @@ mod tests {
             0,
             0,
         );
+
         assert_eq!(
             verifier.check_password(Some("password".to_string())),
             Ok(true)
@@ -1162,6 +1154,7 @@ mod tests {
     }
 
     fn assert_wallets_synchronisation_among_other_actors(msg: NodeFromUiMessage) {
+        // TODO: GH-728 - Maybe remove this function and the corresponding test
         let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
         let consuming_wallet = make_paying_wallet(b"consuming");
         let earning_wallet = make_wallet("earning");
@@ -1803,6 +1796,11 @@ mod tests {
         }
     }
 
+    fn make_config_change_subs() -> Vec<Recipient<ConfigChangeMsg>> {
+        let peer_actors = peer_actors_builder().build();
+        peer_actors.config_change_subs()
+    }
+
     #[test]
     fn handle_recover_wallets_works_with_earning_wallet_derivation_path() {
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1813,7 +1811,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_wallets_subs_opt = Some(Box::new(make_update_wallets_subs()));
+        subject.config_change_subs_opt = Some(make_config_change_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = Some(derivation_path(0, 5));
 
@@ -1869,7 +1867,7 @@ mod tests {
             .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
             .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_wallets_subs_opt = Some(Box::new(make_update_wallets_subs()));
+        subject.config_change_subs_opt = Some(make_config_change_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request
             .seed_spec_opt
@@ -2331,12 +2329,12 @@ mod tests {
             .set_min_hops_result(Ok(()));
         let system = System::new("handle_set_configuration_works_for_min_hops");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let neighborhood_sub = neighborhood.start().recipient();
+        // let neighborhood_sub = neighborhood.start().recipient();
         let mut subject = make_subject(Some(persistent_config));
         subject.logger = Logger::new(test_name);
-        subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
-            neighborhood: neighborhood_sub,
-        }));
+        // subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
+        //     neighborhood: neighborhood_sub,
+        // }));
 
         let result = subject.handle_set_configuration(
             UiSetConfigurationRequest {
@@ -2377,7 +2375,7 @@ mod tests {
         init_test_logging();
         let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
-        subject.update_min_hops_subs_opt = Some(Box::new(ConfigChangeSubsNull));
+        // subject.update_min_hops_subs_opt = Some(Box::new(ConfigChangeSubsNull));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -2416,9 +2414,9 @@ mod tests {
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_sub = neighborhood.start().recipient::<ConfigChangeMsg>();
         let mut subject = make_subject(Some(persistent_config));
-        subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
-            neighborhood: neighborhood_sub,
-        }));
+        // subject.update_min_hops_subs_opt = Some(Box::new(UpdateMinHopsSubs {
+        //     neighborhood: neighborhood_sub,
+        // }));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(
@@ -3014,9 +3012,7 @@ mod tests {
             Configurator {
                 persistent_config,
                 node_to_ui_sub_opt: None,
-                update_min_hops_subs_opt: None,
-                update_password_subs_opt: None,
-                update_wallets_subs_opt: None,
+                config_change_subs_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }

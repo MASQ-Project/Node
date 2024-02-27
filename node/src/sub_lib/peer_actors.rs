@@ -4,11 +4,11 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::dispatcher::DispatcherSubs;
 use crate::sub_lib::hopper::HopperSubs;
-use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, NeighborhoodSubs};
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::Message;
+use actix::{Message, Recipient};
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -30,6 +30,16 @@ pub struct PeerActors {
 impl Debug for PeerActors {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "PeerActors")
+    }
+}
+
+impl PeerActors {
+    pub fn config_change_subs(&self) -> Vec<Recipient<ConfigChangeMsg>> {
+        vec![
+            self.accountant.config_change_msg_sub.clone(),
+            self.blockchain_bridge.config_change_msg_sub.clone(),
+            self.neighborhood.config_change_msg_sub.clone(),
+        ]
     }
 }
 
