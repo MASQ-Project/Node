@@ -769,10 +769,7 @@ impl Configurator {
         }
     }
 
-    fn set_min_hops(
-        &mut self,
-        min_hops_value: String,
-    ) -> Result<(), (u64, String)> {
+    fn set_min_hops(&mut self, min_hops_value: String) -> Result<(), (u64, String)> {
         let min_hops = match Hops::from_str(&min_hops_value) {
             Ok(min_hops) => min_hops,
             Err(e) => {
@@ -818,8 +815,7 @@ impl Configurator {
             .expect("UiGateway is dead");
     }
 
-    fn send_config_change_msg(&self, msg: ConfigChangeMsg)
-    {
+    fn send_config_change_msg(&self, msg: ConfigChangeMsg) {
         self.config_change_subs_opt
             .as_ref()
             .expect("ConfigChangeSubs are uninitialized")
@@ -2371,8 +2367,7 @@ mod tests {
         let test_name = "handle_set_configuration_handles_failure_on_min_hops_database_issue";
         let persistent_config = PersistentConfigurationMock::new()
             .set_min_hops_result(Err(PersistentConfigError::TransactionError));
-        let system =
-            System::new(test_name);
+        let system = System::new(test_name);
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
         let mut subject = make_subject(Some(persistent_config));
