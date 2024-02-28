@@ -111,11 +111,7 @@ impl Handler<ConfigChangeMsg> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
-        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
-        } else {
-            trace!(self.logger, "Unexpected message received: {:?}", msg);
-        }
+        self.handle_config_change_msg(msg);
     }
 }
 
@@ -251,6 +247,14 @@ impl BlockchainBridge {
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
+        }
+    }
+
+    fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
+        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
+            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+        } else {
+            trace!(self.logger, "Unexpected message received: {:?}", msg);
         }
     }
 
@@ -662,59 +666,60 @@ mod tests {
 
     #[test]
     fn blockchain_bridge_handles_config_change_msg() {
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateWallets(WalletPair {
-                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
-                earning_wallet: make_wallet("new_earning_wallet"),
-            }),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdatePassword("new password".to_string()),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateMinHops(Hops::FourHops),
-        })
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                    earning_wallet: make_wallet("new_earning_wallet"),
+                }),
+            },
+            |subject: &BlockchainBridge| {
+                assert_eq!(
+                    subject.consuming_wallet_opt,
+                    Some(make_paying_wallet(b"new_consuming_wallet"))
+                );
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdatePassword("new password".to_string()),
+            },
+            |_subject: &BlockchainBridge| {
+                let _ = TestLogHandler::new().exists_log_containing(
+                    "TRACE: ConfigChange: Unexpected message received: \
+                    ConfigChangeMsg { change: UpdatePassword(\"new password\") }",
+                );
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(Hops::FourHops),
+            },
+            |_subject: &BlockchainBridge| {
+                let _ = TestLogHandler::new().exists_log_containing(
+                    "TRACE: ConfigChange: Unexpected message received: \
+                    ConfigChangeMsg { change: UpdateMinHops(FourHops) }",
+                );
+            },
+        );
     }
 
-    fn assert_handling_of_config_change_msg(msg: ConfigChangeMsg) {
+    fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
+    where
+        A: FnOnce(&BlockchainBridge),
+    {
         init_test_logging();
-        let test_name = "assert_handling_of_config_change_msg";
-        let system = System::new(test_name);
         let mut subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(PersistentConfigurationMock::default()),
             false,
             None,
         );
-        subject.logger = Logger::new(test_name);
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject.logger = Logger::new("ConfigChange");
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject.handle_config_change_msg(msg);
 
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(move |blockchain_bridge: &mut BlockchainBridge| {
-                    match msg.change {
-                        ConfigChange::UpdateWallets(wallet_pair) => {
-                            assert_eq!(
-                                blockchain_bridge.consuming_wallet_opt,
-                                Some(wallet_pair.consuming_wallet)
-                            );
-                        }
-                        ConfigChange::UpdatePassword(_) | ConfigChange::UpdateMinHops(_) => {
-                            let _ = TestLogHandler::new().exists_log_containing(&format!(
-                                "TRACE: {test_name}: Unexpected message received: {:?}",
-                                msg
-                            ));
-                        }
-                    }
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
+        assertions(&subject);
     }
 
     #[test]

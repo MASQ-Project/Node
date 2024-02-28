@@ -3006,8 +3006,7 @@ mod tests {
                 change: ConfigChange::UpdateMinHops(Hops::FourHops),
             },
             |subject: &Neighborhood| {
-                let expected_db_patch_size =
-                    Neighborhood::calculate_db_patch_size(Hops::FourHops);
+                let expected_db_patch_size = Neighborhood::calculate_db_patch_size(Hops::FourHops);
                 assert_eq!(subject.min_hops, Hops::FourHops);
                 assert_eq!(subject.db_patch_size, expected_db_patch_size);
                 assert_eq!(
@@ -3019,14 +3018,14 @@ mod tests {
     }
 
     fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
-        where
-            A: FnOnce(&Neighborhood),
+    where
+        A: FnOnce(&Neighborhood),
     {
         init_test_logging();
         let mut subject = make_standard_subject();
         subject.logger = Logger::new("ConfigChange");
 
-        subject.handle_config_change_msg(msg.clone());
+        subject.handle_config_change_msg(msg);
 
         assertions(&subject);
     }

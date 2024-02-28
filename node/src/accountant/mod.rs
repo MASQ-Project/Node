@@ -1274,8 +1274,8 @@ mod tests {
     }
 
     fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
-        where
-            A: FnOnce(&Accountant),
+    where
+        A: FnOnce(&Accountant),
     {
         init_test_logging();
         let mut subject = AccountantBuilder::default()
