@@ -144,6 +144,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.build_blockchain_agent_results.borrow_mut().remove(0)
     }
 
+    fn get_service_fee_balance(
+        &self,
+        wallet_address: Address,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!()
+    }
+
     // fn send_batch_of_payables(
     //     &self,
     //     agent: Box<dyn BlockchainAgent>,

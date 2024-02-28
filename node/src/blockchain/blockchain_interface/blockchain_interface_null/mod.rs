@@ -66,6 +66,13 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         self.handle_uninitialized_interface("build blockchain agent")
     }
 
+    fn get_service_fee_balance(
+        &self,
+        wallet_address: Address,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!()
+    }
+
     fn get_transaction_fee_balance(
         &self,
         address: &Wallet,

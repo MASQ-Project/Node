@@ -8,6 +8,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
+use ethereum_types::U64;
 use futures::future::err;
 use futures::stream::FuturesOrdered;
 use futures::{Future, Stream};
@@ -17,10 +18,12 @@ use serde_json::Value;
 use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
-use web3::transports::Batch;
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, H256, U256};
-use web3::Error as Web3Error;
+use web3::transports::{Batch, Http};
+use web3::types::{
+    Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256,
+};
 use web3::{BatchTransport, Web3};
+use web3::{Error as Web3Error, Error};
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -363,6 +366,42 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
     // return Box::new(err(PayableTransactionError::GasPriceQueryFailed(
     //     "test Error".to_string(),
     // )));
+}
+
+// TODO: GH-744: this needs tto be test driven
+pub fn request_block_number(
+    web3_batch: Web3<Batch<Http>>,
+    start_block: BlockNumber,
+    end_block: BlockNumber,
+    logger: Logger,
+) -> Box<dyn Future<Item = u64, Error = ()>> {
+    let fallback_start_block_number = match end_block {
+        BlockNumber::Number(eb) => eb.as_u64(),
+        _ => {
+            if let BlockNumber::Number(start_block_number) = start_block {
+                start_block_number.as_u64() + 1u64
+            } else {
+                panic!("start_block of Latest, Earliest, and Pending are not supported");
+            }
+        }
+    };
+    let block_request = web3_batch.eth().block_number();
+
+    Box::new(
+        block_request.then(move |block_nbr_result| match block_nbr_result {
+            Ok(block_nbr) => {
+                debug!(logger, "Latest block number: {}", block_nbr.as_u64());
+                Ok(block_nbr.as_u64())
+            }
+            Err(_) => {
+                debug!(
+                    logger,
+                    "Using fallback block number: {}", fallback_start_block_number
+                );
+                Ok(fallback_start_block_number)
+            }
+        }),
+    )
 }
 
 #[cfg(test)]
