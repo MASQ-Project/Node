@@ -33,8 +33,9 @@ impl Debug for PeerActors {
     }
 }
 
+pub type ConfigChangeSubs = Vec<Recipient<ConfigChangeMsg>>;
 impl PeerActors {
-    pub fn config_change_subs(&self) -> Vec<Recipient<ConfigChangeMsg>> {
+    pub fn config_change_subs(&self) -> ConfigChangeSubs {
         vec![
             self.accountant.config_change_msg_sub.clone(),
             self.blockchain_bridge.config_change_msg_sub.clone(),
