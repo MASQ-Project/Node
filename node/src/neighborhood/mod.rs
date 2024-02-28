@@ -141,30 +141,7 @@ impl Handler<ConfigChangeMsg> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
-        match msg.change {
-            ConfigChange::UpdateWallets(new_wallet_pair) => {
-                self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
-            }
-            ConfigChange::UpdateMinHops(new_min_hops) => {
-                self.set_min_hops_and_patch_size(new_min_hops);
-                if self.overall_connection_status.can_make_routes() {
-                    let node_to_ui_recipient = self
-                        .node_to_ui_recipient_opt
-                        .as_ref()
-                        .expect("UI gateway is dead");
-                    self.overall_connection_status
-                        .update_ocs_stage_and_send_message_to_ui(
-                            OverallConnectionStage::ConnectedToNeighbor,
-                            node_to_ui_recipient,
-                            &self.logger,
-                        );
-                }
-                self.search_for_a_new_route();
-            }
-            ConfigChange::UpdatePassword(new_password) => {
-                self.db_password_opt = Some(new_password);
-            }
-        }
+        self.handle_config_change_msg(msg);
     }
 }
 
@@ -563,6 +540,33 @@ impl Neighborhood {
                 )
                 .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
+        }
+    }
+
+    fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
+        match msg.change {
+            ConfigChange::UpdateWallets(new_wallet_pair) => {
+                self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
+            }
+            ConfigChange::UpdateMinHops(new_min_hops) => {
+                self.set_min_hops_and_patch_size(new_min_hops);
+                if self.overall_connection_status.can_make_routes() {
+                    let node_to_ui_recipient = self
+                        .node_to_ui_recipient_opt
+                        .as_ref()
+                        .expect("UI gateway is dead");
+                    self.overall_connection_status
+                        .update_ocs_stage_and_send_message_to_ui(
+                            OverallConnectionStage::ConnectedToNeighbor,
+                            node_to_ui_recipient,
+                            &self.logger,
+                        );
+                }
+                self.search_for_a_new_route();
+            }
+            ConfigChange::UpdatePassword(new_password) => {
+                self.db_password_opt = Some(new_password);
+            }
         }
     }
 
@@ -2975,59 +2979,56 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_config_change_msg() {
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateWallets(WalletPair {
-                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
-                earning_wallet: make_wallet("new_earning_wallet"),
-            }),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdatePassword("new password".to_string()),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateMinHops(Hops::FourHops),
-        })
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                    earning_wallet: make_wallet("new_earning_wallet"),
+                }),
+            },
+            |subject: &Neighborhood| {
+                assert_eq!(
+                    subject.consuming_wallet_opt,
+                    Some(make_paying_wallet(b"new_consuming_wallet"))
+                );
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdatePassword("new password".to_string()),
+            },
+            |subject: &Neighborhood| {
+                assert_eq!(subject.db_password_opt, Some("new password".to_string()))
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(Hops::FourHops),
+            },
+            |subject: &Neighborhood| {
+                let expected_db_patch_size =
+                    Neighborhood::calculate_db_patch_size(Hops::FourHops);
+                assert_eq!(subject.min_hops, Hops::FourHops);
+                assert_eq!(subject.db_patch_size, expected_db_patch_size);
+                assert_eq!(
+                    subject.overall_connection_status.stage,
+                    OverallConnectionStage::NotConnected
+                );
+            },
+        )
     }
 
-    fn assert_handling_of_config_change_msg(msg: ConfigChangeMsg) {
+    fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
+        where
+            A: FnOnce(&Neighborhood),
+    {
         init_test_logging();
-        let test_name = "assert_handling_of_config_change_msg";
-        let system = System::new(test_name);
         let mut subject = make_standard_subject();
-        subject.logger = Logger::new(test_name);
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject.logger = Logger::new("ConfigChange");
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject.handle_config_change_msg(msg.clone());
 
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(move |neighborhood: &mut Neighborhood| match msg.change {
-                    ConfigChange::UpdateWallets(wallet_pair) => {
-                        assert_eq!(
-                            neighborhood.consuming_wallet_opt,
-                            Some(wallet_pair.consuming_wallet)
-                        );
-                    }
-                    ConfigChange::UpdatePassword(new_password) => {
-                        assert_eq!(neighborhood.db_password_opt, Some(new_password))
-                    }
-                    ConfigChange::UpdateMinHops(new_min_hops) => {
-                        let expected_db_patch_size =
-                            Neighborhood::calculate_db_patch_size(new_min_hops);
-                        assert_eq!(neighborhood.min_hops, new_min_hops);
-                        assert_eq!(neighborhood.db_patch_size, expected_db_patch_size);
-                        assert_eq!(
-                            neighborhood.overall_connection_status.stage,
-                            OverallConnectionStage::NotConnected
-                        );
-                    }
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
+        assertions(&subject);
     }
 
     #[test]

@@ -1283,7 +1283,7 @@ mod tests {
             .build();
         subject.logger = Logger::new("ConfigChange");
 
-        subject.handle_config_change_msg(msg.clone());
+        subject.handle_config_change_msg(msg);
 
         assertions(&subject);
     }
