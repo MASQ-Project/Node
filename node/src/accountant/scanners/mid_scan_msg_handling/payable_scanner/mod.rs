@@ -16,6 +16,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
+use crate::accountant::payment_adjuster::calibrator::PaymentAdjusterCalibrator;
 
 pub trait MultistagePayableScanner<BeginMessage, EndMessage>:
     Scanner<BeginMessage, EndMessage> + SolvencySensitivePaymentInstructor
@@ -30,23 +31,23 @@ pub trait SolvencySensitivePaymentInstructor {
         &self,
         msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
-    ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>>;
+    ) -> Option<Either<OutboundPaymentsInstructions, OrderedAdjustment>>;
 
     fn perform_payment_adjustment(
         &self,
-        setup: PreparedAdjustment,
+        setup: OrderedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions>;
 }
 
-pub struct PreparedAdjustment {
+pub struct OrderedAdjustment {
     pub qualified_payables: Vec<PayableAccount>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
     pub adjustment: Adjustment,
 }
 
-impl PreparedAdjustment {
+impl OrderedAdjustment {
     pub fn new(
         qualified_payables: Vec<PayableAccount>,
         agent: Box<dyn BlockchainAgent>,
@@ -62,11 +63,17 @@ impl PreparedAdjustment {
     }
 }
 
+pub struct PaymentsAdjustmentSetup {
+    pub ordered_adjustment: OrderedAdjustment,
+    // TODO You might want to put the findings from Neighborhood to a new filed in here (GH-699)
+    pub adjuster_calibrator: PaymentAdjusterCalibrator
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::OrderedAdjustment;
 
-    impl Clone for PreparedAdjustment {
+    impl Clone for OrderedAdjustment {
         fn clone(&self) -> Self {
             Self {
                 qualified_payables: self.qualified_payables.clone(),

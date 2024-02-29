@@ -19,7 +19,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
-    MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+    MultistagePayableScanner, OrderedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{
@@ -1405,7 +1405,7 @@ pub struct PaymentAdjusterMock {
         Arc<Mutex<Vec<(Vec<PayableAccount>, ArbitraryIdStamp)>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
-    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
+    adjust_payments_params: Arc<Mutex<Vec<(OrderedAdjustment, SystemTime)>>>,
     adjust_payments_results:
         RefCell<Vec<Result<OutboundPaymentsInstructions, PaymentAdjusterError>>>,
 }
@@ -1427,7 +1427,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 
     fn adjust_payments(
         &mut self,
-        setup: PreparedAdjustment,
+        setup: OrderedAdjustment,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
         self.adjust_payments_params
@@ -1459,7 +1459,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(OrderedAdjustment, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self
@@ -1483,13 +1483,13 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
                 &self,
                 _msg: BlockchainAgentWithContextMessage,
                 _logger: &Logger,
-            ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>> {
+            ) -> Option<Either<OutboundPaymentsInstructions, OrderedAdjustment>> {
                 intentionally_blank!()
             }
 
             fn perform_payment_adjustment(
                 &self,
-                _setup: PreparedAdjustment,
+                _setup: OrderedAdjustment,
                 _logger: &Logger,
             ) -> Option<OutboundPaymentsInstructions> {
                 intentionally_blank!()

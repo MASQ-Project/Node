@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-// If possible, let these modules be private
+pub mod calibrator;
+
+// let the modules below stay private if possible
 mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
@@ -47,7 +49,7 @@ use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion
 use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PaymentsAdjustmentSetup, OrderedAdjustment};
 
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
@@ -58,7 +60,7 @@ pub trait PaymentAdjuster {
 
     fn adjust_payments(
         &mut self,
-        setup: PreparedAdjustment,
+        setup: OrderedAdjustment,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError>;
 
@@ -109,14 +111,15 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
     fn adjust_payments(
         &mut self,
-        setup: PreparedAdjustment,
+        setup: PaymentsAdjustmentSetup,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
-        let qualified_payables = setup.qualified_payables;
-        let response_skeleton_opt = setup.response_skeleton_opt;
-        let agent = setup.agent;
+        let ordered_adjustment = setup.ordered_adjustment;
+        let qualified_payables = ordered_adjustment.qualified_payables;
+        let response_skeleton_opt = ordered_adjustment.response_skeleton_opt;
+        let agent = ordered_adjustment.agent;
         let initial_service_fee_balance_minor = agent.service_fee_balance_minor();
-        let required_adjustment = setup.adjustment;
+        let required_adjustment = ordered_adjustment.adjustment;
 
         self.initialize_inner(initial_service_fee_balance_minor, required_adjustment, now);
 
@@ -671,7 +674,7 @@ mod tests {
     use thousands::Separable;
     use web3::types::U256;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::OrderedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
@@ -1116,7 +1119,7 @@ mod tests {
                 .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1185,7 +1188,7 @@ mod tests {
                 .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1231,7 +1234,7 @@ mod tests {
                 .service_fee_balance_minor_result(cw_service_fee_balance);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1272,10 +1275,9 @@ mod tests {
     }
 
     #[test]
-    fn qualified_accounts_count_before_equals_the_payments_count_after() {
-        // Meaning adjustment by service fee but no account elimination
+    fn no_account_dropped_just_balances_adjusted() {
         init_test_logging();
-        let test_name = "qualified_accounts_count_before_equals_the_payments_count_after";
+        let test_name = "no_account_dropped_just_balances_adjusted";
         let now = SystemTime::now();
         let balance_1 = 4_444_444_444_444_444_444;
         let account_1 = PayableAccount {
@@ -1310,7 +1312,7 @@ mod tests {
                 .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1400,7 +1402,7 @@ mod tests {
                 .service_fee_balance_minor_result(10_u128.pow(22));
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::TransactionFeeInPriority {
@@ -1475,7 +1477,7 @@ mod tests {
             client_id: 123,
             context_id: 321,
         }); //just hardening, not so important
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::TransactionFeeInPriority {
@@ -1545,7 +1547,7 @@ mod tests {
             context_id: 234,
         });
         // Another place where I pick a populated response skeleton for hardening
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1631,7 +1633,7 @@ mod tests {
                 .service_fee_balance_minor_result(cw_service_fee_balance_in_minor);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::ByServiceFee,
@@ -1769,7 +1771,7 @@ mod tests {
                 .service_fee_balance_minor_result(service_fee_balance_in_minor);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::TransactionFeeInPriority {
@@ -1844,7 +1846,7 @@ mod tests {
                 .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
             Box::new(mock)
         };
-        let adjustment_setup = PreparedAdjustment {
+        let adjustment_setup = OrderedAdjustment {
             qualified_payables,
             agent,
             adjustment: Adjustment::TransactionFeeInPriority {

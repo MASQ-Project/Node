@@ -14,6 +14,8 @@ pub trait CriterionCalculator {
     // The formula can keep its own context if required
     fn formula(&self) -> &dyn Fn(CalculatorInputHolder) -> u128;
 
+    fn tuning_up_to_date_coefficient
+
     fn calculator_type(&self) -> CalculatorType;
 }
 

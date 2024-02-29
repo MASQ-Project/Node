@@ -77,6 +77,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::accountant::payment_adjuster::calibrator::PaymentAdjusterCalibrator;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -659,11 +660,27 @@ impl Accountant {
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
             Some(Either::Left(complete_msg)) => Some(complete_msg),
-            Some(Either::Right(unaccepted_msg)) => {
-                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
+            Some(Either::Right(required_adjustment)) => {
+                // TODO we will eventually want to involve Neighborhood (GH-699) and also the market price (GH-773).
+                // Therefore the following action with the adjuster will probably take place in a different message
+                // handler. (Once we meet Neighborhood and get closer information on the Nodes the qualified accounts
+                // belong to, we'll stuff it together with this already collected data in a new message and send it to
+                // Accountant to hand it to the PaymentAdjuster for good). For the market price, the most convenient
+                // place to mount it in would be the BlockchainAgent that we want to stay immutable since built, so
+                // we might want to do it in the same handler where we build the agent. However, if it is NOT okay,
+                // we might need to lower the frequency of this query and make it asynchronous on the times the scanners
+                // are running. The actor that would have this task, set periodically or otherwise, would store
+                // the value. (Is it appropriate to do this with the BlockchainBridge??).
+                //
+                // (Aside from the responsibility concern, if the price query, done probably towards a different
+                // domain than we use to know the blockchain, fails, we may need to rely on a value saved in
+                // the database as the last one known as up to date.
+
+                PaymentAdjusterCalibrator::new();
+
                 self.scanners
                     .payable
-                    .perform_payment_adjustment(unaccepted_msg, &self.logger)
+                    .perform_payment_adjustment(required_adjustment, &self.logger)
             }
             None => None,
         };
@@ -1536,17 +1553,17 @@ mod tests {
         assert_eq!(system.run(), 0);
         let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_prepared_adjustment, captured_now) = adjust_payments_params.remove(0);
+        let (actual_required_adjustment, captured_now) = adjust_payments_params.remove(0);
         assert_eq!(
-            actual_prepared_adjustment.adjustment,
+            actual_required_adjustment.adjustment,
             Adjustment::ByServiceFee
         );
         assert_eq!(
-            actual_prepared_adjustment.qualified_payables,
+            actual_required_adjustment.qualified_payables,
             unadjusted_accounts
         );
         assert_eq!(
-            actual_prepared_adjustment.agent.arbitrary_id_stamp(),
+            actual_required_adjustment.agent.arbitrary_id_stamp(),
             agent_id_stamp_first_phase
         );
         assert!(

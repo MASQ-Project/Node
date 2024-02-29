@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::{
     Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::OrderedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
@@ -46,7 +46,7 @@ fn loading_test_with_randomized_params() {
 
     struct FirstStageOutput {
         test_overall_output_collector: TestOverallOutputCollector,
-        allowed_scenarios: Vec<PreparedAdjustment>,
+        allowed_scenarios: Vec<OrderedAdjustment>,
     }
 
     let init = FirstStageOutput {
@@ -85,14 +85,14 @@ fn loading_test_with_randomized_params() {
     let test_overall_output_collector = first_stage_output.test_overall_output_collector;
     let scenario_adjustment_results = second_stage_scenarios
         .into_iter()
-        .map(|prepared_adjustment| {
+        .map(|required_adjustment| {
             let account_infos =
-                preserve_account_infos(&prepared_adjustment.qualified_payables, now);
-            let required_adjustment = prepared_adjustment.adjustment.clone();
+                preserve_account_infos(&required_adjustment.qualified_payables, now);
+            let required_adjustment = required_adjustment.adjustment.clone();
             let cw_service_fee_balance_minor =
-                prepared_adjustment.agent.service_fee_balance_minor();
+                required_adjustment.agent.service_fee_balance_minor();
 
-            let payment_adjuster_result = subject.adjust_payments(prepared_adjustment, now);
+            let payment_adjuster_result = subject.adjust_payments(required_adjustment, now);
 
             prepare_single_scenario_result(
                 payment_adjuster_result,
@@ -114,17 +114,17 @@ fn generate_scenarios(
     gn: &mut ThreadRng,
     now: SystemTime,
     number_of_scenarios: usize,
-) -> Vec<PreparedAdjustment> {
+) -> Vec<OrderedAdjustment> {
     (0..number_of_scenarios)
         .map(|_| make_single_scenario(gn, now))
         .collect()
 }
 
-fn make_single_scenario(gn: &mut ThreadRng, now: SystemTime) -> PreparedAdjustment {
+fn make_single_scenario(gn: &mut ThreadRng, now: SystemTime) -> OrderedAdjustment {
     let (cw_service_fee_balance, qualified_payables) = make_qualified_payables(gn, now);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, qualified_payables.len());
-    PreparedAdjustment::new(qualified_payables, Box::new(agent), None, adjustment)
+    OrderedAdjustment::new(qualified_payables, Box::new(agent), None, adjustment)
 }
 
 fn make_qualified_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccount>) {

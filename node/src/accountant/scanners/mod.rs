@@ -56,7 +56,7 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 use masq_lib::type_obfuscation::Obfuscated;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{OrderedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
@@ -258,7 +258,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
         &self,
         msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
-    ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>> {
+    ) -> Option<Either<OutboundPaymentsInstructions, OrderedAdjustment>> {
         let protected = msg.protected_qualified_payables;
         let unprotected = self.expose_payables(protected);
 
@@ -291,7 +291,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
 
     fn perform_payment_adjustment(
         &self,
-        setup: PreparedAdjustment,
+        setup: OrderedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions> {
         let now = SystemTime::now();
@@ -582,7 +582,7 @@ impl PayableScanner {
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
         unprotected: Vec<PayableAccount>,
-    ) -> Either<OutboundPaymentsInstructions, PreparedAdjustment> {
+    ) -> Either<OutboundPaymentsInstructions, OrderedAdjustment> {
         match adjustment_opt {
             None => Either::Left(OutboundPaymentsInstructions::new(
                 unprotected,
@@ -590,9 +590,9 @@ impl PayableScanner {
                 response_skeleton_opt,
             )),
             Some(adjustment) => {
-                let prepared_adjustment =
-                    PreparedAdjustment::new(unprotected, agent, response_skeleton_opt, adjustment);
-                Either::Right(prepared_adjustment)
+                let required_adjustment =
+                    OrderedAdjustment::new(unprotected, agent, response_skeleton_opt, adjustment);
+                Either::Right(required_adjustment)
             }
         }
     }

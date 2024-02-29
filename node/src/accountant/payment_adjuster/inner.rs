@@ -1,6 +1,7 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::time::SystemTime;
+use crate::accountant::payment_adjuster::calibrator::PaymentAdjusterCalibrator;
 
 pub trait PaymentAdjusterInner {
     fn now(&self) -> SystemTime;
@@ -8,6 +9,7 @@ pub trait PaymentAdjusterInner {
     fn original_cw_service_fee_balance_minor(&self) -> u128;
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128;
     fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128);
+    fn tuning_updater(&self) -> &PaymentAdjusterCalibrator;
 }
 
 pub struct PaymentAdjusterInnerReal {
@@ -52,6 +54,10 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
             .expect("should never go beyond zero");
         self.unallocated_cw_service_fee_balance_minor = updated_thought_cw_balance
     }
+
+    fn tuning_updater(&self) -> &PaymentAdjusterCalibrator {
+        todo!()
+    }
 }
 
 pub struct PaymentAdjusterInnerNull {}
@@ -82,6 +88,10 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerNull {
         PaymentAdjusterInnerNull::panicking_operation(
             "subtract_from_unallocated_cw_service_fee_balance_minor()",
         )
+    }
+
+    fn tuning_updater(&self) -> &PaymentAdjusterCalibrator {
+        PaymentAdjusterInnerNull::panicking_operation("tuning_updater()")
     }
 }
 
@@ -166,5 +176,15 @@ mod tests {
         let mut subject = PaymentAdjusterInnerNull {};
 
         let _ = subject.subtract_from_unallocated_cw_service_fee_balance_minor(123);
+    }
+
+    #[test]
+    #[should_panic(
+    expected = "Broken code: Called the null implementation of the tuning_updater() method in PaymentAdjusterInner"
+    )]
+    fn inner_null_calling_tuning_updater() {
+        let subject = PaymentAdjusterInnerNull {};
+
+        let _ = subject.tuning_updater();
     }
 }
