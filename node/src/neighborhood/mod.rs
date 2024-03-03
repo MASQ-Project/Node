@@ -515,6 +515,7 @@ impl Neighborhood {
         let route_result = if self.mode == NeighborhoodModeLight::ZeroHop {
             Ok(self.zero_hop_route_response())
         } else {
+            todo!("I think that we ought to require a consuming wallet right here before we waste any time making route segments.");
             self.make_round_trip_route(msg)
         };
         match route_result {
@@ -2557,7 +2558,8 @@ mod tests {
     fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
     ) {
         let system = System::new();
-        let subject = make_standard_subject();
+        let mut subject = make_standard_subject();
+        subject.consuming_wallet_opt = None;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
@@ -2567,10 +2569,12 @@ mod tests {
         system.run();
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
+        todo!("Check the logs to make sure you got None for the right reason.")
     }
 
     #[test]
     fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
+        todo!("This test is now bad. Gossip doesn't involve any RouteQueryMessages; all RouteQueryMessages should require a consuming wallet.");
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let system =
@@ -2683,11 +2687,26 @@ mod tests {
         system.run();
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
+        todo!("""\
+            This test makes no sense.
+                1. The reason we're not getting a route is because our neighborhood has only half neighborships, which are invisible to the routing engine.
+                2. The test is supposed to be walletless, but the consuming wallet is created and not removed
+                3. There's no reason to expect that the over route will be one hop and the back route two hops
+                4. There's no assertion on the logs to make sure None is returned for the right reason
+            The entire test is bogus and should be removed.
+        """)
+        // Speculation: The original intent of this test (which was not well rendered) was in the context of single-hop
+        // routes always being Gossip routes, and therefore not requiring consuming wallets. The question was, "What if
+        // one of the route segments is single-hop, therefore being a Gossip route and not requiring a wallet, while the
+        // other segment is multihop and therefore does require a wallet? If we don't supply a wallet, what happens?
+        // Will we be properly rejected even though one of our segments doesn't need a wallet?"
+        //
+        // Now, when single-hop routes can also be data routes and require a wallet, it's not clear that this test
+        // is still useful.
     }
 
     #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
-    ) {
+    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet() {
         let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
@@ -2701,6 +2720,7 @@ mod tests {
         system.run();
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
+        todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
     }
 
     #[test]
