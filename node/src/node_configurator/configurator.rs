@@ -707,8 +707,8 @@ impl Configurator {
             self.logger,
             "A request from UI received: {:?} from context id: {}", msg, context_id
         );
-        match self.unfriendly_handle_set_configuration(msg) {
-            Ok(()) => UiSetConfigurationResponse {}.tmb(context_id),
+        match self.unfriendly_handle_set_configuration(msg, context_id) {
+            Ok(response) => response,
             Err((code, msg)) => {
                 error!(
                     self.logger,
@@ -727,7 +727,8 @@ impl Configurator {
     fn unfriendly_handle_set_configuration(
         &mut self,
         msg: UiSetConfigurationRequest,
-    ) -> Result<(), MessageError> {
+        context_id: u64
+    ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
         match password {
@@ -752,7 +753,7 @@ impl Configurator {
             }
         };
 
-        Ok(())
+        Ok(UiSetConfigurationResponse {}.tmb(context_id))
     }
 
     fn set_gas_price(
