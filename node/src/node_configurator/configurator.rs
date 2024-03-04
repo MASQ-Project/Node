@@ -1084,11 +1084,11 @@ mod tests {
         let expected_configuration_msg = ConfigChangeMsg {
             change: ConfigChange::UpdatePassword(new_password.to_string()),
         };
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             neighborhood_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
@@ -1118,8 +1118,7 @@ mod tests {
     }
 
     fn assert_wallets_synchronisation_among_other_actors(msg: NodeFromUiMessage) {
-        // TODO: GH-728 - Maybe remove this function and the corresponding test
-        let system = System::new("consuming_wallet_is_updated_when_new_wallet_is_generated");
+        let system = System::new("assert_wallets_synchronisation_among_other_actors");
         let consuming_wallet = make_paying_wallet(b"consuming");
         let earning_wallet = make_wallet("earning");
         let persistent_config = PersistentConfigurationMock::new()
