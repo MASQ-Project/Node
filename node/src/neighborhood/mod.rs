@@ -3063,7 +3063,7 @@ mod tests {
     #[test]
     fn min_hops_change_triggers_node_to_ui_broadcast_message() {
         init_test_logging();
-        let test_name = "min_hops_can_be_changed_during_runtime_using_config_change_msg";
+        let test_name = "min_hops_change_triggers_node_to_ui_broadcast_message";
         let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
