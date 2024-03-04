@@ -733,19 +733,14 @@ impl Configurator {
 
         match password {
             None => {
-                let persistent_config = &mut self.persistent_config;
-
-                if "gas-price" == &msg.name {
-                    Self::set_gas_price(msg.value, persistent_config)?;
-                } else if "start-block" == &msg.name {
-                    Self::set_start_block(msg.value, persistent_config)?;
-                } else if "min-hops" == &msg.name {
-                    self.set_min_hops(msg.value)?;
-                } else {
-                    return Err((
+                match msg.name.as_str() {
+                    "gas-price" => self.set_gas_price(msg.value)?,
+                    "min-hops" => self.set_min_hops(msg.value)?,
+                    "start-block" => self.set_start_block(msg.value)?,
+                    _ => return Err((
                         UNRECOGNIZED_PARAMETER,
                         format!("This parameter name is not known: {}", &msg.name),
-                    ));
+                    ))
                 }
             }
             Some(_password) => {
@@ -757,14 +752,14 @@ impl Configurator {
     }
 
     fn set_gas_price(
+        &mut self,
         string_price: String,
-        config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<(), (u64, String)> {
         let price_number = match string_price.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("gas price: {:?}", e))),
         };
-        match config.set_gas_price(price_number) {
+        match self.persistent_config.set_gas_price(price_number) {
             Ok(_) => Ok(()),
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("gas price: {:?}", e))),
         }
@@ -794,14 +789,14 @@ impl Configurator {
     }
 
     fn set_start_block(
+        &mut self,
         string_number: String,
-        config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<(), (u64, String)> {
         let block_number = match string_number.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("start block: {:?}", e))),
         };
-        match config.set_start_block(block_number) {
+        match self.persistent_config.set_start_block(block_number) {
             Ok(_) => Ok(()),
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("start block: {:?}", e))),
         }
