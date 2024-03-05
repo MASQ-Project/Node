@@ -1236,7 +1236,6 @@ impl ReceivableScannerBuilder {
             Box::new(self.banned_dao),
             Box::new(self.persistent_configuration),
             Rc::new(self.payment_thresholds),
-            Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),
         )
     }

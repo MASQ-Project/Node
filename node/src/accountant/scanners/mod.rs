@@ -69,7 +69,6 @@ impl Scanners {
     pub fn new(
         dao_factories: DaoFactories,
         payment_thresholds: Rc<PaymentThresholds>,
-        earning_wallet: Rc<Wallet>,
         when_pending_too_long_sec: u64,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
@@ -95,7 +94,6 @@ impl Scanners {
             dao_factories.banned_dao_factory.make(),
             Box::new(persistent_configuration),
             Rc::clone(&payment_thresholds),
-            earning_wallet,
             financial_statistics,
         ));
 
@@ -830,7 +828,7 @@ pub struct ReceivableScanner {
     pub receivable_dao: Box<dyn ReceivableDao>,
     pub banned_dao: Box<dyn BannedDao>,
     pub persistent_configuration: Box<dyn PersistentConfiguration>,
-    pub earning_wallet: Rc<Wallet>,
+    // pub earning_wallet: Rc<Wallet>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
@@ -903,12 +901,10 @@ impl ReceivableScanner {
         banned_dao: Box<dyn BannedDao>,
         persistent_configuration: Box<dyn PersistentConfiguration>,
         payment_thresholds: Rc<PaymentThresholds>,
-        earning_wallet: Rc<Wallet>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
-            earning_wallet,
             receivable_dao,
             banned_dao,
             persistent_configuration,
@@ -1184,7 +1180,6 @@ mod tests {
             total_paid_payable_wei: 1,
             total_paid_receivable_wei: 2,
         };
-        let earning_wallet = make_wallet("unique_wallet");
         let payment_thresholds = make_custom_payment_thresholds();
         let payment_thresholds_rc = Rc::new(payment_thresholds);
         let initial_rc_count = Rc::strong_count(&payment_thresholds_rc);
@@ -1198,7 +1193,6 @@ mod tests {
                 config_dao_factory: Box::new(config_dao_factory),
             },
             Rc::clone(&payment_thresholds_rc),
-            Rc::new(earning_wallet.clone()),
             when_pending_too_long_sec,
             Rc::new(RefCell::new(financial_statistics.clone())),
         );
@@ -1242,10 +1236,6 @@ mod tests {
         assert_eq!(
             *receivable_scanner.financial_statistics.borrow(),
             financial_statistics
-        );
-        assert_eq!(
-            receivable_scanner.earning_wallet.address(),
-            earning_wallet.address()
         );
         assert_eq!(
             receivable_scanner.common.payment_thresholds.as_ref(),
@@ -2899,7 +2889,6 @@ mod tests {
     fn receivable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "receivable_scanner_can_initiate_a_scan";
-        let earning_wallet = make_wallet("earning");
         let now = SystemTime::now();
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])

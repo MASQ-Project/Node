@@ -425,7 +425,6 @@ impl Accountant {
         let scanners = Scanners::new(
             dao_factories,
             Rc::new(payment_thresholds),
-            Rc::clone(&earning_wallet),
             config.when_pending_too_long_sec,
             Rc::clone(&financial_statistics),
         );

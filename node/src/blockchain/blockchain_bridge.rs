@@ -773,7 +773,6 @@ mod tests {
                     hash: H256::from("someothertransactionhash".keccak256()),
                 }),
             ]));
-        let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
@@ -861,7 +860,6 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .send_batch_of_payables_result(expected_error.clone());
         let persistent_configuration_mock = PersistentConfigurationMock::default();
-        let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
