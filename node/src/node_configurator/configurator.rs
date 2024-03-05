@@ -1129,11 +1129,9 @@ mod tests {
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood)
-            .blockchain_bridge(blockchain_bridge)
             .accountant(accountant)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -1143,7 +1141,6 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let expected_configuration_msg = ConfigChangeMsg {
             change: ConfigChange::UpdateWallets(WalletPair {
@@ -1153,10 +1150,6 @@ mod tests {
         };
         assert_eq!(
             accountant_recording.get_record::<ConfigChangeMsg>(0),
-            &expected_configuration_msg
-        );
-        assert_eq!(
-            blockchain_bridge_recording.get_record::<ConfigChangeMsg>(0),
             &expected_configuration_msg
         );
         assert_eq!(

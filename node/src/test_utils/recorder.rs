@@ -479,7 +479,6 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
 pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
-        config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
         qualified_payables: recipient!(addr, QualifiedPayablesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),

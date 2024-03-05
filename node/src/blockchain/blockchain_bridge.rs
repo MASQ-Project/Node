@@ -96,14 +96,6 @@ impl SkeletonOptHolder for RetrieveTransactions {
     }
 }
 
-impl Handler<ConfigChangeMsg> for BlockchainBridge {
-    type Result = ();
-
-    fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_config_change_msg(msg);
-    }
-}
-
 impl Handler<RetrieveTransactions> for BlockchainBridge {
     type Result = ();
 
@@ -228,22 +220,12 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
-            config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
             qualified_payables: recipient!(addr, QualifiedPayablesMessage),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
-    }
-
-    fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
-        todo!("GH-728: this is not required anymore");
-        // if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-        //     self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
-        // } else {
-        //     trace!(self.logger, "Unexpected message received: {:?}", msg);
-        // }
     }
 
     fn handle_qualified_payable_msg(
