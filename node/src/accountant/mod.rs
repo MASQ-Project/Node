@@ -84,7 +84,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 pub struct Accountant {
     suppress_initial_scans: bool,
     consuming_wallet_opt: Option<Wallet>,
-    earning_wallet: Rc<Wallet>,
+    earning_wallet: Wallet,
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     pending_payable_dao: Box<dyn PendingPayableDao>,
@@ -417,7 +417,7 @@ impl Accountant {
     pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
-        let earning_wallet = Rc::new(config.earning_wallet);
+        let earning_wallet = config.earning_wallet.clone();
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         let payable_dao = dao_factories.payable_dao_factory.make();
         let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
@@ -432,7 +432,7 @@ impl Accountant {
         Accountant {
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
-            earning_wallet: Rc::clone(&earning_wallet),
+            earning_wallet,
             payable_dao,
             receivable_dao,
             pending_payable_dao,
@@ -574,7 +574,7 @@ impl Accountant {
 
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
+            self.earning_wallet = wallet_pair.earning_wallet;
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
         } else {
             trace!(self.logger, "Unexpected message received: {:?}", msg);
@@ -874,7 +874,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.receivable.begin_scan(
-            Some(self.earning_wallet.as_ref().clone()),
+            Some(self.earning_wallet.clone()),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -1219,7 +1219,7 @@ mod tests {
             default_scan_intervals.receivable_scan_interval,
         );
         assert_eq!(result.consuming_wallet_opt, None);
-        assert_eq!(*result.earning_wallet, *DEFAULT_EARNING_WALLET);
+        assert_eq!(result.earning_wallet, *DEFAULT_EARNING_WALLET);
         assert_eq!(result.suppress_initial_scans, false);
         result
             .message_id_generator
@@ -1247,7 +1247,7 @@ mod tests {
                 );
                 assert_eq!(
                     subject.earning_wallet,
-                    Rc::new(make_wallet("new_earning_wallet"))
+                    make_wallet("new_earning_wallet")
                 )
             },
         );

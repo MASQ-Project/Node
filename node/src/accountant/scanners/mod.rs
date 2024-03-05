@@ -828,7 +828,6 @@ pub struct ReceivableScanner {
     pub receivable_dao: Box<dyn ReceivableDao>,
     pub banned_dao: Box<dyn BannedDao>,
     pub persistent_configuration: Box<dyn PersistentConfiguration>,
-    // pub earning_wallet: Rc<Wallet>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
