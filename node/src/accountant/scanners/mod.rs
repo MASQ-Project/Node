@@ -846,14 +846,18 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
         self.mark_as_started(timestamp);
+        let earning_wallet = match earning_wallet_opt {
+            Some(earning_wallet) => earning_wallet,
+            None => panic!("Accountant failed to provide the earning wallet"), // TODO: GH-728: Test drive me
+        };
         info!(
             logger,
-            "Scanning for receivables to {}", self.earning_wallet
+            "Scanning for receivables to {}", earning_wallet
         );
         self.scan_for_delinquencies(timestamp, logger);
 
         Ok(RetrieveTransactions {
-            recipient: self.earning_wallet.as_ref().clone(),
+            recipient: earning_wallet,
             response_skeleton_opt,
         })
     }
