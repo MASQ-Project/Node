@@ -229,7 +229,7 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                 );
                 let protected_payables = self.protect_payables(qualified_payables);
                 let outgoing_msg =
-                    QualifiedPayablesMessage::new(protected_payables, response_skeleton_opt);
+                    QualifiedPayablesMessage::new(protected_payables, consuming_wallet_opt, response_skeleton_opt);
                 Ok(outgoing_msg)
             }
         }
@@ -1289,7 +1289,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = subject.begin_scan(Some(consuming_wallet), now, None, &Logger::new(test_name));
+        let result = subject.begin_scan(Some(consuming_wallet.clone()), now, None, &Logger::new(test_name));
 
         let timestamp = subject.scan_started_at();
         assert_eq!(timestamp, Some(now));
@@ -1300,6 +1300,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(
                     qualified_payable_accounts.clone()
                 ),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: None,
             })
         );

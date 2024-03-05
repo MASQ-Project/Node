@@ -82,16 +82,6 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
-        match self.consuming_wallet_opt.as_ref() {
-            Some(wallet) => debug!(
-                self.logger,
-                "Received BindMessage; consuming wallet address {}", wallet
-            ),
-            None => debug!(
-                self.logger,
-                "Received BindMessage; no consuming wallet address specified"
-            ),
-        }
     }
 }
 
@@ -251,18 +241,19 @@ impl BlockchainBridge {
     }
 
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
-        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
-        } else {
-            trace!(self.logger, "Unexpected message received: {:?}", msg);
-        }
+        todo!("GH-728: this is not required anymore");
+        // if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
+        //     self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+        // } else {
+        //     trace!(self.logger, "Unexpected message received: {:?}", msg);
+        // }
     }
 
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
-        let consuming_wallet = if let Some(wallet) = self.consuming_wallet_opt.as_ref() {
+        let consuming_wallet = if let Some(wallet) = incoming_message.consuming_wallet_opt.as_ref() {
             wallet
         } else {
             return Err(
@@ -601,36 +592,6 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_receives_bind_message_with_consuming_private_key() {
-        init_test_logging();
-        let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
-            .from_hex()
-            .unwrap();
-        let consuming_wallet =
-            Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
-        let subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(configure_default_persistent_config(ZERO)),
-            false,
-            Some(consuming_wallet.clone()),
-        );
-        let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr = subject.start();
-
-        addr.try_send(BindMessage {
-            peer_actors: peer_actors_builder().build(),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
-            consuming_wallet
-        ));
-    }
-
-    #[test]
     fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
         let result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
 
@@ -638,88 +599,6 @@ mod tests {
             .as_any()
             .downcast_ref::<BlockchainInterfaceNull>()
             .unwrap();
-    }
-
-    #[test]
-    fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
-        init_test_logging();
-        let subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr = subject.start();
-
-        addr.try_send(BindMessage {
-            peer_actors: peer_actors_builder().build(),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
-        );
-    }
-
-    #[test]
-    fn blockchain_bridge_handles_config_change_msg() {
-        assert_handling_of_config_change_msg(
-            ConfigChangeMsg {
-                change: ConfigChange::UpdateWallets(WalletPair {
-                    consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
-                    earning_wallet: make_wallet("new_earning_wallet"),
-                }),
-            },
-            |subject: &BlockchainBridge| {
-                assert_eq!(
-                    subject.consuming_wallet_opt,
-                    Some(make_paying_wallet(b"new_consuming_wallet"))
-                );
-            },
-        );
-        assert_handling_of_config_change_msg(
-            ConfigChangeMsg {
-                change: ConfigChange::UpdatePassword("new password".to_string()),
-            },
-            |_subject: &BlockchainBridge| {
-                let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
-                    ConfigChangeMsg { change: UpdatePassword(\"new password\") }",
-                );
-            },
-        );
-        assert_handling_of_config_change_msg(
-            ConfigChangeMsg {
-                change: ConfigChange::UpdateMinHops(Hops::FourHops),
-            },
-            |_subject: &BlockchainBridge| {
-                let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
-                    ConfigChangeMsg { change: UpdateMinHops(FourHops) }",
-                );
-            },
-        );
-    }
-
-    fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
-    where
-        A: FnOnce(&BlockchainBridge),
-    {
-        init_test_logging();
-        let mut subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        subject.logger = Logger::new("ConfigChange");
-
-        subject.handle_config_change_msg(msg);
-
-        assertions(&subject);
     }
 
     #[test]
@@ -771,6 +650,7 @@ mod tests {
         let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables.clone(),
+            consuming_wallet_opt: Some(consuming_wallet.clone()),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -824,7 +704,7 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
-            Some(consuming_wallet),
+            Some(consuming_wallet.clone()),
         );
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
@@ -835,6 +715,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }]),
+            consuming_wallet_opt: Some(consuming_wallet),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11,
                 context_id: 2323,
@@ -885,6 +766,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }]),
+            consuming_wallet_opt: None,
             response_skeleton_opt: None,
         };
 

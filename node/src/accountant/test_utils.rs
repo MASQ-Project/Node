@@ -96,6 +96,7 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
 
 pub struct AccountantBuilder {
     config: Option<BootstrapperConfig>,
+    consuming_wallet: Option<Wallet>,
     logger: Option<Logger>,
     payable_dao_factory: Option<PayableDaoFactoryMock>,
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
@@ -108,6 +109,7 @@ impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
             config: None,
+            consuming_wallet: None,
             logger: None,
             payable_dao_factory: None,
             receivable_dao_factory: None,
@@ -266,6 +268,11 @@ impl AccountantBuilder {
         self
     }
 
+    pub fn consuming_wallet(mut self, consuming_wallet: Wallet) -> Self {
+        self.consuming_wallet = Some(consuming_wallet);
+        self
+    }
+
     pub fn logger(mut self, logger: Logger) -> Self {
         self.logger = Some(logger);
         self
@@ -368,6 +375,9 @@ impl AccountantBuilder {
         );
         if let Some(logger) = self.logger {
             accountant.logger = logger;
+        }
+        if let Some(consuming_wallet) = self.consuming_wallet {
+            accountant.consuming_wallet_opt = Some(consuming_wallet);
         }
 
         accountant

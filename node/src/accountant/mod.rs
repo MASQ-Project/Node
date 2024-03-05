@@ -1383,6 +1383,7 @@ mod tests {
     #[test]
     fn scan_payables_request() {
         let config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let payable_account = PayableAccount {
             wallet: make_wallet("wallet"),
             balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
@@ -1395,6 +1396,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -1421,6 +1423,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1879,8 +1882,10 @@ mod tests {
         let system = System::new(
             "accountant_sends_initial_payable_payments_msg_when_qualified_payable_found",
         );
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
@@ -1903,6 +1908,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: None,
             }
         );
@@ -2238,6 +2244,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
+                consuming_wallet_opt: Some(make_paying_wallet(b"consuming")),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2408,6 +2415,7 @@ mod tests {
     fn scan_for_payable_message_triggers_payment_for_balances_over_the_curve() {
         init_test_logging();
         let mut config = bc_from_earning_wallet(make_wallet("mine"));
+        let consuming_wallet = make_paying_wallet(b"consuming");
         config.scan_intervals_opt = Some(ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(50_000),
             payable_scan_interval: Duration::from_secs(50_000),
@@ -2454,6 +2462,7 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
@@ -2471,6 +2480,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: None,
             }
         );
