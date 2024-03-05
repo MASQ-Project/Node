@@ -2,20 +2,25 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    to_wei, HashAndAmount, ProcessedPayableFallible, RpcPayableFailure, TRANSFER_METHOD_ID,
+    to_wei, BlockchainInterfaceWeb3, HashAndAmount, ProcessedPayableFallible, RpcPayableFailure,
+    REQUESTS_IN_PARALLEL, TRANSFER_METHOD_ID,
 };
 
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use ethereum_types::U64;
 use futures::future::err;
 use futures::stream::FuturesOrdered;
 use futures::{Future, Stream};
+use http::uri::Port;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use serde_json::Value;
 use std::iter::once;
+use std::net::Ipv4Addr;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
@@ -370,7 +375,7 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 
 // TODO: GH-744: this needs tto be test driven
 pub fn request_block_number(
-    web3_batch: Web3<Batch<Http>>,
+    web3: Web3<Http>,
     start_block: BlockNumber,
     end_block: BlockNumber,
     logger: Logger,
@@ -385,7 +390,8 @@ pub fn request_block_number(
             }
         }
     };
-    let block_request = web3_batch.eth().block_number();
+
+    let block_request = web3.eth().block_number();
 
     Box::new(
         block_request.then(move |block_nbr_result| match block_nbr_result {
@@ -393,7 +399,7 @@ pub fn request_block_number(
                 debug!(logger, "Latest block number: {}", block_nbr.as_u64());
                 Ok(block_nbr.as_u64())
             }
-            Err(_) => {
+            Err(err) => {
                 debug!(
                     logger,
                     "Using fallback block number: {}", fallback_start_block_number
@@ -407,6 +413,7 @@ pub fn request_block_number(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
     // use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::make_payable_account_with_wallet_and_balance_and_timestamp_opt;
@@ -430,8 +437,13 @@ mod tests {
     use std::time::SystemTime;
     use web3::Error as Web3Error;
     use web3::Error::Unreachable;
+    use masq_lib::utils::find_free_port;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
+    use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
+    use crate::test_utils::http_test_server::TestServer;
 
     #[test]
     fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
@@ -786,6 +798,30 @@ mod tests {
         let result = advance_used_nonce(initial_nonce);
 
         assert_eq!(result, U256::from(56))
+    }
+
+    #[test]
+    fn request_block_number_works() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()], // 0x400 == 1024
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let start_block_nbr = BlockNumber::Number(100u64.into());
+        let end_block_nbr = BlockNumber::Number(2024u64.into());
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let logger = Logger::new("request_block_number_works");
+
+        let result =
+            request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
+
+        assert_eq!(result, Ok(46643431u64));
     }
 
     #[test]

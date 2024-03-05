@@ -215,20 +215,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     }
 
     fn get_web3_batch(&self) -> Web3<Batch<Http>> {
-        // self.
         let transport = self.transport.clone();
         Web3::new(Batch::new(transport))
-        // todo!("GH-744 - FIX ME - get_batch_web3 - ")
     }
 
-    // Result<RetrievedBlockchainTransactions, BlockchainError>
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
-        // todo!("GH-744: Come back to this - retrieve_transactions");
         debug!(
             self.logger,
             "Retrieving transactions from start block: {:?} to end block: {:?} for: {} chain_id: {} contract: {:#x}",
@@ -249,33 +245,20 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 None,
             )
             .build();
-        //
-        // let fallback_start_block_number = match end_block {
-        //     BlockNumber::Number(eb) => eb.as_u64(),
-        //     _ => {
-        //         if let BlockNumber::Number(start_block_number) = start_block {
-        //             start_block_number.as_u64() + 1u64
-        //         } else {
-        //             panic!("start_block of Latest, Earliest, and Pending are not supported");
-        //         }
-        //     }
-        // };
 
+        let web3 = self.get_web3();
         let web3_batch = self.get_web3_batch();
-        // let block_request = web3_batch.eth().block_number();
         let log_request = web3_batch.eth().logs(filter);
-
         let logger = self.logger.clone();
         let logger2 = self.logger.clone();
 
         return Box::new(
-            // future::result::<RetrievedBlockchainTransactions, BlockchainError>(
             web3_batch
                 .transport()
                 .submit_batch()
-                .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+                .map_err(|e| BlockchainError::QueryFailed(e.to_string()) )
                 .then(move |_| {
-                    request_block_number(web3_batch, start_block, end_block, logger).then(
+                    request_block_number(web3, start_block, end_block, logger).then(
                         move |response_block_number| {
                             let response_block_number =
                                 response_block_number.unwrap_or_else(|_| {
@@ -297,35 +280,36 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                                 );
                                                 Err(BlockchainError::InvalidResponse)
                                             } else {
-                                                todo!("GH-744: Need to remove Self from here");
-                                                // let transactions: Vec<BlockchainTransaction> = self.extract_transactions_from_logs(logs);
-                                                // debug!(
-                                                //     logger,
-                                                //     "Retrieved transactions: {:?}", transactions
-                                                // );
-                                                // if transactions.is_empty()
-                                                //     && logs_len != transactions.len()
-                                                // {
-                                                //     warning!(logger,"Retrieving transactions: logs: {}, transactions: {}",logs_len,transactions.len())
-                                                // }
-                                                //
-                                                // // Get the largest transaction block number, unless there are no
-                                                // // transactions, in which case use end_block, unless get_latest_block()
-                                                // // was not successful.
-                                                // let transaction_max_block_number = self
-                                                //     .find_largest_transaction_block_number(
-                                                //         response_block_number,
-                                                //         &transactions,
-                                                //     );
-                                                // debug!(
-                                                //     logger,
-                                                //     "Discovered transaction max block nbr: {}",
-                                                //     transaction_max_block_number
-                                                // );
-                                                // Ok(RetrievedBlockchainTransactions {
-                                                //     new_start_block: 1u64 + transaction_max_block_number,
-                                                //     transactions,
-                                                // })
+                                                let transactions: Vec<BlockchainTransaction> = Self::extract_transactions_from_logs(logs);
+                                                debug!(
+                                                    logger2,
+                                                    "Retrieved transactions: {:?}", transactions
+                                                );
+                                                if transactions.is_empty()
+                                                    && logs_len != transactions.len()
+                                                {
+                                                    warning!(logger2,"Retrieving transactions: logs: {}, transactions: {}",logs_len,transactions.len())
+                                                }
+
+                                                // Get the largest transaction block number, unless there are no
+                                                // transactions, in which case use end_block, unless get_latest_block()
+                                                // was not successful.
+                                                let transaction_max_block_number = Self::find_largest_transaction_block_number(
+                                                        response_block_number,
+                                                        &transactions,
+                                                    );
+                                                debug!(
+                                                    logger2,
+                                                    "Discovered transaction max block nbr: {}",
+                                                    transaction_max_block_number
+                                                );
+
+                                                eprintln!("response_block_number: {:?}", response_block_number);
+                                                eprintln!("transaction_max_block_number: {:?}", transaction_max_block_number);
+                                                Ok(RetrievedBlockchainTransactions {
+                                                    new_start_block: 1u64 + transaction_max_block_number,
+                                                    transactions,
+                                                })
                                             }
                                         }
                                         Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
@@ -335,137 +319,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         },
                     )
                 }),
-            // )
         );
-        //
-        // match self.get_web3_batch().transport().submit_batch().wait() {
-        //     Ok(_) => {
-        //         // let response_block_number = match block_request.wait() {
-        //         //     Ok(block_nbr) => {
-        //         //         debug!(logger, "Latest block number: {}", block_nbr.as_u64());
-        //         //         block_nbr.as_u64()
-        //         //     }
-        //         //     Err(_) => {
-        //         //         debug!(
-        //         //             logger,
-        //         //             "Using fallback block number: {}", fallback_start_block_number
-        //         //         );
-        //         //         fallback_start_block_number
-        //         //     }
-        //         // };
-        //
-        //         match log_request.wait() {
-        //             Ok(logs) => {
-        //                 let logs_len = logs.len();
-        //                 if logs
-        //                     .iter()
-        //                     .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
-        //                 {
-        //                     warning!(
-        //                         logger,
-        //                         "Invalid response from blockchain server: {:?}",
-        //                         logs
-        //                     );
-        //                     Err(BlockchainError::InvalidResponse)
-        //                 } else {
-        //                     let transactions: Vec<BlockchainTransaction> =
-        //                         self.extract_transactions_from_logs(logs);
-        //                     debug!(logger, "Retrieved transactions: {:?}", transactions);
-        //                     if transactions.is_empty() && logs_len != transactions.len() {
-        //                         warning!(
-        //                             logger,
-        //                             "Retrieving transactions: logs: {}, transactions: {}",
-        //                             logs_len,
-        //                             transactions.len()
-        //                         )
-        //                     }
-        //                     // Get the largest transaction block number, unless there are no
-        //                     // transactions, in which case use end_block, unless get_latest_block()
-        //                     // was not successful.
-        //                     let transaction_max_block_number = self
-        //                         .find_largest_transaction_block_number(
-        //                             response_block_number,
-        //                             &transactions,
-        //                         );
-        //                     debug!(
-        //                         logger,
-        //                         "Discovered transaction max block nbr: {}",
-        //                         transaction_max_block_number
-        //                     );
-        //                     Ok(RetrievedBlockchainTransactions {
-        //                         new_start_block: 1u64 + transaction_max_block_number,
-        //                         transactions,
-        //                     })
-        //                 }
-        //             }
-        //             Err(e) => {
-        //                 error!(self.logger, "Retrieving transactions: {:?}", e);
-        //                 Err(BlockchainError::QueryFailed(e.to_string()))
-        //             }
-        //         }
-        //     }
-        //     Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-        // }
-        //
-        // // ----------------------
-        //
-        // Box::new(
-        //     log_request.then(move |logs| {
-        //         debug!(logger, "Transaction retrieval completed: {:?}", logs);
-        //         future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
-        //             Ok(logs) => {
-        //                 if logs
-        //                     .iter()
-        //                     .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
-        //                 {
-        //                     warning!(
-        //                         logger,
-        //                         "Invalid response from blockchain server: {:?}",
-        //                         logs
-        //                     );
-        //                     Err(BlockchainError::InvalidResponse)
-        //                 } else {
-        //                     let transactions: Vec<BlockchainTransaction> = logs
-        //                         .iter()
-        //                         .filter_map(|log: &Log| match log.block_number {
-        //                             Some(block_number) => {
-        //                                 let amount: U256 = U256::from(log.data.0.as_slice());
-        //                                 let wei_amount_result = u128::try_from(amount);
-        //                                 wei_amount_result.ok().map(|wei_amount| {
-        //                                     BlockchainTransaction {
-        //                                         block_number: u64::try_from(block_number)
-        //                                             .expect("Internal Error"),
-        //                                         from: Wallet::from(log.topics[1]),
-        //                                         wei_amount,
-        //                                     }
-        //                                 })
-        //                             }
-        //                             None => None,
-        //                         })
-        //                         .collect();
-        //                     debug!(logger, "Retrieved transactions: {:?}", transactions);
-        //                     // Get the largest transaction block number, unless there are no
-        //                     // transactions, in which case use start_block.
-        //                     let last_transaction_block = transactions.iter().fold(
-        //                         fallback_start_block_number,
-        //                         |so_far, elem| {
-        //                             if elem.block_number > so_far {
-        //                                 elem.block_number
-        //                             } else {
-        //                                 so_far
-        //                             }
-        //                         },
-        //                     );
-        //                     Ok(RetrievedBlockchainTransactions {
-        //                         new_start_block: last_transaction_block + 1,
-        //                         transactions,
-        //                     })
-        //                 }
-        //             }
-        //             Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-        //         })
-        //     }), // .wait()
-        // )
     }
 
     // Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>
@@ -675,7 +529,7 @@ impl BlockchainInterfaceWeb3 {
         }
     }
 
-    fn extract_transactions_from_logs(&self, logs: Vec<Log>) -> Vec<BlockchainTransaction> {
+    fn extract_transactions_from_logs(logs: Vec<Log>) -> Vec<BlockchainTransaction> {
         logs.iter()
             .filter_map(|log: &Log| match log.block_number {
                 None => None,
@@ -692,7 +546,6 @@ impl BlockchainInterfaceWeb3 {
     }
 
     fn find_largest_transaction_block_number(
-        &self,
         response_block_number: u64,
         transactions: &[BlockchainTransaction],
     ) -> u64 {
@@ -729,9 +582,9 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::assert_string_contains;
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::{assert_string_contains, make_paying_wallet};
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
@@ -801,7 +654,7 @@ mod tests {
         let port = find_free_port();
         #[rustfmt::skip]
         let test_server = TestServer::start (port, vec![
-            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{
+            br#"[{
                 "jsonrpc":"2.0",
                 "id":3,
                 "result":[
@@ -837,6 +690,7 @@ mod tests {
                     }
                 ]
             }]"#.to_vec(),
+            br#"{"jsonrpc":"2.0","id":2,"result":"0x178def"}"#.to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -862,15 +716,10 @@ mod tests {
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
-        let expected_body_suffix = r#""]}]}]"#;
-        let expected_body = format!(
-            "{}{}{}",
-            expected_body_prefix,
-            &to[2..],
-            expected_body_suffix
-        );
-        assert_eq!(bodies, vec!(expected_body));
+        let expected_request_1 = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"]}]}]"#;
+        let expected_request_2 =
+            r#"{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}"#;
+        assert_eq!(bodies, vec!(expected_request_1, expected_request_2));
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
@@ -895,11 +744,15 @@ mod tests {
 
     #[test]
     fn blockchain_interface_web3_handles_no_retrieved_transactions() {
-        let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
+        // TODO: GH-744 this test is passing even though the ID's are incorrect
+        let to_wallet = make_paying_wallet(b"test_wallet");
         let port = find_free_port();
         let test_server = TestServer::start(
             port,
-            vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
+            vec![
+                br#"[{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec(),
+                br#"{"jsonrpc":"2.0","id":2,"result":"0x178def"}"#.to_vec(),
+            ],
         );
         let subject = make_subject(Some(port));
         let end_block_nbr = 1024u64;
@@ -908,10 +761,9 @@ mod tests {
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
-                &Wallet::from_str(&to).unwrap(),
+                &to_wallet,
             )
-            .wait()
-            .unwrap();
+            .wait();
 
         let requests = test_server.requests_so_far();
         let bodies: Vec<String> = requests
@@ -919,21 +771,15 @@ mod tests {
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
-        let expected_body_suffix = r#""]}]}]"#;
-        let expected_body = format!(
-            "{}{}{}",
-            expected_body_prefix,
-            &to[2..],
-            expected_body_suffix
-        );
-        assert_eq!(bodies, vec!(expected_body));
+        let expected_body = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0xee9a352f6aac4af1a5b9f467f6a93e0ffbe9dd35","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000804ae444a7d690b64d0cbe10099ba1377dafa7aa"]}]}]"#;
+        let expected_body_2 = r#"{"id":1,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]}"#;
+        assert_eq!(bodies, vec!(expected_body, expected_body_2));
         assert_eq!(
             result,
-            RetrievedBlockchainTransactions {
-                new_start_block: 1 + end_block_nbr,
+            Ok(RetrievedBlockchainTransactions {
+                new_start_block: 1543664,
                 transactions: vec![]
-            }
+            })
         );
     }
 
@@ -969,7 +815,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec(),
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -998,7 +844,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start(port, vec![
-            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec(),
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -1024,7 +870,8 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec(),
+            br#"{"jsonrpc":"2.0","id":1,"result":"0x178def"}"#.to_vec()
         ]);
         init_test_logging();
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -1048,7 +895,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1 + end_block_nbr,
+                new_start_block: 1543664,
                 transactions: vec![]
             })
         );
@@ -1063,11 +910,11 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec ! [
-    br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+    br#"[{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
     ]);
         let subject = make_subject(Some(port));
-
         let start_block = BlockNumber::Number(42u64.into());
+
         let result = subject
             .retrieve_transactions(
                 start_block,
@@ -1075,6 +922,7 @@ mod tests {
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .wait();
+
         let expected_fallback_start_block =
             if let BlockNumber::Number(start_block_nbr) = start_block {
                 start_block_nbr.as_u64() + 1u64
