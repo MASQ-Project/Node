@@ -1538,6 +1538,7 @@ where
 {
     fn begin_scan(
         &mut self,
+        _wallet_opt: Option<Wallet>,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
@@ -1592,8 +1593,10 @@ where
     BeginMessage: Message,
     EndMessage: Message,
 {
+    // TODO: GH-728: Maybe you want to use the wallet inside the mocks
     fn begin_scan(
         &mut self,
+        _wallet_opt: Option<Wallet>,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,

@@ -826,6 +826,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.payable.begin_scan(
+            self.consuming_wallet_opt.clone(),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -850,6 +851,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.pending_payable.begin_scan(
+            None,
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -873,6 +875,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.receivable.begin_scan(
+            Some(self.earning_wallet.as_ref().clone()),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -2328,6 +2331,7 @@ mod tests {
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -2392,7 +2396,7 @@ mod tests {
         let _result = subject
             .scanners
             .payable
-            .begin_scan(SystemTime::now(), None, &subject.logger);
+            .begin_scan(Some(consuming_wallet), SystemTime::now(), None, &subject.logger);
 
         System::current().stop();
         system.run();
