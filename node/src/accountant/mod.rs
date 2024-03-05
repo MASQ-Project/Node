@@ -3335,7 +3335,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet.clone()),
         );
         let account_1 = PayableAccount {
             wallet: wallet_account_1.clone(),

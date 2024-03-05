@@ -110,7 +110,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            None,
         );
         let addr = accountant.start();
 

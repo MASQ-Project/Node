@@ -506,7 +506,6 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_service_url_opt
             .clone();
         let crashable = is_crashable(config);
-        let wallet_opt = config.consuming_wallet_opt.clone();
         let data_directory = config.data_directory.clone();
         let chain = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
@@ -521,7 +520,6 @@ impl ActorFactory for ActorFactoryReal {
                 blockchain_interface,
                 persistent_config,
                 crashable,
-                wallet_opt,
             )
         });
         subs_factory.make(&addr)
