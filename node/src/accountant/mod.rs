@@ -3435,10 +3435,12 @@ mod tests {
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
+        let consuming_wallet_for_accountant = consuming_wallet.clone();
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
             .start(move |_| {
                 let mut subject = AccountantBuilder::default()
+                    .consuming_wallet(consuming_wallet_for_accountant)
                     .bootstrapper_config(bootstrapper_config)
                     .payable_daos(vec![
                         ForPayableScanner(payable_dao_for_payable_scanner),
