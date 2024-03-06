@@ -1245,10 +1245,7 @@ mod tests {
                     subject.consuming_wallet_opt,
                     Some(make_paying_wallet(b"new_consuming_wallet"))
                 );
-                assert_eq!(
-                    subject.earning_wallet,
-                    make_wallet("new_earning_wallet")
-                )
+                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"))
             },
         );
         assert_handling_of_config_change_msg(
@@ -2399,10 +2396,12 @@ mod tests {
             .build();
         subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
 
-        let _result = subject
-            .scanners
-            .payable
-            .begin_scan(Some(consuming_wallet), SystemTime::now(), None, &subject.logger);
+        let _result = subject.scanners.payable.begin_scan(
+            Some(consuming_wallet),
+            SystemTime::now(),
+            None,
+            &subject.logger,
+        );
 
         System::current().stop();
         system.run();

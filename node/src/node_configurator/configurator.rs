@@ -727,22 +727,22 @@ impl Configurator {
     fn unfriendly_handle_set_configuration(
         &mut self,
         msg: UiSetConfigurationRequest,
-        context_id: u64
+        context_id: u64,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
         match password {
-            None => {
-                match msg.name.as_str() {
-                    "gas-price" => self.set_gas_price(msg.value)?,
-                    "min-hops" => self.set_min_hops(msg.value)?,
-                    "start-block" => self.set_start_block(msg.value)?,
-                    _ => return Err((
+            None => match msg.name.as_str() {
+                "gas-price" => self.set_gas_price(msg.value)?,
+                "min-hops" => self.set_min_hops(msg.value)?,
+                "start-block" => self.set_start_block(msg.value)?,
+                _ => {
+                    return Err((
                         UNRECOGNIZED_PARAMETER,
                         format!("This parameter name is not known: {}", &msg.name),
                     ))
                 }
-            }
+            },
             Some(_password) => {
                 unimplemented!();
             }
@@ -751,10 +751,7 @@ impl Configurator {
         Ok(UiSetConfigurationResponse {}.tmb(context_id))
     }
 
-    fn set_gas_price(
-        &mut self,
-        string_price: String,
-    ) -> Result<(), (u64, String)> {
+    fn set_gas_price(&mut self, string_price: String) -> Result<(), (u64, String)> {
         let price_number = match string_price.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("gas price: {:?}", e))),
@@ -788,10 +785,7 @@ impl Configurator {
         }
     }
 
-    fn set_start_block(
-        &mut self,
-        string_number: String,
-    ) -> Result<(), (u64, String)> {
+    fn set_start_block(&mut self, string_number: String) -> Result<(), (u64, String)> {
         let block_number = match string_number.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("start block: {:?}", e))),

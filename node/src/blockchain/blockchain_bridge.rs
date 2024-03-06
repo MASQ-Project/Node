@@ -231,7 +231,8 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
-        let consuming_wallet = if let Some(wallet) = incoming_message.consuming_wallet_opt.as_ref() {
+        let consuming_wallet = if let Some(wallet) = incoming_message.consuming_wallet_opt.as_ref()
+        {
             wallet
         } else {
             return Err(

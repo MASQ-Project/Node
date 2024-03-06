@@ -516,11 +516,7 @@ impl ActorFactory for ActorFactoryReal {
             );
             let persistent_config =
                 BlockchainBridge::initialize_persistent_configuration(&data_directory);
-            BlockchainBridge::new(
-                blockchain_interface,
-                persistent_config,
-                crashable,
-            )
+            BlockchainBridge::new(blockchain_interface, persistent_config, crashable)
         });
         subs_factory.make(&addr)
     }

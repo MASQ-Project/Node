@@ -2,10 +2,10 @@
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
+use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use masq_lib::type_obfuscation::Obfuscated;
 use std::fmt::Debug;
-use crate::sub_lib::wallet::Wallet;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {

@@ -226,8 +226,11 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     qualified_payables.len()
                 );
                 let protected_payables = self.protect_payables(qualified_payables);
-                let outgoing_msg =
-                    QualifiedPayablesMessage::new(protected_payables, consuming_wallet_opt, response_skeleton_opt);
+                let outgoing_msg = QualifiedPayablesMessage::new(
+                    protected_payables,
+                    consuming_wallet_opt,
+                    response_skeleton_opt,
+                );
                 Ok(outgoing_msg)
             }
         }
@@ -847,10 +850,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             Some(earning_wallet) => earning_wallet,
             None => panic!("Accountant failed to provide the earning wallet"), // TODO: GH-728: Test drive me
         };
-        info!(
-            logger,
-            "Scanning for receivables to {}", earning_wallet
-        );
+        info!(logger, "Scanning for receivables to {}", earning_wallet);
         self.scan_for_delinquencies(timestamp, logger);
 
         Ok(RetrieveTransactions {
@@ -1139,9 +1139,9 @@ mod tests {
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::test_utils::{make_paying_wallet, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Message, System};
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
@@ -1282,7 +1282,12 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = subject.begin_scan(Some(consuming_wallet.clone()), now, None, &Logger::new(test_name));
+        let result = subject.begin_scan(
+            Some(consuming_wallet.clone()),
+            now,
+            None,
+            &Logger::new(test_name),
+        );
 
         let timestamp = subject.scan_started_at();
         assert_eq!(timestamp, Some(now));
@@ -1316,9 +1321,19 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
             .build();
-        let _result = subject.begin_scan(Some(consuming_wallet.clone()), now, None, &Logger::new("test"));
+        let _result = subject.begin_scan(
+            Some(consuming_wallet.clone()),
+            now,
+            None,
+            &Logger::new("test"),
+        );
 
-        let run_again_result = subject.begin_scan(Some(consuming_wallet), SystemTime::now(), None, &Logger::new("test"));
+        let run_again_result = subject.begin_scan(
+            Some(consuming_wallet),
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+        );
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2205,7 +2220,12 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let result = pending_payable_scanner.begin_scan(Some(consuming_wallet), now, None, &Logger::new(test_name));
+        let result = pending_payable_scanner.begin_scan(
+            Some(consuming_wallet),
+            now,
+            None,
+            &Logger::new(test_name),
+        );
 
         let no_of_pending_payables = fingerprints.len();
         let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
@@ -2898,7 +2918,12 @@ mod tests {
             .earning_wallet(earning_wallet.clone())
             .build();
 
-        let result = receivable_scanner.begin_scan(Some(earning_wallet.clone()), now, None, &Logger::new(test_name));
+        let result = receivable_scanner.begin_scan(
+            Some(earning_wallet.clone()),
+            now,
+            None,
+            &Logger::new(test_name),
+        );
 
         let is_scan_running = receivable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2925,9 +2950,19 @@ mod tests {
             .receivable_dao(receivable_dao)
             .earning_wallet(earning_wallet.clone())
             .build();
-        let _ = receivable_scanner.begin_scan(Some(earning_wallet.clone()), now, None, &Logger::new("test"));
+        let _ = receivable_scanner.begin_scan(
+            Some(earning_wallet.clone()),
+            now,
+            None,
+            &Logger::new("test"),
+        );
 
-        let result = receivable_scanner.begin_scan(Some(earning_wallet), SystemTime::now(), None, &Logger::new("test"));
+        let result = receivable_scanner.begin_scan(
+            Some(earning_wallet),
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+        );
 
         let is_scan_running = receivable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2965,7 +3000,8 @@ mod tests {
         let logger = Logger::new("DELINQUENCY_TEST");
         let now = SystemTime::now();
 
-        let result = receivable_scanner.begin_scan(Some(earning_wallet.clone()), now, None, &logger);
+        let result =
+            receivable_scanner.begin_scan(Some(earning_wallet.clone()), now, None, &logger);
 
         assert_eq!(
             result,
