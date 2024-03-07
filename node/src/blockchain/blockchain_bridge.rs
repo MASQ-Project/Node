@@ -80,6 +80,8 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
+        // There's a multinode integration test looking for this message
+        debug!(self.logger, "Received BindMessage");
     }
 }
 
