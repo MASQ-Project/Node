@@ -546,9 +546,6 @@ impl Neighborhood {
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         match msg.change {
             ConfigChange::UpdateWallets(new_wallet_pair) => {
-                // TODO: GH-728: If Earning Wallet really has changed, we need to change
-                // the root node's wallet (it's inside Neighborhood DB)
-                // (We need to gossip it)
                 self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
             }
             ConfigChange::UpdateMinHops(new_min_hops) => {
