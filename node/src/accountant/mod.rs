@@ -2134,10 +2134,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![
-            Some(earning_wallet.clone()),
-            Some(earning_wallet),
-        ]);
+        assert_eq!(
+            *begin_scan_params,
+            vec![Some(earning_wallet.clone()), Some(earning_wallet),]
+        );
         assert_eq!(
             *notify_later_receivable_params,
             vec![
@@ -2286,10 +2286,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![
-            Some(consuming_wallet.clone()),
-            Some(consuming_wallet),
-        ]);
+        assert_eq!(
+            *begin_scan_params,
+            vec![Some(consuming_wallet.clone()), Some(consuming_wallet),]
+        );
         assert_eq!(
             *notify_later_payables_params,
             vec![

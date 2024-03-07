@@ -2977,12 +2977,7 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
 
-        let _ = receivable_scanner.begin_scan(
-            None,
-            now,
-            None,
-            &Logger::new("test"),
-        );
+        let _ = receivable_scanner.begin_scan(None, now, None, &Logger::new("test"));
     }
 
     #[test]
