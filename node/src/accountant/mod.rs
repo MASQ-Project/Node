@@ -2098,7 +2098,8 @@ mod tests {
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
-        let mut config = make_bc_with_defaults();
+        let earning_wallet = make_wallet("earning");
+        let mut config = bc_from_earning_wallet(earning_wallet.clone());
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_millis(99),
@@ -2133,7 +2134,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(*begin_scan_params, vec![
+            Some(earning_wallet.clone()),
+            Some(earning_wallet),
+        ]);
         assert_eq!(
             *notify_later_receivable_params,
             vec![
@@ -2205,7 +2209,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(*begin_scan_params, vec![None, None]);
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2233,6 +2237,7 @@ mod tests {
         let notify_later_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
@@ -2240,7 +2245,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
-                consuming_wallet_opt: Some(make_paying_wallet(b"consuming")),
+                consuming_wallet_opt: Some(consuming_wallet.clone()),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2252,6 +2257,7 @@ mod tests {
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .logger(Logger::new(test_name))
             .build();
         subject.scanners.payable = Box::new(payable_scanner);
@@ -2280,7 +2286,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(*begin_scan_params, vec![
+            Some(consuming_wallet.clone()),
+            Some(consuming_wallet),
+        ]);
         assert_eq!(
             *notify_later_payables_params,
             vec![
