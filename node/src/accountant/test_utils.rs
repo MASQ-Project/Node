@@ -1186,7 +1186,6 @@ pub struct ReceivableScannerBuilder {
     banned_dao: BannedDaoMock,
     persistent_configuration: PersistentConfigurationMock,
     payment_thresholds: PaymentThresholds,
-    earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
 }
 
@@ -1197,7 +1196,6 @@ impl ReceivableScannerBuilder {
             banned_dao: BannedDaoMock::new(),
             persistent_configuration: PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
-            earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
         }
     }
@@ -1222,11 +1220,6 @@ impl ReceivableScannerBuilder {
 
     pub fn payment_thresholds(mut self, payment_thresholds: PaymentThresholds) -> Self {
         self.payment_thresholds = payment_thresholds;
-        self
-    }
-
-    pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
-        self.earning_wallet = earning_wallet;
         self
     }
 

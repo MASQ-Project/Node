@@ -848,7 +848,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         self.mark_as_started(timestamp);
         let earning_wallet = match earning_wallet_opt {
             Some(earning_wallet) => earning_wallet,
-            None => panic!("Accountant failed to provide the earning wallet"), // TODO: GH-728: Test drive me
+            None => panic!("Accountant failed to provide the earning wallet"),
         };
         info!(logger, "Scanning for receivables to {}", earning_wallet);
         self.scan_for_delinquencies(timestamp, logger);
@@ -1291,7 +1291,6 @@ mod tests {
 
         let timestamp = subject.scan_started_at();
         assert_eq!(timestamp, Some(now));
-        // TODO: GH-728: Assert whether the QualifiedPayablesMessage contains the consuming wallet
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
@@ -2915,7 +2914,6 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
-            .earning_wallet(earning_wallet.clone())
             .build();
 
         let result = receivable_scanner.begin_scan(
@@ -2948,7 +2946,6 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
-            .earning_wallet(earning_wallet.clone())
             .build();
         let _ = receivable_scanner.begin_scan(
             Some(earning_wallet.clone()),
@@ -2967,6 +2964,25 @@ mod tests {
         let is_scan_running = receivable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
         assert_eq!(result, Err(BeginScanError::ScanAlreadyRunning(now)));
+    }
+
+    #[test]
+    #[should_panic(expected = "Accountant failed to provide the earning wallet")]
+    fn receivable_scanner_panics_when_accountant_fails_to_provide_the_earning_wallet() {
+        let now = SystemTime::now();
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_result(vec![])
+            .paid_delinquencies_result(vec![]);
+        let mut receivable_scanner = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .build();
+
+        let _ = receivable_scanner.begin_scan(
+            None,
+            now,
+            None,
+            &Logger::new("test"),
+        );
     }
 
     #[test]
@@ -2995,7 +3011,6 @@ mod tests {
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
             .payment_thresholds(payment_thresholds)
-            .earning_wallet(earning_wallet.clone())
             .build();
         let logger = Logger::new("DELINQUENCY_TEST");
         let now = SystemTime::now();
