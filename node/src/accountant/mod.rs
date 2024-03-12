@@ -119,7 +119,7 @@ pub struct PaymentsAndStartBlock {
     pub new_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ReceivedPaymentsError {
     ExceededBlockScanLimit(u64),
     OtherRPCError(String),

@@ -331,12 +331,16 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
         )
         .collect()
         // .map_err(|e| {
-        //     // todo!("sign_and_append_multiple_payments -- map_err");
-        //     return err(e);
+        //     todo!("sign_and_append_multiple_payments -- map_err");
+        //     // return err(e);
         // })
         // TODO: GH-744: Need to fix errors -- The current version of futures, doesnt give us enough util to catch errors here.
         // The thinking is we could return here to fix this after falling behind is completed.
         .and_then(move |hashes_and_paid_amounts| {
+            eprintln!(
+                "Recived hashes_and_paid_amounts: {:?}",
+                hashes_and_paid_amounts
+            );
             let timestamp = SystemTime::now();
             let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
             let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
@@ -354,11 +358,12 @@ pub fn send_payables_within_batch<T: BatchTransport + 'static>(
                 .transport()
                 .submit_batch()
                 .map_err(|e| {
-                    // todo!("We are hitting the correct place");
+                    // todo!("send_payables_within_batch - We are hitting the correct place");
+                    eprintln!("send_payables_within_batch - We are hitting the Error case");
                     error_with_hashes(e, hashes_and_paid_amounts_error)
                 })
                 .and_then(move |batch_response| {
-                    // todo!("We are hitting the wrong place");
+                    eprintln!("send_payables_within_batch - We are hitting the Ok Case");
                     Ok(merged_output_data(
                         batch_response,
                         hashes_and_paid_amounts_ok,

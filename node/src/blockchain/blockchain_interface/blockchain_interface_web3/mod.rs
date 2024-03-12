@@ -71,118 +71,17 @@ pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::type
 pub type ResultForNonce = BlockchainResult<web3::types::U256>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
-// pub trait BlockchainInterface<T: BatchTransport = Http> {
-//     fn contract_address(&self) -> Address;
-//
-//     fn get_chain(&self) -> Chain;
-//
-//     fn get_batch_web3(&self) -> Web3<Batch<T>>;
-//
-//     fn retrieve_transactions(
-//         &self,
-//         start_block: u64,
-//         end_block: u64,
-//         recipient: &Wallet,
-//     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
-//
-//     fn get_transaction_fee_balance(
-//         &self,
-//         address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
-//
-//     fn get_token_balance(
-//         &self,
-//         address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
-//
-//     fn get_transaction_count(
-//         &self,
-//         address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
-//
-//     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
-//     fn lower_interface(&self) -> &dyn LowBlockchainInt;
-//
-//     as_any_ref_in_trait!();
-// }
-
 pub struct BlockchainInterfaceNull {
     logger: Logger,
 }
 
-// TODO: GH-744 We found a double up of this code
-// impl BlockchainInterface<Http> for BlockchainInterfaceNull {
-//     fn contract_address(&self) -> Address {
-//         self.log_uninitialized_for_operation("get contract address");
-//         H160::zero()
-//     }
-//
-//     fn get_chain(&self) -> Chain {
-//         todo!("FIX ME GH-744")
-//     }
-//
-//     fn get_batch_web3(&self) -> Web3<Batch<Http>> {
-//         // self.
-//         todo!("FIX ME GH-744")
-//     }
-//
-//     fn retrieve_transactions(
-//         &self,
-//         _start_block: BlockNumber,
-//         _end_block: BlockNumber,
-//         _wallet: &Wallet,
-//     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
-//         Box::new(err(
-//             self.handle_uninitialized_interface("retrieve transactions")
-//         ))
-//         // self.handle_uninitialized_interface::< RetrievedBlockchainTransactions, blockchain_interface::BlockchainError > ("retrieve transactions", ).unwrap_err()))
-//     }
-//
-//
-//     fn get_transaction_fee_balance(
-//         &self,
-//         _address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-//         Box::new(err(self
-//             .handle_uninitialized_interface::<U256, _>("get transaction fee balance")
-//             .unwrap_err()))
-//     }
-//
-//     fn get_token_balance(
-//         &self,
-//         _address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-//         Box::new(err(self
-//             .handle_uninitialized_interface::<U256, _>("get token balance")
-//             .unwrap_err()))
-//     }
-//
-//     fn get_transaction_count(
-//         &self,
-//         _address: &Wallet,
-//     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-//         Box::new(err(self
-//             .handle_uninitialized_interface::<BlockchainError, _>("get transaction count")
-//             .unwrap_err()))
-//     }
-//
-//     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
-//         todo!()
-//     }
-// }
 pub struct BlockchainInterfaceWeb3 {
     logger: Logger,
     chain: Chain,
     gas_limit_const_part: u64,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
-    // web3: Rc<Web3<T>>,
-    // web3_batch: Rc<Web3<Batch<T>>>,
-    // batch_payable_tools: Box<dyn BatchPayableTools<T>>,
-    // lower_interface: Box<dyn LowBlockchainInt>,
     transport: Http,
-    // web3: Web3<T>,
-    // contract: Contract<T>,
 }
 
 pub const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -304,8 +203,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                                     transaction_max_block_number
                                                 );
 
-                                                eprintln!("response_block_number: {:?}", response_block_number);
-                                                eprintln!("transaction_max_block_number: {:?}", transaction_max_block_number);
                                                 Ok(RetrievedBlockchainTransactions {
                                                     new_start_block: 1u64 + transaction_max_block_number,
                                                     transactions,
@@ -468,8 +365,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     }
 
     fn lower_interface(&self) -> &dyn LowBlockchainInt {
-        todo!("GH-744: come back to this");
-        // &*self.lower_interface
+        todo!("GH-744: Need to remove lower_interface");
     }
 }
 
