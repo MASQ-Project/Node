@@ -6,9 +6,7 @@ use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFacto
 use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
-use crate::accountant::db_access_objects::pending_payable_dao::{
-    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
-};
+use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
@@ -877,7 +875,7 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
 #[derive(Default)]
 pub struct PendingPayableDaoMock {
     fingerprints_rowids_params: Arc<Mutex<Vec<Vec<H256>>>>,
-    fingerprints_rowids_results: RefCell<Vec<Vec<(Option<u64>, H256)>>>,
+    fingerprints_rowids_results: RefCell<Vec<TransactionHashes>>,
     delete_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
     delete_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_new_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u128)>, SystemTime)>>>,
@@ -892,12 +890,24 @@ pub struct PendingPayableDaoMock {
 }
 
 impl PendingPayableDao for PendingPayableDaoMock {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
         self.fingerprints_rowids_params
             .lock()
             .unwrap()
             .push(hashes.to_vec());
-        self.fingerprints_rowids_results.borrow_mut().remove(0)
+        self.fingerprints_rowids_results
+            .borrow_mut()
+            .remove(0)
+        // let mut no_rowid_results: Vec<H256> = vec![];
+        // let mut rowid_results: Vec<(u64, H256)> = vec![];
+        // for (rowid, hash) in self.fingerprints_rowids_results.clone().into_inner().remove(0)[..].into_iter() {
+        //     if rowid.is_some() {
+        //         rowid_results.push((rowid.unwrap(), *hash));
+        //     } else {
+        //         no_rowid_results.push(*hash);
+        //     }
+        // }
+        // TransactionHashes { rowid_results, no_rowid_results }
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
@@ -963,7 +973,7 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn fingerprints_rowids_result(self, result: Vec<(Option<u64>, H256)>) -> Self {
+    pub fn fingerprints_rowids_result(self, result: TransactionHashes) -> Self {
         self.fingerprints_rowids_results.borrow_mut().push(result);
         self
     }

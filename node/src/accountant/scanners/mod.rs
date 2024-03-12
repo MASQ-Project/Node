@@ -16,7 +16,6 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
     separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
     PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata,
-    VecOfRowidOptAndHash,
 };
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
@@ -47,7 +46,8 @@ use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use time::format_description::parse;
@@ -377,63 +377,59 @@ impl PayableScanner {
 
     fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
-        sent_payables: &'a [&'a PendingPayable],
+        sent_payables: &[&'a PendingPayable],
     ) -> (Vec<PendingPayableMetadata>, Vec<PendingPayableMetadata>) {
-        fn sew_metadata(
-            ((rowid_opt, hash), pending_payable): ((Option<u64>, H256), &PendingPayable),
-        ) -> PendingPayableMetadata {
-            PendingPayableMetadata::new(&pending_payable.recipient_wallet, hash, rowid_opt)
-        }
 
         let hashes = sent_payables
             .iter()
             .map(|pending_payable| pending_payable.hash)
             .collect::<Vec<H256>>();
 
-        let sent_payables_sorted_by_hashes = sent_payables
-            .iter()
-            .sorted_by(|a, b| Ord::cmp(&a.hash, &b.hash))
-            .copied()
-            .collect::<Vec<&PendingPayable>>();
+        let sent_payables_hashes = hashes.iter().map(|hash| *hash).collect::<HashSet<H256>>();
+        let sent_payables_hashmap = sent_payables.iter().map(|payable|
+            (payable.hash, &payable.recipient_wallet) ).collect::<HashMap<H256, &Wallet>>();
 
-        let rowid_pairs_sorted_by_hashes = self
+        let transaction_hashes = self
             .pending_payable_dao
-            .fingerprints_rowids(&hashes)
-            .into_iter()
-            .sorted_by(|(_, hash_a), (_, hash_b)| Ord::cmp(&hash_a, &hash_b))
-            .collect::<Vec<(Option<u64>, H256)>>();
+            .fingerprints_rowids(&hashes);
+        let rowid_pairs_with_hashes = transaction_hashes.rowid_results.iter().map(|(_rowid, hash)| *hash).collect::<HashSet<H256>>();
 
-        if !Self::is_symmetrical(
-            &sent_payables_sorted_by_hashes,
-            &rowid_pairs_sorted_by_hashes,
-        ) {
+        if sent_payables_hashes != rowid_pairs_with_hashes {
             panic!(
                 "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
                 sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
-                sent_payables_sorted_by_hashes, rowid_pairs_sorted_by_hashes
+                sent_payables_hashes, rowid_pairs_with_hashes
             )
         }
 
-        rowid_pairs_sorted_by_hashes
-            .into_iter()
-            .zip(sent_payables_sorted_by_hashes.into_iter())
-            .map(sew_metadata)
-            .partition(|pp_triple| pp_triple.rowid_opt.is_some())
+        let pending_payables_with_rowid = transaction_hashes
+                .rowid_results.into_iter().map(|(rowid, hash)| PendingPayableMetadata::new(
+                sent_payables_hashmap.get(&hash).expect("expect transaction hash, but it disappear").clone(),
+                hash,
+                Some(rowid)
+            )).collect_vec();
+        let pending_payables_without_rowid =
+            transaction_hashes.no_rowid_results.into_iter().map(|hash| PendingPayableMetadata::new(
+                sent_payables_hashmap.get(&hash).expect("expect transaction hash, but it disappear").clone(),
+                hash,
+                None
+            )).collect_vec();
+        (pending_payables_with_rowid, pending_payables_without_rowid)
     }
 
     fn is_symmetrical(
         sent_payables_sorted_by_hashes: &[&PendingPayable],
-        rowid_pairs_sorted_by_hashes: &[(Option<u64>, H256)],
+        rowid_pairs_sorted_by_hashes: &[(H256, u64)],
     ) -> bool {
         let map_a = sent_payables_sorted_by_hashes
             .iter()
             .map(|pp| pp.hash)
-            .sorted()
+            .sorted_by_key(|w| Reverse(*w))
             .collect::<Vec<H256>>();
         let map_b = rowid_pairs_sorted_by_hashes
             .iter()
-            .map(|(_, hash)| *hash)
-            .sorted()
+            .map(|(hash, _)| *hash)
+            .sorted_by_key(|w| Reverse(*w))
             .collect::<Vec<H256>>();
         map_a == map_b
     }
@@ -517,12 +513,11 @@ impl PayableScanner {
         fn serialize_hashes(hashes: &[H256]) -> String {
             comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
         }
-
-        let (existent, nonexistent): (VecOfRowidOptAndHash, VecOfRowidOptAndHash) = self
+        let existent_and_nonexistent = self
             .pending_payable_dao
-            .fingerprints_rowids(&hashes_of_failed)
-            .into_iter()
-            .partition(|(rowid_opt, _hash)| rowid_opt.is_some());
+            .fingerprints_rowids(&hashes_of_failed);
+        let existent= existent_and_nonexistent.rowid_results.into_iter().collect_vec();
+        let nonexistent = existent_and_nonexistent.no_rowid_results.into_iter().map(|hash| hash).collect_vec();
         let missing_fgp_err_msg_opt =
             err_msg_if_failed_without_existing_fingerprints(nonexistent, serialize_hashes);
         if !existent.is_empty() {
@@ -1098,9 +1093,7 @@ impl<T: Default + 'static> ScanScheduler for PeriodicalScanScheduler<T> {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-    use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayable, PendingPayableDaoError,
-    };
+    use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDaoError, TransactionHashes};
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
@@ -1374,14 +1367,14 @@ mod tests {
             PendingPayable::new(correct_payable_wallet_3.clone(), correct_payable_hash_3);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(vec![
-                (Some(correct_payable_rowid_3), correct_payable_hash_3),
-                (Some(correct_payable_rowid_1), correct_payable_hash_1),
-            ])
-            .fingerprints_rowids_result(vec![(
-                Some(failure_payable_rowid_2),
-                failure_payable_hash_2,
-            )])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(correct_payable_rowid_3, correct_payable_hash_3), (correct_payable_rowid_1, correct_payable_hash_1)],
+                no_rowid_results: vec![]
+            })
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![],
+                no_rowid_results: vec![failure_payable_hash_2]
+            })
             .delete_fingerprints_params(&delete_fingerprints_params_arc)
             .delete_fingerprints_result(Ok(()));
         let payable_dao = PayableDaoMock::new()
@@ -1420,8 +1413,8 @@ mod tests {
         assert_eq!(
             *mark_pending_payables_params,
             vec![vec![
+                (correct_payable_wallet_3, correct_payable_rowid_3),
                 (correct_payable_wallet_1, correct_payable_rowid_1),
-                (correct_payable_wallet_3, correct_payable_rowid_3)
             ]]
         );
         let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
@@ -1470,12 +1463,15 @@ mod tests {
         let pending_payables_ref = pending_payables_owned
             .iter()
             .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(vec![
-            (Some(4), hash_4),
-            (Some(1), hash_1),
-            (Some(3), hash_3),
-            (Some(2), hash_2),
-        ]);
+        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
+            rowid_results: vec![
+                (4, hash_4),
+                (1, hash_1),
+                (3, hash_3),
+                (2, hash_2),
+            ],
+            no_rowid_results: vec![],
+        });
         let subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -1483,13 +1479,15 @@ mod tests {
         let (existent, nonexistent) =
             subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
 
+        // assert_eq!(PayableScanner::is_symmetrical(pending_payables_ref.as_slice(), pending_payable_dao.fingerprints_rowids().rowid_results.as_slice().iter().map(|(u64, hash)| (hash, u64)).collect()), true);
+
         assert_eq!(
             existent,
             vec![
+                PendingPayableMetadata::new(&wallet_4, hash_4, Some(4)),
                 PendingPayableMetadata::new(&wallet_1, hash_1, Some(1)),
-                PendingPayableMetadata::new(&wallet_2, hash_2, Some(2)),
                 PendingPayableMetadata::new(&wallet_3, hash_3, Some(3)),
-                PendingPayableMetadata::new(&wallet_4, hash_4, Some(4))
+                PendingPayableMetadata::new(&wallet_2, hash_2, Some(2)),
             ]
         );
         assert!(nonexistent.is_empty())
@@ -1541,11 +1539,14 @@ mod tests {
             .pending_payables
             .iter()
             .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(vec![
-            (Some(4), vals.common_hash_1),
-            (Some(1), vals.intruder_for_hash_2),
-            (Some(3), vals.common_hash_3),
-        ]);
+        let pending_payable_dao = PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
+            rowid_results: vec![
+                (4, vals.common_hash_1),
+                (1, vals.intruder_for_hash_2),
+                (3, vals.common_hash_3),
+            ],
+            no_rowid_results: vec![],
+        });
         let subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -1567,7 +1568,7 @@ mod tests {
             .iter()
             .collect::<Vec<&PendingPayable>>();
         let rowids_and_hashes_from_fingerprints =
-            vec![(Some(3), hash_1), (Some(5), hash_2), (Some(6), hash_3)];
+            vec![(hash_1, 3), (hash_2, 5), (hash_3, 6)];
 
         let result = PayableScanner::is_symmetrical(
             &pending_payables_ref,
@@ -1585,9 +1586,9 @@ mod tests {
             .iter()
             .collect::<Vec<&PendingPayable>>();
         let rowids_and_hashes_from_fingerprints = vec![
-            (Some(3), vals.common_hash_1),
-            (Some(5), vals.intruder_for_hash_2),
-            (Some(6), vals.common_hash_3),
+            (vals.common_hash_1, 3),
+            (vals.intruder_for_hash_2, 5),
+            (vals.common_hash_3, 6),
         ];
 
         let result = PayableScanner::is_symmetrical(
@@ -1613,7 +1614,7 @@ mod tests {
             .collect::<Vec<&PendingPayable>>();
         // Not in an ascending order
         let rowids_and_hashes_from_fingerprints =
-            vec![(Some(3), hash_1), (Some(5), hash_3), (Some(6), hash_2)];
+            vec![(hash_1, 3), (hash_3, 5), (hash_2, 6)];
 
         let result = PayableScanner::is_symmetrical(
             &bb_returned_p_payables_ref,
@@ -1635,7 +1636,10 @@ mod tests {
         let hash_2 = make_tx_hash(0x7b);
         let payment_2 = PendingPayable::new(make_wallet("agoob"), hash_2);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(None, hash_1), (None, hash_2)]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![],
+                no_rowid_results: vec![hash_1, hash_2],
+            });
         let payable_dao = PayableDaoMock::new();
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -1690,7 +1694,10 @@ mod tests {
         let hash_1 = make_tx_hash(248);
         let hash_2 = make_tx_hash(139);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(7879), hash_1), (Some(7881), hash_2)]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(7879, hash_1), (7881, hash_2)],
+                no_rowid_results: vec![],
+            });
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
@@ -1711,7 +1718,10 @@ mod tests {
         let hash_1 = make_tx_hash(248);
         let hash_2 = make_tx_hash(0xf8);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(None, hash_1), (Some(7881), hash_2)]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(7881, hash_2)],
+                no_rowid_results: vec![hash_1],
+            });
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
@@ -1739,10 +1749,13 @@ mod tests {
         let system = System::new(test_name);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(vec![
-                (Some(first_fingerprint_rowid), hash_tx_1),
-                (Some(second_fingerprint_rowid), hash_tx_2),
-            ])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (first_fingerprint_rowid, hash_tx_1),
+                    (second_fingerprint_rowid, hash_tx_2),
+                ],
+                no_rowid_results: vec![],
+            })
             .delete_fingerprints_params(&delete_fingerprints_params_arc)
             .delete_fingerprints_result(Ok(()));
         let mut subject = PayableScannerBuilder::new()
@@ -1825,7 +1838,10 @@ mod tests {
             response_skeleton_opt: None,
         };
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(rowid_1), hash_1), (Some(rowid_2), hash_2)])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(rowid_1, hash_1), (rowid_2, hash_2)],
+                no_rowid_results: vec![],
+            })
             .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
                 "Gosh, I overslept without an alarm set".to_string(),
             )));
@@ -1860,7 +1876,10 @@ mod tests {
         let hash_2 = make_tx_hash(0x3039);
         let hash_3 = make_tx_hash(0x223d);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(333, hash_1)],
+                no_rowid_results: vec![hash_2, hash_3],
+            })
             .delete_fingerprints_result(Ok(()));
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
@@ -1905,10 +1924,12 @@ mod tests {
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![
-                (Some(45), existent_record_hash),
-                (None, nonexistent_record_hash),
-            ])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (45, existent_record_hash)
+                ],
+                no_rowid_results: vec![nonexistent_record_hash],
+            })
             .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
                 "Another failure. Really???".to_string(),
             )));
