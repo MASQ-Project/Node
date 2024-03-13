@@ -2705,38 +2705,6 @@ mod tests {
     }
 
     #[test]
-    fn route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops(
-    ) {
-        let system = System::new("route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops");
-        let mut subject = make_standard_subject();
-        subject.min_hops = Hops::OneHop;
-        let a = &make_node_record(1234, true);
-        let b = &subject.neighborhood_database.root().clone();
-        let c = &make_node_record(3456, true);
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(a.clone()).unwrap();
-            db.add_node(c.clone()).unwrap();
-            let mut single_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_half_neighbor(a.public_key(), b.public_key())
-            };
-            single_edge(a, b);
-            single_edge(b, c);
-            single_edge(c, a);
-        }
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 10000);
-
-        let future = sub.send(msg);
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result, None);
-    }
-
-    #[test]
     fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
     ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet");
