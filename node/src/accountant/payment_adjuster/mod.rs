@@ -46,13 +46,14 @@ use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_cal
 use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
+use crate::accountant::QualifiedPayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
-        qualified_payables: &[PayableAccount],
+        qualified_payables: &[QualifiedPayableAccount],
         agent: &dyn BlockchainAgent,
     ) -> Result<Option<Adjustment>, PaymentAdjusterError>;
 
@@ -74,7 +75,7 @@ pub struct PaymentAdjusterReal {
 impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
-        qualified_payables: &[PayableAccount],
+        qualified_payables: &[QualifiedPayableAccount],
         agent: &dyn BlockchainAgent,
     ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         let number_of_counts = qualified_payables.len();
@@ -126,11 +127,11 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         self.complete_debug_info_if_enabled(sketched_debug_info_opt, &affordable_accounts);
 
-        Ok(OutboundPaymentsInstructions {
-            affordable_accounts,
-            response_skeleton_opt,
+        Ok(OutboundPaymentsInstructions::new(
+            Either::Right(affordable_accounts),
             agent,
-        })
+            response_skeleton_opt,
+        ))
     }
 
     as_any_in_trait_impl!();
@@ -175,18 +176,18 @@ impl PaymentAdjusterReal {
 
     fn run_adjustment(
         &mut self,
-        qualified_accounts: Vec<PayableAccount>,
+        qualified_accounts: Vec<QualifiedPayableAccount>,
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
-        let accounts = self.calculate_criteria_and_propose_adjustments_recursively(
+        let processed_accounts = self.calculate_criteria_and_propose_adjustments_recursively(
             qualified_accounts,
             TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
-        if found_zero_affordable_accounts(&accounts) {
+        if found_zero_affordable_accounts(&processed_accounts) {
             return Err(PaymentAdjusterError::AllAccountsEliminated);
         }
 
-        match accounts {
+        match processed_accounts {
             Either::Left(non_exhausted_accounts) => {
                 let original_cw_service_fee_balance_minor =
                     self.inner.original_cw_service_fee_balance_minor();
@@ -201,7 +202,7 @@ impl PaymentAdjusterReal {
     }
     fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
-        unresolved_qualified_accounts: Vec<PayableAccount>,
+        unresolved_qualified_accounts: Vec<QualifiedPayableAccount>,
         adjustment_runner: AR,
     ) -> RT
     where
@@ -223,7 +224,7 @@ impl PaymentAdjusterReal {
                 .into_iter()
                 .next()
                 .expect("previous if stmt must be wrong");
-            return adjustment_runner.adjust_last_one(self, last_one);
+            return adjustment_runner.adjust_last_one(self, last_one.account);
         }
 
         let weights_and_accounts_sorted =
@@ -348,7 +349,7 @@ impl PaymentAdjusterReal {
 
     fn calculate_weights_for_accounts(
         &self,
-        accounts: Vec<PayableAccount>,
+        accounts: Vec<QualifiedPayableAccount>,
     ) -> Vec<WeightedAccount> {
         let criteria_calculators: Vec<Box<dyn CriterionCalculator>> = vec![
             Box::new(BalanceCriterionCalculator::new()),
@@ -564,7 +565,7 @@ impl PaymentAdjusterReal {
 
     fn sketch_debug_info_opt(
         &self,
-        qualified_payables: &[PayableAccount],
+        qualified_payables: &[QualifiedPayableAccount],
     ) -> Option<HashMap<Wallet, u128>> {
         self.logger.debug_enabled().then(|| {
             qualified_payables

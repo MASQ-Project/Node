@@ -13,7 +13,7 @@ use core::fmt::Debug;
 use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
-use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PayableDaoError};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
 use crate::accountant::db_access_objects::utils::{
@@ -125,6 +125,12 @@ pub struct ReceivedPayments {
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct QualifiedPayableAccount{
+    pub account: PayableAccount,
+    pub payment_threshold_intercept: u128
 }
 
 #[derive(Debug, Message, PartialEq)]
@@ -341,7 +347,7 @@ pub trait SkeletonOptHolder {
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RequestTransactionReceipts {
-    pub pending_payable: Vec<PendingPayableFingerprint>,
+    pub pending_payables: Vec<PendingPayableFingerprint>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -623,17 +629,17 @@ impl Accountant {
             self.logger,
             "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id,
-            msg.exit.earning_wallet,
-            msg.exit.payload_size
+            msg.exit_service.earning_wallet,
+            msg.exit_service.payload_size
         );
         self.record_service_consumed(
-            msg.exit.service_rate,
-            msg.exit.byte_rate,
+            msg.exit_service.service_rate,
+            msg.exit_service.byte_rate,
             msg.timestamp,
-            msg.exit.payload_size,
-            &msg.exit.earning_wallet,
+            msg.exit_service.payload_size,
+            &msg.exit_service.earning_wallet,
         );
-        msg.routing.iter().for_each(|routing_service| {
+        msg.routing_services.iter().for_each(|routing_service| {
             debug!(
                 self.logger,
                 "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
@@ -1471,7 +1477,7 @@ mod tests {
     #[test]
     fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not to match either the condition for
+        // the numbers for balances don't do real math, they need not match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
         init_test_logging();
@@ -1483,26 +1489,26 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
-        let unadjusted_account_1 = make_payable_account(111_111);
-        let unadjusted_account_2 = make_payable_account(222_222);
+        let unadjusted_account_1 = QualifiedPayableAccount{account: make_payable_account(111_111), payment_threshold_intercept: 1234567};
+        let unadjusted_account_2 = QualifiedPayableAccount{account: make_payable_account(222_222), payment_threshold_intercept: 444555666};
         let adjusted_account_1 = PayableAccount {
             balance_wei: gwei_to_wei(55_550_u64),
-            ..unadjusted_account_1.clone()
+            ..unadjusted_account_1.account.clone()
         };
         let adjusted_account_2 = PayableAccount {
             balance_wei: gwei_to_wei(100_000_u64),
-            ..unadjusted_account_2.clone()
+            ..unadjusted_account_2.account.clone()
         };
         let response_skeleton = ResponseSkeleton {
             client_id: 12,
             context_id: 55,
         };
-        let unadjusted_accounts = vec![unadjusted_account_1, unadjusted_account_2];
+        let unadjusted_qualified_accounts = vec![unadjusted_account_1, unadjusted_account_2];
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(unadjusted_accounts.clone()),
+            protected_qualified_payables: protect_payables_in_test(unadjusted_qualified_accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1543,7 +1549,7 @@ mod tests {
         );
         assert_eq!(
             actual_prepared_adjustment.qualified_payables,
-            unadjusted_accounts
+            unadjusted_qualified_accounts
         );
         assert_eq!(
             actual_prepared_adjustment.agent.arbitrary_id_stamp(),
@@ -1775,7 +1781,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0),
             &RequestTransactionReceipts {
-                pending_payable: vec![fingerprint],
+                pending_payables: vec![fingerprint],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -2190,7 +2196,7 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(RequestTransactionReceipts {
-                pending_payable: vec![],
+                pending_payables: vec![],
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2639,7 +2645,7 @@ mod tests {
         assert_eq!(
             received_msg,
             &RequestTransactionReceipts {
-                pending_payable: vec![payable_fingerprint_1, payable_fingerprint_2],
+                pending_payables: vec![payable_fingerprint_1, payable_fingerprint_2],
                 response_skeleton_opt: None,
             }
         );
@@ -2951,14 +2957,14 @@ mod tests {
         subject_addr
             .try_send(ReportServicesConsumedMessage {
                 timestamp,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: earning_wallet_exit.clone(),
                     payload_size: 1200,
                     service_rate: 120,
                     byte_rate: 30,
                 },
                 routing_payload_size: 3456,
-                routing: vec![
+                routing_services: vec![
                     RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_1.clone(),
                         service_rate: 42,
@@ -3048,14 +3054,14 @@ mod tests {
         let timestamp = SystemTime::now();
         let report_message = ReportServicesConsumedMessage {
             timestamp,
-            exit: ExitServiceConsumed {
+            exit_service: ExitServiceConsumed {
                 earning_wallet: foreign_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 45,
                 byte_rate: 10,
             },
             routing_payload_size: 3333,
-            routing: vec![RoutingServiceConsumed {
+            routing_services: vec![RoutingServiceConsumed {
                 earning_wallet: consuming_wallet.clone(),
                 service_rate: 42,
                 byte_rate: 6,
@@ -3090,14 +3096,14 @@ mod tests {
         let timestamp = SystemTime::now();
         let report_message = ReportServicesConsumedMessage {
             timestamp,
-            exit: ExitServiceConsumed {
+            exit_service: ExitServiceConsumed {
                 earning_wallet: foreign_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 45,
                 byte_rate: 10,
             },
             routing_payload_size: 3333,
-            routing: vec![RoutingServiceConsumed {
+            routing_services: vec![RoutingServiceConsumed {
                 earning_wallet: earning_wallet.clone(),
                 service_rate: 42,
                 byte_rate: 6,
@@ -3130,14 +3136,14 @@ mod tests {
         let config = bc_from_wallets(consuming_wallet.clone(), make_wallet("own earning wallet"));
         let report_message = ReportServicesConsumedMessage {
             timestamp: SystemTime::now(),
-            exit: ExitServiceConsumed {
+            exit_service: ExitServiceConsumed {
                 earning_wallet: consuming_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
             },
             routing_payload_size: 3333,
-            routing: vec![],
+            routing_services: vec![],
         };
 
         let more_money_payable_params_arc =
@@ -3160,14 +3166,14 @@ mod tests {
         let config = bc_from_earning_wallet(earning_wallet.clone());
         let report_message = ReportServicesConsumedMessage {
             timestamp: SystemTime::now(),
-            exit: ExitServiceConsumed {
+            exit_service: ExitServiceConsumed {
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
             },
             routing_payload_size: 3333,
-            routing: vec![],
+            routing_services: vec![],
         };
 
         let more_money_payable_params_arc =

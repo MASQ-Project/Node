@@ -2,9 +2,9 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use masq_lib::type_obfuscation::Obfuscated;
+use crate::accountant::QualifiedPayableAccount;
 
-pub fn protect_payables_in_test(payables: Vec<PayableAccount>) -> Obfuscated {
+pub fn protect_payables_in_test(payables: Vec<QualifiedPayableAccount>) -> Obfuscated {
     Obfuscated::obfuscate_vector(payables)
 }

@@ -995,7 +995,7 @@ mod tests {
             .map(|account| account.wallet.clone())
             .collect();
         let subject = make_initialized_subject(now, None, None);
-        // The initial order is remembered because when the weight are applied the collection the collection
+        // The initial order is remembered because when the weight are applied the collection
         // also gets sorted and will not necessarily have to match the initial order
         let weights_and_accounts = subject.calculate_weights_for_accounts(accounts);
         (weights_and_accounts, wallets_in_order)

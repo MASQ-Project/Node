@@ -9,6 +9,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_fi
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use itertools::Either;
 use std::vec;
+use crate::accountant::QualifiedPayableAccount;
 
 // There are just two runners. Different by the adjustment they can perform, either adjusting by
 // both the transaction fee and service fee, or exclusively by the transaction fee. The idea is
@@ -158,6 +159,7 @@ mod tests {
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
+    use crate::accountant::QualifiedPayableAccount;
 
     fn prepare_payment_adjuster(cw_balance: u128, now: SystemTime) -> PaymentAdjusterReal {
         let adjustment = Adjustment::ByServiceFee;

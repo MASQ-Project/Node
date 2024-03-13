@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, ProcessedPayableFallible, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, ProcessedPayableFallible, QualifiedPayableAccount, SentPayables};
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
@@ -168,7 +168,7 @@ pub mod payable_scanner_utils {
         }
     }
 
-    pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
+    pub fn payables_debug_summary(qualified_accounts: &[QualifiedPayableAccount], logger: &Logger) {
         if qualified_accounts.is_empty() {
             return;
         }
@@ -176,16 +176,17 @@ pub mod payable_scanner_utils {
             let now = SystemTime::now();
             qualified_accounts
                 .iter()
-                .map(|(payable, threshold_point)| {
+                .map(|qualified_account| {
+                let account = &qualified_account.account;
                     let p_age = now
-                        .duration_since(payable.last_paid_timestamp)
+                        .duration_since(account.last_paid_timestamp)
                         .expect("Payable time is corrupt");
                     format!(
                         "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
-                        payable.balance_wei.separate_with_commas(),
+                        account.balance_wei.separate_with_commas(),
                         p_age.as_secs(),
-                        threshold_point.separate_with_commas(),
-                        payable.wallet
+                        qualified_account.payment_threshold_intercept.separate_with_commas(),
+                        account.wallet
                     )
                 })
                 .join("\n")

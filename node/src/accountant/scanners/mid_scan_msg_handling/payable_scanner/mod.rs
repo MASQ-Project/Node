@@ -11,7 +11,7 @@ use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
-use crate::accountant::ResponseSkeleton;
+use crate::accountant::{QualifiedPayableAccount, ResponseSkeleton};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
@@ -40,7 +40,7 @@ pub trait SolvencySensitivePaymentInstructor {
 }
 
 pub struct PreparedAdjustment {
-    pub qualified_payables: Vec<PayableAccount>,
+    pub qualified_payables: Vec<QualifiedPayableAccount>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
     pub adjustment: Adjustment,
@@ -48,7 +48,7 @@ pub struct PreparedAdjustment {
 
 impl PreparedAdjustment {
     pub fn new(
-        qualified_payables: Vec<PayableAccount>,
+        qualified_payables: Vec<QualifiedPayableAccount>,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
         adjustment: Adjustment,

@@ -23,7 +23,7 @@ use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::
     PendingPayableScanReport,
 };
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::PendingPayableId;
+use crate::accountant::{PendingPayableId, QualifiedPayableAccount};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -267,12 +267,22 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .borrow()
             .search_for_indispensable_adjustment(&unprotected, &*msg.agent)
         {
-            Ok(adjustment_opt) => Some(Self::handle_adjustment_opt(
-                adjustment_opt,
-                msg.agent,
-                msg.response_skeleton_opt,
-                unprotected,
-            )),
+            Ok(adjustment_opt) =>
+                {
+                    let either = match adjustment_opt {
+                        None => Either::Left(OutboundPaymentsInstructions::new(
+                            Either::Left(unprotected),
+                            msg.agent,
+                            msg.response_skeleton_opt,
+                        )),
+                        Some(adjustment) => {
+                            let prepared_adjustment =
+                                PreparedAdjustment::new(unprotected, msg.agent, msg.response_skeleton_opt, adjustment);
+                            Either::Right(prepared_adjustment)
+                        }
+                    };
+
+                Some(either)},
             Err(e) => {
                 warning!(
                     logger,
@@ -337,26 +347,19 @@ impl PayableScanner {
         &self,
         non_pending_payables: Vec<PayableAccount>,
         logger: &Logger,
-    ) -> Vec<PayableAccount> {
-        fn pass_payables_and_drop_points(
-            qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
-        ) -> Vec<PayableAccount> {
-            let (payables, _) = qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>();
-            payables
-        }
-
-        let qualified_payables_and_points_uncollected =
+    ) -> Vec<QualifiedPayableAccount> {
+        let qualified_payables =
             non_pending_payables.into_iter().flat_map(|account| {
-                self.payable_exceeded_threshold(&account, SystemTime::now())
-                    .map(|threshold_point| (account, threshold_point))
-            });
+                // TODO this SystemTime::now() isn't tested probably
+                                self.payable_exceeded_threshold(&account, SystemTime::now())
+                    .map(|payment_threshold_intercept| QualifiedPayableAccount {account,
+                        payment_threshold_intercept})
+            }).collect();
         match logger.debug_enabled() {
-            false => pass_payables_and_drop_points(qualified_payables_and_points_uncollected),
+            false => qualified_payables,
             true => {
-                let qualified_and_points_collected =
-                    qualified_payables_and_points_uncollected.collect_vec();
-                payables_debug_summary(&qualified_and_points_collected, logger);
-                pass_payables_and_drop_points(qualified_and_points_collected.into_iter())
+                payables_debug_summary(&qualified_payables, logger);
+                qualified_payables
             }
         }
     }
@@ -388,12 +391,14 @@ impl PayableScanner {
         let threshold = self
             .payable_threshold_gauge
             .calculate_payout_threshold_in_gwei(&self.common.payment_thresholds, debt_age);
+
         if payable.balance_wei > threshold {
             Some(threshold)
         } else {
             None
         }
     }
+
 
     fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
@@ -569,32 +574,12 @@ impl PayableScanner {
         };
     }
 
-    fn protect_payables(&self, payables: Vec<PayableAccount>) -> Obfuscated {
+    fn protect_payables(&self, payables: Vec<QualifiedPayableAccount>) -> Obfuscated {
         Obfuscated::obfuscate_vector(payables)
     }
 
-    fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<PayableAccount> {
+    fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<QualifiedPayableAccount> {
         obfuscated.expose_vector()
-    }
-
-    fn handle_adjustment_opt(
-        adjustment_opt: Option<Adjustment>,
-        agent: Box<dyn BlockchainAgent>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        unprotected: Vec<PayableAccount>,
-    ) -> Either<OutboundPaymentsInstructions, PreparedAdjustment> {
-        match adjustment_opt {
-            None => Either::Left(OutboundPaymentsInstructions::new(
-                unprotected,
-                agent,
-                response_skeleton_opt,
-            )),
-            Some(adjustment) => {
-                let prepared_adjustment =
-                    PreparedAdjustment::new(unprotected, agent, response_skeleton_opt, adjustment);
-                Either::Right(prepared_adjustment)
-            }
-        }
     }
 }
 
@@ -631,7 +616,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
                     filtered_pending_payable.len()
                 );
                 Ok(RequestTransactionReceipts {
-                    pending_payable: filtered_pending_payable,
+                    pending_payables: filtered_pending_payable,
                     response_skeleton_opt,
                 })
             }
@@ -1129,10 +1114,7 @@ mod tests {
         PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
         ReceivableScannerBuilder,
     };
-    use crate::accountant::{
-        gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
-        RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
-    };
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, QualifiedPayableAccount};
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -1251,11 +1233,11 @@ mod tests {
     #[test]
     fn protected_payables_can_be_cast_from_and_back_to_vec_of_payable_accounts_by_payable_scanner()
     {
-        let initial_unprotected = vec![make_payable_account(123), make_payable_account(456)];
+        let initial_unprotected = vec![QualifiedPayableAccount{account: make_payable_account(123), payment_threshold_intercept: 123456789}, QualifiedPayableAccount{account: make_payable_account(456), payment_threshold_intercept: 987654321}];
         let subject = PayableScannerBuilder::new().build();
 
         let protected = subject.protect_payables(initial_unprotected.clone());
-        let again_unprotected: Vec<PayableAccount> = subject.expose_payables(protected);
+        let again_unprotected: Vec<QualifiedPayableAccount> = subject.expose_payables(protected);
 
         assert_eq!(initial_unprotected, again_unprotected)
     }
@@ -2110,7 +2092,7 @@ mod tests {
         let time = (payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec
             - 1) as i64;
-        let qualified_payable = PayableAccount {
+        let qualifiable_payable = PayableAccount {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
             last_paid_timestamp: from_time_t(time),
@@ -2123,11 +2105,14 @@ mod tests {
         let logger = Logger::new(test_name);
 
         let result = subject.sniff_out_alarming_payables_and_maybe_log_them(
-            vec![qualified_payable.clone()],
+            vec![qualifiable_payable.clone()],
             &logger,
         );
 
-        assert_eq!(result, vec![qualified_payable]);
+        assert_eq!(result.len(),1);
+        assert_eq!(&result[0].account, &qualifiable_payable);
+        todo!("see if you can assert against exactly computed value");
+        //assert!(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei) <= result[0].payment_threshold_intercept && result[0].payment_threshold_intercept <= gwei_to_wei((payment_thresholds.permanent_debt_allowed_gwei * 100001) / 100000));
         TestLogHandler::new().exists_log_matching(&format!(
             "DEBUG: {}: Paying qualified debts:\n999,999,999,000,000,\
             000 wei owed for \\d+ sec exceeds threshold: 500,000,000,000,000,000 wei; creditor: \
@@ -2199,7 +2184,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RequestTransactionReceipts {
-                pending_payable: fingerprints,
+                pending_payables: fingerprints,
                 response_skeleton_opt: None
             })
         );

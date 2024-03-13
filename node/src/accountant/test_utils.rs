@@ -26,9 +26,7 @@ use crate::accountant::scanners::{
     BeginScanError, PayableScanner, PendingPayableScanner, PeriodicalScanScheduler,
     ReceivableScanner, ScanSchedulers, Scanner,
 };
-use crate::accountant::{
-    gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
-};
+use crate::accountant::{gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, QualifiedPayableAccount};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
@@ -1402,7 +1400,7 @@ impl PayableThresholdsGaugeMock {
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params:
-        Arc<Mutex<Vec<(Vec<PayableAccount>, ArbitraryIdStamp)>>>,
+        Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
@@ -1413,7 +1411,7 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        qualified_payables: &[PayableAccount],
+        qualified_payables: &[QualifiedPayableAccount],
         agent: &dyn BlockchainAgent,
     ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
         self.search_for_indispensable_adjustment_params
@@ -1667,4 +1665,9 @@ impl ScanSchedulers {
             scheduler.interval = new_interval
         }
     }
+}
+
+pub fn make_qualified_payables(payment_thresholds: PaymentThresholds, payables: Vec<PayableAccount>)->Vec<QualifiedPayableAccount>{
+    sort this out
+    payables.into_iter().map(||)
 }

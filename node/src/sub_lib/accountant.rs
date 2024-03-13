@@ -139,9 +139,9 @@ pub struct ReportExitServiceProvidedMessage {
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
-    pub exit: ExitServiceConsumed,
+    pub exit_service: ExitServiceConsumed,
     pub routing_payload_size: usize,
-    pub routing: Vec<RoutingServiceConsumed>,
+    pub routing_services: Vec<RoutingServiceConsumed>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

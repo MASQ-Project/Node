@@ -673,9 +673,9 @@ impl ProxyServer {
                     accountant_sub
                         .try_send(ReportServicesConsumedMessage {
                             timestamp,
-                            exit,
+                            exit_service: exit,
                             routing_payload_size: pkg.payload.len(),
-                            routing,
+                            routing_services: routing,
                         })
                         .expect("Accountant is dead");
                 }
@@ -810,9 +810,9 @@ impl ProxyServer {
             .collect::<Vec<_>>();
         let report_message = ReportServicesConsumedMessage {
             timestamp: SystemTime::now(),
-            exit: exit_service_report,
+            exit_service: exit_service_report,
             routing_payload_size: routing_size,
-            routing: routing_service_reports,
+            routing_services: routing_service_reports,
         };
         self.subs
             .as_ref()
@@ -2340,14 +2340,14 @@ mod tests {
             record,
             &ReportServicesConsumedMessage {
                 timestamp: now,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: exit_earning_wallet,
                     payload_size: exit_payload_size,
                     service_rate: exit_node_rate_pack.exit_service_rate,
                     byte_rate: exit_node_rate_pack.exit_byte_rate
                 },
                 routing_payload_size: payload_enc_length,
-                routing: vec![
+                routing_services: vec![
                     RoutingServiceConsumed {
                         earning_wallet: route_1_earning_wallet,
                         service_rate: routing_node_1_rate_pack.routing_service_rate,
@@ -3392,14 +3392,14 @@ mod tests {
             first_report,
             &ReportServicesConsumedMessage {
                 timestamp: first_report_timestamp,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: first_exit_size,
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
                 routing_payload_size: routing_size,
-                routing: vec![
+                routing_services: vec![
                     RoutingServiceConsumed {
                         earning_wallet: incoming_route_e_wallet,
                         service_rate: rate_pack_e.routing_service_rate,
@@ -3421,14 +3421,14 @@ mod tests {
             second_report,
             &ReportServicesConsumedMessage {
                 timestamp: second_report_timestamp,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: incoming_route_g_wallet,
                     payload_size: second_exit_size,
                     service_rate: rate_pack_g.exit_service_rate,
                     byte_rate: rate_pack_g.exit_byte_rate
                 },
                 routing_payload_size: routing_size,
-                routing: vec![
+                routing_services: vec![
                     RoutingServiceConsumed {
                         earning_wallet: incoming_route_h_wallet,
                         service_rate: rate_pack_h.routing_service_rate,
@@ -3530,14 +3530,14 @@ mod tests {
             services_consumed_report,
             &ReportServicesConsumedMessage {
                 timestamp: returned_timestamp,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: exit_size,
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
                 routing_payload_size: routing_size,
-                routing: vec![RoutingServiceConsumed {
+                routing_services: vec![RoutingServiceConsumed {
                     earning_wallet: incoming_route_e_wallet,
                     service_rate: rate_pack_e.routing_service_rate,
                     byte_rate: rate_pack_e.routing_byte_rate
@@ -3696,14 +3696,14 @@ mod tests {
             services_consumed_message,
             &ReportServicesConsumedMessage {
                 timestamp: returned_timestamp,
-                exit: ExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: 0,
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
                 routing_payload_size: routing_size,
-                routing: vec![
+                routing_services: vec![
                     RoutingServiceConsumed {
                         earning_wallet: incoming_route_e_wallet,
                         service_rate: rate_pack_e.routing_service_rate,

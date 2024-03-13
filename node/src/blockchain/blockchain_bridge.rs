@@ -400,7 +400,7 @@ impl BlockchainBridge {
             Vec<Option<TransactionReceipt>>,
             Option<(BlockchainError, H256)>,
         ) = (vec![], None);
-        let (vector_of_results, error_opt) = msg.pending_payable.iter().fold(
+        let (vector_of_results, error_opt) = msg.pending_payables.iter().fold(
             init,
             |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
                 None => match self
@@ -418,7 +418,7 @@ impl BlockchainBridge {
         );
         let pairs = vector_of_results
             .into_iter()
-            .zip(msg.pending_payable.into_iter())
+            .zip(msg.pending_payables.into_iter())
             .collect_vec();
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt
@@ -1077,7 +1077,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![
+            pending_payables: vec![
                 pending_payable_fingerprint_1.clone(),
                 pending_payable_fingerprint_2.clone(),
             ],
@@ -1231,7 +1231,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![
+            pending_payables: vec![
                 fingerprint_1.clone(),
                 fingerprint_2.clone(),
                 fingerprint_3,
@@ -1293,7 +1293,7 @@ mod tests {
             .pending_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![],
+            pending_payables: vec![],
             response_skeleton_opt: None,
         };
         let system = System::new(
@@ -1356,7 +1356,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![fingerprint_1, fingerprint_2],
+            pending_payables: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
         };
         let system = System::new("test");
