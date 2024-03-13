@@ -26,6 +26,7 @@ pub enum PendingPayableDaoError {
     ErrorMarkFailed(String),
 }
 
+#[derive(Debug)]
 pub struct TransactionHashes {
     pub(crate) rowid_results: Vec<(u64, H256)>,
     pub(crate) no_rowid_results: Vec<H256>

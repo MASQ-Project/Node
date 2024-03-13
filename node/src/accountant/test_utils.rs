@@ -872,7 +872,7 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
     bc
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PendingPayableDaoMock {
     fingerprints_rowids_params: Arc<Mutex<Vec<Vec<H256>>>>,
     fingerprints_rowids_results: RefCell<Vec<TransactionHashes>>,

@@ -1372,8 +1372,8 @@ mod tests {
                 no_rowid_results: vec![]
             })
             .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![],
-                no_rowid_results: vec![failure_payable_hash_2]
+                rowid_results: vec![(failure_payable_rowid_2, failure_payable_hash_2)],
+                no_rowid_results: vec![]
             })
             .delete_fingerprints_params(&delete_fingerprints_params_arc)
             .delete_fingerprints_result(Ok(()));
@@ -1719,8 +1719,8 @@ mod tests {
         let hash_2 = make_tx_hash(0xf8);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(7881, hash_2)],
-                no_rowid_results: vec![hash_1],
+                rowid_results: vec![(7881, hash_1)],
+                no_rowid_results: vec![hash_2],
             });
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
