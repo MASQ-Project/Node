@@ -84,7 +84,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 pub struct Accountant {
     suppress_initial_scans: bool,
     consuming_wallet_opt: Option<Wallet>,
-    earning_wallet: Rc<Wallet>,
+    earning_wallet: Wallet,
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     pending_payable_dao: Box<dyn PendingPayableDao>,
@@ -169,12 +169,7 @@ impl Handler<ConfigChangeMsg> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
-        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.earning_wallet = Rc::new(wallet_pair.earning_wallet);
-            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
-        } else {
-            trace!(self.logger, "Unexpected message received: {:?}", msg);
-        }
+        self.handle_config_change_msg(msg);
     }
 }
 
@@ -422,7 +417,7 @@ impl Accountant {
     pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
-        let earning_wallet = Rc::new(config.earning_wallet);
+        let earning_wallet = config.earning_wallet.clone();
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         let payable_dao = dao_factories.payable_dao_factory.make();
         let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
@@ -430,7 +425,6 @@ impl Accountant {
         let scanners = Scanners::new(
             dao_factories,
             Rc::new(payment_thresholds),
-            Rc::clone(&earning_wallet),
             config.when_pending_too_long_sec,
             Rc::clone(&financial_statistics),
         );
@@ -438,7 +432,7 @@ impl Accountant {
         Accountant {
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
-            earning_wallet: Rc::clone(&earning_wallet),
+            earning_wallet,
             payable_dao,
             receivable_dao,
             pending_payable_dao,
@@ -576,6 +570,15 @@ impl Accountant {
                 .request_transaction_receipts,
         );
         info!(self.logger, "Accountant bound");
+    }
+
+    fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
+        if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
+            self.earning_wallet = wallet_pair.earning_wallet;
+            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+        } else {
+            trace!(self.logger, "Unexpected message received: {:?}", msg);
+        }
     }
 
     fn schedule_next_scan(&self, scan_type: ScanType, ctx: &mut Context<Self>) {
@@ -822,6 +825,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.payable.begin_scan(
+            self.consuming_wallet_opt.clone(),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -846,6 +850,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.pending_payable.begin_scan(
+            None,
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -869,6 +874,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.receivable.begin_scan(
+            Some(self.earning_wallet.clone()),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -1213,7 +1219,7 @@ mod tests {
             default_scan_intervals.receivable_scan_interval,
         );
         assert_eq!(result.consuming_wallet_opt, None);
-        assert_eq!(*result.earning_wallet, *DEFAULT_EARNING_WALLET);
+        assert_eq!(result.earning_wallet, *DEFAULT_EARNING_WALLET);
         assert_eq!(result.suppress_initial_scans, false);
         result
             .message_id_generator
@@ -1227,59 +1233,58 @@ mod tests {
 
     #[test]
     fn accountant_handles_config_change_msg() {
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateWallets(WalletPair {
-                consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
-                earning_wallet: make_wallet("new_earning_wallet"),
-            }),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdatePassword("new password".to_string()),
-        });
-        assert_handling_of_config_change_msg(ConfigChangeMsg {
-            change: ConfigChange::UpdateMinHops(Hops::FourHops),
-        })
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                    earning_wallet: make_wallet("new_earning_wallet"),
+                }),
+            },
+            |subject: &Accountant| {
+                assert_eq!(
+                    subject.consuming_wallet_opt,
+                    Some(make_paying_wallet(b"new_consuming_wallet"))
+                );
+                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"))
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdatePassword("new password".to_string()),
+            },
+            |_subject: &Accountant| {
+                let _ = TestLogHandler::new().exists_log_containing(
+                    "TRACE: ConfigChange: Unexpected message received: \
+                    ConfigChangeMsg { change: UpdatePassword(\"new password\") }",
+                );
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(Hops::FourHops),
+            },
+            |_subject: &Accountant| {
+                let _ = TestLogHandler::new().exists_log_containing(
+                    "TRACE: ConfigChange: Unexpected message received: \
+                    ConfigChangeMsg { change: UpdateMinHops(FourHops) }",
+                );
+            },
+        );
     }
 
-    fn assert_handling_of_config_change_msg(msg: ConfigChangeMsg) {
+    fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
+    where
+        A: FnOnce(&Accountant),
+    {
         init_test_logging();
-        let test_name = "assert_handling_of_config_change_msg";
-        let system = System::new(test_name);
-        let config = make_bc_with_defaults();
         let mut subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
+            .bootstrapper_config(make_bc_with_defaults())
             .build();
-        subject.logger = Logger::new(test_name);
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject.logger = Logger::new("ConfigChange");
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject.handle_config_change_msg(msg);
 
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(move |accountant: &mut Accountant| match msg.change {
-                    ConfigChange::UpdateWallets(wallet_pair) => {
-                        assert_eq!(
-                            accountant.consuming_wallet_opt,
-                            Some(wallet_pair.consuming_wallet)
-                        );
-                        assert_eq!(
-                            accountant.earning_wallet,
-                            Rc::new(wallet_pair.earning_wallet)
-                        )
-                    }
-                    ConfigChange::UpdatePassword(_) | ConfigChange::UpdateMinHops(_) => {
-                        let _ = TestLogHandler::new().exists_log_containing(&format!(
-                            "TRACE: {test_name}: Unexpected message received: {:?}",
-                            msg
-                        ));
-                    }
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        assert_eq!(system.run(), 0);
+        assertions(&subject);
     }
 
     #[test]
@@ -1374,6 +1379,7 @@ mod tests {
     #[test]
     fn scan_payables_request() {
         let config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let payable_account = PayableAccount {
             wallet: make_wallet("wallet"),
             balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
@@ -1386,6 +1392,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -1412,6 +1419,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1870,8 +1878,10 @@ mod tests {
         let system = System::new(
             "accountant_sends_initial_payable_payments_msg_when_qualified_payable_found",
         );
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
@@ -1894,6 +1904,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: None,
             }
         );
@@ -2087,7 +2098,8 @@ mod tests {
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
-        let mut config = make_bc_with_defaults();
+        let earning_wallet = make_wallet("earning");
+        let mut config = bc_from_earning_wallet(earning_wallet.clone());
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_millis(99),
@@ -2122,7 +2134,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(
+            *begin_scan_params,
+            vec![Some(earning_wallet.clone()), Some(earning_wallet),]
+        );
         assert_eq!(
             *notify_later_receivable_params,
             vec![
@@ -2194,7 +2209,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(*begin_scan_params, vec![None, None]);
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2222,6 +2237,7 @@ mod tests {
         let notify_later_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
@@ -2229,6 +2245,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
+                consuming_wallet_opt: Some(consuming_wallet.clone()),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2240,6 +2257,7 @@ mod tests {
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .logger(Logger::new(test_name))
             .build();
         subject.scanners.payable = Box::new(payable_scanner);
@@ -2268,7 +2286,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
-        assert_eq!(begin_scan_params.len(), 2);
+        assert_eq!(
+            *begin_scan_params,
+            vec![Some(consuming_wallet.clone()), Some(consuming_wallet),]
+        );
         assert_eq!(
             *notify_later_payables_params,
             vec![
@@ -2322,6 +2343,7 @@ mod tests {
     #[test]
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -2383,10 +2405,12 @@ mod tests {
             .build();
         subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
 
-        let _result = subject
-            .scanners
-            .payable
-            .begin_scan(SystemTime::now(), None, &subject.logger);
+        let _result = subject.scanners.payable.begin_scan(
+            Some(consuming_wallet),
+            SystemTime::now(),
+            None,
+            &subject.logger,
+        );
 
         System::current().stop();
         system.run();
@@ -2398,6 +2422,7 @@ mod tests {
     fn scan_for_payable_message_triggers_payment_for_balances_over_the_curve() {
         init_test_logging();
         let mut config = bc_from_earning_wallet(make_wallet("mine"));
+        let consuming_wallet = make_paying_wallet(b"consuming");
         config.scan_intervals_opt = Some(ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(50_000),
             payable_scan_interval: Duration::from_secs(50_000),
@@ -2444,6 +2469,7 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
@@ -2461,6 +2487,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                consuming_wallet_opt: Some(consuming_wallet),
                 response_skeleton_opt: None,
             }
         );
@@ -3315,7 +3342,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet.clone()),
         );
         let account_1 = PayableAccount {
             wallet: wallet_account_1.clone(),
@@ -3417,10 +3443,12 @@ mod tests {
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
+        let consuming_wallet_for_accountant = consuming_wallet.clone();
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
             .start(move |_| {
                 let mut subject = AccountantBuilder::default()
+                    .consuming_wallet(consuming_wallet_for_accountant)
                     .bootstrapper_config(bootstrapper_config)
                     .payable_daos(vec![
                         ForPayableScanner(payable_dao_for_payable_scanner),

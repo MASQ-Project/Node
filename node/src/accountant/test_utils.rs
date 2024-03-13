@@ -96,6 +96,7 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
 
 pub struct AccountantBuilder {
     config: Option<BootstrapperConfig>,
+    consuming_wallet: Option<Wallet>,
     logger: Option<Logger>,
     payable_dao_factory: Option<PayableDaoFactoryMock>,
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
@@ -108,6 +109,7 @@ impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
             config: None,
+            consuming_wallet: None,
             logger: None,
             payable_dao_factory: None,
             receivable_dao_factory: None,
@@ -266,6 +268,11 @@ impl AccountantBuilder {
         self
     }
 
+    pub fn consuming_wallet(mut self, consuming_wallet: Wallet) -> Self {
+        self.consuming_wallet = Some(consuming_wallet);
+        self
+    }
+
     pub fn logger(mut self, logger: Logger) -> Self {
         self.logger = Some(logger);
         self
@@ -368,6 +375,9 @@ impl AccountantBuilder {
         );
         if let Some(logger) = self.logger {
             accountant.logger = logger;
+        }
+        if let Some(consuming_wallet) = self.consuming_wallet {
+            accountant.consuming_wallet_opt = Some(consuming_wallet);
         }
 
         accountant
@@ -1176,7 +1186,6 @@ pub struct ReceivableScannerBuilder {
     banned_dao: BannedDaoMock,
     persistent_configuration: PersistentConfigurationMock,
     payment_thresholds: PaymentThresholds,
-    earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
 }
 
@@ -1187,7 +1196,6 @@ impl ReceivableScannerBuilder {
             banned_dao: BannedDaoMock::new(),
             persistent_configuration: PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
-            earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
         }
     }
@@ -1215,18 +1223,12 @@ impl ReceivableScannerBuilder {
         self
     }
 
-    pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
-        self.earning_wallet = earning_wallet;
-        self
-    }
-
     pub fn build(self) -> ReceivableScanner {
         ReceivableScanner::new(
             Box::new(self.receivable_dao),
             Box::new(self.banned_dao),
             Box::new(self.persistent_configuration),
             Rc::new(self.payment_thresholds),
-            Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),
         )
     }
@@ -1538,6 +1540,7 @@ where
 {
     fn begin_scan(
         &mut self,
+        _wallet_opt: Option<Wallet>,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
@@ -1579,7 +1582,7 @@ impl NullScanner {
 }
 
 pub struct ScannerMock<BeginMessage, EndMessage> {
-    begin_scan_params: Arc<Mutex<Vec<()>>>,
+    begin_scan_params: Arc<Mutex<Vec<Option<Wallet>>>>,
     begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
     end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
     end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
@@ -1594,11 +1597,12 @@ where
 {
     fn begin_scan(
         &mut self,
+        wallet_opt: Option<Wallet>,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
     ) -> Result<BeginMessage, BeginScanError> {
-        self.begin_scan_params.lock().unwrap().push(());
+        self.begin_scan_params.lock().unwrap().push(wallet_opt);
         if self.is_allowed_to_stop_the_system() && self.is_last_message() {
             System::current().stop();
         }
@@ -1643,7 +1647,7 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
         }
     }
 
-    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<Option<Wallet>>>>) -> Self {
         self.begin_scan_params = params.clone();
         self
     }
