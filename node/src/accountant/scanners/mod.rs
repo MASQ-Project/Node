@@ -127,6 +127,7 @@ where
     as_any_mut_in_trait!();
 }
 
+#[derive(Debug)]
 pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
     pub payment_thresholds: Rc<PaymentThresholds>,
@@ -393,12 +394,11 @@ impl PayableScanner {
             .pending_payable_dao
             .fingerprints_rowids(&hashes);
         let rowid_pairs_with_hashes = transaction_hashes.rowid_results.iter().map(|(_rowid, hash)| *hash).collect::<HashSet<H256>>();
-
         if sent_payables_hashes != rowid_pairs_with_hashes {
             panic!(
                 "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
                 sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
-                sent_payables_hashes, rowid_pairs_with_hashes
+                sent_payables, transaction_hashes.rowid_results
             )
         }
 
@@ -1529,9 +1529,9 @@ mod tests {
     PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000676869) }, \
     hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }], \
     set derived from the DB: \
-    [(Some(4), 0x000000000000000000000000000000000000000000000000000000000000007b), \
-    (Some(1), 0x0000000000000000000000000000000000000000000000000000000000000237), \
-    (Some(3), 0x0000000000000000000000000000000000000000000000000000000000000315)]"
+    [(4, 0x000000000000000000000000000000000000000000000000000000000000007b), \
+    (1, 0x0000000000000000000000000000000000000000000000000000000000000237), \
+    (3, 0x0000000000000000000000000000000000000000000000000000000000000315)]"
     )]
     fn two_sourced_information_of_new_pending_payables_and_their_fingerprints_is_not_symmetrical() {
         let vals = prepare_values_for_mismatched_setting();
@@ -1626,9 +1626,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Expected pending payable fingerprints for (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
-     to wallet: 0x00000000000000000000000000000061676f6f62), (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
-     to wallet: 0x000000000000000000000000000000626f6f6761) were not found; system unreliable"
+        expected = "Expected pending payable fingerprints for (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
+     to wallet: 0x000000000000000000000000000000626f6f6761), (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+     to wallet: 0x00000000000000000000000000000061676f6f62) were not found; system unreliable"
     )]
     fn payable_scanner_panics_when_fingerprints_for_correct_payments_not_found() {
         let hash_1 = make_tx_hash(0x315);
