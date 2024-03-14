@@ -393,7 +393,10 @@ impl PayableScanner {
         let transaction_hashes = self
             .pending_payable_dao
             .fingerprints_rowids(&hashes);
-        let rowid_pairs_with_hashes = transaction_hashes.rowid_results.iter().map(|(_rowid, hash)| *hash).collect::<HashSet<H256>>();
+        let mut rowid_pairs_with_hashes = transaction_hashes.rowid_results.iter().map(|(_rowid, hash)| *hash).collect::<HashSet<H256>>();
+        for hash in &transaction_hashes.no_rowid_results {
+            rowid_pairs_with_hashes.insert(*hash);
+        }
         if sent_payables_hashes != rowid_pairs_with_hashes {
             panic!(
                 "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
