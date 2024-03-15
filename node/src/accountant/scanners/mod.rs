@@ -1735,7 +1735,7 @@ mod tests {
 
         TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: Expected pending payable \
          fingerprints for (tx: 0x00000000000000000000000000000000000000000000000000000000000000f8, to wallet: \
-          0x00000000000000000000000000626c6168313131) were not found; system unreliable"));
+          0x00000000000000000000000000626c6168323232) were not found; system unreliable"));
     }
 
     #[test]
