@@ -1419,7 +1419,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1904,7 +1904,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: None,
             }
         );
@@ -2245,7 +2245,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
-                consuming_wallet_opt: Some(consuming_wallet.clone()),
+                consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2487,7 +2487,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: None,
             }
         );

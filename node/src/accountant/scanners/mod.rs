@@ -226,9 +226,12 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     qualified_payables.len()
                 );
                 let protected_payables = self.protect_payables(qualified_payables);
+                let consuming_wallet = consuming_wallet_opt.unwrap_or_else(|| {
+                    todo!("work on this");
+                });
                 let outgoing_msg = QualifiedPayablesMessage::new(
                     protected_payables,
-                    consuming_wallet_opt,
+                    consuming_wallet,
                     response_skeleton_opt,
                 );
                 Ok(outgoing_msg)
@@ -1297,7 +1300,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(
                     qualified_payable_accounts.clone()
                 ),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: None,
             })
         );

@@ -233,16 +233,7 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
-        let consuming_wallet = if let Some(wallet) = incoming_message.consuming_wallet_opt.as_ref()
-        {
-            wallet
-        } else {
-            return Err(
-                "Cannot inspect available balances for payables while consuming wallet is missing"
-                    .to_string(),
-            );
-        };
-
+        let consuming_wallet = &incoming_message.consuming_wallet;
         let agent = self
             .blockchain_interface
             .build_blockchain_agent(consuming_wallet, &*self.persistent_config)
@@ -622,7 +613,7 @@ mod tests {
         let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables.clone(),
-            consuming_wallet_opt: Some(consuming_wallet.clone()),
+            consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -686,7 +677,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }]),
-            consuming_wallet_opt: Some(consuming_wallet),
+            consuming_wallet,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11,
                 context_id: 2323,
@@ -718,37 +709,6 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_containing(&format!("WARN: {test_name}: {expected_error_msg}"));
-    }
-
-    #[test]
-    fn handle_qualified_payable_msg_fails_at_missing_consuming_wallet() {
-        let blockchain_interface = BlockchainInterfaceMock::default();
-        let persistent_configuration = PersistentConfigurationMock::default();
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(persistent_configuration),
-            false,
-        );
-        let request = QualifiedPayablesMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 4254,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }]),
-            consuming_wallet_opt: None,
-            response_skeleton_opt: None,
-        };
-
-        let result = subject.handle_qualified_payable_msg(request);
-
-        assert_eq!(
-            result,
-            Err(
-                "Cannot inspect available balances for payables while consuming wallet is missing"
-                    .to_string()
-            )
-        )
     }
 
     #[test]
