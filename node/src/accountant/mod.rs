@@ -25,7 +25,7 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{ScanSchedulers, Scanners};
+use crate::accountant::scanners::{ScanSchedulers, Scanners, BeginScanError};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -824,12 +824,19 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.payable.begin_scan(
-            self.consuming_wallet_opt.clone(),
-            SystemTime::now(),
-            response_skeleton_opt,
-            &self.logger,
-        ) {
+        let result = match self.consuming_wallet_opt.clone() {
+            Some(consuming_wallet) => {
+                self.scanners.payable.begin_scan(
+                    Some(consuming_wallet),
+                    SystemTime::now(),
+                    response_skeleton_opt,
+                    &self.logger,
+                )
+            }
+            None => Err(BeginScanError::NoWalletFound)
+        };
+
+        match result {
             Ok(scan_message) => {
                 self.qualified_payables_sub_opt
                     .as_ref()
@@ -2521,6 +2528,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .logger(Logger::new(test_name))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .bootstrapper_config(config)

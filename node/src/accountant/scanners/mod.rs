@@ -993,6 +993,7 @@ impl ReceivableScanner {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BeginScanError {
     NothingToProcess,
+    NoWalletFound,
     ScanAlreadyRunning(SystemTime),
     CalledFromNullScanner, // Exclusive for tests
 }
@@ -1015,6 +1016,12 @@ impl BeginScanError {
                 scan_type,
                 BeginScanError::timestamp_as_string(timestamp)
             )),
+            BeginScanError::NoWalletFound => { // TODO: GH-728 - Test drive this case
+                Some(format!(
+                    "Cannot initiate {:?} scan because no wallet was found.",
+                    scan_type
+                ))
+            },
             BeginScanError::CalledFromNullScanner => match cfg!(test) {
                 true => None,
                 false => panic!("Null Scanner shouldn't be running inside production code."),
