@@ -1481,10 +1481,10 @@ mod tests {
                 context_id: 4321,
             })
         );
-        assert_eq!(
-            payments_instructions.agent.arbitrary_id_stamp(),
-            agent_id_stamp
-        );
+        // assert_eq!(
+        //     payments_instructions.agent.arbitrary_id_stamp(),
+        //     agent_id_stamp
+        // );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
         // adjust_payments() did not need a prepared result which means it wasn't reached
@@ -1548,7 +1548,7 @@ mod tests {
         let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),
-            agent: Box::new(agent),
+            // agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1605,10 +1605,10 @@ mod tests {
             payments_instructions.response_skeleton_opt,
             Some(response_skeleton)
         );
-        assert_eq!(
-            payments_instructions.agent.arbitrary_id_stamp(),
-            agent_id_stamp_second_phase
-        );
+        // assert_eq!(
+        //     payments_instructions.agent.arbitrary_id_stamp(),
+        //     agent_id_stamp_second_phase
+        // );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
     }

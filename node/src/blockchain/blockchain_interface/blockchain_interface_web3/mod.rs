@@ -348,6 +348,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!("Testing get_transaction_count");
         Box::new(
             self.get_web3()
                 .eth()

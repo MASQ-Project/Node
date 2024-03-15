@@ -1291,8 +1291,7 @@ mod tests {
     #[test]
     fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
     ) {
-        // TODO GH-744: Replace this test with a multi node test using ganache
-        // todo!("GH-744: Replace this test with a multi node test using ganache");
+        todo!("GH-744: Replace this test with a multi node test using ganache");
         // let system =
         //     System::new("handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant");
         // let send_batch_of_payables_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1454,7 +1453,7 @@ mod tests {
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
                 affordable_accounts: accounts,
-                agent: Box::new(agent),
+                // agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1551,7 +1550,7 @@ mod tests {
             vec![
                 // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
                 br#"{"jsonrpc":"2.0","id":1,"result":"0x20"}"#.to_vec(), // This is for getting Transaction count
-                br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
+                br#"[{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}]"#.to_vec(),
             ],
         );
 
@@ -1573,8 +1572,8 @@ mod tests {
         //     msg: "failure from chronic exhaustion".to_string(),
         //     hashes: vec![transaction_hash],
         // }));
-        let consuming_wallet = make_wallet("somewallet");
-        let persistent_configuration_mock = PersistentConfigurationMock::new();
+        // let consuming_wallet = make_wallet("somewallet");
+        // let persistent_configuration_mock = PersistentConfigurationMock::new();
         // .get_transaction_count_result(Ok(web3::types::U256::from(1)))
         // .get_chain_result(DEFAULT_CHAIN)
         // .get_batch_web3_result(Web3::new(Batch::new(http)));
@@ -1600,13 +1599,14 @@ mod tests {
             .pending_payable_confirmation
             .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
-        let outbound_payments_instructions = OutboundPaymentsInstructions{
-            affordable_accounts: vec![],
-            agent: Box::new(()),
+        let outbound_payments_instructions = OutboundPaymentsInstructions {
+            affordable_accounts: checked_accounts,
             response_skeleton_opt: None,
         };
 
-        let result = subject.process_payments(agent, checked_accounts).wait();
+        let result = subject
+            .process_payments(outbound_payments_instructions)
+            .wait();
 
         // TODO: GH-744: Fix this assert
         assert_eq!(
@@ -2188,7 +2188,7 @@ mod tests {
 
     #[test]
     fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
-        // TODO GH-744 - Failing due to futures
+        todo!("GH-744 - Failing due to futures");
         // init_test_logging();
         // let lower_interface =
         //     LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
@@ -2445,12 +2445,6 @@ mod tests {
     #[test]
     fn extract_max_block_range_from_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs block range too large, range: 33636, max: 3500\", data: None }".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2460,12 +2454,7 @@ mod tests {
     #[test]
     fn extract_max_block_range_from_pokt_error_response() {
         let result = BlockchainError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(100000u64), max_block_count);
@@ -2481,12 +2470,7 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_ankr_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32600), message: \"block range is too wide\", data: None }".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
@@ -2499,12 +2483,7 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_matic_vigil_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\", data: None }".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1000), max_block_count);
@@ -2517,12 +2496,7 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_blockpi_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs is limited to 1024 block range. Please check the parameter requirements at  https://docs.blockpi.io/documentations/api-reference\", data: None }".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1024), max_block_count);
@@ -2537,12 +2511,7 @@ mod tests {
     #[test]
     fn extract_max_block_range_for_blastapi_error_response() {
         let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32601), message: \"Method not found\", data: \"'eth_getLogs' is not available on our public API. Head over to https://docs.blastapi.io/blast-documentation/tutorials-and-guides/using-blast-to-get-a-blockchain-endpoint for more information\" }".to_string());
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
@@ -2553,12 +2522,7 @@ mod tests {
         let result = BlockchainError::QueryFailed(
             "Got invalid response: Expected batch, got single.".to_string(),
         );
-        // let subject = BlockchainBridge::new(
-        //     Box::new(BlockchainInterfaceMock::default()),
-        //     Box::new(PersistentConfigurationMock::default()),
-        //     false,
-        //     None,
-        // );
+
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(1000), max_block_count);

@@ -43,7 +43,7 @@ impl Debug for BlockchainBridgeSubs {
 #[derive(Message)]
 pub struct OutboundPaymentsInstructions {
     pub affordable_accounts: Vec<PayableAccount>,
-    pub agent: Box<dyn BlockchainAgent>,
+    // pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -55,7 +55,7 @@ impl OutboundPaymentsInstructions {
     ) -> Self {
         Self {
             affordable_accounts,
-            agent,
+            // agent,
             response_skeleton_opt,
         }
     }
