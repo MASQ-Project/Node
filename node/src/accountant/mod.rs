@@ -827,7 +827,7 @@ impl Accountant {
         let result = match self.consuming_wallet_opt.clone() {
             Some(consuming_wallet) => {
                 self.scanners.payable.begin_scan(
-                    Some(consuming_wallet),
+                    consuming_wallet,
                     SystemTime::now(),
                     response_skeleton_opt,
                     &self.logger,
@@ -856,12 +856,19 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.pending_payable.begin_scan(
-            None,
-            SystemTime::now(),
-            response_skeleton_opt,
-            &self.logger,
-        ) {
+        let result = match self.consuming_wallet_opt.clone() {
+            Some(consuming_wallet) => {
+                self.scanners.pending_payable.begin_scan(
+                    consuming_wallet,
+                    SystemTime::now(),
+                    response_skeleton_opt,
+                    &self.logger,
+                )
+            }
+            None => Err(BeginScanError::NoWalletFound)
+        };
+
+        match result {
             Ok(scan_message) => self
                 .request_transaction_receipts_subs_opt
                 .as_ref()
@@ -881,7 +888,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.receivable.begin_scan(
-            Some(self.earning_wallet.clone()),
+            self.earning_wallet.clone(),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -1703,6 +1710,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .return_all_errorless_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
@@ -1761,6 +1769,7 @@ mod tests {
             .return_all_errorless_fingerprints_result(vec![fingerprint]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .logger(Logger::new(test_name))
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
@@ -2143,7 +2152,7 @@ mod tests {
         ));
         assert_eq!(
             *begin_scan_params,
-            vec![Some(earning_wallet.clone()), Some(earning_wallet),]
+            vec![earning_wallet.clone(), earning_wallet]
         );
         assert_eq!(
             *notify_later_receivable_params,
@@ -2172,6 +2181,7 @@ mod tests {
         let notify_later_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let pending_payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
@@ -2187,6 +2197,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_millis(98),
         });
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(consuming_wallet.clone())
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
             .build();
@@ -2216,7 +2227,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![None, None]);
+        assert_eq!(*begin_scan_params, vec![consuming_wallet.clone(), consuming_wallet]);
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2295,7 +2306,7 @@ mod tests {
         ));
         assert_eq!(
             *begin_scan_params,
-            vec![Some(consuming_wallet.clone()), Some(consuming_wallet),]
+            vec![consuming_wallet.clone(), consuming_wallet]
         );
         assert_eq!(
             *notify_later_payables_params,
@@ -2413,7 +2424,7 @@ mod tests {
         subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
 
         let _result = subject.scanners.payable.begin_scan(
-            Some(consuming_wallet),
+            consuming_wallet,
             SystemTime::now(),
             None,
             &subject.logger,
@@ -2618,6 +2629,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .bootstrapper_config(config)
             .build();

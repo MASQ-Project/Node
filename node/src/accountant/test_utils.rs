@@ -1540,7 +1540,7 @@ where
 {
     fn begin_scan(
         &mut self,
-        _wallet_opt: Option<Wallet>,
+        _wallet_opt: Wallet,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
@@ -1582,7 +1582,7 @@ impl NullScanner {
 }
 
 pub struct ScannerMock<BeginMessage, EndMessage> {
-    begin_scan_params: Arc<Mutex<Vec<Option<Wallet>>>>,
+    begin_scan_params: Arc<Mutex<Vec<Wallet>>>,
     begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
     end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
     end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
@@ -1597,12 +1597,12 @@ where
 {
     fn begin_scan(
         &mut self,
-        wallet_opt: Option<Wallet>,
+        wallet: Wallet,
         _timestamp: SystemTime,
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
     ) -> Result<BeginMessage, BeginScanError> {
-        self.begin_scan_params.lock().unwrap().push(wallet_opt);
+        self.begin_scan_params.lock().unwrap().push(wallet);
         if self.is_allowed_to_stop_the_system() && self.is_last_message() {
             System::current().stop();
         }
@@ -1647,7 +1647,7 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
         }
     }
 
-    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<Option<Wallet>>>>) -> Self {
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.begin_scan_params = params.clone();
         self
     }
