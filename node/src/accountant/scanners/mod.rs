@@ -1125,7 +1125,6 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use sysinfo::Signal::Sys;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
 

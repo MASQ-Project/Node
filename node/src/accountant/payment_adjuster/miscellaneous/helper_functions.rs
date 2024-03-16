@@ -78,10 +78,9 @@ pub fn compute_mul_coefficient_preventing_fractional_numbers(
     let exponent = positive_only_difference + EMPIRIC_PRECISION_COEFFICIENT;
     U256::from(10)
         .checked_pow(exponent.into())
-        .expect("impossible to reach given weights total data type being u128")
-    // Note that reaching this limitation is highly unlikely, and even in the future, if we boosted the data type
-    // for account_weights_total up to U256, assuming such low inputs we would be feeding it now with real world
-    // scenario parameters
+        .expect("impossible to reach given weights data type being u128")
+    // Bursting this cap is so unlikely, even assuming blockchains without our own layer
+    // of a smart contract that might be adopted in the future
 }
 
 pub fn resolve_possibly_outweighed_account(
@@ -211,13 +210,13 @@ pub fn try_finding_an_account_to_disqualify_in_this_iteration(
         );
 
         debug!(
-                    logger,
-                    "Found accounts {:?} whose proposed adjusted balances didn't get above the limit \
-                    for disqualification. Chose the least desirable disqualified account as the one \
-                    with the biggest balance, which is {}. To be thrown away in this iteration.",
-                    disqualification_suspected_accounts,
-                    wallet
-                );
+            logger,
+            "Found accounts {:?} whose proposed adjusted balances didn't get above the limit \
+            for disqualification. Chose the least desirable disqualified account as the one \
+            with the biggest balance, which is {}. To be thrown away in this iteration.",
+            disqualification_suspected_accounts,
+            wallet
+        );
 
         info_log_for_disqualified_account(logger, account_to_disqualify);
 
@@ -340,20 +339,10 @@ pub fn calculate_disqualification_edge(account_balance: u128) -> u128 {
         / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor
 }
 
-// Replace with std lib method log10() for u128 which will be introduced by Rust 1.67.0; this was written using 1.63.0
+// Replace with std lib method log10() for u128 which will be introduced by Rust 1.67.0; this was
+// written using 1.63.0
 pub fn log_10(num: u128) -> usize {
     successors(Some(num), |&n| (n >= 10).then(|| n / 10)).count()
-}
-
-const fn num_bits<N>() -> usize {
-    std::mem::size_of::<N>() * 8
-}
-
-pub fn log_2(x: u128) -> u32 {
-    if x < 1 {
-        return 0;
-    }
-    num_bits::<i128>() as u32 - x.leading_zeros() - 1
 }
 
 pub fn nonzero_positive(x: u128) -> u128 {
@@ -414,8 +403,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         calculate_disqualification_edge, compute_mul_coefficient_preventing_fractional_numbers,
         exhaust_cw_till_the_last_drop, find_account_with_smallest_weight,
-        list_accounts_nominated_for_disqualification, log_10, log_2,
-        resolve_possibly_outweighed_account,
+        list_accounts_nominated_for_disqualification, log_10, resolve_possibly_outweighed_account,
         try_finding_an_account_to_disqualify_in_this_iteration, weights_total,
         zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
         ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, EMPIRIC_PRECISION_COEFFICIENT,
@@ -499,29 +487,6 @@ mod tests {
     }
 
     #[test]
-    fn log_2_works() {
-        [
-            (1, 0),
-            (2, 1),
-            (3, 1),
-            (4, 2),
-            (8192, 13),
-            (18446744073709551616, 64),
-            (1267650600228229401496703205376, 100),
-            (170141183460469231731687303715884105728, 127),
-        ]
-        .into_iter()
-        .for_each(|(num, expected_result)| assert_eq!(log_2(num), expected_result))
-    }
-
-    #[test]
-    fn log_2_for_0() {
-        let result = log_2(0);
-
-        assert_eq!(result, 0)
-    }
-
-    #[test]
     fn multiplication_coefficient_can_give_numbers_preventing_fractional_numbers() {
         let final_weight = 5_000_000_000_000_u128;
         let cw_balances = vec![
@@ -530,7 +495,7 @@ mod tests {
             123_456_789,
             5_555_000_000_000,
             5_000_555_000_000_000,
-            1_000_000_000_000_000_000, //1 MASQ
+            1_000_000_000_000_000_000, // 1 MASQ
         ];
 
         let result = cw_balances
@@ -545,8 +510,8 @@ mod tests {
             1_000_000_000_u128,
             1_000_000_000_000_000,
             1_000_000_000_000,
-            // The following values are the minimum. It turned out that it helps to reach better precision in
-            // the downstream computations
+            // The following values are the minimum. It turned out that it helps to reach better
+            // precision in the downstream computations
             100_000_000,
             100_000_000,
             100_000_000,
@@ -556,9 +521,8 @@ mod tests {
 
     #[test]
     fn multiplication_coefficient_extreme_feeding_with_possible_but_only_little_realistic_values() {
-        // We cannot say by heart which of the evaluated weights from
-        // these parameters below will be bigger than another and therefore
-        // we cannot line them up in an order
+        // We cannot say by heart which of the evaluated weights from these parameters below will
+        // be bigger than another, and therefore we cannot line them up in an order
         let accounts_as_months_and_balances = vec![
             (1, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
             (5, 10_u128.pow(18)),
@@ -993,8 +957,8 @@ mod tests {
     #[test]
     fn list_accounts_nominated_for_disqualification_uses_the_right_manifest_const() {
         let account_balance = 1_000_000;
-        let garbage_weight = 22222222; // it plays no role
-        let garbage_thresholds_intercept = 456789; // also no role
+        let garbage_weight = 22222222; // It plays no role
+        let garbage_thresholds_intercept = 456789; // Also no role
         let prepare_account = |n: u64| {
             let mut account = make_payable_account(n);
             account.balance_wei = account_balance;

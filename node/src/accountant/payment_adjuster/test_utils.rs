@@ -3,12 +3,11 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::{
-    CalculatorInputHolder, CalculatorType, CriterionCalculator,
-};
+use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::PreAdjustmentAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
 use itertools::Either;
@@ -105,4 +104,16 @@ pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_
                that, look for a global flag in the file 'diagnostics' in the PaymentAdjuster module. It will enable \n\
                rendering characteristics of the curves the calculations of these parameters are based on."
     )
+}
+
+pub struct CriterionCalculatorMock {}
+
+impl CriterionCalculator for CriterionCalculatorMock {
+    fn calculate(&self, account: &QualifiedPayableAccount) -> u128 {
+        todo!()
+    }
+
+    fn parameter_name(&self) -> &'static str {
+        todo!()
+    }
 }

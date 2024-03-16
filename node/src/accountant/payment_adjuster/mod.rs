@@ -17,7 +17,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
 };
-use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics, display_formulas_characteristics_according_to_compilation_mode};
+use crate::accountant::payment_adjuster::diagnostics::{diagnostics, collection_diagnostics};
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
@@ -42,9 +42,8 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
-use crate::accountant::payment_adjuster::criteria_calculators::age_criterion_calculator::AgeCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::balance_criterion_calculator::BalanceCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::{CalculatorInputHolder, CriterionCalculator};
+use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criteria_calculators::{CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::QualifiedPayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -230,8 +229,6 @@ impl PaymentAdjusterReal {
         let weights_and_accounts_sorted =
             self.calculate_weights_for_accounts(unresolved_qualified_accounts);
 
-        display_formulas_characteristics_according_to_compilation_mode();
-
         adjustment_runner.adjust_multiple(self, weights_and_accounts_sorted)
     }
 
@@ -352,10 +349,8 @@ impl PaymentAdjusterReal {
         &self,
         accounts: Vec<QualifiedPayableAccount>,
     ) -> Vec<WeightedAccount> {
-        let criteria_calculators: Vec<Box<dyn CriterionCalculator>> = vec![
-            Box::new(BalanceCriterionCalculator::new()),
-            Box::new(AgeCriterionCalculator::new(self)),
-        ];
+        let criteria_calculators: Vec<Box<dyn CriterionCalculator>> =
+            vec![Box::new(BalanceAndAgeCriterionCalculator::new())];
 
         self.apply_criteria(criteria_calculators, accounts)
     }
@@ -370,10 +365,7 @@ impl PaymentAdjusterReal {
                 criteria_calculators
                     .iter()
                     .fold(0_u128, |weight, criterion_calculator| {
-                        let new_criterion = Self::have_calculator_calculate_its_criterion(
-                            &**criterion_calculator,
-                            &payable,
-                        );
+                        let new_criterion = criterion_calculator.calculate(&payable);
 
                         let summed_up = weight + new_criterion;
 
@@ -391,16 +383,6 @@ impl PaymentAdjusterReal {
         });
 
         sort_in_descendant_order_by_weights(weighted_accounts)
-    }
-
-    fn have_calculator_calculate_its_criterion(
-        criterion_calculator: &dyn CriterionCalculator,
-        account: &QualifiedPayableAccount,
-    ) -> u128 {
-        let calculator_type = criterion_calculator.calculator_type();
-        let input_holder = CalculatorInputHolder::from((calculator_type, account));
-
-        criterion_calculator.formula()(input_holder)
     }
 
     fn perform_adjustment_by_service_fee(
