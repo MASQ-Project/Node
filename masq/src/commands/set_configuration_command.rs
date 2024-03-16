@@ -35,7 +35,7 @@ impl SetConfigurationCommand {
 }
 
 fn validate_start_block(start_block: String) -> Result<(), String> {
-    if "none".eq_ignore_ascii_case(&start_block) {
+    if "latest".eq_ignore_ascii_case(&start_block) || "none".eq_ignore_ascii_case(&start_block) {
         Ok(())
     } else {
         match start_block.parse::<u64>() {
@@ -63,7 +63,7 @@ impl Command for SetConfigurationCommand {
 const SET_CONFIGURATION_ABOUT: &str =
     "Sets Node configuration parameters being enabled for this operation when the Node is running.";
 const START_BLOCK_HELP: &str =
-    "Ordinal number of the Ethereum block where scanning for transactions will start. Use 'none' for Latest block.";
+    "Ordinal number of the Ethereum block where scanning for transactions will start. Use 'latest' or 'none' for Latest block.";
 
 pub fn set_configurationify<'a>(shared_schema_arg: Arg<'a, 'a>) -> Arg<'a, 'a> {
     shared_schema_arg.takes_value(true).min_values(1)
@@ -107,7 +107,7 @@ mod tests {
         );
         assert_eq!(
             START_BLOCK_HELP,
-            "Ordinal number of the Ethereum block where scanning for transactions will start. Use 'none' for Latest block."
+            "Ordinal number of the Ethereum block where scanning for transactions will start. Use 'latest' or 'none' for Latest block."
         );
     }
 
@@ -130,6 +130,7 @@ mod tests {
     fn validate_start_block_works() {
         assert!(validate_start_block("abc".to_string()).is_err());
         assert!(validate_start_block("1566".to_string()).is_ok());
+        assert!(validate_start_block("latest".to_string()).is_ok());
         assert!(validate_start_block("none".to_string()).is_ok());
     }
 

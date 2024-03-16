@@ -1313,6 +1313,7 @@ mod tests {
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
             .lower_interface_results(Box::new(lower_interface));
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(None))
             .start_block_result(Ok(Some(6)))
@@ -1376,6 +1377,7 @@ mod tests {
     #[test]
     fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let system =
             System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1433,7 +1435,7 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![Some(1234u64)]);
+        assert_eq!(*set_start_block_params, vec![Some(9876u64)]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
@@ -1472,6 +1474,7 @@ mod tests {
                 transactions: vec![],
             }))
             .lower_interface_results(Box::new(lower_interface));
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
             .start_block_result(Ok(Some(6)))
