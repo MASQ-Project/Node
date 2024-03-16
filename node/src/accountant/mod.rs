@@ -13,7 +13,9 @@ use core::fmt::Debug;
 use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::payable_dao::{
+    PayableAccount, PayableDao, PayableDaoError,
+};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
 use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
 use crate::accountant::db_access_objects::utils::{
@@ -127,10 +129,19 @@ pub struct ReceivedPayments {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct QualifiedPayableAccount{
-    pub account: PayableAccount,
-    pub payment_threshold_intercept: u128
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QualifiedPayableAccount {
+    pub payable: PayableAccount,
+    pub payment_threshold_intercept: u128,
+}
+
+impl QualifiedPayableAccount {
+    pub fn new(
+        payable_account: PayableAccount,
+        payment_threshold_intercept: u128,
+    ) -> QualifiedPayableAccount {
+        todo!()
+    }
 }
 
 #[derive(Debug, Message, PartialEq)]
@@ -1023,16 +1034,18 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterError};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
-        PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
-        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
+        bc_from_earning_wallet, bc_from_wallets, make_guaranteed_qualified_payables,
+        make_non_guaranteed_qualified_payable, make_payable_account,
+        make_unqualified_and_qualified_payables, BannedDaoFactoryMock, MessageIdGeneratorMock,
+        NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
+        PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1315,16 +1328,16 @@ mod tests {
     #[test]
     fn scan_payables_request() {
         let config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        let payable_account = PayableAccount {
+        let now = SystemTime::now();
+        let payable = PayableAccount {
             wallet: make_wallet("wallet"),
             balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
-            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(
+            last_paid_timestamp: now.sub(Duration::from_secs(
                 (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 1) as u64,
             )),
             pending_payable_opt: None,
         };
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![payable.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_daos(vec![ForPayableScanner(payable_dao)])
@@ -1349,10 +1362,14 @@ mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        let expected_qualified_payables =
+            make_guaranteed_qualified_payables(vec![payable], &DEFAULT_PAYMENT_THRESHOLDS, now);
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
+                protected_qualified_payables: protect_qualified_payables_in_test(
+                    expected_qualified_payables
+                ),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1405,9 +1422,9 @@ mod tests {
     #[test]
     fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not to match either the condition for
-        // the payment adjustment or the actual values that come from the payable size reducing algorithm;
-        // all that is mocked in this test
+        // the numbers for balances don't do real math, they need not match either the condition for
+        // the payment adjustment or the actual values that come from the payable size reducing
+        // algorithm: all that is mocked in this test
         init_test_logging();
         let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
         let search_for_indispensable_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1434,9 +1451,20 @@ mod tests {
         let system = System::new("test");
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
-        let accounts = vec![account_1, account_2];
+        let qualified_payables = vec![
+            QualifiedPayableAccount {
+                payable: account_1.clone(),
+                payment_threshold_intercept: 2345,
+            },
+            QualifiedPayableAccount {
+                payable: account_2.clone(),
+                payment_threshold_intercept: 6789,
+            },
+        ];
         let msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(accounts.clone()),
+            protected_qualified_payables: protect_qualified_payables_in_test(
+                qualified_payables.clone(),
+            ),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1453,13 +1481,16 @@ mod tests {
                 .unwrap();
         let (actual_qualified_payables, actual_agent_id_stamp) =
             search_for_indispensable_adjustment_params.remove(0);
-        assert_eq!(actual_qualified_payables, accounts.clone());
+        assert_eq!(actual_qualified_payables, qualified_payables);
         assert_eq!(actual_agent_id_stamp, expected_agent_id_stamp);
         assert!(search_for_indispensable_adjustment_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
-        assert_eq!(payments_instructions.affordable_accounts, accounts);
+        assert_eq!(
+            payments_instructions.affordable_accounts,
+            vec![account_1, account_2]
+        );
         assert_eq!(
             payments_instructions.response_skeleton_opt,
             Some(ResponseSkeleton {
@@ -1489,15 +1520,21 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
-        let unadjusted_account_1 = QualifiedPayableAccount{account: make_payable_account(111_111), payment_threshold_intercept: 1234567};
-        let unadjusted_account_2 = QualifiedPayableAccount{account: make_payable_account(222_222), payment_threshold_intercept: 444555666};
+        let unadjusted_account_1 = QualifiedPayableAccount {
+            payable: make_payable_account(111_111),
+            payment_threshold_intercept: 1234567,
+        };
+        let unadjusted_account_2 = QualifiedPayableAccount {
+            payable: make_payable_account(222_222),
+            payment_threshold_intercept: 444555666,
+        };
         let adjusted_account_1 = PayableAccount {
             balance_wei: gwei_to_wei(55_550_u64),
-            ..unadjusted_account_1.account.clone()
+            ..unadjusted_account_1.payable.clone()
         };
         let adjusted_account_2 = PayableAccount {
             balance_wei: gwei_to_wei(100_000_u64),
-            ..unadjusted_account_2.account.clone()
+            ..unadjusted_account_2.payable.clone()
         };
         let response_skeleton = ResponseSkeleton {
             client_id: 12,
@@ -1508,7 +1545,9 @@ mod tests {
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(unadjusted_qualified_accounts.clone()),
+            protected_qualified_payables: protect_qualified_payables_in_test(
+                unadjusted_qualified_accounts.clone(),
+            ),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1607,10 +1646,15 @@ mod tests {
         let scan_started_at = SystemTime::now();
         subject.scanners.payable.mark_as_started(scan_started_at);
         let subject_addr = subject.start();
-        let account_1 = make_payable_account(111_111);
+        let account = make_payable_account(111_111);
+        let qualified_payable = QualifiedPayableAccount {
+            payable: account,
+            payment_threshold_intercept: 123456,
+        };
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default();
-        let protected_qualified_payables = protect_payables_in_test(vec![account_1]);
+        let protected_qualified_payables =
+            protect_qualified_payables_in_test(vec![qualified_payable]);
         let msg = BlockchainAgentWithContextMessage::new(
             protected_qualified_payables,
             Box::new(agent),
@@ -1669,7 +1713,7 @@ mod tests {
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner could not finish. \
-            If mature payables stay untreated long, your creditors may impose ban on you"
+            If matured payables stay untreated long, your creditors may impose a ban on you"
         ));
     }
 
@@ -1688,20 +1732,21 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please add funds \
         into your consuming wallet in order to avoid bans from your creditors. Failure reason: The adjustment \
-        algorithm had to eliminate each payable due to lack of resources"
+        algorithm had to eliminate each payable from the recently urged payment due to lack of resources"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If mature payables stay untreated long, your \
-            creditors may impose ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated long, your \
+            creditors may impose a ban on you"
         ));
     }
 
     #[test]
-    fn payment_adjuster_error_is_not_sent_by_exclusive_msg_to_ui_if_scan_not_manually_requested() {
+    fn payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested() {
         init_test_logging();
-        let test_name = "payment_adjuster_error_is_not_sent_by_exclusive_msg_to_ui_if_scan_not_manually_requested";
+        let test_name =
+            "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
@@ -1716,8 +1761,8 @@ mod tests {
             .build();
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let account = make_payable_account(111_111);
-        let protected_payables = protect_payables_in_test(vec![account]);
+        let qualified_payable = make_non_guaranteed_qualified_payable(111_111);
+        let protected_payables = protect_qualified_payables_in_test(vec![qualified_payable]);
         let blockchain_agent = BlockchainAgentMock::default();
         let msg = BlockchainAgentWithContextMessage::new(
             protected_payables,
@@ -1931,7 +1976,7 @@ mod tests {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let (qualified_payables, _, all_non_pending_payables) =
-            make_payables(now, &payment_thresholds);
+            make_unqualified_and_qualified_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let system = System::new(
@@ -1960,7 +2005,9 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                protected_qualified_payables: protect_qualified_payables_in_test(
+                    qualified_payables
+                ),
                 response_skeleton_opt: None,
             }
         );
@@ -2268,9 +2315,9 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
-                    123,
-                )]),
+                protected_qualified_payables: protect_qualified_payables_in_test(vec![
+                    make_non_guaranteed_qualified_payable(123),
+                ]),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2445,37 +2492,41 @@ mod tests {
             payable_scan_interval: Duration::from_secs(50_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
-        let now = to_time_t(SystemTime::now());
-        let qualified_payables = vec![
-            // slightly above minimum balance, to the right of the curve (time intersection)
+        let now = SystemTime::now();
+        let now_t = to_time_t(now);
+        let payables = vec![
+            // Slightly above the minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance_wei: gwei_to_wei(
                     DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
                 ),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64, i64>(
-                        DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec
-                            + DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
-                            + 10,
-                    ),
+                    now_t
+                        - checked_conversion::<u64, i64>(
+                            DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec
+                                + DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+                                + 10,
+                        ),
                 ),
                 pending_payable_opt: None,
             },
-            // slightly above the curve (balance intersection), to the right of minimum time
+            // Slightly above the curve (balance intersection), to the right of the minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64, i64>(
-                        DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
-                    ),
+                    now_t
+                        - checked_conversion::<u64, i64>(
+                            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
+                        ),
                 ),
                 pending_payable_opt: None,
             },
         ];
-        let payable_dao =
-            PayableDaoMock::default().non_pending_payables_result(qualified_payables.clone());
+        let qualified_payables =
+            make_guaranteed_qualified_payables(payables.clone(), &DEFAULT_PAYMENT_THRESHOLDS, now);
+        let payable_dao = PayableDaoMock::default().non_pending_payables_result(payables);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(QualifiedPayablesMessage));
@@ -2496,13 +2547,15 @@ mod tests {
 
         send_start_message!(accountant_subs);
 
-        system.run();
+        assert_eq!(system.run(), 0);
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         let message = blockchain_bridge_recordings.get_record::<QualifiedPayablesMessage>(0);
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                protected_qualified_payables: protect_qualified_payables_in_test(
+                    qualified_payables
+                ),
                 response_skeleton_opt: None,
             }
         );
@@ -3371,7 +3424,7 @@ mod tests {
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
-        let pending_payable_scan_interval = 200; // should be slightly less than 1/5 of the time until shutting the system
+        let pending_payable_scan_interval = 200; // Should be slightly less than 1/5 of the time until shutting the system
         let payable_dao_for_payable_scanner = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![account_1, account_2])
@@ -3452,10 +3505,10 @@ mod tests {
             .increment_scan_attempts_result(Ok(()))
             .increment_scan_attempts_result(Ok(()))
             .mark_failures_params(&mark_failure_params_arc)
-            // we don't have a better solution yet, so we mark this down
+            // We don't have a better solution yet, so we just mark the error down in the database
             .mark_failures_result(Ok(()))
             .delete_fingerprints_params(&delete_record_params_arc)
-            // this is used during confirmation of the successful one
+            // This is used during confirmation of the successful transaction
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
@@ -3518,7 +3571,7 @@ mod tests {
         assert_eq!(second_payable.1, rowid_for_account_2);
         let return_all_errorless_fingerprints_params =
             return_all_errorless_fingerprints_params_arc.lock().unwrap();
-        // it varies with machines and sometimes we manage more cycles than necessary
+        // It varies with machines, and sometimes we manage more cycles than necessary
         assert!(return_all_errorless_fingerprints_params.len() >= 5);
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![()]); // because we disabled further scanning for payables
@@ -3568,7 +3621,7 @@ mod tests {
             notify_later_scan_for_pending_payable_params_arc
                 .lock()
                 .unwrap();
-        // it varies with machines and sometimes we manage more cycles than necessary
+        // It varies with machines, and sometimes we manage more cycles than necessary
         let vector_of_first_five_cycles = notify_later_check_for_confirmation
             .drain(0..=4)
             .collect_vec();

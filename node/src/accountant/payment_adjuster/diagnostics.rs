@@ -95,12 +95,12 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
 }
 
 pub mod ordinary_diagnostic_functions {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
     };
+    use crate::accountant::QualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
@@ -108,11 +108,12 @@ pub mod ordinary_diagnostic_functions {
         account_info: &AdjustedAccountBeforeFinalization,
     ) {
         diagnostics!(
-            &account_info.original_account.wallet,
+            &account_info.original_qualified_account.payable.wallet,
             "OUTWEIGHED ACCOUNT FOUND",
             "Original balance: {}, proposed balance: {}",
             account_info
-                .original_account
+                .original_qualified_account
+                .payable
                 .balance_wei
                 .separate_with_commas(),
             account_info
@@ -127,7 +128,11 @@ pub mod ordinary_diagnostic_functions {
         disqualification_edge: u128,
     ) {
         diagnostics!(
-            account_info.non_finalized_account.original_account.wallet,
+            account_info
+                .non_finalized_account
+                .original_qualified_account
+                .payable
+                .wallet,
             "ACCOUNT NOMINATED FOR DISQUALIFICATION FOR INSIGNIFICANCE AFTER ADJUSTMENT",
             "Proposed: {}, disqualification limit: {}",
             proposed_adjusted_balance.separate_with_commas(),
@@ -142,7 +147,10 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             "EXHAUSTING CW ON PAYMENT",
             "For account {} from proposed {} to the possible maximum of {}",
-            non_finalized_account_info.original_account.wallet,
+            non_finalized_account_info
+                .original_qualified_account
+                .payable
+                .wallet,
             non_finalized_account_info.proposed_adjusted_balance,
             non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition
         );
@@ -154,18 +162,24 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             "FULLY EXHAUSTED CW, PASSING ACCOUNT OVER",
             "Account {} with original balance {} must be finalized with proposed {}",
-            non_finalized_account_info.original_account.wallet,
-            non_finalized_account_info.original_account.balance_wei,
+            non_finalized_account_info
+                .original_qualified_account
+                .payable
+                .wallet,
+            non_finalized_account_info
+                .original_qualified_account
+                .payable
+                .balance_wei,
             non_finalized_account_info.proposed_adjusted_balance
         );
     }
 
     pub fn proposed_adjusted_balance_diagnostics(
-        account: &PayableAccount,
+        account: &QualifiedPayableAccount,
         proposed_adjusted_balance: u128,
     ) {
         diagnostics!(
-            &account.wallet,
+            &account.payable.wallet,
             "PROPOSED ADJUSTED BALANCE",
             "{}",
             proposed_adjusted_balance.separate_with_commas()

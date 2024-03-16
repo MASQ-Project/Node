@@ -21,12 +21,17 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
     MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+    PayableInspector, PayableThresholdsGauge, PayableThresholdsGaugeReal,
+};
 use crate::accountant::scanners::{
     BeginScanError, PayableScanner, PendingPayableScanner, PeriodicalScanScheduler,
     ReceivableScanner, ScanSchedulers, Scanner,
 };
-use crate::accountant::{gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, QualifiedPayableAccount};
+use crate::accountant::{
+    gwei_to_wei, Accountant, QualifiedPayableAccount, ResponseSkeleton, SentPayables,
+    DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
@@ -1064,6 +1069,7 @@ pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
     pending_payable_dao: PendingPayableDaoMock,
     payment_thresholds: PaymentThresholds,
+    payable_inspector: PayableInspector,
     payment_adjuster: PaymentAdjusterMock,
 }
 
@@ -1073,6 +1079,9 @@ impl PayableScannerBuilder {
             payable_dao: PayableDaoMock::new(),
             pending_payable_dao: PendingPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
+            payable_inspector: PayableInspector::new(Box::new(
+                PayableThresholdsGaugeReal::default(),
+            )),
             payment_adjuster: PaymentAdjusterMock::default(),
         }
     }
@@ -1095,6 +1104,11 @@ impl PayableScannerBuilder {
         self
     }
 
+    pub fn payable_inspector(mut self, payable_inspector: PayableInspector) -> Self {
+        self.payable_inspector = payable_inspector;
+        self
+    }
+
     pub fn pending_payable_dao(
         mut self,
         pending_payable_dao: PendingPayableDaoMock,
@@ -1108,6 +1122,7 @@ impl PayableScannerBuilder {
             Box::new(self.payable_dao),
             Box::new(self.pending_payable_dao),
             Rc::new(self.payment_thresholds),
+            self.payable_inspector,
             Box::new(self.payment_adjuster),
         )
     }
@@ -1230,11 +1245,11 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
-pub fn make_payables(
+pub fn make_unqualified_and_qualified_payables(
     now: SystemTime,
     payment_thresholds: &PaymentThresholds,
 ) -> (
-    Vec<PayableAccount>,
+    Vec<QualifiedPayableAccount>,
     Vec<PayableAccount>,
     Vec<PayableAccount>,
 ) {
@@ -1246,7 +1261,7 @@ pub fn make_payables(
         ),
         pending_payable_opt: None,
     }];
-    let qualified_payable_accounts = vec![
+    let payable_accounts_to_qualify = vec![
         PayableAccount {
             wallet: make_wallet("wallet2"),
             balance_wei: gwei_to_wei(
@@ -1268,9 +1283,14 @@ pub fn make_payables(
             pending_payable_opt: None,
         },
     ];
+    let qualified_payable_accounts = make_guaranteed_qualified_payables(
+        payable_accounts_to_qualify.clone(),
+        payment_thresholds,
+        now,
+    );
 
     let mut all_non_pending_payables = Vec::new();
-    all_non_pending_payables.extend(qualified_payable_accounts.clone());
+    all_non_pending_payables.extend(payable_accounts_to_qualify);
     all_non_pending_payables.extend(unqualified_payable_accounts.clone());
 
     (
@@ -1439,7 +1459,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn search_for_indispensable_adjustment_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Vec<PayableAccount>, ArbitraryIdStamp)>>>,
+        params: &Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
     ) -> Self {
         self.search_for_indispensable_adjustment_params = params.clone();
         self
@@ -1667,7 +1687,23 @@ impl ScanSchedulers {
     }
 }
 
-pub fn make_qualified_payables(payment_thresholds: PaymentThresholds, payables: Vec<PayableAccount>)->Vec<QualifiedPayableAccount>{
-    sort this out
-    payables.into_iter().map(||)
+pub fn make_non_guaranteed_qualified_payable(n: u64) -> QualifiedPayableAccount {
+    // Without guarantee that the generated payable would cross the given thresholds
+    QualifiedPayableAccount {
+        payable: make_payable_account(n),
+        payment_threshold_intercept: n as u128 * 12345,
+    }
+}
+
+pub fn make_guaranteed_qualified_payables(
+    payables: Vec<PayableAccount>,
+    payment_thresholds: &PaymentThresholds,
+    now: SystemTime,
+) -> Vec<QualifiedPayableAccount> {
+    let payable_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
+    payables.into_iter().map(|payable|{
+        let payment_threshold_intercept = payable_inspector.payable_exceeded_threshold(&payable, payment_thresholds, now)
+            .unwrap_or_else(||panic!("You intend to create qualified payables but their paramters not always make them qualify as in: {:?}", payable));
+        QualifiedPayableAccount{ payable, payment_threshold_intercept }
+    }).collect()
 }

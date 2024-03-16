@@ -3,7 +3,7 @@
 pub mod age_criterion_calculator;
 pub mod balance_criterion_calculator;
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::QualifiedPayableAccount;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
 use variant_count::VariantCount;
@@ -57,12 +57,16 @@ impl CalculatorInputHolder {
     }
 }
 
-impl<'a> From<(CalculatorType, &'a PayableAccount)> for CalculatorInputHolder {
-    fn from((calculator_type, account): (CalculatorType, &'a PayableAccount)) -> Self {
+impl<'account> From<(CalculatorType, &'account QualifiedPayableAccount)> for CalculatorInputHolder {
+    fn from(
+        (calculator_type, qualified_payable): (CalculatorType, &'account QualifiedPayableAccount),
+    ) -> Self {
         match calculator_type {
-            CalculatorType::DebtBalance => CalculatorInputHolder::DebtBalance(account.balance_wei),
+            CalculatorType::DebtBalance => {
+                CalculatorInputHolder::DebtBalance(qualified_payable.payable.balance_wei)
+            }
             CalculatorType::DebtAge => CalculatorInputHolder::DebtAge {
-                last_paid_timestamp: account.last_paid_timestamp,
+                last_paid_timestamp: qualified_payable.payable.last_paid_timestamp,
             },
         }
     }
@@ -83,6 +87,8 @@ mod tests {
     use crate::accountant::payment_adjuster::criteria_calculators::{
         CalculatorInputHolder, CalculatorType,
     };
+    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
+    use crate::accountant::QualifiedPayableAccount;
     use crate::test_utils::make_wallet;
     use std::panic::{catch_unwind, RefUnwindSafe};
     use std::time::{Duration, SystemTime};
@@ -93,23 +99,29 @@ mod tests {
         let last_paid_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(3))
             .unwrap();
-        let account = PayableAccount {
+        let payable = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei,
             last_paid_timestamp,
             pending_payable_opt: None,
         };
-
+        let payment_threshold_intercept = 65432;
+        let qualified_account = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept,
+        };
         let result = [CalculatorType::DebtAge, CalculatorType::DebtBalance]
             .into_iter()
-            .map(|calculator_type| CalculatorInputHolder::from((calculator_type, &account)))
+            .map(|calculator_type| {
+                CalculatorInputHolder::from((calculator_type, &qualified_account))
+            })
             .collect::<Vec<_>>();
 
         let expected = vec![
             CalculatorInputHolder::DebtAge {
                 last_paid_timestamp,
             },
-            CalculatorInputHolder::DebtBalance(balance_wei),
+            CalculatorInputHolder::DebtBalance(balance_wei - payment_threshold_intercept),
         ];
         assert_eq!(result.len(), CalculatorInputHolder::VARIANT_COUNT);
         assert_eq!(result, expected);
@@ -175,20 +187,23 @@ mod tests {
         the_only_correct_type: CalculatorType,
         tested_function_call_for_panics: F,
     ) where
-        F: Fn(CalculatorType, &PayableAccount) + RefUnwindSafe,
+        F: Fn(CalculatorType, &QualifiedPayableAccount) + RefUnwindSafe,
     {
-        let account = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 12345,
-            last_paid_timestamp: SystemTime::UNIX_EPOCH,
-            pending_payable_opt: None,
-        };
+        let mut qualified_payable = make_non_guaranteed_qualified_payable(12345);
+        qualified_payable.payable.balance_wei = 2_000_000;
+        qualified_payable.payment_threshold_intercept = 778_899;
+        let difference =
+            qualified_payable.payable.balance_wei - qualified_payable.payment_threshold_intercept;
         let all_types = vec![
-            (CalculatorType::DebtBalance, "balance", "DebtBalance(12345)"),
+            (
+                CalculatorType::DebtBalance,
+                "balance",
+                format!("DebtBalance({difference})"),
+            ),
             (
                 CalculatorType::DebtAge,
                 "age",
-                "DebtAge { last_paid_timestamp: SystemTime { tv_sec: 0, tv_nsec: 0 } }",
+                "DebtAge { last_paid_timestamp: SystemTime { tv_sec: 0, tv_nsec: 0 } }".to_string(),
             ),
         ];
 
@@ -204,9 +219,10 @@ mod tests {
             .filter(|(calculator_type, _, _)| calculator_type != &the_only_correct_type)
             .for_each(
                 |(calculator_type, _, debug_rendering_of_the_corresponding_input_holder)| {
-                    let result =
-                        catch_unwind(|| tested_function_call_for_panics(calculator_type, &account))
-                            .unwrap_err();
+                    let result = catch_unwind(|| {
+                        tested_function_call_for_panics(calculator_type, &qualified_payable)
+                    })
+                    .unwrap_err();
                     let panic_msg = result.downcast_ref::<String>().unwrap();
                     assert_eq!(
                         panic_msg,

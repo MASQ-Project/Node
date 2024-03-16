@@ -7,17 +7,11 @@ pub mod test_utils;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
-    investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
-    separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata,
-    VecOfRowidOptAndHash,
-};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata, VecOfRowidOptAndHash, PayableInspector};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
     PendingPayableScanReport,
@@ -25,7 +19,7 @@ use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayableId, QualifiedPayableAccount};
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
+    comma_joined_stringifiable, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
@@ -57,7 +51,6 @@ use time::OffsetDateTime;
 use web3::types::{TransactionReceipt, H256};
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 
@@ -80,6 +73,7 @@ impl Scanners {
                 dao_factories.payable_dao_factory.make(),
                 dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
+                PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default())),
                 Box::new(PaymentAdjusterReal::new()),
             )),
             pending_payable: Box::new(PendingPayableScanner::new(
@@ -121,6 +115,8 @@ where
 
 pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
+    // TODO The thresholds probably shouldn't be in common because
+    // the PendingPayableScanner does not need it
     pub payment_thresholds: Rc<PaymentThresholds>,
 }
 
@@ -179,7 +175,7 @@ pub struct PayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
-    pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
+    pub payable_inspector: PayableInspector,
     pub payment_adjuster: RefCell<Box<dyn PaymentAdjuster>>,
 }
 
@@ -267,22 +263,26 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .borrow()
             .search_for_indispensable_adjustment(&unprotected, &*msg.agent)
         {
-            Ok(adjustment_opt) =>
-                {
-                    let either = match adjustment_opt {
-                        None => Either::Left(OutboundPaymentsInstructions::new(
-                            Either::Left(unprotected),
+            Ok(adjustment_opt) => {
+                let either = match adjustment_opt {
+                    None => Either::Left(OutboundPaymentsInstructions::new(
+                        Either::Left(unprotected),
+                        msg.agent,
+                        msg.response_skeleton_opt,
+                    )),
+                    Some(adjustment) => {
+                        let prepared_adjustment = PreparedAdjustment::new(
+                            unprotected,
                             msg.agent,
                             msg.response_skeleton_opt,
-                        )),
-                        Some(adjustment) => {
-                            let prepared_adjustment =
-                                PreparedAdjustment::new(unprotected, msg.agent, msg.response_skeleton_opt, adjustment);
-                            Either::Right(prepared_adjustment)
-                        }
-                    };
+                            adjustment,
+                        );
+                        Either::Right(prepared_adjustment)
+                    }
+                };
 
-                Some(either)},
+                Some(either)
+            }
             Err(e) => {
                 warning!(
                     logger,
@@ -332,13 +332,14 @@ impl PayableScanner {
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
+        payable_inspector: PayableInspector,
         payment_adjuster: Box<dyn PaymentAdjuster>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
             pending_payable_dao,
-            payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
+            payable_inspector,
             payment_adjuster: RefCell::new(payment_adjuster),
         }
     }
@@ -348,13 +349,16 @@ impl PayableScanner {
         non_pending_payables: Vec<PayableAccount>,
         logger: &Logger,
     ) -> Vec<QualifiedPayableAccount> {
-        let qualified_payables =
-            non_pending_payables.into_iter().flat_map(|account| {
-                // TODO this SystemTime::now() isn't tested probably
-                                self.payable_exceeded_threshold(&account, SystemTime::now())
-                    .map(|payment_threshold_intercept| QualifiedPayableAccount {account,
-                        payment_threshold_intercept})
-            }).collect();
+        let qualified_payables = non_pending_payables
+            .into_iter()
+            .flat_map(|account| {
+                self.payable_exceeded_threshold(&account, SystemTime::now())
+                    .map(|payment_threshold_intercept| QualifiedPayableAccount {
+                        payable: account,
+                        payment_threshold_intercept,
+                    })
+            })
+            .collect();
         match logger.debug_enabled() {
             false => qualified_payables,
             true => {
@@ -366,39 +370,15 @@ impl PayableScanner {
 
     fn payable_exceeded_threshold(
         &self,
-        payable: &PayableAccount,
+        account: &PayableAccount,
         now: SystemTime,
     ) -> Option<u128> {
-        let debt_age = now
-            .duration_since(payable.last_paid_timestamp)
-            .expect("Internal error")
-            .as_secs();
-
-        if self.payable_threshold_gauge.is_innocent_age(
-            debt_age,
-            self.common.payment_thresholds.maturity_threshold_sec,
-        ) {
-            return None;
-        }
-
-        if self.payable_threshold_gauge.is_innocent_balance(
-            payable.balance_wei,
-            gwei_to_wei(self.common.payment_thresholds.permanent_debt_allowed_gwei),
-        ) {
-            return None;
-        }
-
-        let threshold = self
-            .payable_threshold_gauge
-            .calculate_payout_threshold_in_gwei(&self.common.payment_thresholds, debt_age);
-
-        if payable.balance_wei > threshold {
-            Some(threshold)
-        } else {
-            None
-        }
+        self.payable_inspector.payable_exceeded_threshold(
+            account,
+            &self.common.payment_thresholds,
+            now,
+        )
     }
-
 
     fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
@@ -1097,24 +1077,31 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayable, PendingPayableDaoError,
     };
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+        PayableInspector, PayableThresholdsGauge, PayableThresholdsGaugeReal,
+        PendingPayableMetadata,
+    };
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::{
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, ScanSchedulers,
         Scanner, ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_custom_payment_thresholds, make_payable_account, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        make_custom_payment_thresholds, make_payable_account, make_pending_payable_fingerprint,
+        make_receivable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
         BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
         PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
         ReceivableScannerBuilder,
     };
-    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, QualifiedPayableAccount};
+    use crate::accountant::{
+        gwei_to_wei, PendingPayableId, QualifiedPayableAccount, ReceivedPayments,
+        ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
+        DEFAULT_PENDING_TOO_LONG_SEC,
+    };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -1138,6 +1125,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use sysinfo::Signal::Sys;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
 
@@ -1233,7 +1221,16 @@ mod tests {
     #[test]
     fn protected_payables_can_be_cast_from_and_back_to_vec_of_payable_accounts_by_payable_scanner()
     {
-        let initial_unprotected = vec![QualifiedPayableAccount{account: make_payable_account(123), payment_threshold_intercept: 123456789}, QualifiedPayableAccount{account: make_payable_account(456), payment_threshold_intercept: 987654321}];
+        let initial_unprotected = vec![
+            QualifiedPayableAccount {
+                payable: make_payable_account(123),
+                payment_threshold_intercept: 123456789,
+            },
+            QualifiedPayableAccount {
+                payable: make_payable_account(456),
+                payment_threshold_intercept: 987654321,
+            },
+        ];
         let subject = PayableScannerBuilder::new().build();
 
         let protected = subject.protect_payables(initial_unprotected.clone());
@@ -1248,7 +1245,7 @@ mod tests {
         let test_name = "payable_scanner_can_initiate_a_scan";
         let now = SystemTime::now();
         let (qualified_payable_accounts, _, all_non_pending_payables) =
-            make_payables(now, &PaymentThresholds::default());
+            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
@@ -1262,7 +1259,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(
+                protected_qualified_payables: protect_qualified_payables_in_test(
                     qualified_payable_accounts.clone()
                 ),
                 response_skeleton_opt: None,
@@ -1280,7 +1277,8 @@ mod tests {
     #[test]
     fn payable_scanner_throws_error_when_a_scan_is_already_running() {
         let now = SystemTime::now();
-        let (_, _, all_non_pending_payables) = make_payables(now, &PaymentThresholds::default());
+        let (_, _, all_non_pending_payables) =
+            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
@@ -1302,7 +1300,7 @@ mod tests {
     fn payable_scanner_throws_error_in_case_no_qualified_payable_is_found() {
         let now = SystemTime::now();
         let (_, unqualified_payable_accounts, _) =
-            make_payables(now, &PaymentThresholds::default());
+            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
         let mut subject = PayableScannerBuilder::new()
@@ -1932,7 +1930,7 @@ mod tests {
             .is_innocent_age_params(&is_innocent_age_params_arc)
             .is_innocent_age_result(true);
         let mut subject = PayableScannerBuilder::new().build();
-        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        subject.payable_inspector = PayableInspector::new(Box::new(payable_thresholds_gauge));
         let now = SystemTime::now();
         let debt_age_s = 111_222;
         let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
@@ -1963,7 +1961,7 @@ mod tests {
             .is_innocent_balance_params(&is_innocent_balance_params_arc)
             .is_innocent_balance_result(true);
         let mut subject = PayableScannerBuilder::new().build();
-        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        subject.payable_inspector = PayableInspector::new(Box::new(payable_thresholds_gauge));
         let now = SystemTime::now();
         let debt_age_s = 3_456;
         let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
@@ -2014,19 +2012,17 @@ mod tests {
         };
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
             .is_innocent_age_params(&is_innocent_age_params_arc)
-            .is_innocent_age_result(
-                debt_age_s <= custom_payment_thresholds.maturity_threshold_sec as u64,
-            )
+            .is_innocent_age_result(debt_age_s <= custom_payment_thresholds.maturity_threshold_sec)
             .is_innocent_balance_params(&is_innocent_balance_params_arc)
             .is_innocent_balance_result(
                 balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
             )
             .calculate_payout_threshold_in_gwei_params(&calculate_payable_threshold_params_arc)
-            .calculate_payout_threshold_in_gwei_result(4567898); //made up value
+            .calculate_payout_threshold_in_gwei_result(4567898); // Made up value
         let mut subject = PayableScannerBuilder::new()
             .payment_thresholds(custom_payment_thresholds)
             .build();
-        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        subject.payable_inspector = PayableInspector::new(Box::new(payable_thresholds_gauge));
 
         let result = subject.payable_exceeded_threshold(&payable_account, now);
 
@@ -2037,7 +2033,7 @@ mod tests {
         assert_eq!(debt_age_returned_innocent, debt_age_s);
         assert_eq!(
             curve_derived_time,
-            custom_payment_thresholds.maturity_threshold_sec as u64
+            custom_payment_thresholds.maturity_threshold_sec
         );
         let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
         assert_eq!(
@@ -2088,14 +2084,15 @@ mod tests {
     fn payable_with_debt_above_the_slope_is_qualified() {
         init_test_logging();
         let payment_thresholds = PaymentThresholds::default();
+        let now = SystemTime::now();
         let debt = gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
-        let time = (payment_thresholds.maturity_threshold_sec
+        let debt_age = (payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec
             - 1) as i64;
-        let qualifiable_payable = PayableAccount {
+        let payable = PayableAccount {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
-            last_paid_timestamp: from_time_t(time),
+            last_paid_timestamp: from_time_t(to_time_t(now) - debt_age),
             pending_payable_opt: None,
         };
         let subject = PayableScannerBuilder::new()
@@ -2104,19 +2101,21 @@ mod tests {
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
 
-        let result = subject.sniff_out_alarming_payables_and_maybe_log_them(
-            vec![qualifiable_payable.clone()],
-            &logger,
-        );
+        let result =
+            subject.sniff_out_alarming_payables_and_maybe_log_them(vec![payable.clone()], &logger);
 
-        assert_eq!(result.len(),1);
-        assert_eq!(&result[0].account, &qualifiable_payable);
-        todo!("see if you can assert against exactly computed value");
-        //assert!(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei) <= result[0].payment_threshold_intercept && result[0].payment_threshold_intercept <= gwei_to_wei((payment_thresholds.permanent_debt_allowed_gwei * 100001) / 100000));
+        assert_eq!(result.len(), 1);
+        let expected_intercept = PayableThresholdsGaugeReal::default()
+            .calculate_payout_threshold_in_gwei(&payment_thresholds, debt_age as u64);
+        let expected_qualified_payable = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept: expected_intercept,
+        };
+        assert_eq!(&result[0], &expected_qualified_payable);
         TestLogHandler::new().exists_log_matching(&format!(
             "DEBUG: {}: Paying qualified debts:\n999,999,999,000,000,\
-            000 wei owed for \\d+ sec exceeds threshold: 500,000,000,000,000,000 wei; creditor: \
-             0x0000000000000000000000000077616c6c657430",
+            000 wei owed for \\d+ sec exceeds threshold: 500,023,148,148,151,\\d{{3}} wei; \
+            creditor: 0x0000000000000000000000000077616c6c657430",
             test_name
         ));
     }
@@ -2146,6 +2145,51 @@ mod tests {
         assert_eq!(result, vec![]);
         TestLogHandler::new()
             .exists_no_log_containing(&format!("DEBUG: {test_name}: Paying qualified debts"));
+    }
+
+    #[test]
+    fn sniff_out_alarming_payables_and_maybe_log_them_generates_and_uses_correct_timestamp() {
+        let payment_thresholds = PaymentThresholds {
+            debt_threshold_gwei: 10_000_000_000,
+            maturity_threshold_sec: 100,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 1_000_000_000,
+            threshold_interval_sec: 1_000,
+            unban_below_gwei: 0,
+        };
+        let wallet = make_wallet("abc");
+        // It is important to have a payable matching the declining part of the thresholds,
+        // also it will be more believable if the slope is steep because then one second can make
+        // the bigger difference in the intercept value, which is the value this test compare to
+        // conclude a pass
+        let debt_age = payment_thresholds.maturity_threshold_sec
+            + (payment_thresholds.threshold_interval_sec / 2);
+        let payable = PayableAccount {
+            wallet: wallet.clone(),
+            balance_wei: gwei_to_wei(12_000_000_000_u64),
+            last_paid_timestamp: from_time_t(now_time_t() - debt_age as i64),
+            pending_payable_opt: None,
+        };
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let intercept_before = subject
+            .payable_exceeded_threshold(&payable, SystemTime::now())
+            .unwrap();
+
+        let result = subject.sniff_out_alarming_payables_and_maybe_log_them(
+            vec![payable.clone()],
+            &Logger::new("test"),
+        );
+
+        let intercept_after = subject
+            .payable_exceeded_threshold(&payable, SystemTime::now())
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(&result[0].payable.wallet, &wallet);
+        assert!(intercept_before >= result[0].payment_threshold_intercept && result[0].payment_threshold_intercept >= intercept_after,
+                "Tested intercept {} does not lie between two nows {} and {} while we assume the act generates third timestamp of presence", result[0].payment_threshold_intercept, intercept_before, intercept_after
+        )
     }
 
     #[test]

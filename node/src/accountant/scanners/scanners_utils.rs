@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, ProcessedPayableFallible, QualifiedPayableAccount, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, gwei_to_wei, ProcessedPayableFallible, QualifiedPayableAccount, SentPayables};
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
@@ -177,7 +177,7 @@ pub mod payable_scanner_utils {
             qualified_accounts
                 .iter()
                 .map(|qualified_account| {
-                let account = &qualified_account.account;
+                    let account = &qualified_account.payable;
                     let p_age = now
                         .duration_since(account.last_paid_timestamp)
                         .expect("Payable time is corrupt");
@@ -185,7 +185,9 @@ pub mod payable_scanner_utils {
                         "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
                         account.balance_wei.separate_with_commas(),
                         p_age.as_secs(),
-                        qualified_account.payment_threshold_intercept.separate_with_commas(),
+                        qualified_account
+                            .payment_threshold_intercept
+                            .separate_with_commas(),
                         account.wallet
                     )
                 })
@@ -282,6 +284,53 @@ pub mod payable_scanner_utils {
             .into_iter()
             .map(|(checked_rowid, hash)| (checked_rowid.expectv("validated rowid"), hash))
             .unzip()
+    }
+
+    pub struct PayableInspector {
+        payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
+    }
+
+    impl PayableInspector {
+        pub fn new(payable_threshold_gauge: Box<dyn PayableThresholdsGauge>) -> Self {
+            Self {
+                payable_threshold_gauge,
+            }
+        }
+        pub fn payable_exceeded_threshold(
+            &self,
+            payable: &PayableAccount,
+            payment_thresholds: &PaymentThresholds,
+            now: SystemTime,
+        ) -> Option<u128> {
+            let debt_age = now
+                .duration_since(payable.last_paid_timestamp)
+                .expect("Internal error")
+                .as_secs();
+
+            if self
+                .payable_threshold_gauge
+                .is_innocent_age(debt_age, payment_thresholds.maturity_threshold_sec)
+            {
+                return None;
+            }
+
+            if self.payable_threshold_gauge.is_innocent_balance(
+                payable.balance_wei,
+                gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei),
+            ) {
+                return None;
+            }
+
+            let threshold = self
+                .payable_threshold_gauge
+                .calculate_payout_threshold_in_gwei(payment_thresholds, debt_age);
+
+            if payable.balance_wei > threshold {
+                Some(threshold)
+            } else {
+                None
+            }
+        }
     }
 
     pub trait PayableThresholdsGauge {
@@ -440,7 +489,7 @@ mod tests {
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
+    use crate::accountant::{checked_conversion, gwei_to_wei, QualifiedPayableAccount, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -609,8 +658,8 @@ mod tests {
             unban_below_gwei: 10_000_000,
         };
         let qualified_payables_and_threshold_points = vec![
-            (
-                PayableAccount {
+            QualifiedPayableAccount {
+                payable: PayableAccount {
                     wallet: make_wallet("wallet0"),
                     balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
                     last_paid_timestamp: from_time_t(
@@ -621,10 +670,10 @@ mod tests {
                     ),
                     pending_payable_opt: None,
                 },
-                10_000_000_001_152_000_u128,
-            ),
-            (
-                PayableAccount {
+                payment_threshold_intercept: 10_000_000_001_152_000_u128,
+            },
+            QualifiedPayableAccount {
+                payable: PayableAccount {
                     wallet: make_wallet("wallet1"),
                     balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
                     last_paid_timestamp: from_time_t(
@@ -634,8 +683,8 @@ mod tests {
                     ),
                     pending_payable_opt: None,
                 },
-                999_978_993_055_555_580,
-            ),
+                payment_threshold_intercept: 999_978_993_055_555_580,
+            },
         ];
         let logger = Logger::new("test");
 

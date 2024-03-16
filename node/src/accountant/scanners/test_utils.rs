@@ -2,9 +2,9 @@
 
 #![cfg(test)]
 
-use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::QualifiedPayableAccount;
+use masq_lib::type_obfuscation::Obfuscated;
 
-pub fn protect_payables_in_test(payables: Vec<QualifiedPayableAccount>) -> Obfuscated {
+pub fn protect_qualified_payables_in_test(payables: Vec<QualifiedPayableAccount>) -> Obfuscated {
     Obfuscated::obfuscate_vector(payables)
 }

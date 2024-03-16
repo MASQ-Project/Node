@@ -1,16 +1,19 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::QualifiedPayableAccount;
 
 #[derive(Clone)]
 pub struct WeightedAccount {
-    pub account: PayableAccount,
+    pub qualified_account: QualifiedPayableAccount,
     pub weight: u128,
 }
 
 impl WeightedAccount {
-    pub fn new(account: PayableAccount, weight: u128) -> Self {
-        Self { account, weight }
+    pub fn new(qualified_account: QualifiedPayableAccount, weight: u128) -> Self {
+        Self {
+            qualified_account,
+            weight,
+        }
     }
 }
 
@@ -19,7 +22,7 @@ pub enum AdjustmentIterationResult {
     AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
     SpecialTreatmentRequired {
         case: RequiredSpecialTreatment,
-        remaining_undecided_accounts: Vec<PayableAccount>,
+        remaining_undecided_accounts: Vec<QualifiedPayableAccount>,
     },
 }
 
@@ -55,14 +58,14 @@ pub enum RequiredSpecialTreatment {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AdjustedAccountBeforeFinalization {
-    pub original_account: PayableAccount,
+    pub original_qualified_account: QualifiedPayableAccount,
     pub proposed_adjusted_balance: u128,
 }
 
 impl AdjustedAccountBeforeFinalization {
-    pub fn new(original_account: PayableAccount, proposed_adjusted_balance: u128) -> Self {
+    pub fn new(original_account: QualifiedPayableAccount, proposed_adjusted_balance: u128) -> Self {
         Self {
-            original_account,
+            original_qualified_account: original_account,
             proposed_adjusted_balance,
         }
     }
@@ -78,7 +81,7 @@ impl UnconfirmedAdjustment {
     pub fn new(weighted_account: WeightedAccount, proposed_adjusted_balance: u128) -> Self {
         Self {
             non_finalized_account: AdjustedAccountBeforeFinalization::new(
-                weighted_account.account,
+                weighted_account.qualified_account,
                 proposed_adjusted_balance,
             ),
             weight: weighted_account.weight,
@@ -138,20 +141,20 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsWithin16bits,
     };
-    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
 
     #[test]
     fn merging_results_from_recursion_works() {
         let non_finalized_account_1 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(111),
+            original_qualified_account: make_non_guaranteed_qualified_payable(111),
             proposed_adjusted_balance: 1234,
         };
         let non_finalized_account_2 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(222),
+            original_qualified_account: make_non_guaranteed_qualified_payable(222),
             proposed_adjusted_balance: 5555,
         };
         let non_finalized_account_3 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(333),
+            original_qualified_account: make_non_guaranteed_qualified_payable(333),
             proposed_adjusted_balance: 6789,
         };
         let subject = RecursionResults {

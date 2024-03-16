@@ -12,10 +12,10 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
 };
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::QualifiedPayableAccount;
 use ethereum_types::U256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
-use crate::accountant::QualifiedPayableAccount;
 
 pub struct PreAdjustmentAnalyzer {}
 
@@ -92,10 +92,13 @@ impl PreAdjustmentAnalyzer {
         cw_service_fee_balance_minor: u128,
     ) -> Result<bool, PaymentAdjusterError> {
         let qualified_payables: Vec<&PayableAccount> = match payables {
-            Either::Left(accounts) => accounts.iter().map(|qualified_payable|&qualified_payable.account).collect(),
+            Either::Left(accounts) => accounts
+                .iter()
+                .map(|qualified_payable| &qualified_payable.payable)
+                .collect(),
             Either::Right(weighted_accounts) => weighted_accounts
                 .iter()
-                .map(|weighted_account| &weighted_account.account)
+                .map(|weighted_account| &weighted_account.qualified_account.payable)
                 .collect(),
         };
 

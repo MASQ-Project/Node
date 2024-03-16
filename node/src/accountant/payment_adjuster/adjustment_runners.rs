@@ -7,9 +7,9 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_finding_an_account_to_disqualify_in_this_iteration;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
+use crate::accountant::QualifiedPayableAccount;
 use itertools::Either;
 use std::vec;
-use crate::accountant::QualifiedPayableAccount;
 
 // There are just two runners. Different by the adjustment they can perform, either adjusting by
 // both the transaction fee and service fee, or exclusively by the transaction fee. The idea is
@@ -30,7 +30,7 @@ pub trait AdjustmentRunner {
     fn adjust_last_one(
         &self,
         payment_adjuster: &PaymentAdjusterReal,
-        last_account: PayableAccount,
+        last_account: QualifiedPayableAccount,
     ) -> Self::ReturnType;
 
     fn adjust_multiple(
@@ -51,7 +51,7 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
     fn adjust_last_one(
         &self,
         payment_adjuster: &PaymentAdjusterReal,
-        last_account: PayableAccount,
+        last_account: QualifiedPayableAccount,
     ) -> Self::ReturnType {
         Ok(Either::Left(empty_or_single_element_vector(
             adjust_last_one_opt(payment_adjuster, last_account),
@@ -88,7 +88,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     fn adjust_last_one(
         &self,
         payment_adjuster: &PaymentAdjusterReal,
-        last_account: PayableAccount,
+        last_account: QualifiedPayableAccount,
     ) -> Self::ReturnType {
         empty_or_single_element_vector(adjust_last_one_opt(payment_adjuster, last_account))
     }
@@ -105,24 +105,25 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
 fn adjust_last_one_opt(
     payment_adjuster: &PaymentAdjusterReal,
-    last_account: PayableAccount,
+    last_payable: QualifiedPayableAccount,
 ) -> Option<AdjustedAccountBeforeFinalization> {
     let cw_balance = payment_adjuster
         .inner
         .unallocated_cw_service_fee_balance_minor();
-    let proposed_adjusted_balance = if last_account.balance_wei.checked_sub(cw_balance) == None {
-        last_account.balance_wei
-    } else {
-        diagnostics!(
-            "LAST REMAINING ACCOUNT",
-            "Balance adjusted to {} by exhausting the cw balance fully",
-            cw_balance
-        );
+    let proposed_adjusted_balance =
+        if last_payable.payable.balance_wei.checked_sub(cw_balance) == None {
+            last_payable.payable.balance_wei
+        } else {
+            diagnostics!(
+                "LAST REMAINING ACCOUNT",
+                "Balance adjusted to {} by exhausting the cw balance fully",
+                cw_balance
+            );
 
-        cw_balance
-    };
+            cw_balance
+        };
     let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
-        WeightedAccount::new(last_account, u128::MAX), // The weight doesn't matter really and is made up
+        WeightedAccount::new(last_payable, u128::MAX), // The weight doesn't matter really and is made up
         proposed_adjusted_balance,
     )];
 
@@ -152,14 +153,17 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
+    use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
-    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::test_utils::{
+        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
+    };
+    use crate::accountant::QualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
-    use crate::accountant::QualifiedPayableAccount;
 
     fn prepare_payment_adjuster(cw_balance: u128, now: SystemTime) -> PaymentAdjusterReal {
         let adjustment = Adjustment::ByServiceFee;
@@ -176,22 +180,28 @@ mod tests {
         RT: Debug + PartialEq,
     {
         let now = SystemTime::now();
-        let wallet_1 = make_wallet("abc");
-        let account_1 = PayableAccount {
-            wallet: wallet_1.clone(),
+        let wallet = make_wallet("abc");
+        let account = PayableAccount {
+            wallet,
             balance_wei: 9_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
+        let qualified_payable = make_guaranteed_qualified_payables(
+            vec![account],
+            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
+            now,
+        )
+        .remove(0);
         let cw_balance = 8_645_123_505;
         let mut payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
-        let result = subject.adjust_last_one(&mut payment_adjuster, account_1.clone());
+        let result = subject.adjust_last_one(&mut payment_adjuster, qualified_payable.clone());
 
         assert_eq!(
             result,
             expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
-                original_account: account_1,
+                original_qualified_account: qualified_payable,
                 proposed_adjusted_balance: cw_balance,
             }])
         )
@@ -217,36 +227,48 @@ mod tests {
         let now = SystemTime::now();
         let account_balance = 4_500_600;
         let cw_balance = calculate_disqualification_edge(account_balance) + 1;
-        let account = PayableAccount {
+        let payable = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: account_balance,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
+        let qualified_payable = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept: 111222333,
+        };
         let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
-        let result = adjust_last_one_opt(&payment_adjuster, account.clone());
+        let result = adjust_last_one_opt(&payment_adjuster, qualified_payable.clone());
 
         assert_eq!(
             result,
             Some(AdjustedAccountBeforeFinalization {
-                original_account: account,
+                original_qualified_account: qualified_payable,
                 proposed_adjusted_balance: cw_balance,
             })
         )
     }
 
-    fn test_adjust_last_one_when_disqualified(cw_balance: u128, account_balance: u128) {
+    fn test_adjust_last_one_when_disqualified(
+        cw_balance: u128,
+        account_balance: u128,
+        threshold_intercept: u128,
+    ) {
         let now = SystemTime::now();
-        let account = PayableAccount {
+        let payable = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: account_balance,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
+        let qualified_payable = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept: threshold_intercept,
+        };
         let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
 
-        let result = adjust_last_one_opt(&payment_adjuster, account.clone());
+        let result = adjust_last_one_opt(&payment_adjuster, qualified_payable);
 
         assert_eq!(result, None)
     }
@@ -256,8 +278,13 @@ mod tests {
     {
         let account_balance = 4_000_444;
         let cw_balance = calculate_disqualification_edge(account_balance);
+        let payment_threshold_intercept = 3_000_000_000;
 
-        test_adjust_last_one_when_disqualified(cw_balance, account_balance)
+        test_adjust_last_one_when_disqualified(
+            cw_balance,
+            account_balance,
+            payment_threshold_intercept,
+        )
     }
 
     #[test]
@@ -265,8 +292,13 @@ mod tests {
     {
         let account_balance = 4_000_444;
         let cw_balance = calculate_disqualification_edge(account_balance) - 1;
+        let payment_threshold_intercept = 3_000_000_000;
 
-        test_adjust_last_one_when_disqualified(cw_balance, account_balance)
+        test_adjust_last_one_when_disqualified(
+            cw_balance,
+            account_balance,
+            payment_threshold_intercept,
+        )
     }
 
     #[test]
@@ -283,6 +315,8 @@ mod tests {
         let mut account_2 = account_1.clone();
         account_2.wallet = wallet_2.clone();
         let accounts = vec![account_1, account_2];
+        let qualified_payables =
+            make_guaranteed_qualified_payables(accounts, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
@@ -290,13 +324,14 @@ mod tests {
         let cw_balance = 9_000_000;
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = ServiceFeeOnlyAdjustmentRunner {};
-        let criteria_and_accounts = payment_adjuster.calculate_weights_for_accounts(accounts);
+        let criteria_and_accounts =
+            payment_adjuster.calculate_weights_for_accounts(qualified_payables);
 
         let result = subject.adjust_multiple(&mut payment_adjuster, criteria_and_accounts);
 
         let returned_accounts = result
             .into_iter()
-            .map(|account| account.original_account.wallet)
+            .map(|account| account.original_qualified_account.payable.wallet)
             .collect::<Vec<Wallet>>();
         assert_eq!(returned_accounts, vec![wallet_1, wallet_2])
         // If the transaction fee adjustment had been available to perform, only one account would've been
@@ -313,7 +348,7 @@ mod tests {
     #[test]
     fn empty_or_single_element_vector_for_some() {
         let account_info = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(123),
+            original_qualified_account: make_non_guaranteed_qualified_payable(123),
             proposed_adjusted_balance: 123_456_789,
         };
         let result = empty_or_single_element_vector(Some(account_info.clone()));

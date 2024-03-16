@@ -528,8 +528,10 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
+    use crate::accountant::test_utils::{
+        make_non_guaranteed_qualified_payable, make_pending_payable_fingerprint,
+    };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -565,7 +567,7 @@ mod tests {
     use std::any::TypeId;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -670,25 +672,9 @@ mod tests {
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_configuration = PersistentConfigurationMock::default()
             .set_arbitrary_id_stamp(persistent_config_id_stamp);
-        let wallet_1 = make_wallet("booga");
-        let wallet_2 = make_wallet("gulp");
         let qualified_payables = vec![
-            PayableAccount {
-                wallet: wallet_1.clone(),
-                balance_wei: 78_654_321_124,
-                last_paid_timestamp: SystemTime::now()
-                    .checked_sub(Duration::from_secs(1000))
-                    .unwrap(),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: wallet_2.clone(),
-                balance_wei: 60_457_111_003,
-                last_paid_timestamp: SystemTime::now()
-                    .checked_sub(Duration::from_secs(500))
-                    .unwrap(),
-                pending_payable_opt: None,
-            },
+            make_non_guaranteed_qualified_payable(111),
+            make_non_guaranteed_qualified_payable(222),
         ];
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -699,7 +685,7 @@ mod tests {
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        let qualified_payables = protect_payables_in_test(qualified_payables.clone());
+        let qualified_payables = protect_qualified_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -736,10 +722,11 @@ mod tests {
     }
 
     #[test]
-    fn build_of_blockchain_agent_throws_err_out_and_ends_handling_qualified_payables_message() {
+    fn build_of_blockchain_agent_throws_err_out_and_terminates_handling_qualified_payables_message()
+    {
         init_test_logging();
         let test_name =
-            "build_of_blockchain_agent_throws_err_out_and_ends_handling_qualified_payables_message";
+            "build_of_blockchain_agent_throws_err_out_and_terminates_handling_qualified_payables_message";
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant
             .system_stop_conditions(match_every_type_id!(ScanError))
@@ -760,12 +747,9 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = QualifiedPayablesMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 42,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }]),
+            protected_qualified_payables: protect_qualified_payables_in_test(vec![
+                make_non_guaranteed_qualified_payable(1234),
+            ]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11,
                 context_id: 2323,
@@ -810,12 +794,9 @@ mod tests {
             None,
         );
         let request = QualifiedPayablesMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 4254,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }]),
+            protected_qualified_payables: protect_qualified_payables_in_test(vec![
+                make_non_guaranteed_qualified_payable(12345),
+            ]),
             response_skeleton_opt: None,
         };
 

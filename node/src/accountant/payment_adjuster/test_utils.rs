@@ -3,9 +3,13 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::criteria_calculators::{
+    CalculatorInputHolder, CalculatorType, CriterionCalculator,
+};
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
 use crate::accountant::payment_adjuster::pre_adjustment_analyzer::PreAdjustmentAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
 use itertools::Either;
 use lazy_static::lazy_static;
@@ -37,7 +41,7 @@ pub fn make_initialized_subject(
     }
 }
 
-pub fn make_extreme_accounts(
+pub fn make_extreme_payables(
     months_of_debt_and_balance_minor: Either<(Vec<usize>, u128), Vec<(usize, u128)>>,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
@@ -63,6 +67,16 @@ pub fn make_extreme_accounts(
         })
         .collect()
 }
+
+pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHOLDS:
+    PaymentThresholds = PaymentThresholds {
+    debt_threshold_gwei: 2_000_000,
+    maturity_threshold_sec: 1_000,
+    payment_grace_period_sec: 1_000,
+    permanent_debt_allowed_gwei: 1_000_000,
+    threshold_interval_sec: 1_000_000,
+    unban_below_gwei: 1_000_000,
+};
 
 pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_changes(
     constants_and_expected_values: &[(i128, i128)],

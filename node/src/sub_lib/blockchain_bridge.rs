@@ -3,16 +3,19 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
-use crate::accountant::{QualifiedPayableAccount, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
+use crate::accountant::{
+    QualifiedPayableAccount, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder,
+};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::convert_collection;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use itertools::Either;
 use web3::types::U256;
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -54,8 +57,8 @@ impl OutboundPaymentsInstructions {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         let affordable_accounts = match accounts {
-            Either::Left(qualified_account) => todo!(),
-            Either::Right(adjusted_account) => todo!()
+            Either::Left(qualified_account) => convert_collection(qualified_account),
+            Either::Right(adjusted_account) => todo!(),
         };
 
         Self {
