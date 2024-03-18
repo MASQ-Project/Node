@@ -29,9 +29,8 @@ pub enum PendingPayableDaoError {
 #[derive(Debug)]
 pub struct TransactionHashes {
     pub(crate) rowid_results: Vec<(u64, H256)>,
-    pub(crate) no_rowid_results: Vec<H256>
+    pub(crate) no_rowid_results: Vec<H256>,
 }
-
 
 pub trait PendingPayableDao {
     // Note that the order of the returned results is not guaranteed
@@ -48,7 +47,8 @@ pub trait PendingPayableDao {
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes { //Vec<(Option<u64>, H256)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
+        //Vec<(Option<u64>, H256)> {
         fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
             let hash_str: String = row.get(0).expectv("hash");
             let hash = H256::from_str(&hash_str[2..]).expect("hash inserted right turned wrong");
@@ -70,12 +70,20 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .expect("map query failed")
             .vigilant_flatten()
             .collect::<Vec<(u64, H256)>>();
-        let hashes_of_found_records = all_found_records.iter().map(|(_, hash)| hash.clone()).collect::<HashSet<H256>>();
+        let hashes_of_found_records = all_found_records
+            .iter()
+            .map(|(_, hash)| *hash)
+            .collect::<HashSet<H256>>();
         let hashes_of_missing_rowids = hashes
             .iter()
-            .filter(|hash| !hashes_of_found_records.contains(hash) ).cloned().collect();
+            .filter(|hash| !hashes_of_found_records.contains(hash))
+            .cloned()
+            .collect();
 
-        TransactionHashes { rowid_results: all_found_records, no_rowid_results: hashes_of_missing_rowids }
+        TransactionHashes {
+            rowid_results: all_found_records,
+            no_rowid_results: hashes_of_missing_rowids,
+        }
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
@@ -411,14 +419,20 @@ mod tests {
 
         let first_expected_pair = &(1, hash_1);
         assert!(
-            result.rowid_results.as_slice().contains(first_expected_pair),
+            result
+                .rowid_results
+                .as_slice()
+                .contains(first_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             first_expected_pair,
             result.rowid_results.as_slice()
         );
         let second_expected_pair = &(2, hash_2);
         assert!(
-            result.rowid_results.as_slice().contains(second_expected_pair),
+            result
+                .rowid_results
+                .as_slice()
+                .contains(second_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             second_expected_pair,
             result.rowid_results.as_slice()
@@ -453,19 +467,10 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
-        assert_eq!(
-            result.rowid_results.as_slice(),
-            vec![
-                (2, hash_3),
-            ]
-        );
+        assert_eq!(result.rowid_results.as_slice(), vec![(2, hash_3),]);
         assert_eq!(
             result.no_rowid_results.as_slice(),
-            vec![
-                hash_1,
-                hash_2,
-                hash_4
-            ]
+            vec![hash_1, hash_2, hash_4]
         );
     }
 

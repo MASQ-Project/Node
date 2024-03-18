@@ -988,7 +988,9 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
-    use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDaoError, TransactionHashes};
+    use crate::accountant::db_access_objects::pending_payable_dao::{
+        PendingPayable, PendingPayableDaoError, TransactionHashes,
+    };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
@@ -1347,8 +1349,8 @@ mod tests {
     #[test]
     fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(1, make_tx_hash(123))],
                 no_rowid_results: vec![],
             });

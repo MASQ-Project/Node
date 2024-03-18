@@ -268,17 +268,15 @@ pub mod payable_scanner_utils {
         ))
     }
 
-    pub fn separate_rowids_and_hashes(
-        ids_of_payments: Vec<(u64, H256)>,
-    ) -> (Vec<u64>, Vec<H256>) {
+    pub fn separate_rowids_and_hashes(ids_of_payments: Vec<(u64, H256)>) -> (Vec<u64>, Vec<H256>) {
         ids_of_payments
             .into_iter()
             .map(|(checked_rowid, hash)| (checked_rowid, hash))
             .unzip()
         /*ids_of_payments
-            .into_iter()
-            .map(|(hash, checked_rowid)| (checked_rowid, hash))
-            .unzip()*/
+        .into_iter()
+        .map(|(hash, checked_rowid)| (checked_rowid, hash))
+        .unzip()*/
     }
 
     pub trait PayableThresholdsGauge {

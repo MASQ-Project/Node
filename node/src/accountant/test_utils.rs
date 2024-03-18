@@ -6,7 +6,9 @@ use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFacto
 use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
-use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes};
+use crate::accountant::db_access_objects::pending_payable_dao::{
+    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes,
+};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
@@ -895,9 +897,7 @@ impl PendingPayableDao for PendingPayableDaoMock {
             .lock()
             .unwrap()
             .push(hashes.to_vec());
-        self.fingerprints_rowids_results
-            .borrow_mut()
-            .remove(0)
+        self.fingerprints_rowids_results.borrow_mut().remove(0)
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
