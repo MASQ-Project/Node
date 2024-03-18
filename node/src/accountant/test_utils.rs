@@ -95,27 +95,27 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
 }
 
 pub struct AccountantBuilder {
-    config: Option<BootstrapperConfig>,
-    consuming_wallet: Option<Wallet>,
-    logger: Option<Logger>,
-    payable_dao_factory: Option<PayableDaoFactoryMock>,
-    receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
-    pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
-    banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<ConfigDaoFactoryMock>,
+    config_opt: Option<BootstrapperConfig>,
+    consuming_wallet_opt: Option<Wallet>,
+    logger_opt: Option<Logger>,
+    payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
+    receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
+    pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
+    config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
-            config: None,
-            consuming_wallet: None,
-            logger: None,
-            payable_dao_factory: None,
-            receivable_dao_factory: None,
-            pending_payable_dao_factory: None,
-            banned_dao_factory: None,
-            config_dao_factory: None,
+            config_opt: None,
+            consuming_wallet_opt: None,
+            logger_opt: None,
+            payable_dao_factory_opt: None,
+            receivable_dao_factory_opt: None,
+            pending_payable_dao_factory_opt: None,
+            banned_dao_factory_opt: None,
+            config_dao_factory_opt: None,
         }
     }
 }
@@ -264,17 +264,17 @@ const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = 
 
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
-        self.config = Some(config);
+        self.config_opt = Some(config);
         self
     }
 
     pub fn consuming_wallet(mut self, consuming_wallet: Wallet) -> Self {
-        self.consuming_wallet = Some(consuming_wallet);
+        self.consuming_wallet_opt = Some(consuming_wallet);
         self
     }
 
     pub fn logger(mut self, logger: Logger) -> Self {
-        self.logger = Some(logger);
+        self.logger_opt = Some(logger);
         self
     }
 
@@ -285,7 +285,7 @@ impl AccountantBuilder {
         create_or_update_factory!(
             specially_configured_daos,
             PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            pending_payable_dao_factory,
+            pending_payable_dao_factory_opt,
             PendingPayableDaoFactoryMock,
             PendingPayableDao,
             self
@@ -299,7 +299,7 @@ impl AccountantBuilder {
         create_or_update_factory!(
             specially_configured_daos,
             PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            payable_dao_factory,
+            payable_dao_factory_opt,
             PayableDaoFactoryMock,
             PayableDao,
             self
@@ -313,7 +313,7 @@ impl AccountantBuilder {
         create_or_update_factory!(
             specially_configured_daos,
             RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            receivable_dao_factory,
+            receivable_dao_factory_opt,
             ReceivableDaoFactoryMock,
             ReceivableDao,
             self
@@ -322,46 +322,46 @@ impl AccountantBuilder {
 
     //TODO this method seems to be never used?
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-        match self.banned_dao_factory {
+        match self.banned_dao_factory_opt {
             None => {
-                self.banned_dao_factory = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
+                self.banned_dao_factory_opt = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
             }
             Some(banned_dao_factory) => {
-                self.banned_dao_factory = Some(banned_dao_factory.make_result(banned_dao))
+                self.banned_dao_factory_opt = Some(banned_dao_factory.make_result(banned_dao))
             }
         }
         self
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
+        self.config_dao_factory_opt = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config.unwrap_or(make_bc_with_defaults());
-        let payable_dao_factory = self.payable_dao_factory.unwrap_or(
+        let config = self.config_opt.unwrap_or(make_bc_with_defaults());
+        let payable_dao_factory = self.payable_dao_factory_opt.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new()),
         );
-        let receivable_dao_factory = self.receivable_dao_factory.unwrap_or(
+        let receivable_dao_factory = self.receivable_dao_factory_opt.unwrap_or(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new())
                 .make_result(ReceivableDaoMock::new()),
         );
-        let pending_payable_dao_factory = self.pending_payable_dao_factory.unwrap_or(
+        let pending_payable_dao_factory = self.pending_payable_dao_factory_opt.unwrap_or(
             PendingPayableDaoFactoryMock::new()
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
         let banned_dao_factory = self
-            .banned_dao_factory
+            .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let config_dao_factory = self
-            .config_dao_factory
+            .config_dao_factory_opt
             .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
@@ -373,10 +373,10 @@ impl AccountantBuilder {
                 config_dao_factory: Box::new(config_dao_factory),
             },
         );
-        if let Some(logger) = self.logger {
+        if let Some(logger) = self.logger_opt {
             accountant.logger = logger;
         }
-        if let Some(consuming_wallet) = self.consuming_wallet {
+        if let Some(consuming_wallet) = self.consuming_wallet_opt {
             accountant.consuming_wallet_opt = Some(consuming_wallet);
         }
 
