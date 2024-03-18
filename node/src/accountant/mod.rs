@@ -25,7 +25,7 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{ScanSchedulers, Scanners, BeginScanError};
+use crate::accountant::scanners::{BeginScanError, ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -825,15 +825,13 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         let result = match self.consuming_wallet_opt.clone() {
-            Some(consuming_wallet) => {
-                self.scanners.payable.begin_scan(
-                    consuming_wallet,
-                    SystemTime::now(),
-                    response_skeleton_opt,
-                    &self.logger,
-                )
-            }
-            None => Err(BeginScanError::NoWalletFound)
+            Some(consuming_wallet) => self.scanners.payable.begin_scan(
+                consuming_wallet,
+                SystemTime::now(),
+                response_skeleton_opt,
+                &self.logger,
+            ),
+            None => Err(BeginScanError::NoWalletFound),
         };
 
         match result {
@@ -857,15 +855,13 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         let result = match self.consuming_wallet_opt.clone() {
-            Some(consuming_wallet) => {
-                self.scanners.pending_payable.begin_scan(
-                    consuming_wallet,
-                    SystemTime::now(),
-                    response_skeleton_opt,
-                    &self.logger,
-                )
-            }
-            None => Err(BeginScanError::NoWalletFound)
+            Some(consuming_wallet) => self.scanners.pending_payable.begin_scan(
+                consuming_wallet,
+                SystemTime::now(),
+                response_skeleton_opt,
+                &self.logger,
+            ),
+            None => Err(BeginScanError::NoWalletFound),
         };
 
         match result {
@@ -2144,15 +2140,28 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let time_after = SystemTime::now();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let first_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
+        let second_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
+        assert_eq!(wallet_1, wallet_2);
+        assert_eq!(wallet_2, earning_wallet);
+        assert!(time_before < timestamp_1);
+        assert!(timestamp_1 < timestamp_2);
+        assert!(timestamp_2 < time_after);
+        assert_eq!(response_skeleton_1, None);
+        assert_eq!(response_skeleton_2, None);
         assert_eq!(
-            *begin_scan_params,
-            vec![earning_wallet.clone(), earning_wallet]
+            logger_1.log(Level::Debug, "Something".to_string()),
+            logger_2.log(Level::Debug, "Something".to_string())
         );
         assert_eq!(
             *notify_later_receivable_params,
@@ -2220,14 +2229,30 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let time_after = SystemTime::now();
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![consuming_wallet.clone(), consuming_wallet]);
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let first_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
+        let second_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
+        assert_eq!(wallet_1, wallet_2);
+        assert_eq!(wallet_2, consuming_wallet);
+        assert!(time_before < timestamp_1);
+        assert!(timestamp_1 < timestamp_2);
+        assert!(timestamp_2 < time_after);
+        assert_eq!(response_skeleton_1, None);
+        assert_eq!(response_skeleton_2, None);
+        assert_eq!(
+            logger_1.log(Level::Debug, "Something".to_string()),
+            logger_2.log(Level::Debug, "Something".to_string())
+        );
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2297,16 +2322,29 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
+        let time_after = SystemTime::now();
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let first_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
+        let second_begin_scan_params = begin_scan_params.remove(0);
+        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
+        assert_eq!(wallet_1, wallet_2);
+        assert_eq!(wallet_2, consuming_wallet);
+        assert!(time_before < timestamp_1);
+        assert!(timestamp_1 < timestamp_2);
+        assert!(timestamp_2 < time_after);
+        assert_eq!(response_skeleton_1, None);
+        assert_eq!(response_skeleton_2, None);
         assert_eq!(
-            *begin_scan_params,
-            vec![consuming_wallet.clone(), consuming_wallet]
+            logger_1.log(Level::Debug, "Something".to_string()),
+            logger_2.log(Level::Debug, "Something".to_string())
         );
         assert_eq!(
             *notify_later_payables_params,

@@ -324,7 +324,8 @@ impl AccountantBuilder {
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
         match self.banned_dao_factory_opt {
             None => {
-                self.banned_dao_factory_opt = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
+                self.banned_dao_factory_opt =
+                    Some(BannedDaoFactoryMock::new().make_result(banned_dao))
             }
             Some(banned_dao_factory) => {
                 self.banned_dao_factory_opt = Some(banned_dao_factory.make_result(banned_dao))
@@ -1582,7 +1583,7 @@ impl NullScanner {
 }
 
 pub struct ScannerMock<BeginMessage, EndMessage> {
-    begin_scan_params: Arc<Mutex<Vec<Wallet>>>,
+    begin_scan_params: Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
     begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
     end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
     end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
@@ -1598,11 +1599,16 @@ where
     fn begin_scan(
         &mut self,
         wallet: Wallet,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
     ) -> Result<BeginMessage, BeginScanError> {
-        self.begin_scan_params.lock().unwrap().push(wallet);
+        self.begin_scan_params.lock().unwrap().push((
+            wallet,
+            timestamp,
+            response_skeleton_opt,
+            logger.clone(),
+        ));
         if self.is_allowed_to_stop_the_system() && self.is_last_message() {
             System::current().stop();
         }
@@ -1647,7 +1653,10 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
         }
     }
 
-    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+    pub fn begin_scan_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
+    ) -> Self {
         self.begin_scan_params = params.clone();
         self
     }
