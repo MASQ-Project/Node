@@ -71,11 +71,10 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .vigilant_flatten()
             .collect::<Vec<(u64, H256)>>();
         let hashes_of_found_records = all_found_records.iter().map(|(_, hash)| hash.clone()).collect::<HashSet<H256>>();
-        println!("debug hashes_of_found_records: {:#?}", hashes_of_found_records);
         let hashes_of_missing_rowids = hashes
             .iter()
             .filter(|hash| !hashes_of_found_records.contains(hash) ).cloned().collect();
-        println!("debug hashes_of_missing_rowids: {:#?}", hashes_of_missing_rowids);
+
         TransactionHashes { rowid_results: all_found_records, no_rowid_results: hashes_of_missing_rowids }
     }
 

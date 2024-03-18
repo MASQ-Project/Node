@@ -898,16 +898,6 @@ impl PendingPayableDao for PendingPayableDaoMock {
         self.fingerprints_rowids_results
             .borrow_mut()
             .remove(0)
-        // let mut no_rowid_results: Vec<H256> = vec![];
-        // let mut rowid_results: Vec<(u64, H256)> = vec![];
-        // for (rowid, hash) in self.fingerprints_rowids_results.clone().into_inner().remove(0)[..].into_iter() {
-        //     if rowid.is_some() {
-        //         rowid_results.push((rowid.unwrap(), *hash));
-        //     } else {
-        //         no_rowid_results.push(*hash);
-        //     }
-        // }
-        // TransactionHashes { rowid_results, no_rowid_results }
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {

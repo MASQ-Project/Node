@@ -1718,7 +1718,7 @@ mod tests {
         init_test_logging();
         let test_name =
             "payable_scanner_mark_pending_payable_panics_nonexistent_fingerprints_also_found";
-        let hash_1 = make_tx_hash(248);
+        let hash_1 = make_tx_hash(0xff);
         let hash_2 = make_tx_hash(0xf8);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(TransactionHashes {
