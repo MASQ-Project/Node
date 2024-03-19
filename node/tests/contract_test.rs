@@ -107,6 +107,7 @@ where
 #[test]
 fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
     let blockchain_urls = vec![
+        "https://rpc-mumbai.polygon.technology",
         "https://matic-mumbai.chainstacklabs.com",
         "https://rpc-mumbai.maticvigil.com",
         "https://matic-testnet-archive-rpc.bwarelabs.com",
