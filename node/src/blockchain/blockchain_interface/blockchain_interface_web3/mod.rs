@@ -344,11 +344,10 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         // .wait()
     }
 
-    fn get_transaction_count(
+    fn  get_transaction_count(
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("Testing get_transaction_count");
         Box::new(
             self.get_web3()
                 .eth()
@@ -473,9 +472,7 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{
-        all_chains, make_fake_event_loop_handle, make_tx_hash, TestTransport,
-    };
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface, make_fake_event_loop_handle, make_tx_hash, TestTransport};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
@@ -538,7 +535,7 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_return_contract() {
         all_chains().iter().for_each(|chain| {
-            let mut subject = make_subject(None);
+            let mut subject = make_blockchain_interface(None);
             subject.chain = *chain;
 
             assert_eq!(subject.contract_address(), chain.rec().contract)
@@ -640,6 +637,41 @@ mod tests {
     }
 
     #[test]
+    fn get_transaction_count_works() {
+        let port = find_free_port();
+        let wallet = make_paying_wallet(b"test_wallet");
+        let test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result": "0x1"}"#.to_vec()],
+        );
+
+        let subject = make_blockchain_interface(Some(port));
+
+        let result = subject.get_transaction_count(&wallet).wait();
+        assert_eq!(result, Ok(1.into()));
+    }
+
+    #[test]
+    fn get_transaction_count_gets_error() {
+        let port = find_free_port();
+        let wallet = make_paying_wallet(b"test_wallet");
+        let test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":0,"result": "trash"}"#.to_vec()],
+        );
+
+        let subject = make_blockchain_interface(Some(port));
+
+        let result = subject.get_transaction_count(&wallet).wait();
+        assert_eq!(
+            result,
+            Err(QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()))
+        );
+    }
+
+
+
+    #[test]
     fn blockchain_interface_web3_handles_no_retrieved_transactions() {
         // TODO: GH-744 this test is passing even though the ID's are incorrect
         let to_wallet = make_paying_wallet(b"test_wallet");
@@ -651,7 +683,7 @@ mod tests {
                 br#"{"jsonrpc":"2.0","id":2,"result":"0x178def"}"#.to_vec(),
             ],
         );
-        let subject = make_subject(Some(port));
+        let subject = make_blockchain_interface(Some(port));
         let end_block_nbr = 1024u64;
 
         let result = subject
@@ -809,7 +841,7 @@ mod tests {
         let _test_server = TestServer::start (port, vec ! [
     br#"[{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
     ]);
-        let subject = make_subject(Some(port));
+        let subject = make_blockchain_interface(Some(port));
         let start_block = BlockNumber::Number(42u64.into());
 
         let result = subject
@@ -855,17 +887,18 @@ mod tests {
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
-    fn make_subject(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
-        let port = port_opt.unwrap_or_else(|| find_free_port());
-        let chain = Chain::PolyMainnet;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-
-        BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
-    }
+    // pub fn make_blockchain_interface(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
+    //     //TODO: GH-744: Turn this into a builder patten.
+    //     let port = port_opt.unwrap_or_else(|| find_free_port());
+    //     let chain = Chain::PolyMainnet;
+    //     let (event_loop_handle, transport) = Http::with_max_parallel(
+    //         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+    //         REQUESTS_IN_PARALLEL,
+    //     )
+    //     .unwrap();
+    //
+    //     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
+    // }
 
     fn blockchain_interface_web3_can_build_blockchain_agent() {
         let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
@@ -874,7 +907,7 @@ mod tests {
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(50));
-        let mut subject = make_subject(None);
+        let mut subject = make_blockchain_interface(None);
         let transaction_fee_balance = U256::from(123_456_789);
         let masq_balance = U256::from(444_444_444);
         let transaction_id = U256::from(23);
@@ -991,7 +1024,7 @@ mod tests {
         let chain = Chain::EthMainnet;
         let wallet = make_wallet("bcd");
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(30));
-        let mut subject = make_subject(None);
+        let mut subject = make_blockchain_interface(None);
         // TODO: GH-744: Come back to this
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
@@ -1029,7 +1062,7 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
         ]);
-        let subject = make_subject(Some(port));
+        let subject = make_blockchain_interface(Some(port));
 
         let result = subject
             .get_token_balance(
@@ -1764,7 +1797,7 @@ mod tests {
             ][..],
         ];
 
-        let subject = make_subject(None);
+        let subject = make_blockchain_interface(None);
         let lengths_of_constant_parts: Vec<usize> =
             constant_parts.iter().map(|part| part.len()).collect();
         for (((tx, signed), length), constant_part) in txs
@@ -1866,7 +1899,7 @@ mod tests {
         // )
         // .unwrap();
         // let chain = TEST_DEFAULT_CHAIN;
-        let subject = make_subject(Some(port));
+        let subject = make_blockchain_interface(Some(port));
         let tx_hash =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
                 .unwrap();

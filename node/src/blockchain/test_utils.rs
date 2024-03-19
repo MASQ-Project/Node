@@ -5,7 +5,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
 };
@@ -27,10 +27,11 @@ use futures::Future;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::to_string;
+use masq_lib::utils::{find_free_port, to_string};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle, Http};
@@ -57,6 +58,19 @@ pub fn make_meaningless_phrase() -> String {
 pub fn make_meaningless_seed() -> Seed {
     let mnemonic = Mnemonic::from_phrase(&make_meaningless_phrase(), Language::English).unwrap();
     Seed::new(&mnemonic, "passphrase")
+}
+
+pub fn make_blockchain_interface(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
+    //TODO: GH-744: Turn this into a builder patten.
+    let port = port_opt.unwrap_or_else(|| find_free_port());
+    let chain = Chain::PolyMainnet;
+    let (event_loop_handle, transport) = Http::with_max_parallel(
+        &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+        REQUESTS_IN_PARALLEL,
+    )
+        .unwrap();
+
+    BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
 
 #[derive(Default)]

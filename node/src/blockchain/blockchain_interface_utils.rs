@@ -245,7 +245,7 @@ pub fn sign_and_append_multiple_payments(
     accounts: Vec<PayableAccount>,
 ) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static>>
 {
-    // todo!("Stop for FuturesOrdered");
+    // todo!("Test this FuturesOrdered");
     let mut payable_que = FuturesOrdered::new();
     accounts.into_iter().for_each(|payable| {
         debug!(
@@ -380,13 +380,13 @@ pub fn send_payables_within_batch(
     // )));
 }
 
-// TODO: GH-744: this needs tto be test driven
 pub fn request_block_number(
     web3: Web3<Http>,
     start_block: BlockNumber,
     end_block: BlockNumber,
     logger: Logger,
 ) -> Box<dyn Future<Item = u64, Error = ()>> {
+    // TODO: GH-744: Move fallback code outside of this function, we dont want a panic inside a Future
     let fallback_start_block_number = match end_block {
         BlockNumber::Number(eb) => eb.as_u64(),
         _ => {
@@ -423,9 +423,9 @@ mod tests {
     use std::net::Ipv4Addr;
     // use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::test_utils::make_payable_account_with_wallet_and_balance_and_timestamp_opt;
+    use crate::accountant::test_utils::{make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt};
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
+    use crate::blockchain::test_utils::{make_blockchain_interface, make_tx_hash, TestTransport};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
@@ -434,14 +434,15 @@ mod tests {
     use actix::{Actor, System};
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use serde_json::json;
     use serde_json::Value;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
     use web3::Error as Web3Error;
     use web3::Error::Unreachable;
     use masq_lib::utils::find_free_port;
@@ -451,6 +452,48 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
+
+    #[test]
+    fn sign_and_append_multiple_payments_works() {
+        let port = find_free_port();
+        let test_server = TestServer::start(
+            port,
+            vec![
+                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+            ],
+        );
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
+        let blockchain_web3 = make_blockchain_interface(Some(port));
+        let chain= DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let pending_nonce = 1;
+        let batch_web3 = blockchain_web3.get_web3_batch();
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
+        let accounts = vec![account_1, account_2];
+
+        let result = sign_and_append_multiple_payments(
+            logger,
+            chain,
+            batch_web3,
+            consuming_wallet,
+            gas_price,
+            pending_nonce.into(),
+            accounts,
+        ).collect().wait();
+
+        // thread::sleep(Duration::from_millis(5_000));
+        // let requests_so_far = test_server.requests_so_far();
+        // eprintln!("requests_so_far: {:?}", requests_so_far);
+
+        // TODO: GH-744: Assert on the sending
+
+        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
+        // assert_eq!(result, Err(PayableTransactionError::MissingConsumingWallet));
+    }
 
     #[test]
     fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
@@ -858,8 +901,32 @@ mod tests {
     }
 
     #[test]
+    fn request_block_number_fallback_works() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![br#"{"jsonrpc":"2.0","id":7,"result":""}"#.to_vec()], // 0x400 == 1024
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+        let start_block_nbr = BlockNumber::Number(100u64.into());
+        let end_block_nbr = BlockNumber::Number(2024u64.into());
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let logger = Logger::new("request_block_number_works");
+
+        let result =
+            request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
+
+        assert_eq!(result, Ok(2024u64));
+    }
+
+    #[test]
     fn sign_transaction_fails_on_signing_itself() {
-        // TODO: GH-744: Signing will only fail if we make an RPC call.
+        todo!("GH-744: Signing will only fail if we make an RPC call.")
         // DO this after we remove gas_price & nonce (This will be done last, just before we merged master in)
         // let transport = TestTransport::default();
         // let consuming_wallet_secret_raw_bytes = b"okay-wallet";
