@@ -2183,40 +2183,6 @@ mod tests {
     }
 
     #[test]
-    fn payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
-        init_test_logging();
-        let test_name = "payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
-        let mut subject = AccountantBuilder::default().build();
-        subject.consuming_wallet_opt = None;
-        subject.logger = Logger::new(test_name);
-
-        subject.handle_request_of_scan_for_payable(None);
-
-        let has_scan_started = subject.scanners.payable.scan_started_at().is_some();
-        assert_eq!(has_scan_started, false);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Cannot initiate Payables scan because no consuming wallet was found."
-        ));
-    }
-
-    #[test]
-    fn pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
-        init_test_logging();
-        let test_name = "pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
-        let mut subject = AccountantBuilder::default().build();
-        subject.consuming_wallet_opt = None;
-        subject.logger = Logger::new(test_name);
-
-        subject.handle_request_of_scan_for_pending_payable(None);
-
-        let has_scan_started = subject.scanners.pending_payable.scan_started_at().is_some();
-        assert_eq!(has_scan_started, false);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Cannot initiate PendingPayables scan because no consuming wallet was found."
-        ));
-    }
-
-    #[test]
     fn periodical_scanning_for_pending_payable_works() {
         init_test_logging();
         let test_name = "periodical_scanning_for_pending_payable_works";
@@ -2397,6 +2363,40 @@ mod tests {
                 ),
             ]
         )
+    }
+
+    #[test]
+    fn payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
+        init_test_logging();
+        let test_name = "payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
+        let mut subject = AccountantBuilder::default().build();
+        subject.consuming_wallet_opt = None;
+        subject.logger = Logger::new(test_name);
+
+        subject.handle_request_of_scan_for_payable(None);
+
+        let has_scan_started = subject.scanners.payable.scan_started_at().is_some();
+        assert_eq!(has_scan_started, false);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Cannot initiate Payables scan because no consuming wallet was found."
+        ));
+    }
+
+    #[test]
+    fn pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
+        init_test_logging();
+        let test_name = "pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
+        let mut subject = AccountantBuilder::default().build();
+        subject.consuming_wallet_opt = None;
+        subject.logger = Logger::new(test_name);
+
+        subject.handle_request_of_scan_for_pending_payable(None);
+
+        let has_scan_started = subject.scanners.pending_payable.scan_started_at().is_some();
+        assert_eq!(has_scan_started, false);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Cannot initiate PendingPayables scan because no consuming wallet was found."
+        ));
     }
 
     #[test]

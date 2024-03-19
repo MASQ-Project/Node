@@ -233,10 +233,9 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Result<(), String> {
-        let consuming_wallet = &incoming_message.consuming_wallet;
         let agent = self
             .blockchain_interface
-            .build_blockchain_agent(consuming_wallet, &*self.persistent_config)
+            .build_blockchain_agent(&incoming_message.consuming_wallet, &*self.persistent_config)
             .map_err(to_string)?;
 
         let outgoing_message = BlockchainAgentWithContextMessage::new(
