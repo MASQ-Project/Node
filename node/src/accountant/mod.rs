@@ -577,7 +577,7 @@ impl Accountant {
             self.earning_wallet = wallet_pair.earning_wallet;
             self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
         } else {
-            trace!(self.logger, "Unexpected message received: {:?}", msg);
+            trace!(self.logger, "Ignored irrelevant message: {:?}", msg);
         }
     }
 
@@ -1264,7 +1264,7 @@ mod tests {
             },
             |_subject: &Accountant| {
                 let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
+                    "TRACE: ConfigChange: Ignored irrelevant message: \
                     ConfigChangeMsg { change: UpdatePassword(\"new password\") }",
                 );
             },
@@ -1275,7 +1275,7 @@ mod tests {
             },
             |_subject: &Accountant| {
                 let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
+                    "TRACE: ConfigChange: Ignored irrelevant message: \
                     ConfigChangeMsg { change: UpdateMinHops(FourHops) }",
                 );
             },
