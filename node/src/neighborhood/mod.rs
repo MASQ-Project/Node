@@ -545,8 +545,14 @@ impl Neighborhood {
 
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         match msg.change {
-            ConfigChange::UpdateWallets(new_wallet_pair) => {
-                self.consuming_wallet_opt = Some(new_wallet_pair.consuming_wallet);
+            ConfigChange::UpdateWallets(wallet_pair) => {
+                if self.consuming_wallet_opt != Some(wallet_pair.consuming_wallet.clone()) {
+                    debug!(
+                        self.logger,
+                        "Consuming Wallet has been updated: {}", wallet_pair.consuming_wallet
+                    );
+                    self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+                }
             }
             ConfigChange::UpdateMinHops(new_min_hops) => {
                 self.set_min_hops_and_patch_size(new_min_hops);
@@ -565,6 +571,7 @@ impl Neighborhood {
                 self.search_for_a_new_route();
             }
             ConfigChange::UpdatePassword(new_password) => {
+                debug!(self.logger, "DB Password has been updated.");
                 self.db_password_opt = Some(new_password);
             }
         }
@@ -2959,6 +2966,7 @@ mod tests {
                     subject.consuming_wallet_opt,
                     Some(make_paying_wallet(b"new_consuming_wallet"))
                 );
+                let _ = TestLogHandler::new().exists_log_containing("DEBUG: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e");
             },
         );
         assert_handling_of_config_change_msg(
@@ -2966,7 +2974,10 @@ mod tests {
                 change: ConfigChange::UpdatePassword("new password".to_string()),
             },
             |subject: &Neighborhood| {
-                assert_eq!(subject.db_password_opt, Some("new password".to_string()))
+                assert_eq!(subject.db_password_opt, Some("new password".to_string()));
+
+                let _ = TestLogHandler::new()
+                    .exists_log_containing("DEBUG: ConfigChange: DB Password has been updated.");
             },
         );
         assert_handling_of_config_change_msg(

@@ -574,8 +574,20 @@ impl Accountant {
 
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.earning_wallet = wallet_pair.earning_wallet;
-            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+            if self.earning_wallet != wallet_pair.earning_wallet {
+                debug!(
+                    self.logger,
+                    "Earning Wallet has been updated: {}", wallet_pair.earning_wallet
+                );
+                self.earning_wallet = wallet_pair.earning_wallet;
+            }
+            if self.consuming_wallet_opt != Some(wallet_pair.consuming_wallet.clone()) {
+                debug!(
+                    self.logger,
+                    "Consuming Wallet has been updated: {}", wallet_pair.consuming_wallet
+                );
+                self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+            }
         } else {
             trace!(self.logger, "Ignored irrelevant message: {:?}", msg);
         }
@@ -1255,7 +1267,13 @@ mod tests {
                     subject.consuming_wallet_opt,
                     Some(make_paying_wallet(b"new_consuming_wallet"))
                 );
-                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"))
+                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"));
+                let _ = TestLogHandler::new().assert_logs_contain_in_order(
+                    vec![
+                        "DEBUG: ConfigChange: Earning Wallet has been updated: 0x00006e65775f6561726e696e675f77616c6c6574",
+                        "DEBUG: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e",
+                    ]
+                );
             },
         );
         assert_handling_of_config_change_msg(
