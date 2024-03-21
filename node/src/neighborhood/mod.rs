@@ -547,7 +547,7 @@ impl Neighborhood {
         match msg.change {
             ConfigChange::UpdateWallets(wallet_pair) => {
                 if self.consuming_wallet_opt != Some(wallet_pair.consuming_wallet.clone()) {
-                    debug!(
+                    info!(
                         self.logger,
                         "Consuming Wallet has been updated: {}", wallet_pair.consuming_wallet
                     );
@@ -571,7 +571,7 @@ impl Neighborhood {
                 self.search_for_a_new_route();
             }
             ConfigChange::UpdatePassword(new_password) => {
-                debug!(self.logger, "DB Password has been updated.");
+                info!(self.logger, "DB Password has been updated.");
                 self.db_password_opt = Some(new_password);
             }
         }
@@ -2966,7 +2966,7 @@ mod tests {
                     subject.consuming_wallet_opt,
                     Some(make_paying_wallet(b"new_consuming_wallet"))
                 );
-                let _ = TestLogHandler::new().exists_log_containing("DEBUG: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e");
+                let _ = TestLogHandler::new().exists_log_containing("INFO: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e");
             },
         );
         assert_handling_of_config_change_msg(
@@ -2977,7 +2977,7 @@ mod tests {
                 assert_eq!(subject.db_password_opt, Some("new password".to_string()));
 
                 let _ = TestLogHandler::new()
-                    .exists_log_containing("DEBUG: ConfigChange: DB Password has been updated.");
+                    .exists_log_containing("INFO: ConfigChange: DB Password has been updated.");
             },
         );
         assert_handling_of_config_change_msg(
