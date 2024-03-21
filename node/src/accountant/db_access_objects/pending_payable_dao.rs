@@ -28,8 +28,8 @@ pub enum PendingPayableDaoError {
 
 #[derive(Debug)]
 pub struct TransactionHashes {
-    pub(crate) rowid_results: Vec<(u64, H256)>,
-    pub(crate) no_rowid_results: Vec<H256>,
+    pub rowid_results: Vec<(u64, H256)>,
+    pub no_rowid_results: Vec<H256>,
 }
 
 pub trait PendingPayableDao {
@@ -419,25 +419,19 @@ mod tests {
 
         let first_expected_pair = &(1, hash_1);
         assert!(
-            result
-                .rowid_results
-                .as_slice()
-                .contains(first_expected_pair),
+            result.rowid_results.contains(first_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             first_expected_pair,
-            result.rowid_results.as_slice()
+            result.rowid_results
         );
         let second_expected_pair = &(2, hash_2);
         assert!(
-            result
-                .rowid_results
-                .as_slice()
-                .contains(second_expected_pair),
+            result.rowid_results.contains(second_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             second_expected_pair,
-            result.rowid_results.as_slice()
+            result.rowid_results
         );
-        assert_eq!(result.rowid_results.as_slice().len(), 2);
+        assert_eq!(result.rowid_results.len(), 2);
     }
 
     #[test]
@@ -467,11 +461,8 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
-        assert_eq!(result.rowid_results.as_slice(), vec![(2, hash_3),]);
-        assert_eq!(
-            result.no_rowid_results.as_slice(),
-            vec![hash_1, hash_2, hash_4]
-        );
+        assert_eq!(result.rowid_results, vec![(2, hash_3),]);
+        assert_eq!(result.no_rowid_results, vec![hash_1, hash_2, hash_4]);
     }
 
     #[test]

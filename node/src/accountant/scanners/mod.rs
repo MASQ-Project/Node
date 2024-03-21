@@ -126,7 +126,6 @@ where
     as_any_mut_in_trait!();
 }
 
-#[derive(Debug)]
 pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
     pub payment_thresholds: Rc<PaymentThresholds>,
@@ -383,27 +382,27 @@ impl PayableScanner {
             .iter()
             .map(|pending_payable| pending_payable.hash)
             .collect::<Vec<H256>>();
-        let sent_payables_hashmap = sent_payables
+        let mut sent_payables_hashmap = sent_payables
             .iter()
             .map(|payable| (payable.hash, &payable.recipient_wallet))
             .collect::<HashMap<H256, &Wallet>>();
 
         let transaction_hashes = self.pending_payable_dao.fingerprints_rowids(&hashes);
-        let mut rowid_pairs_with_hashes = transaction_hashes
+        let mut hashes_from_fb_comp = transaction_hashes
             .rowid_results
             .iter()
             .map(|(_rowid, hash)| *hash)
             .collect::<HashSet<H256>>();
         for hash in &transaction_hashes.no_rowid_results {
-            rowid_pairs_with_hashes.insert(*hash);
+            hashes_from_fb_comp.insert(*hash);
         }
         let sent_payables_hashes = hashes.iter().copied().collect::<HashSet<H256>>();
 
-        if !PayableScanner::is_symmetrical(sent_payables_hashes, rowid_pairs_with_hashes) {
+        if !PayableScanner::is_symmetrical(sent_payables_hashes, hashes_from_fb_comp.clone()) {
             panic!(
                 "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
                 sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
-                sent_payables, transaction_hashes.rowid_results
+                sent_payables, transaction_hashes
             )
         }
 
@@ -411,32 +410,24 @@ impl PayableScanner {
             .rowid_results
             .into_iter()
             .map(|(rowid, hash)| {
-                PendingPayableMetadata::new(
-                    <&Wallet>::clone(
-                        sent_payables_hashmap
-                            .get(&hash)
-                            .expect("expect transaction hash, but it disappear"),
-                    ),
-                    hash,
-                    Some(rowid),
-                )
+                let wallet = sent_payables_hashmap
+                    .remove(&hash)
+                    .expect("expect transaction hash, but it disappear");
+                PendingPayableMetadata::new(wallet, hash, Some(rowid))
             })
             .collect_vec();
         let pending_payables_without_rowid = transaction_hashes
             .no_rowid_results
             .into_iter()
             .map(|hash| {
-                PendingPayableMetadata::new(
-                    <&Wallet>::clone(
-                        sent_payables_hashmap
-                            .get(&hash)
-                            .expect("expect transaction hash, but it disappear"),
-                    ),
-                    hash,
-                    None,
-                )
+                let wallet = sent_payables_hashmap
+                    .remove(&hash)
+                    .expect("expect transaction hash, but it disappear");
+                PendingPayableMetadata::new(wallet, hash, None)
             })
             .collect_vec();
+        //TODO You can consider to have a struct with two named fields for clearing up the kind of the set for readers
+        // bumping into it outside this function. Not like two anonymous items in a tuple.
         (pending_payables_with_rowid, pending_payables_without_rowid)
     }
 
@@ -529,18 +520,12 @@ impl PayableScanner {
         let existent_and_nonexistent = self
             .pending_payable_dao
             .fingerprints_rowids(&hashes_of_failed);
-        let existent = existent_and_nonexistent
-            .rowid_results
-            .into_iter()
-            .collect_vec();
-        let nonexistent = existent_and_nonexistent
-            .no_rowid_results
-            .into_iter()
-            .collect_vec();
-        let missing_fgp_err_msg_opt =
-            err_msg_if_failed_without_existing_fingerprints(nonexistent, serialize_hashes);
-        if !existent.is_empty() {
-            let (ids, hashes) = separate_rowids_and_hashes(existent);
+        let missing_fgp_err_msg_opt = err_msg_if_failed_without_existing_fingerprints(
+            existent_and_nonexistent.no_rowid_results,
+            serialize_hashes,
+        );
+        if !existent_and_nonexistent.rowid_results.is_empty() {
+            let (ids, hashes) = separate_rowids_and_hashes(existent_and_nonexistent.rowid_results);
             warning!(
                 logger,
                 "Deleting fingerprints for failed transactions {}",
@@ -1548,9 +1533,11 @@ mod tests {
     PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000676869) }, \
     hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }], \
     set derived from the DB: \
+    TransactionHashes { rowid_results: \
     [(4, 0x000000000000000000000000000000000000000000000000000000000000007b), \
     (1, 0x0000000000000000000000000000000000000000000000000000000000000237), \
-    (3, 0x0000000000000000000000000000000000000000000000000000000000000315)]"
+    (3, 0x0000000000000000000000000000000000000000000000000000000000000315)], \
+    no_rowid_results: [] }"
     )]
     fn two_sourced_information_of_new_pending_payables_and_their_fingerprints_is_not_symmetrical() {
         let vals = prepare_values_for_mismatched_setting();
@@ -1586,7 +1573,7 @@ mod tests {
         ];
         let pending_payables_ref = pending_payables_sent_from_blockchain_bridge
             .iter()
-            .map(|ppayable| ppayable.hash.clone())
+            .map(|ppayable| ppayable.hash)
             .collect::<HashSet<H256>>();
         let hashes_from_fingerprints = vec![(hash_1, 3), (hash_2, 5), (hash_3, 6)]
             .iter()
@@ -1604,7 +1591,7 @@ mod tests {
         let pending_payables_ref_from_blockchain_bridge = vals
             .pending_payables
             .iter()
-            .map(|ppayable| ppayable.hash.clone())
+            .map(|ppayable| ppayable.hash)
             .collect::<HashSet<H256>>();
         let rowids_and_hashes_from_fingerprints = vec![
             (vals.common_hash_1, 3),
@@ -1635,7 +1622,7 @@ mod tests {
         ];
         let bb_returned_p_payables_ref = pending_payables_sent_from_blockchain_bridge
             .iter()
-            .map(|ppayable| ppayable.hash.clone())
+            .map(|ppayable| ppayable.hash)
             .collect::<HashSet<H256>>();
         // Not in an ascending order
         let rowids_and_hashes_from_fingerprints = vec![(hash_1, 3), (hash_3, 5), (hash_2, 6)]
