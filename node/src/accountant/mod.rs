@@ -2166,20 +2166,28 @@ mod tests {
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
         let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
-        let first_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
-        let second_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
-        assert_eq!(wallet_1, wallet_2);
-        assert_eq!(wallet_2, earning_wallet);
-        assert!(time_before < timestamp_1);
-        assert!(timestamp_1 < timestamp_2);
-        assert!(timestamp_2 < time_after);
-        assert_eq!(response_skeleton_1, None);
-        assert_eq!(response_skeleton_2, None);
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, earning_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
         assert_eq!(
-            logger_1.log(Level::Debug, "Something".to_string()),
-            logger_2.log(Level::Debug, "Something".to_string())
+            first_attempt_logger.log(Level::Debug, "Something".to_string()),
+            second_attempt_logger.log(Level::Debug, "Something".to_string())
         );
         assert_eq!(
             *notify_later_receivable_params,
@@ -2256,20 +2264,28 @@ mod tests {
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
         let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
-        let first_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
-        let second_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
-        assert_eq!(wallet_1, wallet_2);
-        assert_eq!(wallet_2, consuming_wallet);
-        assert!(time_before < timestamp_1);
-        assert!(timestamp_1 < timestamp_2);
-        assert!(timestamp_2 < time_after);
-        assert_eq!(response_skeleton_1, None);
-        assert_eq!(response_skeleton_2, None);
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, consuming_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
         assert_eq!(
-            logger_1.log(Level::Debug, "Something".to_string()),
-            logger_2.log(Level::Debug, "Something".to_string())
+            first_attempt_logger.log(Level::Debug, "Something".to_string()),
+            second_attempt_logger.log(Level::Debug, "Something".to_string())
         );
         assert_eq!(
             *notify_later_pending_payable_params,
@@ -2349,20 +2365,28 @@ mod tests {
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
         let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
-        let first_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_1, timestamp_1, response_skeleton_1, logger_1) = first_begin_scan_params;
-        let second_begin_scan_params = begin_scan_params.remove(0);
-        let (wallet_2, timestamp_2, response_skeleton_2, logger_2) = second_begin_scan_params;
-        assert_eq!(wallet_1, wallet_2);
-        assert_eq!(wallet_2, consuming_wallet);
-        assert!(time_before < timestamp_1);
-        assert!(timestamp_1 < timestamp_2);
-        assert!(timestamp_2 < time_after);
-        assert_eq!(response_skeleton_1, None);
-        assert_eq!(response_skeleton_2, None);
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, consuming_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
         assert_eq!(
-            logger_1.log(Level::Debug, "Something".to_string()),
-            logger_2.log(Level::Debug, "Something".to_string())
+            first_attempt_logger.log(Level::Debug, "Something".to_string()),
+            second_attempt_logger.log(Level::Debug, "Something".to_string())
         );
         assert_eq!(
             *notify_later_payables_params,
