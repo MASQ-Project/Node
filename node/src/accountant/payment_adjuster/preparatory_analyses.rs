@@ -1,15 +1,14 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::payment_adjuster::log_fns::{
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     TransactionCountsWithin16bits, WeightedAccount,
 };
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    calculate_disqualification_edge, sum_as,
-};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::QualifiedPayableAccount;
@@ -17,9 +16,9 @@ use ethereum_types::U256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 
-pub struct PreAdjustmentAnalyzer {}
+pub struct PreparatoryAnalyzer {}
 
-impl PreAdjustmentAnalyzer {
+impl PreparatoryAnalyzer {
     pub fn new() -> Self {
         Self {}
     }
@@ -110,8 +109,8 @@ impl PreAdjustmentAnalyzer {
         if cw_service_fee_balance_minor >= required_service_fee_sum {
             Ok(false)
         } else {
-            TransactionFeeAdjustmentPossibilityVerifier {}
-                .verify_lowest_detectable_adjustment_possibility(
+            ServiceFeeAdjustmentPossibilityAnalyser {}
+                .analyse_lowest_detectable_adjustment_possibility(
                     &qualified_payables,
                     cw_service_fee_balance_minor,
                 )?;
@@ -126,13 +125,14 @@ impl PreAdjustmentAnalyzer {
     }
 }
 
-pub struct TransactionFeeAdjustmentPossibilityVerifier {}
+pub struct ServiceFeeAdjustmentPossibilityAnalyser {}
 
-impl TransactionFeeAdjustmentPossibilityVerifier {
-    // We cannot do much in this area, only step in if the balance can be zero or nearly zero by
-    // assumption we make about the smallest debt in the set and the disqualification limit applied
-    // on it. If so, we don't want to bother payment adjuster and so we will abort instead.
-    pub fn verify_lowest_detectable_adjustment_possibility(
+impl ServiceFeeAdjustmentPossibilityAnalyser {
+    // We cannot do much in this area but stepping in if the cw balance is zero or nearly zero with
+    // the assumption that the smallest debt in the set of accounts fits under the disqualification
+    // limit. If it doesn't, we won't want to bother the payment adjuster by that work, so we're
+    // going to abort, no payments coming out.
+    pub fn analyse_lowest_detectable_adjustment_possibility(
         &self,
         accounts: &[&PayableAccount],
         cw_service_fee_balance_minor: u128,
@@ -145,7 +145,7 @@ impl TransactionFeeAdjustmentPossibilityVerifier {
             .collect::<Vec<_>>();
         let smallest_account = sorted.first().expect("should be one at minimum");
 
-        if calculate_disqualification_edge(smallest_account.balance_wei)
+        if DisqualificationArbiter::calculate_disqualification_edge(smallest_account.balance_wei)
             <= cw_service_fee_balance_minor
         {
             Ok(())
@@ -165,9 +165,9 @@ impl TransactionFeeAdjustmentPossibilityVerifier {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
-    use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{
-        PreAdjustmentAnalyzer, TransactionFeeAdjustmentPossibilityVerifier,
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
+    use crate::accountant::payment_adjuster::preparatory_analyses::{
+        PreparatoryAnalyzer, ServiceFeeAdjustmentPossibilityAnalyser,
     };
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -188,7 +188,7 @@ mod tests {
                 estimated_transaction_fee_per_one_tx_minor,
             )
             .transaction_fee_balance_minor_result(critical_wallet_balance);
-        let subject = PreAdjustmentAnalyzer::new();
+        let subject = PreparatoryAnalyzer::new();
 
         let panic_err = catch_unwind(AssertUnwindSafe(|| {
             subject.determine_transaction_count_limit_by_transaction_fee(
@@ -215,9 +215,9 @@ mod tests {
     ) {
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
-        let subject = TransactionFeeAdjustmentPossibilityVerifier {};
+        let subject = ServiceFeeAdjustmentPossibilityAnalyser {};
 
-        let result = subject.verify_lowest_detectable_adjustment_possibility(
+        let result = subject.analyse_lowest_detectable_adjustment_possibility(
             &accounts_in_expected_format,
             cw_service_fee_balance,
         );
@@ -231,7 +231,8 @@ mod tests {
         account_1.balance_wei = 2_000_000_000;
         let mut account_2 = make_payable_account(333);
         account_2.balance_wei = 1_000_000_000;
-        let cw_service_fee_balance = calculate_disqualification_edge(account_2.balance_wei) + 1;
+        let cw_service_fee_balance =
+            DisqualificationArbiter::calculate_disqualification_edge(account_2.balance_wei) + 1;
         let original_accounts = vec![account_1, account_2];
 
         test_body_for_adjustment_possibility_nearly_rejected(
@@ -246,7 +247,8 @@ mod tests {
         account_1.balance_wei = 2_000_000_000;
         let mut account_2 = make_payable_account(333);
         account_2.balance_wei = 1_000_000_000;
-        let cw_service_fee_balance = calculate_disqualification_edge(account_2.balance_wei);
+        let cw_service_fee_balance =
+            DisqualificationArbiter::calculate_disqualification_edge(account_2.balance_wei);
         let original_accounts = vec![account_1, account_2];
 
         test_body_for_adjustment_possibility_nearly_rejected(
@@ -264,13 +266,14 @@ mod tests {
         account_2.balance_wei = 2_000_000_002;
         let mut account_3 = make_payable_account(333);
         account_3.balance_wei = 1_000_000_002;
-        let cw_service_fee_balance = calculate_disqualification_edge(account_3.balance_wei) - 1;
+        let cw_service_fee_balance =
+            DisqualificationArbiter::calculate_disqualification_edge(account_3.balance_wei) - 1;
         let original_accounts = vec![account_1, account_2, account_3];
         let accounts_in_expected_format =
             original_accounts.iter().collect::<Vec<&PayableAccount>>();
-        let subject = TransactionFeeAdjustmentPossibilityVerifier {};
+        let subject = ServiceFeeAdjustmentPossibilityAnalyser {};
 
-        let result = subject.verify_lowest_detectable_adjustment_possibility(
+        let result = subject.analyse_lowest_detectable_adjustment_possibility(
             &accounts_in_expected_format,
             cw_service_fee_balance,
         );

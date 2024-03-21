@@ -15,6 +15,7 @@ const BALANCE_LOG_2_ARG_DIVISOR: u128 = 18_490_000;
 // This parameter affects the steepness analogously, but energetically
 const BALANCE_FINAL_MULTIPLIER: u128 = 2;
 
+#[derive(Default)]
 pub struct BalanceAndAgeCriterionCalculator {}
 
 impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
@@ -28,20 +29,6 @@ impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
 }
 
 impl BalanceAndAgeCriterionCalculator {
-    pub fn new() -> Self {
-        todo!()
-        // let formula = Box::new(|balance_minor_holder: CalculatorInputHolder| {
-        //     let balance_minor = balance_minor_holder.balance_input();
-        //     let argument_for_log = Self::calculate_binary_argument(balance_minor);
-        //     let binary_weight = Self::nonzero_log2(argument_for_log);
-        //     balance_minor
-        //         .checked_mul(binary_weight as u128)
-        //         .expect("mul overflow")
-        //         * BALANCE_FINAL_MULTIPLIER
-        // });
-        // Self { formula }
-    }
-
     // fn nonzero_log2(input: u128) -> u32 {
     //     let log = log_2(input);
     //     if log > 0 {
@@ -79,7 +66,7 @@ mod tests {
 
     #[test]
     fn balance_criteria_calculation_works() {
-        let subject = BalanceAndAgeCriterionCalculator::new();
+        let subject = BalanceAndAgeCriterionCalculator::default();
         let balance_wei = 111_333_555_777_u128;
         let account = todo!();
 

@@ -2,10 +2,10 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
+use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
 };
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::try_finding_an_account_to_disqualify_in_this_iteration;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use crate::accountant::QualifiedPayableAccount;
 use itertools::Either;
@@ -129,7 +129,10 @@ fn adjust_last_one_opt(
 
     let logger = &payment_adjuster.logger;
 
-    match try_finding_an_account_to_disqualify_in_this_iteration(&proposed_adjustment_vec, logger) {
+    match DisqualificationArbiter::try_finding_an_account_to_disqualify_in_this_iteration(
+        &proposed_adjustment_vec,
+        logger,
+    ) {
         Some(_) => None,
         None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
     }
@@ -151,8 +154,8 @@ mod tests {
         adjust_last_one_opt, empty_or_single_element_vector, AdjustmentRunner,
         ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
     };
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::calculate_disqualification_edge;
     use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
@@ -226,7 +229,8 @@ mod tests {
     fn adjust_last_one_for_requested_balance_smaller_than_cw_but_not_needed_disqualified() {
         let now = SystemTime::now();
         let account_balance = 4_500_600;
-        let cw_balance = calculate_disqualification_edge(account_balance) + 1;
+        let cw_balance =
+            DisqualificationArbiter::calculate_disqualification_edge(account_balance) + 1;
         let payable = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: account_balance,
@@ -277,7 +281,7 @@ mod tests {
     fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_evens_the_edge()
     {
         let account_balance = 4_000_444;
-        let cw_balance = calculate_disqualification_edge(account_balance);
+        let cw_balance = DisqualificationArbiter::calculate_disqualification_edge(account_balance);
         let payment_threshold_intercept = 3_000_000_000;
 
         test_adjust_last_one_when_disqualified(
@@ -291,7 +295,8 @@ mod tests {
     fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_slightly_under()
     {
         let account_balance = 4_000_444;
-        let cw_balance = calculate_disqualification_edge(account_balance) - 1;
+        let cw_balance =
+            DisqualificationArbiter::calculate_disqualification_edge(account_balance) - 1;
         let payment_threshold_intercept = 3_000_000_000;
 
         test_adjust_last_one_when_disqualified(

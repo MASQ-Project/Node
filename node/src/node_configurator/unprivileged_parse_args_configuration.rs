@@ -514,7 +514,7 @@ fn configure_accountant_config(
     Ok(())
 }
 
-fn check_payment_thresholds(
+pub fn check_payment_thresholds(
     payment_thresholds: &PaymentThresholds,
 ) -> Result<(), ConfiguratorError> {
     if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei {

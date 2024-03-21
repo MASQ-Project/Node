@@ -4,12 +4,13 @@
 mod adjustment_runners;
 mod criteria_calculators;
 mod diagnostics;
+mod disqualification_arbiter;
 mod inner;
 #[cfg(test)]
 mod loading_test;
 mod log_fns;
 mod miscellaneous;
-mod pre_adjustment_analyzer;
+mod preparatory_analyses;
 #[cfg(test)]
 mod test_utils;
 
@@ -29,8 +30,8 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::Require
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, UnconfirmedAdjustment, WeightedAccount};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, try_finding_an_account_to_disqualify_in_this_iteration, resolve_possibly_outweighed_account, drop_no_longer_needed_weights_away_from_accounts, drop_unaffordable_accounts_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, zero_affordable_accounts_found};
-use crate::accountant::payment_adjuster::pre_adjustment_analyzer::{PreAdjustmentAnalyzer};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, resolve_possibly_outweighed_account, drop_no_longer_needed_weights_away_from_accounts, drop_unaffordable_accounts_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, zero_affordable_accounts_found};
+use crate::accountant::payment_adjuster::preparatory_analyses::{PreparatoryAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
@@ -45,6 +46,7 @@ use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::{CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
+use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::QualifiedPayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -66,8 +68,9 @@ pub trait PaymentAdjuster {
 }
 
 pub struct PaymentAdjusterReal {
-    analyzer: PreAdjustmentAnalyzer,
+    analyzer: PreparatoryAnalyzer,
     inner: Box<dyn PaymentAdjusterInner>,
+    calculators: Vec<Box<dyn CriterionCalculator>>,
     logger: Logger,
 }
 
@@ -145,8 +148,9 @@ impl Default for PaymentAdjusterReal {
 impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {
-            analyzer: PreAdjustmentAnalyzer::new(),
+            analyzer: PreparatoryAnalyzer::new(),
             inner: Box::new(PaymentAdjusterInnerNull {}),
+            calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
             logger: Logger::new("PaymentAdjuster"),
         }
     }
@@ -349,15 +353,12 @@ impl PaymentAdjusterReal {
         &self,
         accounts: Vec<QualifiedPayableAccount>,
     ) -> Vec<WeightedAccount> {
-        let criteria_calculators: Vec<Box<dyn CriterionCalculator>> =
-            vec![Box::new(BalanceAndAgeCriterionCalculator::new())];
-
-        self.apply_criteria(criteria_calculators, accounts)
+        self.apply_criteria(self.calculators.as_slice(), accounts)
     }
 
     fn apply_criteria(
         &self,
-        criteria_calculators: Vec<Box<dyn CriterionCalculator>>,
+        criteria_calculators: &[Box<dyn CriterionCalculator>],
         qualified_accounts: Vec<QualifiedPayableAccount>,
     ) -> Vec<WeightedAccount> {
         let weighted_accounts = qualified_accounts.into_iter().map(|payable| {
@@ -476,7 +477,10 @@ impl PaymentAdjusterReal {
         logger: &Logger,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
         if let Some(disqualified_account_wallet) =
-            try_finding_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, logger)
+            DisqualificationArbiter::try_finding_an_account_to_disqualify_in_this_iteration(
+                &unconfirmed_adjustments,
+                logger,
+            )
         {
             let remaining = unconfirmed_adjustments.into_iter().filter(|account_info| {
                 account_info
