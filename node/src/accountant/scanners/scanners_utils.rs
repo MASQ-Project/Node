@@ -119,7 +119,7 @@ pub mod payable_scanner_utils {
         batch_request_responses: &'a [ProcessedPayableFallible],
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
-        //todo("maybe we can return not tuple but struct with remote_errors_opt member");
+        //TODO maybe we can return not tuple but struct with remote_errors_opt member
         let (oks, errs) = batch_request_responses
             .iter()
             .fold((vec![], vec![]), |acc, rpc_result| {
@@ -269,14 +269,7 @@ pub mod payable_scanner_utils {
     }
 
     pub fn separate_rowids_and_hashes(ids_of_payments: Vec<(u64, H256)>) -> (Vec<u64>, Vec<H256>) {
-        ids_of_payments
-            .into_iter()
-            .map(|(checked_rowid, hash)| (checked_rowid, hash))
-            .unzip()
-        /*ids_of_payments
-        .into_iter()
-        .map(|(hash, checked_rowid)| (checked_rowid, hash))
-        .unzip()*/
+        ids_of_payments.into_iter().unzip()
     }
 
     pub trait PayableThresholdsGauge {
