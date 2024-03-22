@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use log::Level;
-use regex::escape;
 use serde_derive::Serialize;
 
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
@@ -157,19 +156,15 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let private_key = "0011223300112233001122330011223300112233001122330011223300112233";
     let subject = cluster.start_real_node(
-        NodeStartupConfigBuilder::zero_hop()
+        NodeStartupConfigBuilder::standard()
             .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(private_key.to_string()))
             .chain(cluster.chain)
             .build(),
     );
 
-    let escaped_pattern = escape(&format!(
-        "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
-        subject.consuming_wallet().unwrap()
-    ));
     MASQNodeUtils::wrote_log_containing(
         subject.name(),
-        &escaped_pattern,
+        "DEBUG: BlockchainBridge: Received BindMessage",
         Duration::from_millis(1000),
     )
 }
