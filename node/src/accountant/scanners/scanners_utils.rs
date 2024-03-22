@@ -258,7 +258,7 @@ pub mod payable_scanner_utils {
         )
     }
 
-    pub fn err_msg_if_failed_without_existing_fingerprints(
+    pub fn err_msg_for_failure_with_expected_but_missing_fingerprints(
         nonexistent: Vec<H256>,
         serialize_hashes: fn(&[H256]) -> String,
     ) -> Option<String> {

@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
+    debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints,
     investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
     separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
     PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata,
@@ -388,17 +388,17 @@ impl PayableScanner {
             .collect::<HashMap<H256, &Wallet>>();
 
         let transaction_hashes = self.pending_payable_dao.fingerprints_rowids(&hashes);
-        let mut hashes_from_fb_comp = transaction_hashes
+        let mut hashes_from_db = transaction_hashes
             .rowid_results
             .iter()
             .map(|(_rowid, hash)| *hash)
             .collect::<HashSet<H256>>();
         for hash in &transaction_hashes.no_rowid_results {
-            hashes_from_fb_comp.insert(*hash);
+            hashes_from_db.insert(*hash);
         }
         let sent_payables_hashes = hashes.iter().copied().collect::<HashSet<H256>>();
 
-        if !PayableScanner::is_symmetrical(sent_payables_hashes, hashes_from_fb_comp.clone()) {
+        if !PayableScanner::is_symmetrical(sent_payables_hashes, hashes_from_db) {
             panic!(
                 "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
                 sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
@@ -426,8 +426,7 @@ impl PayableScanner {
                 PendingPayableMetadata::new(wallet, hash, None)
             })
             .collect_vec();
-        //TODO You can consider to have a struct with two named fields for clearing up the kind of the set for readers
-        // bumping into it outside this function. Not like two anonymous items in a tuple.
+
         (pending_payables_with_rowid, pending_payables_without_rowid)
     }
 
@@ -520,7 +519,7 @@ impl PayableScanner {
         let existent_and_nonexistent = self
             .pending_payable_dao
             .fingerprints_rowids(&hashes_of_failed);
-        let missing_fgp_err_msg_opt = err_msg_if_failed_without_existing_fingerprints(
+        let missing_fgp_err_msg_opt = err_msg_for_failure_with_expected_but_missing_fingerprints(
             existent_and_nonexistent.no_rowid_results,
             serialize_hashes,
         );
