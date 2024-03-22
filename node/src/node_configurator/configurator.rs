@@ -2315,7 +2315,6 @@ mod tests {
         init_test_logging();
         let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
         let mut subject = make_subject(None);
-        // subject.update_min_hops_subs_opt = Some(Box::new(ConfigChangeSubsNull));
         subject.logger = Logger::new(test_name);
 
         let result = subject.handle_set_configuration(

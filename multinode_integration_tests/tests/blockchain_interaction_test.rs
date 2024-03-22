@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use log::Level;
-use regex::escape;
 use serde_derive::Serialize;
 
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};

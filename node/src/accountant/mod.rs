@@ -25,7 +25,7 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{ScanSchedulers, Scanners};
+use crate::accountant::scanners::{BeginScanError, ScanSchedulers, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -574,10 +574,22 @@ impl Accountant {
 
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         if let ConfigChange::UpdateWallets(wallet_pair) = msg.change {
-            self.earning_wallet = wallet_pair.earning_wallet;
-            self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+            if self.earning_wallet != wallet_pair.earning_wallet {
+                info!(
+                    self.logger,
+                    "Earning Wallet has been updated: {}", wallet_pair.earning_wallet
+                );
+                self.earning_wallet = wallet_pair.earning_wallet;
+            }
+            if self.consuming_wallet_opt != Some(wallet_pair.consuming_wallet.clone()) {
+                info!(
+                    self.logger,
+                    "Consuming Wallet has been updated: {}", wallet_pair.consuming_wallet
+                );
+                self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+            }
         } else {
-            trace!(self.logger, "Unexpected message received: {:?}", msg);
+            trace!(self.logger, "Ignored irrelevant message: {:?}", msg);
         }
     }
 
@@ -824,12 +836,17 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.payable.begin_scan(
-            self.consuming_wallet_opt.clone(),
-            SystemTime::now(),
-            response_skeleton_opt,
-            &self.logger,
-        ) {
+        let result = match self.consuming_wallet_opt.clone() {
+            Some(consuming_wallet) => self.scanners.payable.begin_scan(
+                consuming_wallet,
+                SystemTime::now(),
+                response_skeleton_opt,
+                &self.logger,
+            ),
+            None => Err(BeginScanError::NoConsumingWalletFound),
+        };
+
+        match result {
             Ok(scan_message) => {
                 self.qualified_payables_sub_opt
                     .as_ref()
@@ -849,12 +866,17 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.pending_payable.begin_scan(
-            None,
-            SystemTime::now(),
-            response_skeleton_opt,
-            &self.logger,
-        ) {
+        let result = match self.consuming_wallet_opt.clone() {
+            Some(consuming_wallet) => self.scanners.pending_payable.begin_scan(
+                consuming_wallet, // This argument is not used and is therefore irrelevant
+                SystemTime::now(),
+                response_skeleton_opt,
+                &self.logger,
+            ),
+            None => Err(BeginScanError::NoConsumingWalletFound),
+        };
+
+        match result {
             Ok(scan_message) => self
                 .request_transaction_receipts_subs_opt
                 .as_ref()
@@ -874,7 +896,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         match self.scanners.receivable.begin_scan(
-            Some(self.earning_wallet.clone()),
+            self.earning_wallet.clone(),
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -1245,7 +1267,13 @@ mod tests {
                     subject.consuming_wallet_opt,
                     Some(make_paying_wallet(b"new_consuming_wallet"))
                 );
-                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"))
+                assert_eq!(subject.earning_wallet, make_wallet("new_earning_wallet"));
+                let _ = TestLogHandler::new().assert_logs_contain_in_order(
+                    vec![
+                        "INFO: ConfigChange: Earning Wallet has been updated: 0x00006e65775f6561726e696e675f77616c6c6574",
+                        "INFO: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e",
+                    ]
+                );
             },
         );
         assert_handling_of_config_change_msg(
@@ -1254,7 +1282,7 @@ mod tests {
             },
             |_subject: &Accountant| {
                 let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
+                    "TRACE: ConfigChange: Ignored irrelevant message: \
                     ConfigChangeMsg { change: UpdatePassword(\"new password\") }",
                 );
             },
@@ -1265,7 +1293,7 @@ mod tests {
             },
             |_subject: &Accountant| {
                 let _ = TestLogHandler::new().exists_log_containing(
-                    "TRACE: ConfigChange: Unexpected message received: \
+                    "TRACE: ConfigChange: Ignored irrelevant message: \
                     ConfigChangeMsg { change: UpdateMinHops(FourHops) }",
                 );
             },
@@ -1419,7 +1447,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1696,6 +1724,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .return_all_errorless_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
@@ -1754,6 +1783,7 @@ mod tests {
             .return_all_errorless_fingerprints_result(vec![fingerprint]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .logger(Logger::new(test_name))
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
@@ -1904,7 +1934,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: None,
             }
         );
@@ -2128,16 +2158,38 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let time_after = SystemTime::now();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
-        assert_eq!(
-            *begin_scan_params,
-            vec![Some(earning_wallet.clone()), Some(earning_wallet),]
-        );
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, earning_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_receivable_params,
             vec![
@@ -2165,6 +2217,7 @@ mod tests {
         let notify_later_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let pending_payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
@@ -2180,6 +2233,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_millis(98),
         });
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(consuming_wallet.clone())
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
             .build();
@@ -2202,14 +2256,39 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let time_after = SystemTime::now();
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![None, None]);
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, consuming_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2245,7 +2324,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
-                consuming_wallet_opt: Some(consuming_wallet.clone()),
+                consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: None,
             }))
             .stop_the_system_after_last_msg();
@@ -2279,17 +2358,39 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        let time_before = SystemTime::now();
         system.run();
+        let time_after = SystemTime::now();
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
-        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
-        assert_eq!(
-            *begin_scan_params,
-            vec![Some(consuming_wallet.clone()), Some(consuming_wallet),]
-        );
+        let mut begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        let (
+            first_attempt_wallet,
+            first_attempt_timestamp,
+            first_attempt_response_skeleton_opt,
+            first_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        let (
+            second_attempt_wallet,
+            second_attempt_timestamp,
+            second_attempt_response_skeleton_opt,
+            second_attempt_logger,
+        ) = begin_scan_params.remove(0);
+        assert_eq!(first_attempt_wallet, second_attempt_wallet);
+        assert_eq!(second_attempt_wallet, consuming_wallet);
+        assert!(time_before <= first_attempt_timestamp);
+        assert!(first_attempt_timestamp <= second_attempt_timestamp);
+        assert!(second_attempt_timestamp <= time_after);
+        assert_eq!(first_attempt_response_skeleton_opt, None);
+        assert_eq!(second_attempt_response_skeleton_opt, None);
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_payables_params,
             vec![
@@ -2307,6 +2408,40 @@ mod tests {
                 ),
             ]
         )
+    }
+
+    #[test]
+    fn payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
+        init_test_logging();
+        let test_name = "payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
+        let mut subject = AccountantBuilder::default().build();
+        subject.consuming_wallet_opt = None;
+        subject.logger = Logger::new(test_name);
+
+        subject.handle_request_of_scan_for_payable(None);
+
+        let has_scan_started = subject.scanners.payable.scan_started_at().is_some();
+        assert_eq!(has_scan_started, false);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Cannot initiate Payables scan because no consuming wallet was found."
+        ));
+    }
+
+    #[test]
+    fn pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found() {
+        init_test_logging();
+        let test_name = "pending_payable_scan_is_not_initiated_if_consuming_wallet_is_not_found";
+        let mut subject = AccountantBuilder::default().build();
+        subject.consuming_wallet_opt = None;
+        subject.logger = Logger::new(test_name);
+
+        subject.handle_request_of_scan_for_pending_payable(None);
+
+        let has_scan_started = subject.scanners.pending_payable.scan_started_at().is_some();
+        assert_eq!(has_scan_started, false);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Cannot initiate PendingPayables scan because no consuming wallet was found."
+        ));
     }
 
     #[test]
@@ -2406,7 +2541,7 @@ mod tests {
         subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
 
         let _result = subject.scanners.payable.begin_scan(
-            Some(consuming_wallet),
+            consuming_wallet,
             SystemTime::now(),
             None,
             &subject.logger,
@@ -2487,7 +2622,7 @@ mod tests {
             message,
             &QualifiedPayablesMessage {
                 protected_qualified_payables: protect_payables_in_test(qualified_payables),
-                consuming_wallet_opt: Some(consuming_wallet),
+                consuming_wallet,
                 response_skeleton_opt: None,
             }
         );
@@ -2521,6 +2656,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .logger(Logger::new(test_name))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .bootstrapper_config(config)
@@ -2610,6 +2746,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_paying_wallet(b"consuming"))
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .bootstrapper_config(config)
             .build();

@@ -10,19 +10,19 @@ use std::fmt::Debug;
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
     pub protected_qualified_payables: Obfuscated,
-    pub consuming_wallet_opt: Option<Wallet>,
+    pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
         protected_qualified_payables: Obfuscated,
-        consuming_wallet_opt: Option<Wallet>,
+        consuming_wallet: Wallet,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
             protected_qualified_payables,
-            consuming_wallet_opt,
+            consuming_wallet,
             response_skeleton_opt,
         }
     }
