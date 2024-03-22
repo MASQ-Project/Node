@@ -2185,10 +2185,11 @@ mod tests {
         assert!(second_attempt_timestamp <= time_after);
         assert_eq!(first_attempt_response_skeleton_opt, None);
         assert_eq!(second_attempt_response_skeleton_opt, None);
-        assert_eq!(
-            first_attempt_logger.log(Level::Debug, "Something".to_string()),
-            second_attempt_logger.log(Level::Debug, "Something".to_string())
-        );
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_receivable_params,
             vec![
@@ -2283,10 +2284,11 @@ mod tests {
         assert!(second_attempt_timestamp <= time_after);
         assert_eq!(first_attempt_response_skeleton_opt, None);
         assert_eq!(second_attempt_response_skeleton_opt, None);
-        assert_eq!(
-            first_attempt_logger.log(Level::Debug, "Something".to_string()),
-            second_attempt_logger.log(Level::Debug, "Something".to_string())
-        );
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -2384,10 +2386,11 @@ mod tests {
         assert!(second_attempt_timestamp <= time_after);
         assert_eq!(first_attempt_response_skeleton_opt, None);
         assert_eq!(second_attempt_response_skeleton_opt, None);
-        assert_eq!(
-            first_attempt_logger.log(Level::Debug, "Something".to_string()),
-            second_attempt_logger.log(Level::Debug, "Something".to_string())
-        );
+        debug!(first_attempt_logger, "first attempt");
+        debug!(second_attempt_logger, "second attempt");
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: first attempt"));
+        tlh.exists_log_containing(&format!("DEBUG: {test_name}: second attempt"));
         assert_eq!(
             *notify_later_payables_params,
             vec![
