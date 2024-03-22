@@ -572,7 +572,7 @@ pub struct PendingPayableScanner {
 impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
     fn begin_scan(
         &mut self,
-        _consuming_wallet: Wallet,
+        _irrelevant_wallet: Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
@@ -1320,7 +1320,7 @@ mod tests {
         let _result = subject.begin_scan(consuming_wallet.clone(), now, None, &Logger::new("test"));
 
         let run_again_result = subject.begin_scan(
-            consuming_wallet.clone(),
+            consuming_wallet,
             SystemTime::now(),
             None,
             &Logger::new("test"),
