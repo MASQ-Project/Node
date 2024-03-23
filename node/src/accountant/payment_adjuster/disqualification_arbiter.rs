@@ -432,12 +432,10 @@ mod tests {
         let cw_masq_balance = 200_000_000_000;
         let logger = Logger::new(test_name);
         let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
-        // None of these accounts would be outside the definition for disqualification
-        // even if any of them would be gifted by the complete balance from the cw
         let wallet_1 = make_wallet("abc");
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
-            balance_wei: 120_000_000_001,
+            balance_wei: 120_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
             pending_payable_opt: None,
         };
@@ -445,21 +443,21 @@ mod tests {
         let account_2 = PayableAccount {
             wallet: wallet_2.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_001)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_3 = make_wallet("ghi");
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
-            balance_wei: 119_999_999_999,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(999_999)).unwrap(),
+            balance_wei: 120_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_003)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_4 = make_wallet("jkl");
         let account_4 = PayableAccount {
             wallet: wallet_4.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(999_999)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_002)).unwrap(),
             pending_payable_opt: None,
         };
         let accounts = vec![account_1, account_2, account_3, account_4];
@@ -469,14 +467,12 @@ mod tests {
         let weights_total = weights_total(&weights_and_accounts);
         let unconfirmed_adjustments =
             subject.compute_unconfirmed_adjustments(weights_and_accounts, weights_total);
-        let disqualification_gauge = DisqualificationGaugeMock::default();
-        let subject = DisqualificationArbiter::new(Box::new(disqualification_gauge));
+        let subject = DisqualificationArbiter::new(Box::new(DisqualificationGaugeReal::default()));
 
-        let result =
-            DisqualificationArbiter::try_finding_an_account_to_disqualify_in_this_iteration(
-                &unconfirmed_adjustments,
-                &logger,
-            );
+        let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
+            &unconfirmed_adjustments,
+            &logger,
+        );
 
         assert_eq!(result, Some(wallet_3));
     }
