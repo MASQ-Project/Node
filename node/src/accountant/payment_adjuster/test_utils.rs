@@ -5,8 +5,9 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationGauge;
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
-use crate::accountant::payment_adjuster::preparatory_analyses::PreparatoryAnalyzer;
+use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -16,6 +17,7 @@ use lazy_static::lazy_static;
 use masq_lib::constants::MASQ_TOTAL_SUPPLY;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
@@ -31,16 +33,14 @@ pub fn make_initialized_subject(
 ) -> PaymentAdjusterReal {
     let cw_masq_balance_minor = cw_masq_balance_minor_opt.unwrap_or(0);
     let logger = logger_opt.unwrap_or(Logger::new("test"));
-    PaymentAdjusterReal {
-        analyzer: PreparatoryAnalyzer::new(),
-        inner: Box::new(PaymentAdjusterInnerReal::new(
-            now,
-            None,
-            cw_masq_balance_minor,
-        )),
-        calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
-        logger,
-    }
+    let mut subject = PaymentAdjusterReal::new();
+    subject.logger = logger;
+    subject.inner = Box::new(PaymentAdjusterInnerReal::new(
+        now,
+        None,
+        cw_masq_balance_minor,
+    ));
+    subject
 }
 
 pub fn make_extreme_payables(
@@ -126,6 +126,35 @@ impl CriterionCalculator for CriterionCalculatorMock {
 impl CriterionCalculatorMock {
     pub fn calculate_result(self, result: u128) -> Self {
         self.calculate_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct DisqualificationGaugeMock {
+    determine_limit_params: Arc<Mutex<Vec<(u128, u128, u128)>>>,
+    determine_limit_results: RefCell<Vec<u128>>,
+}
+
+impl DisqualificationGauge for DisqualificationGaugeMock {
+    fn determine_limit(
+        &self,
+        account_balance_wei: u128,
+        threshold_intercept_wei: u128,
+        permanent_debt_allowed_wei: u128,
+    ) -> u128 {
+        todo!()
+    }
+}
+
+impl DisqualificationGaugeMock {
+    pub fn determine_limit_params(mut self, params: &Arc<Mutex<Vec<(u128, u128, u128)>>>) -> Self {
+        self.determine_limit_params = params.clone();
+        self
+    }
+
+    pub fn determine_limit_result(mut self, result: u128) -> Self {
+        self.determine_limit_results.borrow_mut().push(result);
         self
     }
 }

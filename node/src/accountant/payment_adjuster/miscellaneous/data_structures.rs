@@ -1,6 +1,7 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::QualifiedPayableAccount;
+use web3::types::U256;
 
 #[derive(Clone)]
 pub struct WeightedAccount {
@@ -122,13 +123,19 @@ pub struct PercentageAccountInsignificance {
     pub divisor: u128,
 }
 
+impl PercentageAccountInsignificance {
+    pub fn compute_reduction(&self, debt_part_above_threshold_wei: u128) -> u128 {
+        todo!()
+    }
+}
+
 pub struct TransactionCountsWithin16bits {
     pub affordable: u16,
     pub required: u16,
 }
 
 impl TransactionCountsWithin16bits {
-    pub fn new(max_possible_tx_count: u128, number_of_accounts: usize) -> Self {
+    pub fn new(max_possible_tx_count: U256, number_of_accounts: usize) -> Self {
         TransactionCountsWithin16bits {
             affordable: u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
             required: u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
@@ -142,6 +149,7 @@ mod tests {
         AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsWithin16bits,
     };
     use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
+    use ethereum_types::U256;
 
     #[test]
     fn merging_results_from_recursion_works() {
@@ -179,9 +187,11 @@ mod tests {
 
     #[test]
     fn there_is_u16_ceiling_for_possible_tx_count() {
-        let result = [-3_i8, -1, 0, 1, 10]
+        let corrections_from_u16_max = [-3_i8, -1, 0, 1, 10];
+        let result = corrections_from_u16_max
             .into_iter()
-            .map(|correction| plus_minus_correction_of_u16_max(correction) as u128)
+            .map(|correction| plus_minus_correction_of_u16_max(correction))
+            .map(U256::from)
             .map(|max_possible_tx_count| {
                 let detected_tx_counts =
                     TransactionCountsWithin16bits::new(max_possible_tx_count, 123);
@@ -197,12 +207,13 @@ mod tests {
 
     #[test]
     fn there_is_u16_ceiling_for_required_number_of_accounts() {
-        let result = [-9_i8, -1, 0, 1, 5]
+        let corrections_from_u16_max = [-9_i8, -1, 0, 1, 5];
+        let result = corrections_from_u16_max
             .into_iter()
             .map(|correction| plus_minus_correction_of_u16_max(correction))
             .map(|required_tx_count_usize| {
                 let detected_tx_counts =
-                    TransactionCountsWithin16bits::new(123, required_tx_count_usize);
+                    TransactionCountsWithin16bits::new(U256::from(123), required_tx_count_usize);
                 detected_tx_counts.required
             })
             .collect::<Vec<_>>();

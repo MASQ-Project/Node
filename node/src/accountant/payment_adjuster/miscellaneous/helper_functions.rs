@@ -23,7 +23,7 @@ use web3::types::U256;
 const MAX_EXPONENT_FOR_10_WITHIN_U128: u32 = 76;
 const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
 // Represents 50%
-pub const ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE: PercentageAccountInsignificance =
+pub const EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO: PercentageAccountInsignificance =
     PercentageAccountInsignificance {
         multiplier: 1,
         divisor: 2,
@@ -52,7 +52,7 @@ pub fn weights_total(weights_and_accounts: &[WeightedAccount]) -> u128 {
     })
 }
 
-pub fn drop_unaffordable_accounts_due_to_service_fee(
+pub fn dump_unaffordable_accounts_by_txn_fee(
     weighted_accounts_in_descending_order: Vec<WeightedAccount>,
     affordable_transaction_count: u16,
 ) -> Vec<WeightedAccount> {
@@ -83,7 +83,7 @@ pub fn compute_mul_coefficient_preventing_fractional_numbers(
     // of pure blockchains with no application-specific smart contract
 }
 
-pub fn resolve_possibly_outweighed_account(
+pub fn adjust_account_balance_if_outweighed(
     (mut outweighed, mut passing_through): (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>),
     mut current_adjustment_info: UnconfirmedAdjustment,
 ) -> (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) {
@@ -305,10 +305,11 @@ mod tests {
         WeightedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
+        adjust_account_balance_if_outweighed,
         compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_till_the_last_drop,
-        log_10, resolve_possibly_outweighed_account, weights_total, zero_affordable_accounts_found,
-        ConsumingWalletExhaustingStatus, ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
-        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_WITHIN_U128,
+        log_10, weights_total, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
+        EMPIRIC_PRECISION_COEFFICIENT, EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO,
+        MAX_EXPONENT_FOR_10_WITHIN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
@@ -332,7 +333,7 @@ mod tests {
         assert_eq!(MAX_EXPONENT_FOR_10_WITHIN_U128, 76);
         assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
         assert_eq!(
-            ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE,
+            EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO,
             PercentageAccountInsignificance {
                 multiplier: 1,
                 divisor: 2
@@ -576,7 +577,7 @@ mod tests {
         let init = (vec![], vec![]);
 
         let (outweighed, ok) =
-            resolve_possibly_outweighed_account(init, unconfirmed_adjustment.clone());
+            adjust_account_balance_if_outweighed(init, unconfirmed_adjustment.clone());
 
         assert_eq!(outweighed, vec![]);
         assert_eq!(ok, vec![unconfirmed_adjustment])

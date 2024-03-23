@@ -10,7 +10,7 @@ mod inner;
 mod loading_test;
 mod log_fns;
 mod miscellaneous;
-mod preparatory_analyses;
+mod preparatory_analyser;
 #[cfg(test)]
 mod test_utils;
 
@@ -30,8 +30,8 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::Require
     TreatInsignificantAccount, TreatOutweighedAccounts,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, UnconfirmedAdjustment, WeightedAccount};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, resolve_possibly_outweighed_account, drop_no_longer_needed_weights_away_from_accounts, drop_unaffordable_accounts_due_to_service_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, zero_affordable_accounts_found};
-use crate::accountant::payment_adjuster::preparatory_analyses::{PreparatoryAnalyzer};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total, exhaust_cw_till_the_last_drop, adjust_account_balance_if_outweighed, drop_no_longer_needed_weights_away_from_accounts, dump_unaffordable_accounts_by_txn_fee, sum_as, compute_mul_coefficient_preventing_fractional_numbers, sort_in_descendant_order_by_weights, zero_affordable_accounts_found};
+use crate::accountant::payment_adjuster::preparatory_analyser::{PreparatoryAnalyzer};
 use crate::diagnostics;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
@@ -46,7 +46,7 @@ use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criteria_calculators::{CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
-use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
+use crate::accountant::payment_adjuster::disqualification_arbiter::{DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal};
 use crate::accountant::QualifiedPayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -69,6 +69,7 @@ pub trait PaymentAdjuster {
 
 pub struct PaymentAdjusterReal {
     analyzer: PreparatoryAnalyzer,
+    disqualification_arbiter: DisqualificationArbiter,
     inner: Box<dyn PaymentAdjusterInner>,
     calculators: Vec<Box<dyn CriterionCalculator>>,
     logger: Logger,
@@ -100,9 +101,10 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         let service_fee_balance_minor = agent.service_fee_balance_minor();
         match self.analyzer.check_need_of_adjustment_by_service_fee(
-            &self.logger,
+            &self.disqualification_arbiter,
             Either::Left(qualified_payables),
             service_fee_balance_minor,
+            &self.logger,
         ) {
             Ok(false) => Ok(None),
             Ok(true) => Ok(Some(Adjustment::ByServiceFee)),
@@ -149,6 +151,9 @@ impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {
             analyzer: PreparatoryAnalyzer::new(),
+            disqualification_arbiter: DisqualificationArbiter::new(Box::new(
+                DisqualificationGaugeReal::default(),
+            )),
             inner: Box::new(PaymentAdjusterInnerNull {}),
             calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
             logger: Logger::new("PaymentAdjuster"),
@@ -244,18 +249,19 @@ impl PaymentAdjusterReal {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        let accounts_with_criteria_affordable_by_transaction_fee =
-            drop_unaffordable_accounts_due_to_service_fee(
-                weighted_accounts_in_descending_order,
-                already_known_affordable_transaction_count,
-            );
+        let weighted_accounts_affordable_by_transaction_fee = dump_unaffordable_accounts_by_txn_fee(
+            weighted_accounts_in_descending_order,
+            already_known_affordable_transaction_count,
+        );
+
         let cw_service_fee_balance = self.inner.original_cw_service_fee_balance_minor();
 
         let is_service_fee_adjustment_needed =
             match self.analyzer.check_need_of_adjustment_by_service_fee(
-                &self.logger,
-                Either::Right(&accounts_with_criteria_affordable_by_transaction_fee),
+                &self.disqualification_arbiter,
+                Either::Right(&weighted_accounts_affordable_by_transaction_fee),
                 cw_service_fee_balance,
+                &self.logger,
             ) {
                 Ok(answer) => answer,
                 Err(e) => {
@@ -270,14 +276,14 @@ impl PaymentAdjusterReal {
 
                 let adjustment_result_before_verification = self
                     .propose_possible_adjustment_recursively(
-                        accounts_with_criteria_affordable_by_transaction_fee,
+                        weighted_accounts_affordable_by_transaction_fee,
                     );
                 Ok(Either::Left(adjustment_result_before_verification))
             }
             false => {
                 let accounts_not_needing_adjustment =
                     drop_no_longer_needed_weights_away_from_accounts(
-                        accounts_with_criteria_affordable_by_transaction_fee,
+                        weighted_accounts_affordable_by_transaction_fee,
                     );
                 Ok(Either::Right(accounts_not_needing_adjustment))
             }
@@ -400,10 +406,9 @@ impl PaymentAdjusterReal {
                 Either::Right(with_some_outweighed) => return with_some_outweighed,
             };
 
-        let verified_accounts = match Self::consider_account_disqualification(
-            still_unchecked_for_disqualified,
-            &self.logger,
-        ) {
+        let verified_accounts = match self
+            .consider_account_disqualification(still_unchecked_for_disqualified, &self.logger)
+        {
             Either::Left(verified_accounts) => verified_accounts,
             Either::Right(with_some_disqualified) => return with_some_disqualified,
         };
@@ -473,11 +478,13 @@ impl PaymentAdjusterReal {
     }
 
     fn consider_account_disqualification(
+        &self,
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
         logger: &Logger,
     ) -> Either<Vec<AdjustedAccountBeforeFinalization>, AdjustmentIterationResult> {
-        if let Some(disqualified_account_wallet) =
-            DisqualificationArbiter::try_finding_an_account_to_disqualify_in_this_iteration(
+        if let Some(disqualified_account_wallet) = self
+            .disqualification_arbiter
+            .try_finding_an_account_to_disqualify_in_this_iteration(
                 &unconfirmed_adjustments,
                 logger,
             )
@@ -524,7 +531,7 @@ impl PaymentAdjusterReal {
 
         let (outweighed, properly_adjusted_accounts) = unconfirmed_adjustments
             .into_iter()
-            .fold(init, resolve_possibly_outweighed_account);
+            .fold(init, adjust_account_balance_if_outweighed);
 
         if outweighed.is_empty() {
             Either::Left(properly_adjusted_accounts)
@@ -580,6 +587,40 @@ impl PaymentAdjusterReal {
                 sketched_debug_info_opt.expect("debug is enabled, so info should exist");
             accounts_before_and_after_debug(sketched_debug_info, affordable_accounts)
         })
+    }
+
+    fn adjust_last_account_opt(
+        &self,
+        last_payable: QualifiedPayableAccount,
+    ) -> Option<AdjustedAccountBeforeFinalization> {
+        let cw_balance = self.inner.unallocated_cw_service_fee_balance_minor();
+        let proposed_adjusted_balance =
+            if last_payable.payable.balance_wei.checked_sub(cw_balance) == None {
+                last_payable.payable.balance_wei
+            } else {
+                diagnostics!(
+                    "LAST REMAINING ACCOUNT",
+                    "Balance adjusted to {} by exhausting the cw balance fully",
+                    cw_balance
+                );
+
+                cw_balance
+            };
+        // TODO the Disqualification check really makes sense only if we assigned less than the full balance!!
+        let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
+            WeightedAccount::new(last_payable, u128::MAX), // The weight doesn't matter really and is made up
+            proposed_adjusted_balance,
+        )];
+
+        match self
+            .disqualification_arbiter
+            .try_finding_an_account_to_disqualify_in_this_iteration(
+                &proposed_adjustment_vec,
+                &self.logger,
+            ) {
+            Some(_) => None,
+            None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
+        }
     }
 }
 
@@ -646,10 +687,10 @@ impl Display for PaymentAdjusterError {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustmentIterationResult, RequiredSpecialTreatment};
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RequiredSpecialTreatment};
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE, weights_total};
-    use crate::accountant::payment_adjuster::test_utils::{make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO, weights_total};
+    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
     use crate::accountant::payment_adjuster::{
         Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
     };
@@ -662,8 +703,10 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
+    use std::sync::{Arc, Mutex};
     use thousands::Separable;
     use web3::types::U256;
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -1036,7 +1079,7 @@ mod tests {
     ) {
         // NOTE that the same is true for more outweighed accounts that would require more than
         // the whole cw balance together, therefore there is no such a test either.
-        // This test answers the question what is happening when the cw service fee balance cannot
+        // This test answers the question of what is happening when the cw service fee balance cannot
         // cover the outweighed accounts, which is just a hypothesis we can never reach in
         // the reality.
         // If there are outweighed accounts some other accounts must be also around of which some
@@ -1121,8 +1164,8 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let service_fee_balance_in_minor_units = ((1_000_000_000_000
-            * ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.multiplier)
-            / ACCOUNT_INSIGNIFICANCE_BY_PERCENTAGE.divisor)
+            * EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.multiplier)
+            / EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.divisor)
             - 1;
         let agent = {
             let mock = BlockchainAgentMock::default()
@@ -1220,6 +1263,103 @@ mod tests {
         ));
     }
 
+    fn prepare_subject(
+        cw_balance: u128,
+        now: SystemTime,
+        disqualification_gauge: DisqualificationGaugeMock,
+    ) -> PaymentAdjusterReal {
+        let adjustment = Adjustment::ByServiceFee;
+        let mut payment_adjuster = PaymentAdjusterReal::new();
+        todo!("is this necessary?");
+        //payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
+        payment_adjuster.disqualification_arbiter =
+            DisqualificationArbiter::new(Box::new(disqualification_gauge));
+        payment_adjuster
+    }
+
+    #[test]
+    fn adjust_last_account_opt_for_balance_smaller_than_cw_but_no_need_to_disqualify() {
+        let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
+        let now = SystemTime::now();
+        let account_balance = 4_500_600;
+        let cw_balance = 4_500_601;
+        let payable = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: account_balance,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payable = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept: 111222333,
+        };
+        let disqualification_gauge = DisqualificationGaugeMock::default()
+            .determine_limit_params(&determine_limit_params_arc)
+            .determine_limit_result(4_500_600);
+        let payment_adjuster = prepare_subject(cw_balance, now, disqualification_gauge);
+
+        let result = payment_adjuster.adjust_last_account_opt(qualified_payable.clone());
+
+        assert_eq!(
+            result,
+            Some(AdjustedAccountBeforeFinalization {
+                original_qualified_account: qualified_payable.clone(),
+                proposed_adjusted_balance: cw_balance,
+            })
+        );
+        let determine_limit_params = determine_limit_params_arc.lock().unwrap();
+        assert_eq!(
+            *determine_limit_params,
+            vec![(
+                qualified_payable.payable.balance_wei,
+                qualified_payable.payment_threshold_intercept,
+                todo!()
+            )]
+        )
+    }
+
+    fn test_adjust_last_account_opt_when_account_disqualified(
+        cw_balance: u128,
+        disqualification_gauge: DisqualificationGaugeMock,
+    ) {
+        let now = SystemTime::now();
+        let payable = PayableAccount {
+            wallet: make_wallet("abc"),
+            balance_wei: 3 * cw_balance, // Unimportant. Mock in use,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
+            pending_payable_opt: None,
+        };
+        let qualified_payable = QualifiedPayableAccount {
+            payable,
+            payment_threshold_intercept: cw_balance / 2, // Unimportant. Mock in use
+        };
+        let payment_adjuster = prepare_subject(cw_balance, now, disqualification_gauge);
+
+        let result = payment_adjuster.adjust_last_account_opt(qualified_payable);
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_evens_the_edge()
+    {
+        let cw_balance = 1_000_111;
+        let disqualification_gauge =
+            DisqualificationGaugeMock::default().determine_limit_result(1_000_111);
+
+        test_adjust_last_account_opt_when_account_disqualified(cw_balance, disqualification_gauge)
+    }
+
+    #[test]
+    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_slightly_under()
+    {
+        let cw_balance = 1_000_111;
+        let disqualification_gauge =
+            DisqualificationGaugeMock::default().determine_limit_result(1_000_110);
+
+        test_adjust_last_account_opt_when_account_disqualified(cw_balance, disqualification_gauge)
+    }
+
     #[test]
     fn overloading_with_exaggerated_debt_conditions_to_see_if_we_can_pass_through_safely() {
         init_test_logging();
@@ -1245,7 +1385,7 @@ mod tests {
         );
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        // In turn, extremely small cw balance
+        // In turn, tiny cw balance
         let cw_service_fee_balance = 1_000;
         let agent = {
             let mock = BlockchainAgentMock::default()

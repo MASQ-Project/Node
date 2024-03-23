@@ -1,31 +1,27 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::diagnostics;
-use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
+    AdjustedAccountBeforeFinalization, WeightedAccount,
 };
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use crate::accountant::QualifiedPayableAccount;
 use itertools::Either;
 use std::vec;
 
-// There are just two runners. Different by the adjustment they can perform, either adjusting by
-// both the transaction fee and service fee, or exclusively by the transaction fee. The idea is
-// that the adjustment by the transaction fee may ever appear in the initial iteration of
-// the recursion. In any of the next iterations, if it proceed that far, this feature would be
-// staying around useless. Therefor the runner with more features is used only at the beginning.
-// Its speciality is that it allows also to short-circuit the weights computation for accounts,
-// because it can detect that after some dropped accounts due to the transaction fee scarcity
-// another adjustment, by the service fee, is not needed and therefore there is no point in going
-// through any extra assessment. Mostly for the things just described each runner provides
-// a different result type.
+// There are only two runners. They perform adjustment either by both the transaction and service
+// fee, or exclusively by the transaction fee. The idea is that the adjustment by the transaction
+// fee may ever appear in the initial iteration of the recursion. In any of the other iterations,
+// if it proceeded, this feature would be staying around useless. Therefor the runner with more
+// features is used only at the beginning. Its benefit is that it also allows to short-circuit
+// through the computation of the account weights, because it can detect that dropped accounts due
+// to the transaction fee scarcity lowered demand for the service fee and this adjustment is not
+// needed. For the things just described, each runner gives back a different result type.
 pub trait AdjustmentRunner {
     type ReturnType;
 
     // This specialized method:
-    // a) helps with writing tests that target edge cases,
+    // a) helps with writing tests targeting edge cases,
     // b) allows to avoid performing unnecessary computation for an evident result
     fn adjust_last_one(
         &self,
@@ -53,9 +49,8 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: QualifiedPayableAccount,
     ) -> Self::ReturnType {
-        Ok(Either::Left(empty_or_single_element_vector(
-            adjust_last_one_opt(payment_adjuster, last_account),
-        )))
+        let account_opt = payment_adjuster.adjust_last_account_opt(last_account);
+        Ok(Either::Left(empty_or_single_element_vector(account_opt)))
     }
 
     fn adjust_multiple(
@@ -90,7 +85,8 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         payment_adjuster: &PaymentAdjusterReal,
         last_account: QualifiedPayableAccount,
     ) -> Self::ReturnType {
-        empty_or_single_element_vector(adjust_last_one_opt(payment_adjuster, last_account))
+        let account_opt = payment_adjuster.adjust_last_account_opt(last_account);
+        empty_or_single_element_vector(account_opt)
     }
 
     fn adjust_multiple(
@@ -100,41 +96,6 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     ) -> Self::ReturnType {
         payment_adjuster
             .propose_possible_adjustment_recursively(weighted_accounts_in_descending_order)
-    }
-}
-
-fn adjust_last_one_opt(
-    payment_adjuster: &PaymentAdjusterReal,
-    last_payable: QualifiedPayableAccount,
-) -> Option<AdjustedAccountBeforeFinalization> {
-    let cw_balance = payment_adjuster
-        .inner
-        .unallocated_cw_service_fee_balance_minor();
-    let proposed_adjusted_balance =
-        if last_payable.payable.balance_wei.checked_sub(cw_balance) == None {
-            last_payable.payable.balance_wei
-        } else {
-            diagnostics!(
-                "LAST REMAINING ACCOUNT",
-                "Balance adjusted to {} by exhausting the cw balance fully",
-                cw_balance
-            );
-
-            cw_balance
-        };
-    let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
-        WeightedAccount::new(last_payable, u128::MAX), // The weight doesn't matter really and is made up
-        proposed_adjusted_balance,
-    )];
-
-    let logger = &payment_adjuster.logger;
-
-    match DisqualificationArbiter::try_finding_an_account_to_disqualify_in_this_iteration(
-        &proposed_adjustment_vec,
-        logger,
-    ) {
-        Some(_) => None,
-        None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
     }
 }
 
@@ -151,8 +112,8 @@ fn empty_or_single_element_vector(
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        adjust_last_one_opt, empty_or_single_element_vector, AdjustmentRunner,
-        ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
+        empty_or_single_element_vector, AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
+        TransactionAndServiceFeeAdjustmentRunner,
     };
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
@@ -167,13 +128,6 @@ mod tests {
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
-
-    fn prepare_payment_adjuster(cw_balance: u128, now: SystemTime) -> PaymentAdjusterReal {
-        let adjustment = Adjustment::ByServiceFee;
-        let mut payment_adjuster = PaymentAdjusterReal::new();
-        payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
-        payment_adjuster
-    }
 
     fn test_adjust_last_one<AR, RT>(
         subject: AR,
@@ -197,7 +151,9 @@ mod tests {
         )
         .remove(0);
         let cw_balance = 8_645_123_505;
-        let mut payment_adjuster = prepare_payment_adjuster(cw_balance, now);
+        let adjustment = Adjustment::ByServiceFee;
+        let mut payment_adjuster = PaymentAdjusterReal::new();
+        payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
 
         let result = subject.adjust_last_one(&mut payment_adjuster, qualified_payable.clone());
 
@@ -223,87 +179,6 @@ mod tests {
         test_adjust_last_one(ServiceFeeOnlyAdjustmentRunner {}, |expected_vec| {
             expected_vec
         })
-    }
-
-    #[test]
-    fn adjust_last_one_for_requested_balance_smaller_than_cw_but_not_needed_disqualified() {
-        let now = SystemTime::now();
-        let account_balance = 4_500_600;
-        let cw_balance =
-            DisqualificationArbiter::calculate_disqualification_edge(account_balance) + 1;
-        let payable = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: account_balance,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payable = QualifiedPayableAccount {
-            payable,
-            payment_threshold_intercept: 111222333,
-        };
-        let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
-
-        let result = adjust_last_one_opt(&payment_adjuster, qualified_payable.clone());
-
-        assert_eq!(
-            result,
-            Some(AdjustedAccountBeforeFinalization {
-                original_qualified_account: qualified_payable,
-                proposed_adjusted_balance: cw_balance,
-            })
-        )
-    }
-
-    fn test_adjust_last_one_when_disqualified(
-        cw_balance: u128,
-        account_balance: u128,
-        threshold_intercept: u128,
-    ) {
-        let now = SystemTime::now();
-        let payable = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: account_balance,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payable = QualifiedPayableAccount {
-            payable,
-            payment_threshold_intercept: threshold_intercept,
-        };
-        let payment_adjuster = prepare_payment_adjuster(cw_balance, now);
-
-        let result = adjust_last_one_opt(&payment_adjuster, qualified_payable);
-
-        assert_eq!(result, None)
-    }
-
-    #[test]
-    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_evens_the_edge()
-    {
-        let account_balance = 4_000_444;
-        let cw_balance = DisqualificationArbiter::calculate_disqualification_edge(account_balance);
-        let payment_threshold_intercept = 3_000_000_000;
-
-        test_adjust_last_one_when_disqualified(
-            cw_balance,
-            account_balance,
-            payment_threshold_intercept,
-        )
-    }
-
-    #[test]
-    fn account_facing_much_smaller_cw_balance_hits_disqualification_when_adjustment_slightly_under()
-    {
-        let account_balance = 4_000_444;
-        let cw_balance =
-            DisqualificationArbiter::calculate_disqualification_edge(account_balance) - 1;
-        let payment_threshold_intercept = 3_000_000_000;
-
-        test_adjust_last_one_when_disqualified(
-            cw_balance,
-            account_balance,
-            payment_threshold_intercept,
-        )
     }
 
     #[test]
