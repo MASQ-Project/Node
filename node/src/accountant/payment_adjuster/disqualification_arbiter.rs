@@ -68,10 +68,10 @@ impl DisqualificationArbiter {
         todo!()
     }
 
-    fn list_accounts_nominated_for_disqualification(
+    fn list_accounts_nominated_for_disqualification<'unconfirmed_adj>(
         &self,
-        unconfirmed_adjustments: &[UnconfirmedAdjustment],
-    ) -> Vec<&UnconfirmedAdjustment> {
+        unconfirmed_adjustments: &'unconfirmed_adj [UnconfirmedAdjustment],
+    ) -> Vec<&'unconfirmed_adj UnconfirmedAdjustment> {
         unconfirmed_adjustments
             .iter()
             .flat_map(|adjustment_info| {
@@ -82,7 +82,7 @@ impl DisqualificationArbiter {
                 );
                 let proposed_adjusted_balance = adjustment_info
                     .non_finalized_account
-                    .proposed_adjusted_balance;
+                    .proposed_adjusted_balance_minor;
 
                 if proposed_adjusted_balance <= disqualification_edge {
                     account_nominated_for_disqualification_diagnostics(
@@ -187,7 +187,7 @@ mod tests {
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
         make_payable_account,
     };
-    use crate::accountant::QualifiedPayableAccount;
+    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
     use std::time::{Duration, SystemTime};
@@ -337,8 +337,9 @@ mod tests {
     fn list_accounts_nominated_for_disqualification_uses_the_right_manifest_const() {
         todo!("do I still want this test??");
         let account_balance = 1_000_000;
-        let garbage_weight = 22222222; // It plays no role
-        let garbage_thresholds_intercept = 456789; // Also no role
+        let garbage_weight = 22222222;
+        let garbage_thresholds_intercept = 456789;
+        let garbage_creditor_thresholds = CreditorThresholds::new(123456);
         let prepare_account = |n: u64| {
             let mut account = make_payable_account(n);
             account.balance_wei = account_balance;
@@ -351,7 +352,11 @@ mod tests {
         let proposed_ok_balance = edge + 1;
         let unconfirmed_adjustment_1 = UnconfirmedAdjustment::new(
             WeightedAccount::new(
-                QualifiedPayableAccount::new(payable_account_1, garbage_thresholds_intercept),
+                QualifiedPayableAccount::new(
+                    payable_account_1,
+                    garbage_thresholds_intercept,
+                    garbage_creditor_thresholds,
+                ),
                 garbage_weight,
             ),
             proposed_ok_balance,
@@ -359,7 +364,11 @@ mod tests {
         let proposed_bad_balance_because_equal = edge;
         let unconfirmed_adjustment_2 = UnconfirmedAdjustment::new(
             WeightedAccount::new(
-                QualifiedPayableAccount::new(payable_account_2, garbage_thresholds_intercept),
+                QualifiedPayableAccount::new(
+                    payable_account_2,
+                    garbage_thresholds_intercept,
+                    garbage_creditor_thresholds,
+                ),
                 garbage_weight,
             ),
             proposed_bad_balance_because_equal,
@@ -367,7 +376,11 @@ mod tests {
         let proposed_bad_balance_because_smaller = edge - 1;
         let unconfirmed_adjustment_3 = UnconfirmedAdjustment::new(
             WeightedAccount::new(
-                QualifiedPayableAccount::new(payable_account_3, garbage_thresholds_intercept),
+                QualifiedPayableAccount::new(
+                    payable_account_3,
+                    garbage_thresholds_intercept,
+                    garbage_creditor_thresholds,
+                ),
                 garbage_weight,
             ),
             proposed_bad_balance_because_smaller,
@@ -389,11 +402,10 @@ mod tests {
     #[test]
     fn find_account_with_smallest_weight_works_for_unequal_weights() {
         let idx_of_expected_result = 1;
-        let (adjustments, expected_result) =
-            make_unconfirmed_adjustments_and_select_expected_account_returned_in_the_test(
-                vec![1004, 1000, 1002, 1001],
-                idx_of_expected_result,
-            );
+        let (adjustments, expected_result) = make_unconfirmed_adjustments_and_expected_test_result(
+            vec![1004, 1000, 1002, 1001],
+            idx_of_expected_result,
+        );
         let referenced_unconfirmed_adjustments = by_reference(&adjustments);
 
         let result = DisqualificationArbiter::find_account_with_smallest_weight(
@@ -406,11 +418,10 @@ mod tests {
     #[test]
     fn find_account_with_smallest_weight_for_equal_weights_chooses_the_first_of_the_same_size() {
         let idx_of_expected_result = 0;
-        let (adjustments, expected_result) =
-            make_unconfirmed_adjustments_and_select_expected_account_returned_in_the_test(
-                vec![1111, 1113, 1111],
-                idx_of_expected_result,
-            );
+        let (adjustments, expected_result) = make_unconfirmed_adjustments_and_expected_test_result(
+            vec![1111, 1113, 1111],
+            idx_of_expected_result,
+        );
         let referenced_non_finalized_accounts = by_reference(&adjustments);
 
         let result = DisqualificationArbiter::find_account_with_smallest_weight(
@@ -477,7 +488,7 @@ mod tests {
         assert_eq!(result, Some(wallet_3));
     }
 
-    fn make_unconfirmed_adjustments_and_select_expected_account_returned_in_the_test(
+    fn make_unconfirmed_adjustments_and_expected_test_result(
         weights: Vec<u128>,
         idx_of_expected_result: usize,
     ) -> (
@@ -488,14 +499,19 @@ mod tests {
             Vec<UnconfirmedAdjustment>,
             Option<AdjustedAccountBeforeFinalization>,
         ) = (vec![], None);
+
         let (adjustments, expected_result_opt) = weights.into_iter().enumerate().fold(
             init,
             |(mut adjustments_so_far, expected_result_opt_so_far), (actual_idx, weight)| {
                 let original_account = make_payable_account(actual_idx as u64);
                 let garbage_intercept = 2_000_000_000; // Unimportant for the tests this is used in;
+                let garbage_permanent_debt_allowed_wei = 1_111_111_111;
                 let qualified_account = QualifiedPayableAccount {
                     payable: original_account,
-                    payment_threshold_intercept: garbage_intercept,
+                    payment_threshold_intercept_minor: garbage_intercept,
+                    creditor_thresholds: CreditorThresholds {
+                        permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
+                    },
                 };
                 let garbage_proposed_balance = 1_000_000_000; // Same here
                 let new_adjustment_to_be_added = UnconfirmedAdjustment::new(

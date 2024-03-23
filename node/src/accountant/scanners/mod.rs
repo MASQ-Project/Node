@@ -17,7 +17,7 @@ use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::
     PendingPayableScanReport,
 };
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::{PendingPayableId, QualifiedPayableAccount};
+use crate::accountant::{CreditorThresholds, gwei_to_wei, PendingPayableId, QualifiedPayableAccount};
 use crate::accountant::{
     comma_joined_stringifiable, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -353,9 +353,15 @@ impl PayableScanner {
             .into_iter()
             .flat_map(|account| {
                 self.payable_exceeded_threshold(&account, SystemTime::now())
-                    .map(|payment_threshold_intercept| QualifiedPayableAccount {
-                        payable: account,
-                        payment_threshold_intercept,
+                    .map(|payment_threshold_intercept| {
+                        let creditor_thresholds = CreditorThresholds::new(gwei_to_wei(
+                            self.common.payment_thresholds.permanent_debt_allowed_gwei,
+                        ));
+                        QualifiedPayableAccount::new(
+                            account,
+                            payment_threshold_intercept,
+                            creditor_thresholds,
+                        )
                     })
             })
             .collect();
@@ -1098,8 +1104,8 @@ mod tests {
         ReceivableScannerBuilder,
     };
     use crate::accountant::{
-        gwei_to_wei, PendingPayableId, QualifiedPayableAccount, ReceivedPayments,
-        ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
+        gwei_to_wei, CreditorThresholds, PendingPayableId, QualifiedPayableAccount,
+        ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
         DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -1221,14 +1227,16 @@ mod tests {
     fn protected_payables_can_be_cast_from_and_back_to_vec_of_payable_accounts_by_payable_scanner()
     {
         let initial_unprotected = vec![
-            QualifiedPayableAccount {
-                payable: make_payable_account(123),
-                payment_threshold_intercept: 123456789,
-            },
-            QualifiedPayableAccount {
-                payable: make_payable_account(456),
-                payment_threshold_intercept: 987654321,
-            },
+            QualifiedPayableAccount::new(
+                make_payable_account(123),
+                123456789,
+                CreditorThresholds::new(11111111),
+            ),
+            QualifiedPayableAccount::new(
+                make_payable_account(456),
+                987654321,
+                CreditorThresholds::new(22222222),
+            ),
         ];
         let subject = PayableScannerBuilder::new().build();
 
@@ -2106,10 +2114,11 @@ mod tests {
         assert_eq!(result.len(), 1);
         let expected_intercept = PayableThresholdsGaugeReal::default()
             .calculate_payout_threshold_in_gwei(&payment_thresholds, debt_age as u64);
-        let expected_qualified_payable = QualifiedPayableAccount {
+        let expected_qualified_payable = QualifiedPayableAccount::new(
             payable,
-            payment_threshold_intercept: expected_intercept,
-        };
+            expected_intercept,
+            CreditorThresholds::new(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)),
+        );
         assert_eq!(&result[0], &expected_qualified_payable);
         TestLogHandler::new().exists_log_matching(&format!(
             "DEBUG: {}: Paying qualified debts:\n999,999,999,000,000,\
@@ -2186,8 +2195,8 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(&result[0].payable.wallet, &wallet);
-        assert!(intercept_before >= result[0].payment_threshold_intercept && result[0].payment_threshold_intercept >= intercept_after,
-                "Tested intercept {} does not lie between two nows {} and {} while we assume the act generates third timestamp of presence", result[0].payment_threshold_intercept, intercept_before, intercept_after
+        assert!(intercept_before >= result[0].payment_threshold_intercept_minor && result[0].payment_threshold_intercept_minor >= intercept_after,
+                "Tested intercept {} does not lie between two nows {} and {} while we assume the act generates third timestamp of presence", result[0].payment_threshold_intercept_minor, intercept_before, intercept_after
         )
     }
 

@@ -186,7 +186,7 @@ pub mod payable_scanner_utils {
                         account.balance_wei.separate_with_commas(),
                         p_age.as_secs(),
                         qualified_account
-                            .payment_threshold_intercept
+                            .payment_threshold_intercept_minor
                             .separate_with_commas(),
                         account.wallet
                     )
@@ -489,7 +489,7 @@ mod tests {
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, gwei_to_wei, QualifiedPayableAccount, SentPayables};
+    use crate::accountant::{checked_conversion, CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -649,51 +649,40 @@ mod tests {
     fn payables_debug_summary_prints_pretty_summary() {
         init_test_logging();
         let now = to_time_t(SystemTime::now());
-        let payment_thresholds = PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        };
         let qualified_payables_and_threshold_points = vec![
             QualifiedPayableAccount {
                 payable: PayableAccount {
                     wallet: make_wallet("wallet0"),
-                    balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
-                    last_paid_timestamp: from_time_t(
-                        now - checked_conversion::<u64, i64>(
-                            payment_thresholds.maturity_threshold_sec
-                                + payment_thresholds.threshold_interval_sec,
-                        ),
-                    ),
+                    balance_wei: gwei_to_wei(10_002_000_u64),
+                    last_paid_timestamp: from_time_t(now - 2678400),
                     pending_payable_opt: None,
                 },
-                payment_threshold_intercept: 10_000_000_001_152_000_u128,
+                payment_threshold_intercept_minor: 10_000_000_001_152_000_u128,
+                creditor_thresholds: CreditorThresholds {
+                    permanent_debt_allowed_wei: 333_333,
+                },
             },
             QualifiedPayableAccount {
                 payable: PayableAccount {
                     wallet: make_wallet("wallet1"),
-                    balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
-                    last_paid_timestamp: from_time_t(
-                        now - checked_conversion::<u64, i64>(
-                            payment_thresholds.maturity_threshold_sec + 55,
-                        ),
-                    ),
+                    balance_wei: gwei_to_wei(999_999_999_u64),
+                    last_paid_timestamp: from_time_t(now - 86455),
                     pending_payable_opt: None,
                 },
-                payment_threshold_intercept: 999_978_993_055_555_580,
+                payment_threshold_intercept_minor: 999_978_993_055_555_580,
+                creditor_thresholds: CreditorThresholds {
+                    permanent_debt_allowed_wei: 10_000_000,
+                },
             },
         ];
         let logger = Logger::new("test");
 
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
-        TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
+        TestLogHandler::new().exists_log_matching("Paying qualified debts:\n\
+                   10,002,000,000,000,000 wei owed for 267840\\d sec exceeds threshold: \
                    10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
+                   999,999,999,000,000,000 wei owed for 8645\\d sec exceeds threshold: \
                    999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 

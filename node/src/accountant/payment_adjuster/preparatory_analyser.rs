@@ -244,13 +244,13 @@ mod tests {
             vec![
                 (
                     account_1.payable.balance_wei,
-                    account_1.payment_threshold_intercept,
-                    todo!()
+                    account_1.payment_threshold_intercept_minor,
+                    account_1.creditor_thresholds.permanent_debt_allowed_wei
                 ),
                 (
                     account_2.payable.balance_wei,
-                    account_2.payment_threshold_intercept,
-                    todo!()
+                    account_2.payment_threshold_intercept_minor,
+                    account_2.creditor_thresholds.permanent_debt_allowed_wei
                 )
             ]
         )

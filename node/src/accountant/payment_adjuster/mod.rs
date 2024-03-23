@@ -552,7 +552,7 @@ impl PaymentAdjusterReal {
         processed_outweighed: &[AdjustedAccountBeforeFinalization],
     ) {
         let subtrahend_total: u128 = sum_as(processed_outweighed, |account| {
-            account.proposed_adjusted_balance
+            account.proposed_adjusted_balance_minor
         });
         self.inner
             .subtract_from_unallocated_cw_service_fee_balance_minor(subtrahend_total);
@@ -695,7 +695,7 @@ mod tests {
         Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
     };
     use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_payable_account};
-    use crate::accountant::{gwei_to_wei, QualifiedPayableAccount, ResponseSkeleton};
+    use crate::accountant::{CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, ResponseSkeleton};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
@@ -1037,7 +1037,7 @@ mod tests {
             subject.compute_unconfirmed_adjustments(criteria_and_accounts, weights_total);
         let proposed_adjusted_balance_2 = unconfirmed_adjustments[1]
             .non_finalized_account
-            .proposed_adjusted_balance;
+            .proposed_adjusted_balance_minor;
         // The criteria sum of the second account grew very progressively due to the effect of the greater age;
         // consequences would've been that redistributing the new balances according to the computed criteria would've
         // attributed the second account with a larger amount to pay than it would've had before the test started;
@@ -1055,7 +1055,10 @@ mod tests {
             &first_returned_account.original_qualified_account,
             &qualified_payables[1]
         );
-        assert_eq!(first_returned_account.proposed_adjusted_balance, balance_2);
+        assert_eq!(
+            first_returned_account.proposed_adjusted_balance_minor,
+            balance_2
+        );
         let second_returned_account = result.remove(0);
         assert_eq!(
             &second_returned_account.original_qualified_account,
@@ -1064,12 +1067,12 @@ mod tests {
         let upper_limit = 1_500_000_000_000_u128 - 25_000_000 - 25_000_000 - 1000;
         let lower_limit = (upper_limit * 9) / 10;
         assert!(
-            lower_limit <= second_returned_account.proposed_adjusted_balance
-                && second_returned_account.proposed_adjusted_balance <= upper_limit,
+            lower_limit <= second_returned_account.proposed_adjusted_balance_minor
+                && second_returned_account.proposed_adjusted_balance_minor <= upper_limit,
             "we expected the roughly adjusted account to be between {} and {} but was {}",
             lower_limit,
             upper_limit,
-            second_returned_account.proposed_adjusted_balance
+            second_returned_account.proposed_adjusted_balance_minor
         );
         assert!(result.is_empty());
     }
@@ -1289,10 +1292,8 @@ mod tests {
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payable = QualifiedPayableAccount {
-            payable,
-            payment_threshold_intercept: 111222333,
-        };
+        let qualified_payable =
+            QualifiedPayableAccount::new(payable, 111222333, CreditorThresholds::new(1000000));
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_params(&determine_limit_params_arc)
             .determine_limit_result(4_500_600);
@@ -1304,7 +1305,7 @@ mod tests {
             result,
             Some(AdjustedAccountBeforeFinalization {
                 original_qualified_account: qualified_payable.clone(),
-                proposed_adjusted_balance: cw_balance,
+                proposed_adjusted_balance_minor: cw_balance,
             })
         );
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();
@@ -1312,8 +1313,10 @@ mod tests {
             *determine_limit_params,
             vec![(
                 qualified_payable.payable.balance_wei,
-                qualified_payable.payment_threshold_intercept,
-                todo!()
+                qualified_payable.payment_threshold_intercept_minor,
+                qualified_payable
+                    .creditor_thresholds
+                    .permanent_debt_allowed_wei
             )]
         )
     }
@@ -1323,15 +1326,22 @@ mod tests {
         disqualification_gauge: DisqualificationGaugeMock,
     ) {
         let now = SystemTime::now();
+        let garbage_balance_wei = 123456789;
+        let garbage_last_paid_timestamp = SystemTime::now();
+        let garbage_payment_threshold_intercept_minor = 33333333;
+        let garbage_permanent_debt_allowed_wei = 11111111;
         let payable = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 3 * cw_balance, // Unimportant. Mock in use,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
+            balance_wei: garbage_balance_wei,
+            last_paid_timestamp: garbage_last_paid_timestamp,
             pending_payable_opt: None,
         };
         let qualified_payable = QualifiedPayableAccount {
             payable,
-            payment_threshold_intercept: cw_balance / 2, // Unimportant. Mock in use
+            payment_threshold_intercept_minor: garbage_payment_threshold_intercept_minor,
+            creditor_thresholds: CreditorThresholds {
+                permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
+            },
         };
         let payment_adjuster = prepare_subject(cw_balance, now, disqualification_gauge);
 
@@ -1439,35 +1449,38 @@ mod tests {
         let test_name = "qualified_accounts_count_before_equals_the_payments_count_after";
         let now = SystemTime::now();
         let balance_1 = 4_444_444_444_444_444_444;
-        let qualified_account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let qualified_account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: balance_1,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let balance_2 = 6_000_000_000_000_000_000;
-        let qualified_account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let qualified_account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("def"),
                 balance_wei: balance_2,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let balance_3 = 6_666_666_666_000_000_000;
-        let qualified_account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let qualified_account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("ghi"),
                 balance_wei: balance_3,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![
             qualified_account_1.clone(),
             qualified_account_2.clone(),
@@ -1546,33 +1559,36 @@ mod tests {
         let test_name =
             "only_transaction_fee_causes_limitations_and_the_service_fee_balance_suffices";
         let now = SystemTime::now();
-        let account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: 111_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("def"),
                 balance_wei: 333_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("ghi"),
                 balance_wei: 222_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
@@ -1629,33 +1645,36 @@ mod tests {
         // 2) adjustment by service fee (can but not have to cause an account drop-off)
         init_test_logging();
         let now = SystemTime::now();
-        let account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: 111_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("def"),
                 balance_wei: 333_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("ghk"),
                 balance_wei: 222_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
         let mut subject = PaymentAdjusterReal::new();
         let service_fee_balance_in_minor_units = 111_000_000_000_000_u128 + 333_000_000_000_000;
@@ -1701,38 +1720,41 @@ mod tests {
         let now = SystemTime::now();
         let wallet_1 = make_wallet("def");
         // Account to be adjusted to keep as much as how much is left in the cw balance
-        let account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: wallet_1.clone(),
                 balance_wei: 333_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(12000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         // Account to be outweighed and fully preserved
         let wallet_2 = make_wallet("abc");
-        let account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: wallet_2.clone(),
                 balance_wei: 111_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(8000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         // Account to be disqualified
         let wallet_3 = make_wallet("ghk");
         let balance_3 = 600_000_000_000;
-        let account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: wallet_3.clone(),
                 balance_wei: balance_3,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(6000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
@@ -1942,37 +1964,40 @@ mod tests {
         // Thrown away as the second one due to shortage of service fee,
         // for the proposed adjusted balance insignificance (the third account withdraws
         // most of the available balance from the consuming wallet for itself)
-        let account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: 10_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         // Thrown away as the first one due to shortage of transaction fee,
         // as it is the least significant by criteria at the moment
-        let account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("def"),
                 balance_wei: 55_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let wallet_3 = make_wallet("ghi");
         let last_paid_timestamp_3 = now.checked_sub(Duration::from_secs(29000)).unwrap();
-        let account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: wallet_3.clone(),
                 balance_wei: 333_000_000_000_000,
                 last_paid_timestamp: last_paid_timestamp_3,
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![account_1, account_2, account_3.clone()];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
@@ -2031,33 +2056,36 @@ mod tests {
         let test_name = "late_error_after_transaction_fee_adjustment_but_rechecked_transaction_fee_found_fatally_insufficient";
         let now = SystemTime::now();
         // This account is eliminated in the transaction fee cut
-        let account_1 = QualifiedPayableAccount {
-            payable: PayableAccount {
+        let account_1 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: 111_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_2 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_2 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("def"),
                 balance_wei: 333_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
-        let account_3 = QualifiedPayableAccount {
-            payable: PayableAccount {
+            todo!(),
+            todo!(),
+        );
+        let account_3 = QualifiedPayableAccount::new(
+            PayableAccount {
                 wallet: make_wallet("ghi"),
                 balance_wei: 222_000_000_000_000,
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: todo!(),
-        };
+            todo!(),
+            todo!(),
+        );
         let qualified_payables = vec![account_1, account_2, account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);

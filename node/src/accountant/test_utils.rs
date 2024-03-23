@@ -29,8 +29,8 @@ use crate::accountant::scanners::{
     ReceivableScanner, ScanSchedulers, Scanner,
 };
 use crate::accountant::{
-    gwei_to_wei, Accountant, QualifiedPayableAccount, ResponseSkeleton, SentPayables,
-    DEFAULT_PENDING_TOO_LONG_SEC,
+    gwei_to_wei, Accountant, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
+    SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
@@ -1689,10 +1689,11 @@ impl ScanSchedulers {
 
 pub fn make_non_guaranteed_qualified_payable(n: u64) -> QualifiedPayableAccount {
     // Without guarantee that the generated payable would cross the given thresholds
-    QualifiedPayableAccount {
-        payable: make_payable_account(n),
-        payment_threshold_intercept: n as u128 * 12345,
-    }
+    QualifiedPayableAccount::new(
+        make_payable_account(n),
+        n as u128 * 12345,
+        CreditorThresholds::new(111_111_111),
+    )
 }
 
 pub fn make_guaranteed_qualified_payables(
@@ -1704,6 +1705,6 @@ pub fn make_guaranteed_qualified_payables(
     payables.into_iter().map(|payable|{
         let payment_threshold_intercept = payable_inspector.payable_exceeded_threshold(&payable, payment_thresholds, now)
             .unwrap_or_else(||panic!("You intend to create qualified payables but their paramters not always make them qualify as in: {:?}", payable));
-        QualifiedPayableAccount{ payable, payment_threshold_intercept }
+        QualifiedPayableAccount::new(payable, payment_threshold_intercept, CreditorThresholds::new(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)))
     }).collect()
 }

@@ -161,7 +161,7 @@ mod tests {
             result,
             expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
                 original_qualified_account: qualified_payable,
-                proposed_adjusted_balance: cw_balance,
+                proposed_adjusted_balance_minor: cw_balance,
             }])
         )
     }
@@ -229,7 +229,7 @@ mod tests {
     fn empty_or_single_element_vector_for_some() {
         let account_info = AdjustedAccountBeforeFinalization {
             original_qualified_account: make_non_guaranteed_qualified_payable(123),
-            proposed_adjusted_balance: 123_456_789,
+            proposed_adjusted_balance_minor: 123_456_789,
         };
         let result = empty_or_single_element_vector(Some(account_info.clone()));
 

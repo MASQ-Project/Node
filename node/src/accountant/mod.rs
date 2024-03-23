@@ -132,14 +132,27 @@ pub struct ReceivedPayments {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayableAccount {
     pub payable: PayableAccount,
-    pub payment_threshold_intercept: u128,
+    pub payment_threshold_intercept_minor: u128,
+    pub creditor_thresholds: CreditorThresholds,
 }
 
 impl QualifiedPayableAccount {
     pub fn new(
         payable_account: PayableAccount,
         payment_threshold_intercept: u128,
+        creditor_thresholds: CreditorThresholds,
     ) -> QualifiedPayableAccount {
+        todo!()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct CreditorThresholds {
+    pub permanent_debt_allowed_wei: u128,
+}
+
+impl CreditorThresholds {
+    pub fn new(permanent_debt_allowed_wei: u128) -> Self {
         todo!()
     }
 }
@@ -1452,14 +1465,8 @@ mod tests {
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
         let qualified_payables = vec![
-            QualifiedPayableAccount {
-                payable: account_1.clone(),
-                payment_threshold_intercept: 2345,
-            },
-            QualifiedPayableAccount {
-                payable: account_2.clone(),
-                payment_threshold_intercept: 6789,
-            },
+            QualifiedPayableAccount::new(account_1.clone(), 2345, CreditorThresholds::new(1111)),
+            QualifiedPayableAccount::new(account_2.clone(), 6789, CreditorThresholds::new(2222)),
         ];
         let msg = BlockchainAgentWithContextMessage {
             protected_qualified_payables: protect_qualified_payables_in_test(
@@ -1520,14 +1527,16 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
-        let unadjusted_account_1 = QualifiedPayableAccount {
-            payable: make_payable_account(111_111),
-            payment_threshold_intercept: 1234567,
-        };
-        let unadjusted_account_2 = QualifiedPayableAccount {
-            payable: make_payable_account(222_222),
-            payment_threshold_intercept: 444555666,
-        };
+        let unadjusted_account_1 = QualifiedPayableAccount::new(
+            make_payable_account(111_111),
+            1234567,
+            CreditorThresholds::new(1111111),
+        );
+        let unadjusted_account_2 = QualifiedPayableAccount::new(
+            make_payable_account(999_999),
+            444555666,
+            CreditorThresholds::new(111111111),
+        );
         let adjusted_account_1 = PayableAccount {
             balance_wei: gwei_to_wei(55_550_u64),
             ..unadjusted_account_1.payable.clone()
@@ -1647,10 +1656,8 @@ mod tests {
         subject.scanners.payable.mark_as_started(scan_started_at);
         let subject_addr = subject.start();
         let account = make_payable_account(111_111);
-        let qualified_payable = QualifiedPayableAccount {
-            payable: account,
-            payment_threshold_intercept: 123456,
-        };
+        let qualified_payable =
+            QualifiedPayableAccount::new(account, 123456, CreditorThresholds::new(111111));
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default();
         let protected_qualified_payables =

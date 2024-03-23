@@ -113,7 +113,7 @@ pub mod ordinary_diagnostic_functions {
                 .balance_wei
                 .separate_with_commas(),
             account_info
-                .proposed_adjusted_balance
+                .proposed_adjusted_balance_minor
                 .separate_with_commas()
         );
     }
@@ -147,8 +147,8 @@ pub mod ordinary_diagnostic_functions {
                 .original_qualified_account
                 .payable
                 .wallet,
-            non_finalized_account_info.proposed_adjusted_balance,
-            non_finalized_account_info.proposed_adjusted_balance + possible_extra_addition
+            non_finalized_account_info.proposed_adjusted_balance_minor,
+            non_finalized_account_info.proposed_adjusted_balance_minor + possible_extra_addition
         );
     }
 
@@ -166,7 +166,7 @@ pub mod ordinary_diagnostic_functions {
                 .original_qualified_account
                 .payable
                 .balance_wei,
-            non_finalized_account_info.proposed_adjusted_balance
+            non_finalized_account_info.proposed_adjusted_balance_minor
         );
     }
 

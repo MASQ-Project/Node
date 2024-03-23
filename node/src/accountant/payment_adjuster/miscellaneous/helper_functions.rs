@@ -89,7 +89,7 @@ pub fn adjust_account_balance_if_outweighed(
 ) -> (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) {
     if current_adjustment_info
         .non_finalized_account
-        .proposed_adjusted_balance
+        .proposed_adjusted_balance_minor
         > current_adjustment_info
             .non_finalized_account
             .original_qualified_account
@@ -100,7 +100,7 @@ pub fn adjust_account_balance_if_outweighed(
 
         current_adjustment_info
             .non_finalized_account
-            .proposed_adjusted_balance = current_adjustment_info
+            .proposed_adjusted_balance_minor = current_adjustment_info
             .non_finalized_account
             .original_qualified_account
             .payable
@@ -119,7 +119,7 @@ pub fn exhaust_cw_till_the_last_drop(
     original_cw_service_fee_balance_minor: u128,
 ) -> Vec<PayableAccount> {
     let adjusted_balances_total: u128 = sum_as(&approved_accounts, |account_info| {
-        account_info.proposed_adjusted_balance
+        account_info.proposed_adjusted_balance_minor
     });
 
     let cw_reminder = original_cw_service_fee_balance_minor
@@ -136,8 +136,8 @@ pub fn exhaust_cw_till_the_last_drop(
         .into_iter()
         .sorted_by(|info_a, info_b| {
             Ord::cmp(
-                &info_a.proposed_adjusted_balance,
-                &info_b.proposed_adjusted_balance,
+                &info_a.proposed_adjusted_balance_minor,
+                &info_b.proposed_adjusted_balance_minor,
             )
         })
         .fold(
@@ -159,12 +159,12 @@ fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
             .original_qualified_account
             .payable
             .balance_wei
-            .checked_sub(non_finalized_account.proposed_adjusted_balance)
+            .checked_sub(non_finalized_account.proposed_adjusted_balance_minor)
             .unwrap_or_else(|| {
                 panic!(
                     "Proposed balance should never be bigger than the original one. Proposed: \
                         {}, original: {}",
-                    non_finalized_account.proposed_adjusted_balance,
+                    non_finalized_account.proposed_adjusted_balance_minor,
                     non_finalized_account
                         .original_qualified_account
                         .payable
@@ -206,7 +206,7 @@ impl ConsumingWalletExhaustingStatus {
         possible_extra_addition: u128,
     ) -> Self {
         let corrected_adjusted_account_before_finalization = {
-            non_finalized_account_info.proposed_adjusted_balance += possible_extra_addition;
+            non_finalized_account_info.proposed_adjusted_balance_minor += possible_extra_addition;
             non_finalized_account_info
         };
         self.remainder = self
@@ -281,7 +281,7 @@ impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
             AdjustmentResolution::Finalize => PayableAccount {
                 balance_wei: resolution_info
                     .non_finalized_adjustment
-                    .proposed_adjusted_balance,
+                    .proposed_adjusted_balance_minor,
                 ..resolution_info
                     .non_finalized_adjustment
                     .original_qualified_account
@@ -319,7 +319,7 @@ mod tests {
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
         make_payable_account,
     };
-    use crate::accountant::QualifiedPayableAccount;
+    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
@@ -563,17 +563,21 @@ mod tests {
             last_paid_timestamp: SystemTime::now(),
             pending_payable_opt: None,
         };
-        let qualified_payable = QualifiedPayableAccount {
+        let garbage_payment_threshold_intercept = 1234567;
+        let garbage_creditor_thresholds = CreditorThresholds {
+            permanent_debt_allowed_wei: 1000000,
+        };
+        let qualified_payable = QualifiedPayableAccount::new(
             payable,
-            payment_threshold_intercept: 1234567,
-        };
-        let unconfirmed_adjustment = UnconfirmedAdjustment {
-            non_finalized_account: AdjustedAccountBeforeFinalization {
-                original_qualified_account: qualified_payable,
-                proposed_adjusted_balance: 9_000_000_000,
-            },
-            weight: 123456,
-        };
+            garbage_payment_threshold_intercept,
+            garbage_creditor_thresholds,
+        );
+        let garbage_weight = 123456;
+        let garbage_proposed_adjusted_balance_minor = 9_000_000_000;
+        let unconfirmed_adjustment = UnconfirmedAdjustment::new(
+            WeightedAccount::new(qualified_payable, garbage_weight),
+            garbage_proposed_adjusted_balance_minor,
+        );
         let init = (vec![], vec![]);
 
         let (outweighed, ok) =
@@ -588,19 +592,22 @@ mod tests {
         original_balance: u128,
         proposed_adjusted_balance: u128,
     ) -> AdjustedAccountBeforeFinalization {
+        let garbage_last_paid_timestamp = SystemTime::now();
+        let garbage_payment_threshold_intercept_minor = u128::MAX;
+        let garbage_permanent_debt_allowed_wei = 123456789;
         let qualified_payable = QualifiedPayableAccount {
             payable: PayableAccount {
                 wallet: wallet.clone(),
                 balance_wei: original_balance,
-                last_paid_timestamp: SystemTime::now(),
+                last_paid_timestamp: garbage_last_paid_timestamp,
                 pending_payable_opt: None,
             },
-            payment_threshold_intercept: u128::MAX, // Doesn't play any importance
+            payment_threshold_intercept_minor: garbage_payment_threshold_intercept_minor,
+            creditor_thresholds: CreditorThresholds {
+                permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
+            },
         };
-        AdjustedAccountBeforeFinalization {
-            original_qualified_account: qualified_payable,
-            proposed_adjusted_balance,
-        }
+        AdjustedAccountBeforeFinalization::new(qualified_payable, proposed_adjusted_balance)
     }
 
     fn assert_payable_accounts_after_adjustment_finalization(
