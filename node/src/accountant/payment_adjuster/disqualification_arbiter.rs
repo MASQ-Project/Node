@@ -18,8 +18,8 @@ pub struct DisqualificationArbiter {
 }
 
 impl DisqualificationArbiter {
-    pub fn new(dsq_edge_detector: Box<dyn DisqualificationGauge>) -> Self {
-        todo!()
+    pub fn new(disqualification_gauge: Box<dyn DisqualificationGauge>) -> Self {
+        Self{ disqualification_gauge }
     }
     pub fn try_finding_an_account_to_disqualify_in_this_iteration(
         &self,
@@ -63,9 +63,9 @@ impl DisqualificationArbiter {
 
     pub fn calculate_disqualification_edge(
         &self,
-        qualified_payable_account: &QualifiedPayableAccount,
+        qualified_payable: &QualifiedPayableAccount,
     ) -> u128 {
-        todo!()
+        self.disqualification_gauge.determine_limit(qualified_payable.payable.balance_wei, qualified_payable.payment_threshold_intercept_minor, qualified_payable.creditor_thresholds.permanent_debt_allowed_wei)
     }
 
     fn list_accounts_nominated_for_disqualification<'unconfirmed_adj>(
@@ -135,35 +135,45 @@ pub struct DisqualificationGaugeReal {}
 impl DisqualificationGauge for DisqualificationGaugeReal {
     fn determine_limit(
         &self,
-        account_balance_wei: u128,
-        threshold_intercept_wei: u128,
-        permanent_debt_allowed_wei: u128,
+        account_balance_minor: u128,
+        threshold_intercept_minor: u128,
+        permanent_debt_allowed_minor: u128,
     ) -> u128 {
-        todo!()
+        if threshold_intercept_minor == permanent_debt_allowed_minor {
+            return account_balance_minor
+        }
+        let exceeding_debt_part = account_balance_minor - threshold_intercept_minor;
+        if DisqualificationGaugeReal::qualifies_for_double_margin(account_balance_minor, threshold_intercept_minor, permanent_debt_allowed_minor){
+            exceeding_debt_part + 2* permanent_debt_allowed_minor
+        } else {
+            exceeding_debt_part + permanent_debt_allowed_minor
+        }
     }
 }
 
+
+
 impl DisqualificationGaugeReal {
+
+    const FIRST_CONDITION_COEFFICIENT: u128 = 2;
+    const SECOND_CONDITION_COEFFICIENT: u128 = 2;
     fn qualifies_for_double_margin(
-        account_balance_wei: u128,
-        threshold_intercept_wei: u128,
-        permanent_debt_allowed_wei: u128,
+        account_balance_minor: u128,
+        threshold_intercept_minor: u128,
+        permanent_debt_allowed_minor: u128,
     ) -> bool {
-        let exceeding_part = account_balance_wei - threshold_intercept_wei;
-        let considered_forgiven = threshold_intercept_wei - permanent_debt_allowed_wei;
-        let extra_condition: bool = if considered_forgiven == 2 * permanent_debt_allowed_wei {
-            todo!()
-        } else if considered_forgiven < 2 * permanent_debt_allowed_wei {
-            todo!()
+        let exceeding_threshold = account_balance_minor - threshold_intercept_minor;
+        let considered_forgiven = threshold_intercept_minor - permanent_debt_allowed_minor;
+        let minimal_payment_accepted = exceeding_threshold + permanent_debt_allowed_minor;
+
+        let first_condition = minimal_payment_accepted >= Self::FIRST_CONDITION_COEFFICIENT * considered_forgiven;
+
+        let second_condition = considered_forgiven >= Self::SECOND_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
+
+        if first_condition && second_condition {
+            true
         } else {
-            todo!()
-        };
-        if exceeding_part > 2 * considered_forgiven && extra_condition {
-            todo!()
-        } else if exceeding_part == 2 * considered_forgiven && extra_condition {
-            todo!()
-        } else {
-            todo!()
+            false
         }
     }
 }
@@ -178,7 +188,7 @@ mod tests {
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        weights_total, EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO,
+        weights_total,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, DisqualificationGaugeMock, PRESERVED_TEST_PAYMENT_THRESHOLDS,
@@ -191,17 +201,24 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
     use std::time::{Duration, SystemTime};
+    use crate::sub_lib::accountant::PaymentThresholds;
+
+    #[test]
+    fn constants_are_correct(){
+        assert_eq!(DisqualificationGaugeReal::FIRST_CONDITION_COEFFICIENT, 2);
+        assert_eq!(DisqualificationGaugeReal::SECOND_CONDITION_COEFFICIENT, 2)
+    }
 
     #[test]
     fn qualifies_for_double_margin_granted_on_both_conditions_returning_equals() {
-        let account_balance_wei = 6_000_000_000;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 3_000_000_000;
+        let account_balance_minor = 6_000_000_000;
+        let threshold_intercept_minor = 3_000_000_000;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor
         );
 
         assert_eq!(result, true)
@@ -209,14 +226,14 @@ mod tests {
 
     #[test]
     fn qualifies_for_double_margin_granted_on_first_condition_bigger_second_equal() {
-        let account_balance_wei = 6_000_000_001;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 3_000_000_000;
+        let account_balance_minor = 6_000_000_001;
+        let threshold_intercept_minor = 3_000_000_000;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, true)
@@ -224,56 +241,59 @@ mod tests {
 
     #[test]
     fn qualifies_for_double_margin_granted_on_first_condition_equal_second_bigger() {
-        let account_balance_wei = 6_000_000_002;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 3_000_000_001;
+        let account_balance_minor = 6_000_000_003;
+        let threshold_intercept_minor = 3_000_000_001;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, true)
     }
 
+    #[test]
     fn qualifies_for_double_margin_granted_on_both_conditions_returning_bigger() {
-        let account_balance_wei = 6_000_000_003;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 3_000_000_001;
+        let account_balance_minor = 6_000_000_004;
+        let threshold_intercept_minor = 3_000_000_001;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, true)
     }
 
+    #[test]
     fn qualifies_for_double_margin_declined_on_first_condition() {
-        let account_balance_wei = 5_999_999_999;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 3_000_000_000;
+        let account_balance_minor = 5_999_999_999;
+        let threshold_intercept_minor = 3_000_000_000;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, false)
     }
 
+    #[test]
     fn qualifies_for_double_margin_declined_on_second_condition() {
-        let account_balance_wei = 6_000_000_000;
-        let permanent_debt_allowed_wei = 1_000_000_000;
-        let threshold_intercept_wei = 2_999_999_999;
+        let account_balance_minor = 6_000_000_000;
+        let threshold_intercept_minor = 2_999_999_999;
+        let permanent_debt_allowed_minor = 1_000_000_000;
 
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
-            account_balance_wei,
-            permanent_debt_allowed_wei,
-            threshold_intercept_wei,
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, false)
@@ -281,16 +301,15 @@ mod tests {
 
     #[test]
     fn calculate_disqualification_edge_in_the_horizontal_thresholds_area() {
-        let balance_wei = 30_000_000_000;
-        let threshold_intercept_wei = 4_000_000_000;
-        let permanent_debt_allowed_wei = 4_000_000_000;
+        let balance_minor = 30_000_000_000;
+        let threshold_intercept_minor = 4_000_000_000;
+        let permanent_debt_allowed_minor = 4_000_000_000;
         let subject = DisqualificationGaugeReal::default();
 
-        todo!("finish the setup when pda can be added");
         let result = subject.determine_limit(
-            balance_wei,
-            threshold_intercept_wei,
-            permanent_debt_allowed_wei,
+            balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, 30_000_000_000)
@@ -298,105 +317,37 @@ mod tests {
 
     #[test]
     fn calculate_disqualification_edge_in_the_tilted_thresholds_area_with_normal_margin() {
-        let balance_wei = 6_000_000_000;
-        let threshold_intercept_wei = 4_000_000_000;
-        let permanent_debt_allowed_wei = 1_000_000_000;
+        let balance_minor = 6_000_000_000;
+        let threshold_intercept_minor = 4_000_000_000;
+        let permanent_debt_allowed_minor = 1_000_000_000;
         let subject = DisqualificationGaugeReal::default();
 
-        todo!("finish the setup when pda can be added");
         let result = subject.determine_limit(
-            balance_wei,
-            threshold_intercept_wei,
-            permanent_debt_allowed_wei,
+            balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
-        assert_eq!(result, (30_000_000_000 - 4_000_000_000) + 1_000_000_000)
+        assert_eq!(result, (6_000_000_000 - 4_000_000_000) + 1_000_000_000)
     }
 
     #[test]
     fn calculate_disqualification_edge_in_the_tilted_thresholds_area_with_double_margin() {
-        let balance_wei = 30_000_000_000;
-        let threshold_intercept_wei = 4_000_000_000;
-        let permanent_debt_allowed_wei = 1_000_000_000;
+        let balance_minor = 30_000_000_000;
+        let threshold_intercept_minor = 4_000_000_000;
+        let permanent_debt_allowed_minor = 1_000_000_000;
         let subject = DisqualificationGaugeReal::default();
 
-        todo!("finish the setup when pda can be added");
         let result = subject.determine_limit(
-            balance_wei,
-            threshold_intercept_wei,
-            permanent_debt_allowed_wei,
+            balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(
             result,
             (30_000_000_000 - 4_000_000_000) + (2 * 1_000_000_000)
         )
-    }
-
-    #[test]
-    fn list_accounts_nominated_for_disqualification_uses_the_right_manifest_const() {
-        todo!("do I still want this test??");
-        let account_balance = 1_000_000;
-        let garbage_weight = 22222222;
-        let garbage_thresholds_intercept = 456789;
-        let garbage_creditor_thresholds = CreditorThresholds::new(123456);
-        let prepare_account = |n: u64| {
-            let mut account = make_payable_account(n);
-            account.balance_wei = account_balance;
-            account
-        };
-        let payable_account_1 = prepare_account(1);
-        let payable_account_2 = prepare_account(2);
-        let payable_account_3 = prepare_account(3);
-        let edge: u128 = todo!();
-        let proposed_ok_balance = edge + 1;
-        let unconfirmed_adjustment_1 = UnconfirmedAdjustment::new(
-            WeightedAccount::new(
-                QualifiedPayableAccount::new(
-                    payable_account_1,
-                    garbage_thresholds_intercept,
-                    garbage_creditor_thresholds,
-                ),
-                garbage_weight,
-            ),
-            proposed_ok_balance,
-        );
-        let proposed_bad_balance_because_equal = edge;
-        let unconfirmed_adjustment_2 = UnconfirmedAdjustment::new(
-            WeightedAccount::new(
-                QualifiedPayableAccount::new(
-                    payable_account_2,
-                    garbage_thresholds_intercept,
-                    garbage_creditor_thresholds,
-                ),
-                garbage_weight,
-            ),
-            proposed_bad_balance_because_equal,
-        );
-        let proposed_bad_balance_because_smaller = edge - 1;
-        let unconfirmed_adjustment_3 = UnconfirmedAdjustment::new(
-            WeightedAccount::new(
-                QualifiedPayableAccount::new(
-                    payable_account_3,
-                    garbage_thresholds_intercept,
-                    garbage_creditor_thresholds,
-                ),
-                garbage_weight,
-            ),
-            proposed_bad_balance_because_smaller,
-        );
-        let unconfirmed_adjustments = vec![
-            unconfirmed_adjustment_1,
-            unconfirmed_adjustment_2.clone(),
-            unconfirmed_adjustment_3.clone(),
-        ];
-        let subject = DisqualificationArbiter::new(Box::new(DisqualificationGaugeReal::default()));
-
-        let result = subject.list_accounts_nominated_for_disqualification(&unconfirmed_adjustments);
-
-        let expected_disqualified_accounts =
-            vec![&unconfirmed_adjustment_2, &unconfirmed_adjustment_3];
-        assert_eq!(result, expected_disqualified_accounts)
     }
 
     #[test]
@@ -441,39 +392,48 @@ mod tests {
             "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
         let now = SystemTime::now();
         let cw_masq_balance = 200_000_000_000;
+        let mut payment_thresholds = PaymentThresholds::default();
+        payment_thresholds.permanent_debt_allowed_gwei = 10;
+        payment_thresholds.maturity_threshold_sec = 1_000;
+        payment_thresholds.threshold_interval_sec = 10_000;
+        let base_time_for_qualified = payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec + 1;
         let logger = Logger::new(test_name);
         let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
         let wallet_1 = make_wallet("abc");
+        let debt_age_1 = base_time_for_qualified + 1;
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_1)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_2 = make_wallet("def");
+        let debt_age_2 = base_time_for_qualified + 3;
         let account_2 = PayableAccount {
             wallet: wallet_2.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_001)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_2)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_3 = make_wallet("ghi");
+        let debt_age_3 = base_time_for_qualified;
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_003)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_3)).unwrap(),
             pending_payable_opt: None,
         };
         let wallet_4 = make_wallet("jkl");
+        let debt_age_4 = base_time_for_qualified + 2;
         let account_4 = PayableAccount {
             wallet: wallet_4.clone(),
             balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1_000_002)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_4)).unwrap(),
             pending_payable_opt: None,
         };
         let accounts = vec![account_1, account_2, account_3, account_4];
         let qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+            make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
         let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
         let weights_total = weights_total(&weights_and_accounts);
         let unconfirmed_adjustments =
@@ -485,6 +445,10 @@ mod tests {
             &logger,
         );
 
+        unconfirmed_adjustments.iter().for_each(|payable|{
+            // Condition of disqualification at the horizontal threshold
+            assert!(payable.non_finalized_account.proposed_adjusted_balance_minor < 120_000_000_000)
+        });
         assert_eq!(result, Some(wallet_3));
     }
 

@@ -91,7 +91,7 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
 }
 
 pub mod ordinary_diagnostic_functions {
-    use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+    use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,

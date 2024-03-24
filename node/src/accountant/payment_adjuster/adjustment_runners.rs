@@ -117,7 +117,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
-    use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
+    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, PRESERVED_TEST_PAYMENT_THRESHOLDS};
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
@@ -138,18 +138,8 @@ mod tests {
     {
         let now = SystemTime::now();
         let wallet = make_wallet("abc");
-        let account = PayableAccount {
-            wallet,
-            balance_wei: 9_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let qualified_payable = make_guaranteed_qualified_payables(
-            vec![account],
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            now,
-        )
-        .remove(0);
+        let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
+        qualified_payable.payable.balance_wei = 9_000_000_000;
         let cw_balance = 8_645_123_505;
         let adjustment = Adjustment::ByServiceFee;
         let mut payment_adjuster = PaymentAdjusterReal::new();

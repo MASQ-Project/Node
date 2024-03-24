@@ -3,10 +3,10 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::CriterionCalculator;
+use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationGauge;
-use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
+use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
 use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::QualifiedPayableAccount;
@@ -114,7 +114,8 @@ pub struct CriterionCalculatorMock {
 }
 
 impl CriterionCalculator for CriterionCalculatorMock {
-    fn calculate(&self, _account: &QualifiedPayableAccount) -> u128 {
+    fn calculate(&self, _account: &QualifiedPayableAccount, _context: &dyn PaymentAdjusterInner) -> u128 {
+        // TODO consider using params assertions
         self.calculate_results.borrow_mut().remove(0)
     }
 

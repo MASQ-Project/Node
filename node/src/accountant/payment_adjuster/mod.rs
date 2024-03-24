@@ -2,7 +2,7 @@
 
 // If possible, let these modules be private
 mod adjustment_runners;
-mod criteria_calculators;
+mod criterion_calculators;
 mod diagnostics;
 mod disqualification_arbiter;
 mod inner;
@@ -43,8 +43,8 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
-use crate::accountant::payment_adjuster::criteria_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
-use crate::accountant::payment_adjuster::criteria_calculators::{CriterionCalculator};
+use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criterion_calculators::{CriterionCalculator};
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::payment_adjuster::disqualification_arbiter::{DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal};
 use crate::accountant::QualifiedPayableAccount;
@@ -372,13 +372,13 @@ impl PaymentAdjusterReal {
                 criteria_calculators
                     .iter()
                     .fold(0_u128, |weight, criterion_calculator| {
-                        let new_criterion = criterion_calculator.calculate(&payable);
+                        let new_criterion = criterion_calculator.calculate(&payable, self.inner.as_ref());
 
                         let summed_up = weight + new_criterion;
 
                         calculated_criterion_and_weight_diagnostics(
                             &payable.payable.wallet,
-                            &**criterion_calculator,
+                            criterion_calculator.as_ref(),
                             new_criterion,
                             summed_up,
                         );
