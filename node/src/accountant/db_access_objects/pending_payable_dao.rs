@@ -8,10 +8,10 @@ use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::Row;
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -26,9 +26,15 @@ pub enum PendingPayableDaoError {
     ErrorMarkFailed(String),
 }
 
+#[derive(Debug)]
+pub struct TransactionHashes {
+    pub rowid_results: Vec<(u64, H256)>,
+    pub no_rowid_results: Vec<H256>,
+}
+
 pub trait PendingPayableDao {
     // Note that the order of the returned results is not guaranteed
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)>;
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes;
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
     fn insert_new_fingerprints(
         &self,
@@ -41,19 +47,21 @@ pub trait PendingPayableDao {
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
-        fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(H256, u64)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
+        //Vec<(Option<u64>, H256)> {
+        fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
             let hash_str: String = row.get(0).expectv("hash");
             let hash = H256::from_str(&hash_str[2..]).expect("hash inserted right turned wrong");
             let sqlite_signed_rowid: i64 = row.get(1).expectv("rowid");
             let rowid = u64::try_from(sqlite_signed_rowid).expect("SQlite goes from 1 to i64:MAX");
-            Ok((hash, rowid))
+            Ok((rowid, hash))
         }
 
         let sql = format!(
             "select transaction_hash, rowid from pending_payable where transaction_hash in ({})",
             comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
         );
+
         let all_found_records = self
             .conn
             .prepare(&sql)
@@ -61,15 +69,21 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .query_map([], hash_and_rowid_in_single_row)
             .expect("map query failed")
             .vigilant_flatten()
-            .collect::<HashMap<H256, u64>>();
+            .collect::<Vec<(u64, H256)>>();
+        let hashes_of_found_records = all_found_records
+            .iter()
+            .map(|(_, hash)| *hash)
+            .collect::<HashSet<H256>>();
         let hashes_of_missing_rowids = hashes
             .iter()
-            .filter(|hash| !all_found_records.keys().contains(hash));
-        all_found_records
-            .iter()
-            .map(|(hash, rowid)| (Some(*rowid), *hash))
-            .chain(hashes_of_missing_rowids.map(|hash| (None, *hash)))
-            .collect()
+            .filter(|hash| !hashes_of_found_records.contains(hash))
+            .cloned()
+            .collect();
+
+        TransactionHashes {
+            rowid_results: all_found_records,
+            no_rowid_results: hashes_of_missing_rowids,
+        }
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
@@ -403,21 +417,21 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
 
-        let first_expected_pair = (Some(1), hash_1);
+        let first_expected_pair = &(1, hash_1);
         assert!(
-            result.contains(&first_expected_pair),
+            result.rowid_results.contains(first_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             first_expected_pair,
-            result
+            result.rowid_results
         );
-        let second_expected_pair = (Some(2), hash_2);
+        let second_expected_pair = &(2, hash_2);
         assert!(
-            result.contains(&second_expected_pair),
+            result.rowid_results.contains(second_expected_pair),
             "Returned rowid pairs should have contained {:?} but all it did is {:?}",
             second_expected_pair,
-            result
+            result.rowid_results
         );
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.rowid_results.len(), 2);
     }
 
     #[test]
@@ -447,15 +461,8 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
-        assert_eq!(
-            result,
-            vec![
-                (Some(2), hash_3),
-                (None, hash_1),
-                (None, hash_2),
-                (None, hash_4)
-            ]
-        )
+        assert_eq!(result.rowid_results, vec![(2, hash_3),]);
+        assert_eq!(result.no_rowid_results, vec![hash_1, hash_2, hash_4]);
     }
 
     #[test]
