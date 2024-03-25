@@ -17,6 +17,12 @@ pub struct DisqualificationArbiter {
     disqualification_gauge: Box<dyn DisqualificationGauge>,
 }
 
+impl Default for DisqualificationArbiter{
+    fn default() -> Self {
+        Self::new(Box::new(DisqualificationGaugeReal::default()))
+    }
+}
+
 impl DisqualificationArbiter {
     pub fn new(disqualification_gauge: Box<dyn DisqualificationGauge>) -> Self {
         Self{ disqualification_gauge }
@@ -84,13 +90,12 @@ impl DisqualificationArbiter {
                     .non_finalized_account
                     .proposed_adjusted_balance_minor;
 
-                if proposed_adjusted_balance <= disqualification_edge {
+                if proposed_adjusted_balance < disqualification_edge {
                     account_nominated_for_disqualification_diagnostics(
                         adjustment_info,
                         proposed_adjusted_balance,
                         disqualification_edge,
                     );
-
                     Some(adjustment_info)
                 } else {
                     None
@@ -99,9 +104,9 @@ impl DisqualificationArbiter {
             .collect()
     }
 
-    fn find_account_with_smallest_weight<'a>(
-        accounts: &'a [&'a UnconfirmedAdjustment],
-    ) -> &'a AdjustedAccountBeforeFinalization {
+    fn find_account_with_smallest_weight<'account>(
+        accounts: &'account [&'account UnconfirmedAdjustment],
+    ) -> &'account AdjustedAccountBeforeFinalization {
         let first_account = &accounts.first().expect("collection was empty");
         &accounts
             .iter()
@@ -190,13 +195,8 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         weights_total,
     };
-    use crate::accountant::payment_adjuster::test_utils::{
-        make_initialized_subject, DisqualificationGaugeMock, PRESERVED_TEST_PAYMENT_THRESHOLDS,
-    };
-    use crate::accountant::test_utils::{
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account,
-    };
+    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment};
+    use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable, make_payable_account};
     use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
@@ -351,6 +351,21 @@ mod tests {
     }
 
     #[test]
+    fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit(){
+        let disqualification_gauge= DisqualificationGaugeMock::default().determine_limit_result(1_000_000_000).determine_limit_result(9_999_999_999);
+        let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(444);
+        account_1.non_finalized_account.proposed_adjusted_balance_minor = 1_000_000_000;
+        let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(777);
+        account_2.non_finalized_account.proposed_adjusted_balance_minor = 9_999_999_999;
+        let accounts = vec![account_1, account_2];
+        let subject = DisqualificationArbiter::new(Box::new(disqualification_gauge));
+
+        let result = subject.list_accounts_nominated_for_disqualification(&accounts);
+
+        assert!(result.is_empty())
+    }
+
+    #[test]
     fn find_account_with_smallest_weight_works_for_unequal_weights() {
         let idx_of_expected_result = 1;
         let (adjustments, expected_result) = make_unconfirmed_adjustments_and_expected_test_result(
@@ -438,7 +453,7 @@ mod tests {
         let weights_total = weights_total(&weights_and_accounts);
         let unconfirmed_adjustments =
             subject.compute_unconfirmed_adjustments(weights_and_accounts, weights_total);
-        let subject = DisqualificationArbiter::new(Box::new(DisqualificationGaugeReal::default()));
+        let subject = DisqualificationArbiter::default();
 
         let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
             &unconfirmed_adjustments,

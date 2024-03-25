@@ -115,19 +115,17 @@ mod tests {
         empty_or_single_element_vector, AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
         TransactionAndServiceFeeAdjustmentRunner,
     };
-    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
-    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, PRESERVED_TEST_PAYMENT_THRESHOLDS};
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
     };
-    use crate::accountant::QualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
+    use crate::sub_lib::accountant::PaymentThresholds;
 
     fn test_adjust_last_one<AR, RT>(
         subject: AR,
@@ -140,6 +138,8 @@ mod tests {
         let wallet = make_wallet("abc");
         let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
         qualified_payable.payable.balance_wei = 9_000_000_000;
+        qualified_payable.payment_threshold_intercept_minor = 7_000_000_000;
+        qualified_payable.creditor_thresholds.permanent_debt_allowed_wei = 2_000_000_000;
         let cw_balance = 8_645_123_505;
         let adjustment = Adjustment::ByServiceFee;
         let mut payment_adjuster = PaymentAdjusterReal::new();
@@ -175,9 +175,13 @@ mod tests {
     fn adjust_multiple_for_service_fee_only_runner_is_not_supposed_to_care_about_transaction_fee() {
         let now = SystemTime::now();
         let wallet_1 = make_wallet("abc");
+        let mut payment_thresholds = PaymentThresholds::default();
+        payment_thresholds.maturity_threshold_sec = 100;
+        payment_thresholds.threshold_interval_sec = 1000;
+        payment_thresholds.permanent_debt_allowed_gwei = 1;
         let account_1 = PayableAccount {
             wallet: wallet_1.clone(),
-            balance_wei: 5_000_000,
+            balance_wei: 5_000_000_000,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
             pending_payable_opt: None,
         };
@@ -186,12 +190,13 @@ mod tests {
         account_2.wallet = wallet_2.clone();
         let accounts = vec![account_1, account_2];
         let qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+            make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
         let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
-        let cw_balance = 9_000_000;
+        todo!("what about this??...it's inaccurate due to the time addition");
+        let cw_balance = 10_000_000_000;
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = ServiceFeeOnlyAdjustmentRunner {};
         let criteria_and_accounts =

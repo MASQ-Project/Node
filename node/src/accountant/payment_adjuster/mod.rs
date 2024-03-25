@@ -151,9 +151,7 @@ impl PaymentAdjusterReal {
     pub fn new() -> Self {
         Self {
             analyzer: PreparatoryAnalyzer::new(),
-            disqualification_arbiter: DisqualificationArbiter::new(Box::new(
-                DisqualificationGaugeReal::default(),
-            )),
+            disqualification_arbiter: DisqualificationArbiter::default(),
             inner: Box::new(PaymentAdjusterInnerNull {}),
             calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
             logger: Logger::new("PaymentAdjuster"),

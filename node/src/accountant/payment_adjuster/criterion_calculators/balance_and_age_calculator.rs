@@ -11,7 +11,7 @@ impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
     fn calculate(&self, account: &QualifiedPayableAccount, context: &dyn PaymentAdjusterInner) -> u128 {
         let now = context.now();
         let debt_age_s = now.duration_since(account.payable.last_paid_timestamp).expect("time traveller").as_secs();
-        account.payable.balance_wei - account.payment_threshold_intercept_minor + debt_age_s as u128
+        (account.payable.balance_wei - account.payment_threshold_intercept_minor + debt_age_s as u128)
     }
 
     fn parameter_name(&self) -> &'static str {

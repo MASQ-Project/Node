@@ -1,6 +1,5 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::payment_adjuster::log_fns::{
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
@@ -15,7 +14,6 @@ use crate::accountant::QualifiedPayableAccount;
 use ethereum_types::U256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
-use masq_lib::utils::type_name_of;
 use std::cmp::Ordering;
 
 pub struct PreparatoryAnalyzer {}
@@ -67,21 +65,21 @@ impl PreparatoryAnalyzer {
 
     fn transaction_counts_verification(
         cw_transaction_fee_balance_minor: U256,
-        per_transaction_requirement_minor: u128,
+        fee_requirement_per_tx_minor: u128,
         number_of_qualified_accounts: usize,
     ) -> TransactionCountsWithin16bits {
         let max_possible_tx_count_u256 = Self::max_possible_tx_count(
             cw_transaction_fee_balance_minor,
-            per_transaction_requirement_minor,
+            fee_requirement_per_tx_minor,
         );
         TransactionCountsWithin16bits::new(max_possible_tx_count_u256, number_of_qualified_accounts)
     }
 
     fn max_possible_tx_count(
         cw_transaction_fee_balance_minor: U256,
-        tx_fee_requirement_per_tx_minor: u128,
+        fee_requirement_per_tx_minor: u128,
     ) -> U256 {
-        cw_transaction_fee_balance_minor / U256::from(tx_fee_requirement_per_tx_minor)
+        cw_transaction_fee_balance_minor / U256::from(fee_requirement_per_tx_minor)
     }
 
     pub fn check_need_of_adjustment_by_service_fee(
@@ -91,7 +89,7 @@ impl PreparatoryAnalyzer {
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
     ) -> Result<bool, PaymentAdjusterError> {
-        let qualified_payables = Self::welcome_qualified_payables(payables);
+        let qualified_payables = Self::comb_qualified_payables(payables);
 
         let required_service_fee_sum: u128 =
             sum_as(&qualified_payables, |qa| qa.payable.balance_wei);
@@ -99,7 +97,7 @@ impl PreparatoryAnalyzer {
         if cw_service_fee_balance_minor >= required_service_fee_sum {
             Ok(false)
         } else {
-            // TODO here you need to iterate through all and compute the edge and choose the smallest one
+
             self.analyse_smallest_adjustment_possibility(
                 disqualification_arbiter,
                 &qualified_payables,
@@ -115,7 +113,7 @@ impl PreparatoryAnalyzer {
         }
     }
 
-    fn welcome_qualified_payables<'payables>(
+    fn comb_qualified_payables<'payables>(
         payables: Either<&'payables [QualifiedPayableAccount], &'payables [WeightedAccount]>,
     ) -> Vec<&'payables QualifiedPayableAccount> {
         match payables {
@@ -137,14 +135,7 @@ impl PreparatoryAnalyzer {
         qualified_payables: &[&QualifiedPayableAccount],
         cw_service_fee_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
-        let lowest_disqualification_limit = qualified_payables
-            .iter()
-            .map(|account| disqualification_arbiter.calculate_disqualification_edge(account))
-            .fold(todo!(), |lowest, limit| match Ord::cmp(&lowest, &limit) {
-                Ordering::Less => todo!(),
-                Ordering::Equal => todo!(),
-                Ordering::Greater => todo!(),
-            });
+        let lowest_disqualification_limit = Self::find_lowest_dsq_limit(qualified_payables, disqualification_arbiter);
 
         if lowest_disqualification_limit <= cw_service_fee_balance_minor {
             Ok(())
@@ -160,58 +151,54 @@ impl PreparatoryAnalyzer {
             )
         }
     }
+
+    fn find_lowest_dsq_limit(qualified_payables: &[&QualifiedPayableAccount], disqualification_arbiter: &DisqualificationArbiter)->u128{
+        qualified_payables
+            .iter()
+            .map(|account| disqualification_arbiter.calculate_disqualification_edge(account))
+            .fold(u128::MAX, |lowest_so_far, limit| match Ord::cmp(&lowest_so_far, &limit) {
+                Ordering::Less => lowest_so_far,
+                Ordering::Equal => lowest_so_far,
+                Ordering::Greater => limit,
+            })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::disqualification_arbiter::{
-        DisqualificationArbiter, DisqualificationGaugeReal,
+        DisqualificationArbiter,
     };
     use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
     use crate::accountant::payment_adjuster::test_utils::DisqualificationGaugeMock;
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable, make_payable_account,
+        make_non_guaranteed_qualified_payable,
     };
     use crate::accountant::QualifiedPayableAccount;
-    use ethereum_types::U256;
-    use masq_lib::logger::Logger;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn tx_fee_check_panics_on_ration_between_tx_fee_balance_and_estimated_tx_fee_bigger_than_u128()
-    {
-        let deadly_ratio = U256::from(u128::MAX) + 1;
-        let estimated_transaction_fee_per_one_tx_minor = 123_456_789;
-        let critical_wallet_balance =
-            deadly_ratio * U256::from(estimated_transaction_fee_per_one_tx_minor);
-        let blockchain_agent = BlockchainAgentMock::default()
-            .estimated_transaction_fee_per_transaction_minor_result(
-                estimated_transaction_fee_per_one_tx_minor,
-            )
-            .transaction_fee_balance_minor_result(critical_wallet_balance);
-        let subject = PreparatoryAnalyzer::new();
+    fn find_lowest_dsq_limit_begins_at_u128_max(){
+        let disqualification_arbiter = DisqualificationArbiter::default();
+        let result = PreparatoryAnalyzer::find_lowest_dsq_limit(&[], &disqualification_arbiter);
 
-        let panic_err = catch_unwind(AssertUnwindSafe(|| {
-            subject.determine_transaction_count_limit_by_transaction_fee(
-                &blockchain_agent,
-                123,
-                &Logger::new("test"),
-            )
-        }))
-        .unwrap_err();
+        assert_eq!(result, u128::MAX)
+    }
 
-        let err_msg = panic_err.downcast_ref::<String>().unwrap();
-        let expected_panic = format!(
-            "Transaction fee balance {} wei in the consuming wallet cases panic given estimated \
-            transaction fee per tx {} wei and resulting ratio {}, that should fit in u128, \
-            respectively: \"integer overflow when casting to u128\"",
-            critical_wallet_balance, estimated_transaction_fee_per_one_tx_minor, deadly_ratio
-        );
-        assert_eq!(err_msg, &expected_panic)
+    #[test]
+    fn find_lowest_dsq_limit_when_multiple_accounts_with_the_same_limit(){
+        let disqualification_gauge = DisqualificationGaugeMock::default()
+            .determine_limit_result(200_000_000)
+            .determine_limit_result(200_000_000);
+        let disqualification_arbiter = DisqualificationArbiter::new(Box::new(disqualification_gauge));
+        let account_1 = make_non_guaranteed_qualified_payable(111);
+        let account_2 = make_non_guaranteed_qualified_payable(222);
+        let accounts = vec![&account_1, &account_2];
+
+        let result = PreparatoryAnalyzer::find_lowest_dsq_limit(&accounts, &disqualification_arbiter);
+
+        assert_eq!(result, 200_000_000)
     }
 
     fn test_body_for_adjustment_possibility_nearly_rejected(
@@ -299,9 +286,9 @@ mod tests {
         let mut account_1 = make_non_guaranteed_qualified_payable(111);
         account_1.payable.balance_wei = 2_000_000_000;
         let mut account_2 = make_non_guaranteed_qualified_payable(222);
-        account_2.payable.balance_wei = 1_000_000_000;
+        account_2.payable.balance_wei = 1_000_050_000;
         let mut account_3 = make_non_guaranteed_qualified_payable(333);
-        account_3.payable.balance_wei = 1_000_100_000;
+        account_3.payable.balance_wei = 1_000_111_111;
         let cw_service_fee_balance = 1_000_000_100;
         let original_accounts = vec![account_1, account_2, account_3];
         let accounts_in_expected_format = original_accounts
@@ -310,7 +297,7 @@ mod tests {
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(1_500_000_000)
             .determine_limit_result(1_000_000_101)
-            .determine_limit_result(1_000_123_000);
+            .determine_limit_result(1_000_000_222);
         let disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
@@ -326,7 +313,7 @@ mod tests {
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 3,
-                    total_amount_demanded_minor: 2_000_000_000 + 2_000_000_002 + 1_000_000_002,
+                    total_amount_demanded_minor: 2_000_000_000 + 1_000_050_000 + 1_000_111_111,
                     cw_service_fee_balance_minor: cw_service_fee_balance
                 }
             )
