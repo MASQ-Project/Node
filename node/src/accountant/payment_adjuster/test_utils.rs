@@ -7,8 +7,13 @@ use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationGauge;
 use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_10;
 use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
@@ -16,14 +21,11 @@ use itertools::Either;
 use lazy_static::lazy_static;
 use masq_lib::constants::MASQ_TOTAL_SUPPLY;
 use masq_lib::logger::Logger;
+use rusqlite::params;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use rusqlite::params;
 use websocket::header::q;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, UnconfirmedAdjustment};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::log_10;
-use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
 
 lazy_static! {
     pub static ref MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR: u128 =
@@ -114,16 +116,17 @@ pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_
     )
 }
 
-pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64)-> UnconfirmedAdjustment{
+pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
     let qualified_payable = make_non_guaranteed_qualified_payable(n);
-    let proposed_adjusted_balance_minor= (qualified_payable.payable.balance_wei / 2) + log_10(n as u128) as u128;
-        UnconfirmedAdjustment{
-            non_finalized_account: AdjustedAccountBeforeFinalization{
-                original_qualified_account: qualified_payable,
-                proposed_adjusted_balance_minor,
-            },
-            weight: (n as u128).pow(3),
-        }
+    let proposed_adjusted_balance_minor =
+        (qualified_payable.payable.balance_wei / 2) + log_10(n as u128) as u128;
+    UnconfirmedAdjustment {
+        non_finalized_account: AdjustedAccountBeforeFinalization {
+            original_qualified_account: qualified_payable,
+            proposed_adjusted_balance_minor,
+        },
+        weight: (n as u128).pow(3),
+    }
 }
 
 pub struct CriterionCalculatorMock {
@@ -131,7 +134,11 @@ pub struct CriterionCalculatorMock {
 }
 
 impl CriterionCalculator for CriterionCalculatorMock {
-    fn calculate(&self, _account: &QualifiedPayableAccount, _context: &dyn PaymentAdjusterInner) -> u128 {
+    fn calculate(
+        &self,
+        _account: &QualifiedPayableAccount,
+        _context: &dyn PaymentAdjusterInner,
+    ) -> u128 {
         // TODO consider using params assertions
         self.calculate_results.borrow_mut().remove(0)
     }
@@ -161,7 +168,11 @@ impl DisqualificationGauge for DisqualificationGaugeMock {
         threshold_intercept_wei: u128,
         permanent_debt_allowed_wei: u128,
     ) -> u128 {
-        self.determine_limit_params.lock().unwrap().push((account_balance_wei, threshold_intercept_wei, permanent_debt_allowed_wei));
+        self.determine_limit_params.lock().unwrap().push((
+            account_balance_wei,
+            threshold_intercept_wei,
+            permanent_debt_allowed_wei,
+        ));
         self.determine_limit_results.borrow_mut().remove(0)
     }
 }

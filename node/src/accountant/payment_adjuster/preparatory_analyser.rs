@@ -97,7 +97,6 @@ impl PreparatoryAnalyzer {
         if cw_service_fee_balance_minor >= required_service_fee_sum {
             Ok(false)
         } else {
-
             self.analyse_smallest_adjustment_possibility(
                 disqualification_arbiter,
                 &qualified_payables,
@@ -135,7 +134,8 @@ impl PreparatoryAnalyzer {
         qualified_payables: &[&QualifiedPayableAccount],
         cw_service_fee_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
-        let lowest_disqualification_limit = Self::find_lowest_dsq_limit(qualified_payables, disqualification_arbiter);
+        let lowest_disqualification_limit =
+            Self::find_lowest_dsq_limit(qualified_payables, disqualification_arbiter);
 
         if lowest_disqualification_limit <= cw_service_fee_balance_minor {
             Ok(())
@@ -152,34 +152,35 @@ impl PreparatoryAnalyzer {
         }
     }
 
-    fn find_lowest_dsq_limit(qualified_payables: &[&QualifiedPayableAccount], disqualification_arbiter: &DisqualificationArbiter)->u128{
+    fn find_lowest_dsq_limit(
+        qualified_payables: &[&QualifiedPayableAccount],
+        disqualification_arbiter: &DisqualificationArbiter,
+    ) -> u128 {
         qualified_payables
             .iter()
             .map(|account| disqualification_arbiter.calculate_disqualification_edge(account))
-            .fold(u128::MAX, |lowest_so_far, limit| match Ord::cmp(&lowest_so_far, &limit) {
-                Ordering::Less => lowest_so_far,
-                Ordering::Equal => lowest_so_far,
-                Ordering::Greater => limit,
+            .fold(u128::MAX, |lowest_so_far, limit| {
+                match Ord::cmp(&lowest_so_far, &limit) {
+                    Ordering::Less => lowest_so_far,
+                    Ordering::Equal => lowest_so_far,
+                    Ordering::Greater => limit,
+                }
             })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::disqualification_arbiter::{
-        DisqualificationArbiter,
-    };
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
     use crate::accountant::payment_adjuster::test_utils::DisqualificationGaugeMock;
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
-    use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable,
-    };
+    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
     use crate::accountant::QualifiedPayableAccount;
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn find_lowest_dsq_limit_begins_at_u128_max(){
+    fn find_lowest_dsq_limit_begins_at_u128_max() {
         let disqualification_arbiter = DisqualificationArbiter::default();
         let result = PreparatoryAnalyzer::find_lowest_dsq_limit(&[], &disqualification_arbiter);
 
@@ -187,16 +188,18 @@ mod tests {
     }
 
     #[test]
-    fn find_lowest_dsq_limit_when_multiple_accounts_with_the_same_limit(){
+    fn find_lowest_dsq_limit_when_multiple_accounts_with_the_same_limit() {
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(200_000_000)
             .determine_limit_result(200_000_000);
-        let disqualification_arbiter = DisqualificationArbiter::new(Box::new(disqualification_gauge));
+        let disqualification_arbiter =
+            DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let account_1 = make_non_guaranteed_qualified_payable(111);
         let account_2 = make_non_guaranteed_qualified_payable(222);
         let accounts = vec![&account_1, &account_2];
 
-        let result = PreparatoryAnalyzer::find_lowest_dsq_limit(&accounts, &disqualification_arbiter);
+        let result =
+            PreparatoryAnalyzer::find_lowest_dsq_limit(&accounts, &disqualification_arbiter);
 
         assert_eq!(result, 200_000_000)
     }

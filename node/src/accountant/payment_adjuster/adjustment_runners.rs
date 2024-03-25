@@ -120,12 +120,12 @@ mod tests {
     use crate::accountant::test_utils::{
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
     };
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
-    use crate::sub_lib::accountant::PaymentThresholds;
 
     fn test_adjust_last_one<AR, RT>(
         subject: AR,
@@ -139,7 +139,9 @@ mod tests {
         let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
         qualified_payable.payable.balance_wei = 9_000_000_000;
         qualified_payable.payment_threshold_intercept_minor = 7_000_000_000;
-        qualified_payable.creditor_thresholds.permanent_debt_allowed_wei = 2_000_000_000;
+        qualified_payable
+            .creditor_thresholds
+            .permanent_debt_allowed_wei = 2_000_000_000;
         let cw_balance = 8_645_123_505;
         let adjustment = Adjustment::ByServiceFee;
         let mut payment_adjuster = PaymentAdjusterReal::new();
@@ -195,7 +197,6 @@ mod tests {
             affordable_transaction_count: 1,
         };
         let mut payment_adjuster = PaymentAdjusterReal::new();
-        todo!("what about this??...it's inaccurate due to the time addition");
         let cw_balance = 10_000_000_000;
         payment_adjuster.initialize_inner(cw_balance, adjustment, now);
         let subject = ServiceFeeOnlyAdjustmentRunner {};

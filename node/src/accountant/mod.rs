@@ -142,7 +142,7 @@ impl QualifiedPayableAccount {
         payment_threshold_intercept_minor: u128,
         creditor_thresholds: CreditorThresholds,
     ) -> QualifiedPayableAccount {
-        Self{
+        Self {
             payable,
             payment_threshold_intercept_minor,
             creditor_thresholds,
@@ -157,7 +157,7 @@ pub struct CreditorThresholds {
 
 impl CreditorThresholds {
     pub fn new(permanent_debt_allowed_wei: u128) -> Self {
-        Self{
+        Self {
             permanent_debt_allowed_wei,
         }
     }

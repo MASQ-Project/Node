@@ -17,7 +17,7 @@ pub struct DisqualificationArbiter {
     disqualification_gauge: Box<dyn DisqualificationGauge>,
 }
 
-impl Default for DisqualificationArbiter{
+impl Default for DisqualificationArbiter {
     fn default() -> Self {
         Self::new(Box::new(DisqualificationGaugeReal::default()))
     }
@@ -25,7 +25,9 @@ impl Default for DisqualificationArbiter{
 
 impl DisqualificationArbiter {
     pub fn new(disqualification_gauge: Box<dyn DisqualificationGauge>) -> Self {
-        Self{ disqualification_gauge }
+        Self {
+            disqualification_gauge,
+        }
     }
     pub fn try_finding_an_account_to_disqualify_in_this_iteration(
         &self,
@@ -71,7 +73,13 @@ impl DisqualificationArbiter {
         &self,
         qualified_payable: &QualifiedPayableAccount,
     ) -> u128 {
-        self.disqualification_gauge.determine_limit(qualified_payable.payable.balance_wei, qualified_payable.payment_threshold_intercept_minor, qualified_payable.creditor_thresholds.permanent_debt_allowed_wei)
+        self.disqualification_gauge.determine_limit(
+            qualified_payable.payable.balance_wei,
+            qualified_payable.payment_threshold_intercept_minor,
+            qualified_payable
+                .creditor_thresholds
+                .permanent_debt_allowed_wei,
+        )
     }
 
     fn list_accounts_nominated_for_disqualification<'unconfirmed_adj>(
@@ -145,21 +153,22 @@ impl DisqualificationGauge for DisqualificationGaugeReal {
         permanent_debt_allowed_minor: u128,
     ) -> u128 {
         if threshold_intercept_minor == permanent_debt_allowed_minor {
-            return account_balance_minor
+            return account_balance_minor;
         }
         let exceeding_debt_part = account_balance_minor - threshold_intercept_minor;
-        if DisqualificationGaugeReal::qualifies_for_double_margin(account_balance_minor, threshold_intercept_minor, permanent_debt_allowed_minor){
-            exceeding_debt_part + 2* permanent_debt_allowed_minor
+        if DisqualificationGaugeReal::qualifies_for_double_margin(
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
+        ) {
+            exceeding_debt_part + 2 * permanent_debt_allowed_minor
         } else {
             exceeding_debt_part + permanent_debt_allowed_minor
         }
     }
 }
 
-
-
 impl DisqualificationGaugeReal {
-
     const FIRST_CONDITION_COEFFICIENT: u128 = 2;
     const SECOND_CONDITION_COEFFICIENT: u128 = 2;
     fn qualifies_for_double_margin(
@@ -171,9 +180,11 @@ impl DisqualificationGaugeReal {
         let considered_forgiven = threshold_intercept_minor - permanent_debt_allowed_minor;
         let minimal_payment_accepted = exceeding_threshold + permanent_debt_allowed_minor;
 
-        let first_condition = minimal_payment_accepted >= Self::FIRST_CONDITION_COEFFICIENT * considered_forgiven;
+        let first_condition =
+            minimal_payment_accepted >= Self::FIRST_CONDITION_COEFFICIENT * considered_forgiven;
 
-        let second_condition = considered_forgiven >= Self::SECOND_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
+        let second_condition = considered_forgiven
+            >= Self::SECOND_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
 
         if first_condition && second_condition {
             true
@@ -192,19 +203,23 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        weights_total,
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
+    use crate::accountant::payment_adjuster::test_utils::{
+        make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
+        DisqualificationGaugeMock,
     };
-    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment};
-    use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable, make_payable_account};
+    use crate::accountant::test_utils::{
+        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
+        make_payable_account,
+    };
     use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
     use std::time::{Duration, SystemTime};
-    use crate::sub_lib::accountant::PaymentThresholds;
 
     #[test]
-    fn constants_are_correct(){
+    fn constants_are_correct() {
         assert_eq!(DisqualificationGaugeReal::FIRST_CONDITION_COEFFICIENT, 2);
         assert_eq!(DisqualificationGaugeReal::SECOND_CONDITION_COEFFICIENT, 2)
     }
@@ -218,7 +233,7 @@ mod tests {
         let result = DisqualificationGaugeReal::qualifies_for_double_margin(
             account_balance_minor,
             threshold_intercept_minor,
-            permanent_debt_allowed_minor
+            permanent_debt_allowed_minor,
         );
 
         assert_eq!(result, true)
@@ -351,12 +366,18 @@ mod tests {
     }
 
     #[test]
-    fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit(){
-        let disqualification_gauge= DisqualificationGaugeMock::default().determine_limit_result(1_000_000_000).determine_limit_result(9_999_999_999);
+    fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit() {
+        let disqualification_gauge = DisqualificationGaugeMock::default()
+            .determine_limit_result(1_000_000_000)
+            .determine_limit_result(9_999_999_999);
         let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(444);
-        account_1.non_finalized_account.proposed_adjusted_balance_minor = 1_000_000_000;
+        account_1
+            .non_finalized_account
+            .proposed_adjusted_balance_minor = 1_000_000_000;
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(777);
-        account_2.non_finalized_account.proposed_adjusted_balance_minor = 9_999_999_999;
+        account_2
+            .non_finalized_account
+            .proposed_adjusted_balance_minor = 9_999_999_999;
         let accounts = vec![account_1, account_2];
         let subject = DisqualificationArbiter::new(Box::new(disqualification_gauge));
 
@@ -411,7 +432,9 @@ mod tests {
         payment_thresholds.permanent_debt_allowed_gwei = 10;
         payment_thresholds.maturity_threshold_sec = 1_000;
         payment_thresholds.threshold_interval_sec = 10_000;
-        let base_time_for_qualified = payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec + 1;
+        let base_time_for_qualified = payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec
+            + 1;
         let logger = Logger::new(test_name);
         let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
         let wallet_1 = make_wallet("abc");
@@ -460,9 +483,14 @@ mod tests {
             &logger,
         );
 
-        unconfirmed_adjustments.iter().for_each(|payable|{
+        unconfirmed_adjustments.iter().for_each(|payable| {
             // Condition of disqualification at the horizontal threshold
-            assert!(payable.non_finalized_account.proposed_adjusted_balance_minor < 120_000_000_000)
+            assert!(
+                payable
+                    .non_finalized_account
+                    .proposed_adjusted_balance_minor
+                    < 120_000_000_000
+            )
         });
         assert_eq!(result, Some(wallet_3));
     }

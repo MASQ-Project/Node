@@ -116,22 +116,6 @@ pub enum AdjustmentResolution {
     Revert,
 }
 
-// Sets the minimal percentage of the original balance that must be proposed after the adjustment
-// or the account will be eliminated for insignificance
-#[derive(Debug, PartialEq, Eq)]
-pub struct PercentageAccountInsignificance {
-    // Using integers means we have to represent accurate percentage
-    // as set of two constants
-    pub multiplier: u128,
-    pub divisor: u128,
-}
-
-impl PercentageAccountInsignificance {
-    pub fn compute_reduction(&self, debt_part_above_threshold_wei: u128) -> u128 {
-        todo!()
-    }
-}
-
 pub struct TransactionCountsWithin16bits {
     pub affordable: u16,
     pub required: u16,

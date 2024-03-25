@@ -370,7 +370,8 @@ impl PaymentAdjusterReal {
                 criteria_calculators
                     .iter()
                     .fold(0_u128, |weight, criterion_calculator| {
-                        let new_criterion = criterion_calculator.calculate(&payable, self.inner.as_ref());
+                        let new_criterion =
+                            criterion_calculator.calculate(&payable, self.inner.as_ref());
 
                         let summed_up = weight + new_criterion;
 
@@ -687,7 +688,7 @@ mod tests {
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RequiredSpecialTreatment};
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO, weights_total};
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total};
     use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
     use crate::accountant::payment_adjuster::{
         Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
@@ -1164,10 +1165,11 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let service_fee_balance_in_minor_units = ((1_000_000_000_000
-            * EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.multiplier)
-            / EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.divisor)
-            - 1;
+        let service_fee_balance_in_minor_units = todo!();
+        // ((1_000_000_000_000
+        // * EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.multiplier)
+        // / EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO.divisor)
+        // - 1;
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)

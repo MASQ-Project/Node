@@ -3,31 +3,20 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{
-    account_nominated_for_disqualification_diagnostics, exhausting_cw_balance_diagnostics,
-    not_exhausting_cw_balance_diagnostics, possibly_outweighed_accounts_diagnostics,
-    try_finding_an_account_to_disqualify_diagnostics,
+    exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
+    possibly_outweighed_accounts_diagnostics,
 };
-use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentResolution, NonFinalizedAdjustmentWithResolution,
-    PercentageAccountInsignificance, UnconfirmedAdjustment, WeightedAccount,
+    UnconfirmedAdjustment, WeightedAccount,
 };
 use crate::accountant::QualifiedPayableAccount;
-use crate::sub_lib::wallet::Wallet;
 use itertools::{Either, Itertools};
-use masq_lib::logger::Logger;
-use std::cmp::Ordering;
 use std::iter::successors;
 use web3::types::U256;
 
 const MAX_EXPONENT_FOR_10_WITHIN_U128: u32 = 76;
-const EMPIRIC_PRECISION_COEFFICIENT: usize = 8;
-// Represents 50%
-pub const EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO: PercentageAccountInsignificance =
-    PercentageAccountInsignificance {
-        multiplier: 1,
-        divisor: 2,
-    };
+const EMPIRIC_PRECISION_COEFFICIENT: usize = 1;
 
 pub fn zero_affordable_accounts_found(
     accounts: &Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
@@ -301,15 +290,13 @@ impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, PercentageAccountInsignificance, UnconfirmedAdjustment,
-        WeightedAccount,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         adjust_account_balance_if_outweighed,
         compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_till_the_last_drop,
-        log_10, weights_total, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
-        EMPIRIC_PRECISION_COEFFICIENT, EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO,
-        MAX_EXPONENT_FOR_10_WITHIN_U128,
+        log_10, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
+        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_WITHIN_U128,
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
@@ -332,13 +319,6 @@ mod tests {
     fn constants_are_correct() {
         assert_eq!(MAX_EXPONENT_FOR_10_WITHIN_U128, 76);
         assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
-        assert_eq!(
-            EXCESSIVE_DEBT_PART_INSIGNIFICANCE_RATIO,
-            PercentageAccountInsignificance {
-                multiplier: 1,
-                divisor: 2
-            }
-        );
     }
 
     #[test]
