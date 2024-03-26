@@ -46,7 +46,7 @@ pub enum PayableTransactionError {
     TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
+    Sending { msg: String, hashes: Vec<H256> }, // TODO: GH-744: We don't know the usages to hashes here.
     UninitializedBlockchainInterface,
 }
 

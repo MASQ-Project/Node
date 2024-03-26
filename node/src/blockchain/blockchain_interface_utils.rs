@@ -195,11 +195,66 @@ pub fn handle_new_transaction(
         )
         .map_err(|e| e)
         .and_then(move |signed_tx| {
-            batch_web3
-                .eth()
-                .send_raw_transaction(signed_tx.raw_transaction);
-            Ok(signed_tx.transaction_hash)
+
+            eprintln!("signed_tx.raw_transaction: {:?}", signed_tx.raw_transaction);
+            send_transaction(batch_web3, signed_tx.raw_transaction)
+
+            // batch_web3
+            //     .eth()
+            //     .send_raw_transaction(signed_tx.raw_transaction)
+            //     // .map_err(move |e| PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] } )
+            //     .then(move |result| {
+            //         match result {
+            //             Ok(result) => {
+            //                 Ok(result)
+            //             }
+            //             Err(e) => {
+            //                 Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
+            //             }
+            //         }
+                // eprintln!("Sending TX: {:?}", result);
+                // Ok(result)
+                // Ok(signed_tx.transaction_hash)
+            // })
         }),
+    )
+}
+
+pub fn send_transaction(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+    Box::new(
+        batch_web3
+            .eth()
+            .send_raw_transaction(raw_transaction)
+            .then(move |result| {
+                match result {
+                    Ok(result) => {
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
+                    }
+                }
+            })
+    )
+}
+
+pub fn send_transaction_2(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+        let result = web3
+            .eth()
+            .send_raw_transaction(raw_transaction);
+
+    Box::new(
+        result
+            .then(move |result| {
+                match result {
+                    Ok(result) => {
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
+                    }
+                }
+            })
     )
 }
 
@@ -431,7 +486,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use actix::{Actor, System};
+    use actix::{Actor, FinishStream, System};
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -453,8 +508,136 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
 
+
+
+    #[test]
+    fn send_transaction_works() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![
+                // br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()
+                br#"{"id":1,"jsonrpc":"2.0","result":{"transactionHash":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c","transactionIndex":"0x0","blockNumber":"0xd32da","blockHash":"0xf13f185f0eb1e4797885400e3b371c972eedebcf3eef27815a45b649283ec669","cumulativeGasUsed":"0x14293","gasUsed":"0x14293","contractAddress":"0x5c7687810ce3eae6cda44d0e6c896245cd4f97c6","logs":[]}}"#.to_vec()
+            ],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+
+        let pending_nonce = 1;
+        let chain= TEST_DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let signed_transaction = sign_transaction(
+            chain,
+            subject.get_web3_batch(),
+            account.wallet,
+            consuming_wallet,
+            account.balance_wei,
+            pending_nonce.into(),
+            gas_price,
+        ).wait().unwrap();
+
+        let result = send_transaction_2(subject.get_web3(), signed_transaction.raw_transaction).wait();
+        eprintln!("result {:?}", result);
+
+    }
+
+
+
+
+    #[test]
+    fn handle_new_transaction_works() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![
+                // br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()
+                 br#"{"id":1,"jsonrpc":"2.0","result":{"transactionHash":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c","transactionIndex":"0x0","blockNumber":"0xd32da","blockHash":"0xf13f185f0eb1e4797885400e3b371c972eedebcf3eef27815a45b649283ec669","cumulativeGasUsed":"0x14293","gasUsed":"0x14293","contractAddress":"0x5c7687810ce3eae6cda44d0e6c896245cd4f97c6","logs":[]}}"#.to_vec()
+            ],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+
+        let pending_nonce = 1;
+        let chain= DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let result = handle_new_transaction(
+            chain,
+            subject.get_web3_batch(),
+            account.wallet,
+            consuming_wallet,
+            account.balance_wei ,
+            pending_nonce.into(),
+            gas_price,
+        ).wait();
+
+
+        eprintln!("result {:?}", result);
+
+
+    }
+
     #[test]
     fn sign_and_append_multiple_payments_works() {
+        let port = find_free_port();
+        let test_server = TestServer::start(
+            port,
+            vec![
+                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+            ],
+        );
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
+        let blockchain_web3 = make_blockchain_interface(Some(port));
+        let chain= DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let pending_nonce = 1;
+        let batch_web3 = blockchain_web3.get_web3_batch();
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
+        let accounts = vec![account_1, account_2];
+
+        let result = sign_and_append_multiple_payments(
+            logger,
+            chain,
+            batch_web3,
+            consuming_wallet,
+            gas_price,
+            pending_nonce.into(),
+            accounts,
+        ).collect().wait();
+        //.collect()
+
+
+        thread::sleep(Duration::from_millis(5_000));
+        let requests_so_far = test_server.requests_so_far();
+        eprintln!("requests_so_far: {:?}", requests_so_far);
+
+        // TODO: GH-744: Assert on the sending
+        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
+    }
+
+    #[test]
+    fn sign_and_append_multiple_payments_sending_error() {
         let port = find_free_port();
         let test_server = TestServer::start(
             port,
@@ -485,14 +668,7 @@ mod tests {
             accounts,
         ).collect().wait();
 
-        // thread::sleep(Duration::from_millis(5_000));
-        // let requests_so_far = test_server.requests_so_far();
-        // eprintln!("requests_so_far: {:?}", requests_so_far);
-
-        // TODO: GH-744: Assert on the sending
-
-        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
-        // assert_eq!(result, Err(PayableTransactionError::MissingConsumingWallet));
+        assert_eq!(result, Err(PayableTransactionError::Sending { msg: "Internal Web3 error".to_string(), hashes: vec![] }));
     }
 
     #[test]
