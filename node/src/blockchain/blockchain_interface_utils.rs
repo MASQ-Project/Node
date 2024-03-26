@@ -507,17 +507,14 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
-
-
-
+    
     #[test]
     fn send_transaction_works() {
         let port = find_free_port();
         let _test_server = TestServer::start(
             port,
             vec![
-                // br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()
-                br#"{"id":1,"jsonrpc":"2.0","result":{"transactionHash":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c","transactionIndex":"0x0","blockNumber":"0xd32da","blockHash":"0xf13f185f0eb1e4797885400e3b371c972eedebcf3eef27815a45b649283ec669","cumulativeGasUsed":"0x14293","gasUsed":"0x14293","contractAddress":"0x5c7687810ce3eae6cda44d0e6c896245cd4f97c6","logs":[]}}"#.to_vec()
+                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
             ],
         );
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -546,8 +543,8 @@ mod tests {
         ).wait().unwrap();
 
         let result = send_transaction_2(subject.get_web3(), signed_transaction.raw_transaction).wait();
-        eprintln!("result {:?}", result);
 
+        assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
     }
 
 
