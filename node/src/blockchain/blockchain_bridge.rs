@@ -685,6 +685,7 @@ impl BlockchainBridge {
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
         let batch_web3 = self.blockchain_interface.get_web3_batch();
+        let web3 = self.blockchain_interface.get_web3();
         let consuming_wallet_clone = consuming_wallet.clone();
 
         // todo!("Are we hitting this");
@@ -697,6 +698,7 @@ impl BlockchainBridge {
                     send_payables_within_batch(
                         logger,
                         chain,
+                        web3,
                         batch_web3,
                         consuming_wallet_clone,
                         gas_price,

@@ -139,7 +139,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
 // Result<SignedTransaction, PayableTransactionError>
 pub fn sign_transaction(
     chain: Chain,
-    batch_web3: Web3<Batch<Http>>,
+    web3: Web3<Http>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
@@ -166,7 +166,7 @@ pub fn sign_transaction(
     };
 
     Box::new(
-        batch_web3
+        web3
             .accounts()
             .sign_transaction(transaction_parameters, &key)
             .map_err(|e| PayableTransactionError::Signing(e.to_string())),
@@ -176,7 +176,7 @@ pub fn sign_transaction(
 // Result<H256, PayableTransactionError>
 pub fn handle_new_transaction(
     chain: Chain,
-    batch_web3: Web3<Batch<Http>>,
+    web3: Web3<Http>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
@@ -186,7 +186,7 @@ pub fn handle_new_transaction(
     Box::new(
         sign_transaction(
             chain,
-            batch_web3.clone(),
+            web3.clone(),
             recipient_wallet.clone(),
             consuming_wallet.clone(),
             amount,
@@ -195,32 +195,12 @@ pub fn handle_new_transaction(
         )
         .map_err(|e| e)
         .and_then(move |signed_tx| {
-
-            eprintln!("signed_tx.raw_transaction: {:?}", signed_tx.raw_transaction);
-            send_transaction(batch_web3, signed_tx.raw_transaction)
-
-            // batch_web3
-            //     .eth()
-            //     .send_raw_transaction(signed_tx.raw_transaction)
-            //     // .map_err(move |e| PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] } )
-            //     .then(move |result| {
-            //         match result {
-            //             Ok(result) => {
-            //                 Ok(result)
-            //             }
-            //             Err(e) => {
-            //                 Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
-            //             }
-            //         }
-                // eprintln!("Sending TX: {:?}", result);
-                // Ok(result)
-                // Ok(signed_tx.transaction_hash)
-            // })
+            send_transaction(web3, signed_tx.raw_transaction)
         }),
     )
 }
 
-pub fn send_transaction(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+pub fn send_transaction_not_working(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
     Box::new(
         batch_web3
             .eth()
@@ -238,7 +218,7 @@ pub fn send_transaction(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -
     )
 }
 
-pub fn send_transaction_2(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+pub fn send_transaction(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
         let result = web3
             .eth()
             .send_raw_transaction(raw_transaction);
@@ -261,16 +241,17 @@ pub fn send_transaction_2(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn F
 // TODO: GH-744 Rename and refactor this function after merging with Master
 pub fn sign_and_append_payment(
     chain: Chain,
-    batch_web3: Web3<Batch<Http>>,
+    web3: Web3<Http>,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price: u64,
     account: PayableAccount,
 ) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static> {
+    // todo!("GH-744: We need to provide web3 instead of batch_web3");
     Box::new(
         handle_new_transaction(
             chain,
-            batch_web3,
+            web3,
             account.wallet.clone(),
             consuming_wallet,
             account.balance_wei,
@@ -293,7 +274,7 @@ pub fn sign_and_append_payment(
 pub fn sign_and_append_multiple_payments(
     logger: Logger,
     chain: Chain,
-    batch_web3: Web3<Batch<Http>>,
+    web3: Web3<Http>,
     consuming_wallet: Wallet,
     gas_price: u64,
     mut pending_nonce: U256,
@@ -313,7 +294,7 @@ pub fn sign_and_append_multiple_payments(
 
         let payable_future = sign_and_append_payment(
             chain,
-            batch_web3.clone(),
+            web3.clone(),
             consuming_wallet.clone(),
             pending_nonce,
             gas_price,
@@ -330,6 +311,7 @@ pub fn sign_and_append_multiple_payments(
 pub fn send_payables_within_batch(
     logger: Logger,
     chain: Chain,
+    web3: Web3<Http>,
     batch_web3: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price: u64,
@@ -376,11 +358,12 @@ pub fn send_payables_within_batch(
     //
     // info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
 
+
     return Box::new(
         sign_and_append_multiple_payments(
             logger.clone(),
             chain,
-            batch_web3.clone(),
+            web3,
             consuming_wallet,
             gas_price,
             pending_nonce,
@@ -505,6 +488,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
     
@@ -534,7 +518,7 @@ mod tests {
 
         let signed_transaction = sign_transaction(
             chain,
-            subject.get_web3_batch(),
+            subject.get_web3(),
             account.wallet,
             consuming_wallet,
             account.balance_wei,
@@ -542,13 +526,49 @@ mod tests {
             gas_price,
         ).wait().unwrap();
 
-        let result = send_transaction_2(subject.get_web3(), signed_transaction.raw_transaction).wait();
+        let result = send_transaction(subject.get_web3(), signed_transaction.raw_transaction).wait();
 
         assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
     }
 
+    #[test]
+    fn send_transaction_throws_decode_error() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![
+                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
+            ],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
 
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
+        let pending_nonce = 1;
+        let chain= TEST_DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let signed_transaction = sign_transaction(
+            chain,
+            subject.get_web3(),
+            account.wallet,
+            consuming_wallet,
+            account.balance_wei,
+            pending_nonce.into(),
+            gas_price,
+        ).wait().unwrap();
+
+        let result = send_transaction(subject.get_web3(), signed_transaction.raw_transaction).wait();
+
+        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+    }
 
     #[test]
     fn handle_new_transaction_works() {
@@ -556,8 +576,7 @@ mod tests {
         let _test_server = TestServer::start(
             port,
             vec![
-                // br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()
-                 br#"{"id":1,"jsonrpc":"2.0","result":{"transactionHash":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c","transactionIndex":"0x0","blockNumber":"0xd32da","blockHash":"0xf13f185f0eb1e4797885400e3b371c972eedebcf3eef27815a45b649283ec669","cumulativeGasUsed":"0x14293","gasUsed":"0x14293","contractAddress":"0x5c7687810ce3eae6cda44d0e6c896245cd4f97c6","logs":[]}}"#.to_vec()
+                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
             ],
         );
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -577,7 +596,7 @@ mod tests {
 
         let result = handle_new_transaction(
             chain,
-            subject.get_web3_batch(),
+            subject.get_web3(),
             account.wallet,
             consuming_wallet,
             account.balance_wei ,
@@ -585,10 +604,44 @@ mod tests {
             gas_price,
         ).wait();
 
+        assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
+    }
 
-        eprintln!("result {:?}", result);
+    #[test]
+    fn handle_new_transaction_throws_decode_error() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![
+                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
+            ],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
 
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
+        let pending_nonce = 1;
+        let chain= DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let result = handle_new_transaction(
+            chain,
+            subject.get_web3(),
+            account.wallet,
+            consuming_wallet,
+            account.balance_wei ,
+            pending_nonce.into(),
+            gas_price,
+        ).wait();
+
+        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
     }
 
     #[test]
@@ -597,7 +650,7 @@ mod tests {
         let test_server = TestServer::start(
             port,
             vec![
-                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
+                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
                 // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
                 // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
             ],
@@ -607,7 +660,7 @@ mod tests {
         let chain= DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
-        let batch_web3 = blockchain_web3.get_web3_batch();
+        let web3 = blockchain_web3.get_web3();
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
@@ -616,7 +669,7 @@ mod tests {
         let result = sign_and_append_multiple_payments(
             logger,
             chain,
-            batch_web3,
+            web3,
             consuming_wallet,
             gas_price,
             pending_nonce.into(),
@@ -649,7 +702,7 @@ mod tests {
         let chain= DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
-        let batch_web3 = blockchain_web3.get_web3_batch();
+        let web3 = blockchain_web3.get_web3();
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
@@ -658,7 +711,7 @@ mod tests {
         let result = sign_and_append_multiple_payments(
             logger,
             chain,
-            batch_web3,
+            web3,
             consuming_wallet,
             gas_price,
             pending_nonce.into(),
@@ -727,6 +780,7 @@ mod tests {
         let result = send_payables_within_batch(
             logger,
             TEST_DEFAULT_CHAIN,
+            Web3::new(transport.clone()),
             Web3::new(Batch::new(transport)),
             consuming_wallet,
             gas_price,
@@ -972,6 +1026,7 @@ mod tests {
         let result = send_payables_within_batch(
             Logger::new("test"),
             TEST_DEFAULT_CHAIN,
+            Web3::new(transport.clone()),
             Web3::new(Batch::new(transport)),
             incomplete_consuming_wallet,
             gas_price,
@@ -999,10 +1054,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
-        // let transport =
-        //     TestTransport::default().send_batch_result(vec![Err(Web3Error::Unreachable)]);
-
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
         let recipient_wallet = make_wallet("blah123");
         let unimportant_recipient = Recorder::new().start().recipient();
@@ -1018,6 +1069,7 @@ mod tests {
         let result = send_payables_within_batch(
             Logger::new("test"),
             TEST_DEFAULT_CHAIN,
+            Web3::new(transport.clone()),
             Web3::new(Batch::new(transport)),
             consuming_wallet,
             gas_price,
@@ -1203,7 +1255,7 @@ mod tests {
 
         let result = sign_transaction(
             chain,
-            Web3::new(Batch::new(transport)),
+            Web3::new(transport),
             recipient_wallet,
             consuming_wallet,
             amount,
@@ -1243,7 +1295,7 @@ mod tests {
 
         let result = sign_and_append_payment(
             TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
+            Web3::new(transport),
             incomplete_consuming_wallet,
             nonce,
             gas_price,
@@ -1280,7 +1332,7 @@ mod tests {
 
         let result = sign_and_append_payment(
             TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
+            Web3::new(transport),
             consuming_wallet,
             nonce,
             gas_price,
@@ -1422,7 +1474,7 @@ mod tests {
 
         let signed_transaction = sign_transaction(
             chain,
-            Web3::new(Batch::new(transport)),
+            Web3::new(transport),
             payable_account.wallet,
             consuming_wallet,
             payable_account.balance_wei,
