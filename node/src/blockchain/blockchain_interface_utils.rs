@@ -281,7 +281,6 @@ pub fn sign_and_append_multiple_payments(
     accounts: Vec<PayableAccount>,
 ) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static>>
 {
-    // todo!("Test this FuturesOrdered");
     let mut payable_que = FuturesOrdered::new();
     accounts.into_iter().for_each(|payable| {
         debug!(
@@ -300,6 +299,7 @@ pub fn sign_and_append_multiple_payments(
             gas_price,
             payable,
         );
+        // TODO: GH-744: What if the nonce doesn't matches?
         pending_nonce = advance_used_nonce(pending_nonce);
         payable_que.push(payable_future)
     });
@@ -645,45 +645,130 @@ mod tests {
     }
 
     #[test]
-    fn sign_and_append_multiple_payments_works() {
+    fn sign_and_append_payment_works() {
         let port = find_free_port();
-        let test_server = TestServer::start(
+        let _test_server = TestServer::start(
             port,
             vec![
                 br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
-                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
-                // br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
             ],
         );
-        let logger = Logger::new("sign_and_append_multiple_payments_works");
-        let blockchain_web3 = make_blockchain_interface(Some(port));
-        let chain= DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+
         let pending_nonce = 1;
-        let web3 = blockchain_web3.get_web3();
+        let chain = DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
-        let accounts = vec![account_1, account_2];
+        let account = make_payable_account(1);
+        let amount = account.balance_wei;
 
-        let result = sign_and_append_multiple_payments(
-            logger,
+        let result = sign_and_append_payment(
             chain,
-            web3,
+            subject.get_web3(),
             consuming_wallet,
-            gas_price,
             pending_nonce.into(),
-            accounts,
-        ).collect().wait();
-        //.collect()
+            gas_price,
+            account,
+        ).wait();
 
+        let expected_hash_and_amount = HashAndAmount {
+            hash: H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap(),
+            amount,
+        };
+        assert_eq!(result, Ok(expected_hash_and_amount));
+    }
 
-        thread::sleep(Duration::from_millis(5_000));
-        let requests_so_far = test_server.requests_so_far();
-        eprintln!("requests_so_far: {:?}", requests_so_far);
+    #[test]
+    fn sign_and_append_payment_throws_decode_error() {
+        let port = find_free_port();
+        let _test_server = TestServer::start(
+            port,
+            vec![
+                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
+            ],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
 
-        // TODO: GH-744: Assert on the sending
-        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+
+        let pending_nonce = 1;
+        let chain = DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let result = sign_and_append_payment(
+            chain,
+            subject.get_web3(),
+            consuming_wallet,
+            pending_nonce.into(),
+            gas_price,
+            account,
+        ).wait();
+
+        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+    }
+
+    #[test]
+    fn sign_and_append_multiple_payments_works() {
+        let iteration_count = 10;
+        for i in 1..=iteration_count {
+            eprintln!("Iteration {i}");
+            let port = find_free_port();
+            eprintln!("port: {port}");
+            let test_server = TestServer::start(
+                port,
+                vec![
+                    br#"{"jsonrpc":"2.0","id":7,"result":"0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"}"#.to_vec(),
+                    br#"{"jsonrpc":"2.0","id":7,"result":"0x3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5"}"#.to_vec(),
+                ],
+            );
+            let logger = Logger::new("sign_and_append_multiple_payments_works");
+            let blockchain_web3 = make_blockchain_interface(Some(port));
+            let chain = DEFAULT_CHAIN;
+            let gas_price = DEFAULT_GAS_PRICE;
+            let pending_nonce = 1;
+            let web3 = blockchain_web3.get_web3();
+            let consuming_wallet = make_paying_wallet(b"paying_wallet");
+            let account_1 = make_payable_account(1);
+            let account_2 = make_payable_account(2);
+            let accounts = vec![account_1, account_2];
+
+            let result = sign_and_append_multiple_payments(
+                logger,
+                chain,
+                web3,
+                consuming_wallet,
+                gas_price,
+                pending_nonce.into(),
+                accounts,
+            ).collect().wait();
+
+            // TODO: GH-744: Assert on the sending
+            if i == iteration_count {
+                panic!("Received Sending Error for each and every iteration");
+            }
+            if let Err(PayableTransactionError::Sending { msg, .. }) = result.clone() {
+                if msg.contains("Connection reset") {
+                    continue;
+                } else {
+                    eprintln!("error: {msg}");
+                }
+            }
+            assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
+        }
     }
 
     #[test]
