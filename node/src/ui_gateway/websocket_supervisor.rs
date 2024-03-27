@@ -23,33 +23,9 @@ use tokio::task;
 use tokio_tungstenite::tungstenite::handshake::server::{Callback, ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
-use futures_util::{future, Sink, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
-
-// trait ClientWrapper: Send + Any {
-//     fn as_any(&self) -> &dyn Any;
-//     async fn send(&mut self, item: Message) -> Box<dyn Future<Output = Result<(), io::Error>>>;
-//     // async fn flush(&mut self) ->Box<dyn Future<Output = Result<(), io::Error>>>;
-// }
-//
-// struct ClientWrapperReal {
-//     delegate: WebSocketStream<TcpStream>,
-// }
-//
-// impl ClientWrapper for ClientWrapperReal {
-//     fn as_any(&self) -> &dyn Any {
-//         self
-//     }
-//
-//     async fn send(&mut self, item: Message) -> Box<dyn Future<Output = Result<(), io::Error>>> {
-//         Box::new(self.delegate.send(item))
-//     }
-//     //
-//     // async fn flush(&mut self) -> Box<dyn Future<Output = Result<(), io::Error>>> {
-//     //     Box::new(self.delegate.flush())
-//     // }
-// }
 
 struct SubprotocolCallback {}
 
@@ -528,11 +504,10 @@ mod tests {
     use std::task::{Context, Poll};
     use std::thread;
     use std::time::Duration;
-    use futures_util::sink::Feed;
     use tokio_tungstenite::MaybeTlsStream;
     use websocket::client::sync::Client;
     use websocket::stream::sync::TcpStream;
-    use crate::test_utils::unshared_test_utils::make_rt;
+    use masq_lib::test_utils::utils::make_rt;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: MessageWriterMock) -> u64 {
@@ -781,12 +756,13 @@ mod tests {
         let recipient = ui_gateway.start().recipient();
         let subject = WebSocketSupervisorReal::new(port, recipient, 1);
         wait_for_server(port);
-        let mut ui_connection: UiConnection = UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
 
-        ui_connection.send_message(&Message::Binary(vec![1u8, 2u8, 3u8, 4u8]));
-        ui_connection.send_message(&Message::Ping(vec![1u8, 2u8, 3u8, 4u8]));
-        ui_connection.send_message(&Message::Pong(vec![1u8, 2u8, 3u8, 4u8]));
-        ui_connection.shutdown();
+        {
+            let mut ui_connection: UiConnection = UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
+            ui_connection.send_message(&Message::Binary(vec![1u8, 2u8, 3u8, 4u8]));
+            ui_connection.send_message(&Message::Ping(vec![1u8, 2u8, 3u8, 4u8]));
+            ui_connection.send_message(&Message::Pong(vec![1u8, 2u8, 3u8, 4u8]));
+        }
 
         let tlh = TestLogHandler::new();
         tlh.await_log_matching(

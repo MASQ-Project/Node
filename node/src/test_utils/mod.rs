@@ -824,13 +824,6 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub fn make_rt() -> Runtime {
-        return tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-    }
-
     pub mod system_killer_actor {
         use super::*;
 

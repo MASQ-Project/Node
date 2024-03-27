@@ -5,6 +5,7 @@ use crate::test_utils::environment_guard::EnvironmentGuard;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::runtime::Runtime;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
@@ -66,6 +67,13 @@ pub fn check_if_source_code_is_attached(current_dir: &Path) -> ShouldWeRunTheTes
 
 pub fn to_millis(dur: &Duration) -> u64 {
     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
+}
+
+pub fn make_rt() -> Runtime {
+    return tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 #[cfg(not(feature = "no_test_share"))]

@@ -1,46 +1,76 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::io;
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
-use crate::ui_gateway::MessagePath::Conversation;
-use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
-use websocket::sync::Client;
-use websocket::{ClientBuilder, OwnedMessage};
+use std::net::{SocketAddr};
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use http::request::Request;
+use http::request::Builder;
+use rand::random;
+use tungstenite::http::{Method, Version};
+use crate::test_utils::utils::make_rt;
+
+type MessageWriter = dyn SinkExt<Message, Error = io::Error> + Unpin;
 
 pub struct UiConnection {
     context_id: u64,
-    client: Client<TcpStream>,
+    local_addr: SocketAddr,
+    // sink: Box<dyn SinkExt<Message, Error = io::Error> + Unpin>,
+    // stream: Box<dyn StreamExt<Item = Message>>,
 }
 
 impl UiConnection {
-    pub fn make(port: u16, protocol: &str) -> Result<UiConnection, String> {
-        let client_builder =
-            match ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str()) {
-                Ok(cb) => cb,
-                Err(e) => return Err(format!("{:?}", e)),
-            };
-        let client = match client_builder.add_protocol(protocol).connect_insecure() {
-            Ok(c) => c,
-            Err(e) => return Err(format!("{:?}", e)),
+    pub async fn make(port: u16, protocol: &str) -> Result<UiConnection, String> {
+        let request = Self::make_initial_http_request(port, protocol);
+        let local_addr = SocketAddr::new(localhost(), port);
+        let client = match connect_async(request).await {
+            Ok((client, _)) => client,
+            Err(e) => return Err(format!("Couldn't connect to WebSocket server: {:?}", e))
         };
+        let (sink, stream) = client.split();
+        // let sink_ext = sink.with (|x| Ok(x));
 
         Ok(UiConnection {
-            client,
             context_id: 0,
+            local_addr,
+            // sink: Box::new(sink_ext),
+            // stream: Box::new(stream),
         })
     }
 
+    fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
+        let url = format!("ws://{}:{}", localhost(), port);
+        let websocket_key = (0..16)
+            .into_iter()
+            .map (|_| ((random::<u8>() % 95) + 32) as char)
+            .collect::<String>();
+        let mut websocket_key_encoded = String::new();
+        BASE64_STANDARD.encode_string(websocket_key, &mut websocket_key_encoded);
+        Builder::new()
+            .method(Method::GET)
+            .uri(url)
+            .version(Version::HTTP_11)
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-Websocket-Key", websocket_key_encoded)
+            .header("Sec-Websocket-Protocol", protocol)
+            .header("Sec-Websocket-Version", "13")
+            .body(())
+            .unwrap()
+    }
+
     pub fn new(port: u16, protocol: &str) -> UiConnection {
-        Self::make(port, protocol).unwrap()
+        let future = Self::make(port, protocol);
+        make_rt().block_on(future).unwrap()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
-        self.client.local_addr().unwrap()
+        self.local_addr
     }
 
     pub fn send<T: ToMessageBody>(&mut self, payload: T) {
@@ -56,54 +86,57 @@ impl UiConnection {
     }
 
     pub fn send_string(&mut self, string: String) {
-        self.send_message(&OwnedMessage::Text(string))
+        self.send_message(&Message::Text(string))
     }
 
-    pub fn send_message(&mut self, message: &OwnedMessage) {
-        self.client.send_message(message).unwrap();
+    pub fn send_message(&mut self, message: &Message) {
+        todo!()
+        // let future = self.sink.send(message);
+        // make_rt().block_on(future).unwrap()
     }
-
-    pub fn writer(&mut self) -> &mut dyn Write {
-        self.client.writer_mut()
-    }
+    //
+    // pub fn writer(&mut self) -> &mut dyn Write {
+    //     self.client.writer_mut()
+    // }
 
     fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {
-        let incoming_msg_json = match self.client.recv_message() {
-            Ok(OwnedMessage::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
-                panic!("The queue is empty; all messages are gone.")
-            }
-            Ok(OwnedMessage::Text(json)) => json,
-            x => panic!(
-                "We received an unexpected message from the MockWebSocketServer: {:?}",
-                x
-            ),
-        };
-
-        let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
-            .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
-        if let Some(testing_id) = context_id {
-            match incoming_msg.body.path {
-                Conversation(id) if id == testing_id => (),
-                Conversation(id) if id != testing_id => panic!(
-                    "Context ID of the request and the response don't match; message: \
-         {:?}, request id: {}, response id: {}",
-                    incoming_msg, testing_id, id
-                ),
-                _ => (),
-            }
-        }
-
-        let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body.clone());
-        match result {
-            Ok((payload, _)) => ReceiveResult::Correct(payload),
-            Err(UiMessageError::PayloadError(message_body)) => {
-                let payload_error = message_body
-                    .payload
-                    .expect_err("PayloadError message body contained no payload error");
-                ReceiveResult::TransactionError(payload_error)
-            }
-            Err(e) => ReceiveResult::MarshalError((incoming_msg, e)),
-        }
+        todo!()
+        // let incoming_msg_json = match self.stream.next().unwrap() {
+        //     Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
+        //         panic!("The queue is empty; all messages are gone.")
+        //     }
+        //     Ok(Message::Text(json)) => json,
+        //     x => panic!(
+        //         "We received an unexpected message from the MockWebSocketServer: {:?}",
+        //         x
+        //     ),
+        // };
+        //
+        // let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
+        //     .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
+        // if let Some(testing_id) = context_id {
+        //     match incoming_msg.body.path {
+        //         Conversation(id) if id == testing_id => (),
+        //         Conversation(id) if id != testing_id => panic!(
+        //             "Context ID of the request and the response don't match; message: \
+        //  {:?}, request id: {}, response id: {}",
+        //             incoming_msg, testing_id, id
+        //         ),
+        //         _ => (),
+        //     }
+        // }
+        //
+        // let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body.clone());
+        // match result {
+        //     Ok((payload, _)) => Correct(payload),
+        //     Err(UiMessageError::PayloadError(message_body)) => {
+        //         let payload_error = message_body
+        //             .payload
+        //             .expect_err("PayloadError message body contained no payload error");
+        //         TransactionError(payload_error)
+        //     }
+        //     Err(e) => MarshalError((incoming_msg, e)),
+        // }
     }
 
     pub fn skip_until_received<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
@@ -147,10 +180,6 @@ impl UiConnection {
                 panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
             }
         }
-    }
-
-    pub fn shutdown(self) {
-        self.client.shutdown().unwrap()
     }
 }
 

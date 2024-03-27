@@ -6,28 +6,17 @@ use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
-use std::cell::RefCell;
 use std::net::SocketAddr;
-use std::net::TcpStream;
-use std::ops::Not;
+use std::ops::{Not};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
+use std::{thread};
 use std::time::Duration;
-use websocket::result::WebSocketError;
-use websocket::sync::{Client, Server};
-use websocket::{OwnedMessage, WebSocketResult};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::{pin, task};
+use workflow_websocket::server::{WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketSink};
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
-}
-
-pub struct MockWebSocketsServer {
-    log: bool,
-    port: u16,
-    pub protocol: String,
-    responses_arc: Arc<Mutex<Vec<OwnedMessage>>>,
-    signal_sender: RefCell<Option<Sender<()>>>,
 }
 
 pub struct MockWebSocketsServerStopHandle {
@@ -35,18 +24,41 @@ pub struct MockWebSocketsServerStopHandle {
     log: bool,
     requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
     looping_rx: Receiver<()>,
-    stop_tx: Sender<bool>,
-    join_handle: JoinHandle<()>,
+    stop_tx: Sender<bool>
+}
+
+struct NodeUiProtocolWebSocketHandler {
+
+}
+
+impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
+    fn handshake(
+        self: &Arc<Self>,
+        peer: &SocketAddr,
+        sender: &mut WebSocketSender,
+        receiver: &mut WebSocketReceiver,
+        sink: &WebSocketSink
+    ) -> workflow_websocket::server::Result<Self::Context> {
+        todo!()
+    }
+}
+
+pub struct MockWebSocketsServer {
+    do_log: bool,
+    port: u16,
+    protocol: String,
+    responses_arc: Arc<Mutex<Vec<Message>>>,
+    first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
 }
 
 impl MockWebSocketsServer {
     pub fn new(port: u16) -> Self {
         Self {
-            log: false,
+            do_log: false,
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses_arc: Arc::new(Mutex::new(vec![])),
-            signal_sender: RefCell::new(None),
+            first_f_f_msg_sent_tx_opt: None,
         }
     }
 
@@ -59,21 +71,21 @@ impl MockWebSocketsServer {
     }
 
     pub fn queue_string(self, string: &str) -> Self {
-        self.queue_owned_message(OwnedMessage::Text(string.to_string()))
+        self.queue_owned_message(Message::Text(string.to_string()))
     }
 
-    pub fn queue_owned_message(self, msg: OwnedMessage) -> Self {
+    pub fn queue_owned_message(self, msg: Message) -> Self {
         self.responses_arc.lock().unwrap().push(msg);
         self
     }
 
-    pub fn inject_signal_sender(self, sender: Sender<()>) -> Self {
-        self.signal_sender.replace(Some(sender));
+    pub fn inject_signal_sender(mut self, sender: Sender<()>) -> Self {
+        self.first_f_f_msg_sent_tx_opt = Some(sender);
         self
     }
 
     pub fn write_logs(mut self) -> Self {
-        self.log = true;
+        self.do_log = true;
         self
     }
 
@@ -84,184 +96,204 @@ impl MockWebSocketsServer {
             *guard += 1;
             index
         };
-        let server_arc = Arc::new(Mutex::new(
-            Server::bind(SocketAddr::new(localhost(), self.port)).unwrap(),
-        ));
         let requests_arc = Arc::new(Mutex::new(vec![]));
-        let inner_requests_arc = requests_arc.clone();
-        let inner_responses_arc = self.responses_arc.clone();
-        let stop_pair: (Sender<bool>, Receiver<bool>) = unbounded();
-        let (stop_tx, stop_rx) = stop_pair;
-        let (ready_tx, ready_rx) = unbounded();
+        let requests_arc_inner = requests_arc.clone();
+        let (stop_tx, stop_rx) = unbounded();
         let (looping_tx, looping_rx) = unbounded();
-        let do_log = self.log;
-        log(do_log, index, "Starting background thread");
-        let join_handle = thread::spawn(move || {
-            let mut server = server_arc.lock().unwrap();
-            let mut requests = inner_requests_arc.lock().unwrap();
-            ready_tx.send(()).unwrap();
-            log(do_log, index, "Waiting for upgrade");
-            let upgrade = server.accept().unwrap();
-            if upgrade.protocols().iter().all(|p| *p != self.protocol) {
-                panic!("Unrecognized protocol(s): {:?}", upgrade.protocols())
-            }
-            log(do_log, index, "Waiting for handshake");
-            let mut client = upgrade.accept().unwrap();
-            client.set_nonblocking(true).unwrap();
-            match looping_tx.send(()) {
-                Ok(_) => (),
-                Err(e) => {
-                    log(
-                        do_log,
-                        index,
-                        &format!(
-                            "MockWebSocketsServerStopHandle died before loop could start: {:?}",
-                            e
-                        ),
-                    );
-                    return;
-                }
-            }
-            log(do_log, index, "Entering background loop");
-            loop {
-                log(do_log, index, "Checking for fire-and-forget messages");
-                self.handle_all_f_f_messages_introducing_the_queue(
-                    &mut client,
-                    &inner_responses_arc,
-                    index,
-                    do_log,
-                );
-                log(do_log, index, "Checking for message from client");
-                if let Some(incoming) =
-                    Self::handle_incoming_msg_raw(client.recv_message(), do_log, index)
-                {
-                    log(
-                        do_log,
-                        index,
-                        &format!("Recording incoming message: {:?}", incoming),
-                    );
-                    requests.push(incoming.clone());
-                    if let Ok(message_body) = incoming {
-                        match message_body.path {
-                            MessagePath::Conversation(_) => {
-                                if Self::handle_conversational_incoming_message(
-                                    &mut client,
-                                    &inner_responses_arc,
-                                    index,
-                                    do_log,
-                                )
-                                .not()
-                                {
-                                    break; //"disconnect" received
-                                }
-                            }
 
-                            MessagePath::FireAndForget => {
-                                log(
-                                    do_log,
-                                    index,
-                                    "Responding to FireAndForget message by forgetting",
-                                );
-                            }
-                        }
-                    } else {
-                        log(
-                            do_log,
-                            index,
-                            "Going to panic: Unrecognizable form of a text message",
-                        );
-                        panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
-                    }
-                }
-                log(do_log, index, "Checking for termination directive");
-                if let Ok(kill) = stop_rx.try_recv() {
-                    log(
-                        do_log,
-                        index,
-                        &format!("Received termination directive with kill = {}", kill),
-                    );
-                    if !kill {
-                        client.send_message(&OwnedMessage::Close(None)).unwrap();
-                    }
-                    break;
-                }
-                log(
-                    do_log,
-                    index,
-                    "No termination directive. Sleeping for 50ms before the next iteration",
-                );
-                thread::sleep(Duration::from_millis(50))
-            }
-            log(do_log, index, "Background thread terminated");
-        });
-        ready_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(250));
+        let future = async move {
+            let socket_addr = SocketAddr::new(localhost(), self.port);
+            let listener = TcpListener::bind(socket_addr).await
+                .expect(format!("MockWebsocketsServer could not bind to {:?}", socket_addr).as_str());
+            log(self.do_log, index, format!("Listening on: {}", socket_addr).as_str());
+            let (stream, peer_addr) = listener.accept().await.unwrap();
+            log(self.do_log, index, format!("Accepted TCP connection from {}", peer_addr).as_str());
+
+            Self::process_connection(
+                stream,
+                peer_addr,
+                requests_arc_inner,
+                self.responses_arc.clone(),
+                looping_tx,
+                stop_rx,
+                self.first_f_f_msg_sent_tx_opt.clone(),
+                self.do_log,
+                index
+            ).await
+        };
+        task::spawn(future);
         MockWebSocketsServerStopHandle {
             index,
-            log: do_log,
+            log: self.do_log,
             requests_arc,
             looping_rx,
-            stop_tx,
-            join_handle,
+            stop_tx
         }
     }
 
+    async fn process_connection(
+        stream: TcpStream,
+        peer_addr: SocketAddr,
+        requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
+        responses_arc: Arc<Mutex<Vec<Message>>>,
+        looping_tx: Sender<()>,
+        stop_rx: Receiver<bool>,
+        first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+        do_log: bool,
+        index: u64,
+    ) {
+        let ws_connection = tokio_tungstenite::accept_hdr_async(
+            stream,
+            AcceptHdrCallback::new(/* TODO Put something here */)
+        ).await.unwrap();
+        log(do_log, index, format!("New WebSocket connection from: {}", peer_addr).as_str());
+        let (ws_transmitter_sink, mut ws_receiver) = ws_connection.split();
+        let ws_transmitter = ws_transmitter_sink.with(|item| async { Ok(item) });
+        pin!(ws_transmitter);
+        log(do_log, index, "Entering background loop");
+        match looping_tx.send(()) {
+            Ok(_) => (),
+            Err(e) => {
+                log(do_log, index, &format!("MockWebSocketsServerStopHandle died before loop could start: {:?}", e));
+                return;
+            }
+        }
+        loop {
+            log(do_log, index, "Checking for fire-and-forget messages");
+            Self::handle_all_f_f_messages_introducing_the_queue(
+                first_f_f_msg_sent_tx_opt.clone(),
+                &mut ws_transmitter,
+                &responses_arc.clone(),
+                index,
+                do_log,
+            ).await;
+            log(do_log, index, "Checking for message from client");
+            if let Some(incoming) =
+                Self::handle_incoming_msg_raw(ws_receiver.next().await, do_log, index)
+            {
+                log(
+                    do_log,
+                    index,
+                    &format!("Recording incoming message: {:?}", incoming),
+                );
+                {
+                    requests_arc.lock().unwrap().push(incoming.clone());
+                }
+                if let Ok(message_body) = incoming {
+                    match message_body.path {
+                        MessagePath::Conversation(_) => {
+                            if Self::handle_conversational_incoming_message(
+                                &mut ws_transmitter,
+                                &responses_arc.clone(),
+                                index,
+                                do_log,
+                            ).await.not() {
+                                break; //"disconnect" received
+                            }
+                        }
+
+                        MessagePath::FireAndForget => {
+                            log(
+                                do_log,
+                                index,
+                                "Responding to FireAndForget message by forgetting",
+                            );
+                        }
+                    }
+                } else {
+                    log(
+                        do_log,
+                        index,
+                        "Going to panic: Unrecognizable form of a text message",
+                    );
+                    panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
+                }
+            }
+            log(do_log, index, "Checking for termination directive");
+            if let Ok(kill) = stop_rx.try_recv() {
+                log(
+                    do_log,
+                    index,
+                    &format!("Received termination directive with kill = {}", kill),
+                );
+                if !kill {
+                    ws_transmitter.send(Message::Close(None)).await.unwrap();
+                }
+                break;
+            }
+            log(
+                do_log,
+                index,
+                "No termination directive. Sleeping for 50ms before the next iteration",
+            );
+            thread::sleep(Duration::from_millis(50))
+        }
+        log(do_log, index, "Connection-handling future completed");
+    }
+
     fn handle_incoming_msg_raw(
-        incoming: WebSocketResult<OwnedMessage>,
+        incoming: Option<Result<Message, Error>>,
         do_log: bool,
         index: u64,
     ) -> Option<Result<MessageBody, String>> {
         match incoming {
-            Err(WebSocketError::NoDataAvailable) => {
-                log(do_log, index, "No data available");
-                None
-            }
-            Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                log(do_log, index, "No message waiting");
-                None
-            }
-            Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
-            Ok(OwnedMessage::Text(json)) => {
-                log(do_log, index, &format!("Received '{}'", json));
-                Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
-                    Ok(msg) => Ok(msg.body),
-                    Err(_) => Err(json),
-                })
-            }
-            Ok(x) => {
-                log(do_log, index, &format!("Received {:?}", x));
-                Some(Err(format!("{:?}", x)))
+            None => None,
+            Some(result) => match result {
+                // TODO: Dunno what kind of errors we're going to get from the new library, but
+                // the handlers from the old library are commented below.
+                Err(e) => todo!("{:?}", e),
+                // Err(WebSocketError::NoDataAvailable) => {
+                //     log(do_log, index, "No data available");
+                //     None
+                // }
+                // Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                //     log(do_log, index, "No message waiting");
+                //     None
+                // }
+                // Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
+                Ok(Message::Text(json)) => {
+                    log(do_log, index, &format!("Received '{}'", json));
+                    Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
+                        Ok(msg) => Ok(msg.body),
+                        Err(_) => Err(json),
+                    })
+                }
+                Ok(x) => {
+                    log(do_log, index, &format!("Received {:?}", x));
+                    Some(Err(format!("{:?}", x)))
+                }
             }
         }
     }
 
-    fn handle_all_f_f_messages_introducing_the_queue(
-        &self,
-        client: &mut Client<TcpStream>,
-        inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
+    async fn handle_all_f_f_messages_introducing_the_queue<S>(
+        first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+        ws_transmitter: &mut S,
+        inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
         index: u64,
         do_log: bool,
-    ) {
+    ) where S: SinkExt<Message, Error=Error> + Unpin
+    {
         let mut counter = 0usize;
-        let sender_opt = self.signal_sender.clone().take();
+        let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
         loop {
-            let signalization_required = sender_opt.is_some() && counter == 1;
-            let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
+            let should_signal_first_f_f_msg = first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
             if inner_responses_vec.is_empty() {
                 break;
             }
-            let temporarily_owned = inner_responses_vec.remove(0);
-            if match &temporarily_owned {
-                OwnedMessage::Text(text) =>
+            let temporarily_owned_possible_f_f = inner_responses_vec.remove(0);
+            if match &temporarily_owned_possible_f_f {
+                Message::Text(text) =>
                     match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
                     {
                         Ok(msg) => match msg.body.path {
                             MessagePath::FireAndForget => {
-                                if signalization_required {
+                                if should_signal_first_f_f_msg {
                                     log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
-                                    sender_opt.as_ref().unwrap().send(()).unwrap()
+                                    first_f_f_msg_sent_tx_opt.as_ref().unwrap().send(()).unwrap()
                                 }
-                                client.send_message(&temporarily_owned).unwrap();
+                                let f_f_message = temporarily_owned_possible_f_f.clone();
+                                ws_transmitter.send(f_f_message).await;
                                 log(do_log, index, "Sending a fire-and-forget message to the UI");
                                 true
                             }
@@ -271,7 +303,7 @@ impl MockWebSocketsServer {
                     }
                 _ => false
             }.not() {
-                inner_responses_vec.insert(0, temporarily_owned);
+                inner_responses_vec.insert(0, temporarily_owned_possible_f_f);
                 log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
                 break
             }
@@ -281,45 +313,47 @@ impl MockWebSocketsServer {
         }
     }
 
-    fn handle_conversational_incoming_message(
-        client: &mut Client<TcpStream>,
-        inner_responses_arc: &Arc<Mutex<Vec<OwnedMessage>>>,
+    async fn handle_conversational_incoming_message<S>(
+        ws_transmitter: &mut S,
+        inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
         index: u64,
         do_log: bool,
-    ) -> bool {
+    ) -> bool where S: SinkExt<Message, Error=Error> + Unpin
+    {
         let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
         if temporary_access_to_inner_responses_arc.len() != 0 {
             match temporary_access_to_inner_responses_arc.remove(0) {
-                OwnedMessage::Text(outgoing) => {
+                Message::Text(outgoing) => {
                     if outgoing == "disconnect" {
                         log(do_log, index, "Executing 'disconnect' directive");
                         return false;
                     }
                     if outgoing == "close" {
                         log(do_log, index, "Sending Close message");
-                        client.send_message(&OwnedMessage::Close(None)).unwrap();
+                        ws_transmitter.send(Message::Close(None)).await.unwrap();
                     } else {
                         log(
                             do_log,
                             index,
                             &format!("Responding with preset message: '{}'", &outgoing),
                         );
-                        client.send_message(&OwnedMessage::Text(outgoing)).unwrap()
+                        ws_transmitter.send(Message::Text(outgoing)).await.unwrap();
                     }
                 }
                 om => {
                     log(
                         do_log,
                         index,
-                        &format!("Responding with preset OwnedMessage: {:?}", om),
+                        &format!("Responding with preset Message: {:?}", om),
                     );
-                    client.send_message(&om).unwrap()
+                    ws_transmitter.send(om).await.unwrap()
                 }
             }
         } else {
             log(do_log, index, "Sending Close message");
-            client
-                .send_message(&OwnedMessage::Binary(b"EMPTY QUEUE".to_vec()))
+            ws_transmitter
+                .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
+                .await
                 .unwrap()
         };
         true
@@ -350,7 +384,6 @@ impl MockWebSocketsServerStopHandle {
                 );
                 let _ = self.stop_tx.send(kill);
                 log(self.log, self.index, "Joining background thread");
-                let _ = self.join_handle.join();
                 log(
                     self.log,
                     self.index,
@@ -374,8 +407,9 @@ impl MockWebSocketsServerStopHandle {
     }
 }
 
-fn log(log: bool, index: u64, msg: &str) {
-    if log {
+// TODO: This should really be an object, not a function, and the object should hold do_log and index.
+fn log(do_log: bool, index: u64, msg: &str) {
+    if do_log {
         eprintln!("MockWebSocketsServer {}: {}", index, msg);
     }
 }

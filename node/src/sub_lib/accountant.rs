@@ -22,10 +22,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
+    // TODO: Make a card about arranging a different DEFAULT_EARNING_WALLET for each blockchain
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
-    // TODO: The consuming wallet should never be defaulted; it should always come in from a
-    // (possibly-complicated) command-line parameter, or the bidirectional GUI.
-    pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
     pub static ref MSG_ID_INCREMENTER: AtomicU32 = AtomicU32::default();
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
         debt_threshold_gwei: 1_000_000_000,
@@ -203,7 +201,6 @@ mod tests {
         AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
         MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
         DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
-        TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
@@ -243,10 +240,6 @@ mod tests {
         assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
         assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
-        assert_eq!(
-            *TEMPORARY_CONSUMING_WALLET,
-            temporary_consuming_wallet_expected
-        )
     }
 
     #[test]
