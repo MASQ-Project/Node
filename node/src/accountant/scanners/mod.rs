@@ -2194,7 +2194,7 @@ mod tests {
             .payable_exceeded_threshold(&payable, SystemTime::now())
             .unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(&result[0].payable.wallet, &wallet);
+        assert_eq!(&result[0].qualified_as.wallet, &wallet);
         assert!(intercept_before >= result[0].payment_threshold_intercept_minor && result[0].payment_threshold_intercept_minor >= intercept_after,
                 "Tested intercept {} does not lie between two nows {} and {} while we assume the act generates third timestamp of presence", result[0].payment_threshold_intercept_minor, intercept_before, intercept_after
         )

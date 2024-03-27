@@ -42,8 +42,8 @@ impl DisqualificationArbiter {
                 Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
 
             let wallet = account_to_disqualify
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .wallet
                 .clone();
 
@@ -74,7 +74,7 @@ impl DisqualificationArbiter {
         qualified_payable: &QualifiedPayableAccount,
     ) -> u128 {
         self.disqualification_gauge.determine_limit(
-            qualified_payable.payable.balance_wei,
+            qualified_payable.qualified_as.balance_wei,
             qualified_payable.payment_threshold_intercept_minor,
             qualified_payable
                 .creditor_thresholds
@@ -90,9 +90,7 @@ impl DisqualificationArbiter {
             .iter()
             .flat_map(|adjustment_info| {
                 let disqualification_edge = self.calculate_disqualification_edge(
-                    &adjustment_info
-                        .non_finalized_account
-                        .original_qualified_account,
+                    &adjustment_info.non_finalized_account.qualified_payable,
                 );
                 let proposed_adjusted_balance = adjustment_info
                     .non_finalized_account
@@ -201,7 +199,7 @@ mod tests {
         DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
     use crate::accountant::payment_adjuster::test_utils::{
@@ -473,9 +471,7 @@ mod tests {
         let qualified_payables =
             make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
         let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
-        let weights_total = weights_total(&weights_and_accounts);
-        let unconfirmed_adjustments =
-            subject.compute_unconfirmed_adjustments(weights_and_accounts, weights_total);
+        let unconfirmed_adjustments = subject.compute_unconfirmed_adjustments(weights_and_accounts);
         let subject = DisqualificationArbiter::default();
 
         let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
@@ -514,7 +510,7 @@ mod tests {
                 let garbage_intercept = 2_000_000_000; // Unimportant for the tests this is used in;
                 let garbage_permanent_debt_allowed_wei = 1_111_111_111;
                 let qualified_account = QualifiedPayableAccount {
-                    payable: original_account,
+                    qualified_as: original_account,
                     payment_threshold_intercept_minor: garbage_intercept,
                     creditor_thresholds: CreditorThresholds {
                         permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
@@ -522,7 +518,7 @@ mod tests {
                 };
                 let garbage_proposed_balance = 1_000_000_000; // Same here
                 let new_adjustment_to_be_added = UnconfirmedAdjustment::new(
-                    WeightedAccount::new(qualified_account, weight),
+                    WeightedPayable::new(qualified_account, weight),
                     garbage_proposed_balance,
                 );
                 let expected_result_opt = if expected_result_opt_so_far.is_none()

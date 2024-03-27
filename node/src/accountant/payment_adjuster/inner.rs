@@ -7,7 +7,7 @@ pub trait PaymentAdjusterInner {
     fn transaction_fee_count_limit_opt(&self) -> Option<u16>;
     fn original_cw_service_fee_balance_minor(&self) -> u128;
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128;
-    fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, _subtrahend: u128);
+    fn subtract_from_unallocated_cw_service_fee_balance_minor(&mut self, subtrahend: u128);
 }
 
 pub struct PaymentAdjusterInnerReal {

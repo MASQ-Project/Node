@@ -104,12 +104,12 @@ pub mod ordinary_diagnostic_functions {
         account_info: &AdjustedAccountBeforeFinalization,
     ) {
         diagnostics!(
-            &account_info.original_qualified_account.payable.wallet,
+            &account_info.qualified_payable.qualified_as.wallet,
             "OUTWEIGHED ACCOUNT FOUND",
             "Original balance: {}, proposed balance: {}",
             account_info
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .balance_wei
                 .separate_with_commas(),
             account_info
@@ -126,8 +126,8 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             account_info
                 .non_finalized_account
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .wallet,
             "ACCOUNT NOMINATED FOR DISQUALIFICATION FOR INSIGNIFICANCE AFTER ADJUSTMENT",
             "Proposed: {}, disqualification limit: {}",
@@ -144,8 +144,8 @@ pub mod ordinary_diagnostic_functions {
             "EXHAUSTING CW ON PAYMENT",
             "For account {} from proposed {} to the possible maximum of {}",
             non_finalized_account_info
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .wallet,
             non_finalized_account_info.proposed_adjusted_balance_minor,
             non_finalized_account_info.proposed_adjusted_balance_minor + possible_extra_addition
@@ -159,12 +159,12 @@ pub mod ordinary_diagnostic_functions {
             "FULLY EXHAUSTED CW, PASSING ACCOUNT OVER",
             "Account {} with original balance {} must be finalized with proposed {}",
             non_finalized_account_info
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .wallet,
             non_finalized_account_info
-                .original_qualified_account
-                .payable
+                .qualified_payable
+                .qualified_as
                 .balance_wei,
             non_finalized_account_info.proposed_adjusted_balance_minor
         );
@@ -175,7 +175,7 @@ pub mod ordinary_diagnostic_functions {
         proposed_adjusted_balance: u128,
     ) {
         diagnostics!(
-            &account.payable.wallet,
+            &account.qualified_as.wallet,
             "PROPOSED ADJUSTED BALANCE",
             "{}",
             proposed_adjusted_balance.separate_with_commas()

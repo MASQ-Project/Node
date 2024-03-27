@@ -8,15 +8,12 @@ use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functi
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentResolution, NonFinalizedAdjustmentWithResolution,
-    UnconfirmedAdjustment, WeightedAccount,
+    UnconfirmedAdjustment, WeightedPayable,
 };
 use crate::accountant::QualifiedPayableAccount;
 use itertools::{Either, Itertools};
+use std::cmp::Ordering;
 use std::iter::successors;
-use web3::types::U256;
-
-const MAX_EXPONENT_FOR_10_WITHIN_U128: u32 = 76;
-const EMPIRIC_PRECISION_COEFFICIENT: usize = 1;
 
 pub fn zero_affordable_accounts_found(
     accounts: &Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
@@ -35,16 +32,16 @@ where
     collection.iter().map(arranger).sum::<u128>().into()
 }
 
-pub fn weights_total(weights_and_accounts: &[WeightedAccount]) -> u128 {
+pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
     sum_as(weights_and_accounts, |weighted_account| {
         weighted_account.weight
     })
 }
 
 pub fn dump_unaffordable_accounts_by_txn_fee(
-    weighted_accounts_in_descending_order: Vec<WeightedAccount>,
+    weighted_accounts_in_descending_order: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
-) -> Vec<WeightedAccount> {
+) -> Vec<WeightedPayable> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "keeping {} out of {} accounts",
@@ -58,18 +55,25 @@ pub fn dump_unaffordable_accounts_by_txn_fee(
 }
 
 pub fn compute_mul_coefficient_preventing_fractional_numbers(
-    cw_masq_balance_minor: u128,
-    account_weights_total: u128,
-) -> U256 {
-    let weight_digits_count = log_10(account_weights_total);
-    let cw_balance_digits_count = log_10(cw_masq_balance_minor);
-    let positive_only_difference = weight_digits_count.saturating_sub(cw_balance_digits_count);
-    let exponent = positive_only_difference + EMPIRIC_PRECISION_COEFFICIENT;
-    U256::from(10)
-        .checked_pow(exponent.into())
-        .expect("impossible to reach given weights data type being u128")
-    // Bursting out of this cap is as though a fantasy. Even assuming some potential implementations
-    // of pure blockchains with no application-specific smart contract
+    cw_service_fee_balance_minor: u128,
+    largest_weight_in_the_set: u128,
+) -> u128 {
+    let max_value = cw_service_fee_balance_minor.max(largest_weight_in_the_set);
+    u128::MAX / max_value
+}
+
+pub fn find_largest_weight(weighted_accounts: &[WeightedPayable]) -> u128 {
+    let weights = weighted_accounts
+        .iter()
+        .map(|account| account.weight)
+        .collect::<Vec<_>>();
+    find_largest_u128(&weights)
+}
+
+fn find_largest_u128(slice: &[u128]) -> u128 {
+    slice
+        .iter()
+        .fold(0, |largest_so_far, num| largest_so_far.max(*num))
 }
 
 pub fn adjust_account_balance_if_outweighed(
@@ -81,8 +85,8 @@ pub fn adjust_account_balance_if_outweighed(
         .proposed_adjusted_balance_minor
         > current_adjustment_info
             .non_finalized_account
-            .original_qualified_account
-            .payable
+            .qualified_payable
+            .qualified_as
             .balance_wei
     {
         possibly_outweighed_accounts_diagnostics(&current_adjustment_info.non_finalized_account);
@@ -91,8 +95,8 @@ pub fn adjust_account_balance_if_outweighed(
             .non_finalized_account
             .proposed_adjusted_balance_minor = current_adjustment_info
             .non_finalized_account
-            .original_qualified_account
-            .payable
+            .qualified_payable
+            .qualified_as
             .balance_wei;
 
         outweighed.push(current_adjustment_info);
@@ -145,8 +149,8 @@ fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
 ) -> ConsumingWalletExhaustingStatus {
     if status.remainder != 0 {
         let balance_gap_minor = non_finalized_account
-            .original_qualified_account
-            .payable
+            .qualified_payable
+            .qualified_as
             .balance_wei
             .checked_sub(non_finalized_account.proposed_adjusted_balance_minor)
             .unwrap_or_else(|| {
@@ -155,8 +159,8 @@ fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
                         {}, original: {}",
                     non_finalized_account.proposed_adjusted_balance_minor,
                     non_finalized_account
-                        .original_qualified_account
-                        .payable
+                        .qualified_payable
+                        .qualified_as
                         .balance_wei
                 )
             });
@@ -216,26 +220,20 @@ impl ConsumingWalletExhaustingStatus {
 }
 
 pub fn sort_in_descendant_order_by_weights(
-    unsorted: impl Iterator<Item = WeightedAccount>,
-) -> Vec<WeightedAccount> {
+    unsorted: impl Iterator<Item = WeightedPayable>,
+) -> Vec<WeightedPayable> {
     unsorted
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
         .collect()
 }
 
 pub fn drop_no_longer_needed_weights_away_from_accounts(
-    weights_and_accounts: Vec<WeightedAccount>,
+    weights_and_accounts: Vec<WeightedPayable>,
 ) -> Vec<PayableAccount> {
     weights_and_accounts
         .into_iter()
-        .map(|weighted_account| weighted_account.qualified_account.payable)
+        .map(|weighted_account| weighted_account.qualified_account.qualified_as)
         .collect()
-}
-
-// Replace with std lib method log10() for u128 which will be introduced by Rust 1.67.0; this was
-// written using 1.63.0
-pub fn log_10(num: u128) -> usize {
-    successors(Some(num), |&n| (n >= 10).then(|| n / 10)).count()
 }
 
 pub fn nonzero_positive(x: u128) -> u128 {
@@ -248,19 +246,30 @@ pub fn nonzero_positive(x: u128) -> u128 {
 
 impl From<QualifiedPayableAccount> for PayableAccount {
     fn from(qualified_payable: QualifiedPayableAccount) -> Self {
-        qualified_payable.payable
+        qualified_payable.qualified_as
     }
 }
 
 impl From<UnconfirmedAdjustment> for QualifiedPayableAccount {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
-        AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment).original_qualified_account
+        AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment).qualified_payable
     }
 }
 
 impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
         unconfirmed_adjustment.non_finalized_account
+    }
+}
+
+impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
+    fn from(weighted_account: WeightedPayable) -> Self {
+        let proposed_adjusted_balance_minor =
+            weighted_account.qualified_account.qualified_as.balance_wei;
+        AdjustedAccountBeforeFinalization {
+            qualified_payable: weighted_account.qualified_account,
+            proposed_adjusted_balance_minor,
+        }
     }
 }
 
@@ -273,14 +282,14 @@ impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
                     .proposed_adjusted_balance_minor,
                 ..resolution_info
                     .non_finalized_adjustment
-                    .original_qualified_account
-                    .payable
+                    .qualified_payable
+                    .qualified_as
             },
             AdjustmentResolution::Revert => {
                 resolution_info
                     .non_finalized_adjustment
-                    .original_qualified_account
-                    .payable
+                    .qualified_payable
+                    .qualified_as
             }
         }
     }
@@ -290,36 +299,21 @@ impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedAccount,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         adjust_account_balance_if_outweighed,
         compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_till_the_last_drop,
-        log_10, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
-        EMPIRIC_PRECISION_COEFFICIENT, MAX_EXPONENT_FOR_10_WITHIN_U128,
-    };
-    use crate::accountant::payment_adjuster::test_utils::{
-        make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
-        PRESERVED_TEST_PAYMENT_THRESHOLDS,
+        find_largest_u128, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::test_utils::{
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account,
+        make_non_guaranteed_qualified_payable, make_payable_account,
     };
     use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use masq_lib::logger::Logger;
-    use masq_lib::utils::convert_collection;
-    use std::time::{Duration, SystemTime};
-    use web3::types::U256;
-
-    #[test]
-    fn constants_are_correct() {
-        assert_eq!(MAX_EXPONENT_FOR_10_WITHIN_U128, 76);
-        assert_eq!(EMPIRIC_PRECISION_COEFFICIENT, 8);
-    }
+    use std::time::SystemTime;
 
     #[test]
     fn found_zero_affordable_accounts_found_returns_true_for_non_finalized_accounts() {
@@ -356,183 +350,59 @@ mod tests {
     }
 
     #[test]
-    fn log_10_works() {
-        [
-            (4_565_u128, 4),
-            (1_666_777, 7),
-            (3, 1),
-            (123, 3),
-            (111_111_111_111_111_111, 18),
-        ]
-        .into_iter()
-        .for_each(|(num, expected_result)| assert_eq!(log_10(num), expected_result))
+    fn find_largest_u128_begins_with_zero() {
+        let result = find_largest_u128(&[]);
+
+        assert_eq!(result, 0)
     }
 
     #[test]
-    fn multiplication_coefficient_can_give_numbers_preventing_fractional_numbers() {
-        let final_weight = 5_000_000_000_000_u128;
-        let cw_balances = vec![
-            222_222_222_222_u128,
-            100_000,
-            123_456_789,
-            5_555_000_000_000,
-            5_000_555_000_000_000,
-            1_000_000_000_000_000_000, // 1 MASQ
-        ];
+    fn find_largest_u128_works() {
+        let result = find_largest_u128(&[45, 2, 456565, 0, 2, 456565, 456564]);
 
-        let result = cw_balances
-            .clone()
-            .into_iter()
-            .map(|cw_balance| {
-                compute_mul_coefficient_preventing_fractional_numbers(cw_balance, final_weight)
-            })
-            .collect::<Vec<U256>>();
+        assert_eq!(result, 456565)
+    }
 
-        let expected_result: Vec<U256> = convert_collection(vec![
-            1_000_000_000_u128,
-            1_000_000_000_000_000,
-            1_000_000_000_000,
-            // The following values are the minimum. It turned out that it helps to reach better
-            // precision in the downstream computations
-            100_000_000,
-            100_000_000,
-            100_000_000,
-        ]);
+    #[test]
+    fn multiplication_coefficient_is_based_on_cw_balance_if_largest_then_the_largest_weight() {
+        let cw_service_fee_balance_minor = 12345678;
+        let largest_weight = 12345677;
+
+        let result = compute_mul_coefficient_preventing_fractional_numbers(
+            cw_service_fee_balance_minor,
+            largest_weight,
+        );
+
+        let expected_result = u128::MAX / cw_service_fee_balance_minor;
         assert_eq!(result, expected_result)
     }
 
     #[test]
-    fn multiplication_coefficient_extreme_feeding_with_possible_but_only_little_realistic_values() {
-        // We cannot say by heart which of the evaluated weights from these parameters below will
-        // be bigger than another, and therefore we cannot line them up in an order
-        todo!("the comment is lie now");
-        let accounts_as_months_and_balances = vec![
-            (1, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
-            (5, 10_u128.pow(18)),
-            (12, 10_u128.pow(18)),
-            (120, 10_u128.pow(20)),
-            (600, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
-            (1200, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR),
-            (1200, *MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR * 1000),
-        ];
-        let (accounts_with_their_weights, reserved_initial_accounts_order_according_to_wallets) =
-            get_extreme_weights_and_initial_accounts_order(accounts_as_months_and_balances);
-        let cw_balance_in_minor = 1; // Minimal possible balance 1 wei
+    fn multiplication_coefficient_is_based_on_the_largest_weight_if_larger_then_cw_balance() {
+        let cw_service_fee_balance_minor = 12345677;
+        let largest_weight = 12345678;
 
-        let results = accounts_with_their_weights
-            .into_iter()
-            .map(|weighted_account| {
-                // Scenario simplification: we assume there is always just one account to process in a time
-                let computed_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
-                    cw_balance_in_minor,
-                    weighted_account.weight,
-                );
-                (
-                    computed_coefficient,
-                    weighted_account.qualified_account.payable.wallet,
-                    weighted_account.weight,
-                )
-            })
-            .collect::<Vec<(U256, Wallet, u128)>>();
+        let result = compute_mul_coefficient_preventing_fractional_numbers(
+            cw_service_fee_balance_minor,
+            largest_weight,
+        );
 
-        let reserved_initial_accounts_order_according_to_wallets_iter =
-            reserved_initial_accounts_order_according_to_wallets
-                .iter()
-                .enumerate();
-        let mul_coefficients_and_weights_in_the_same_order_as_original_inputs = results
-            .into_iter()
-            .map(|(computed_coefficient, account_wallet, account_weight)| {
-                let (idx, _) = reserved_initial_accounts_order_according_to_wallets_iter
-                    .clone()
-                    .find(|(_, wallet_ordered)| wallet_ordered == &&account_wallet)
-                    .unwrap();
-                (idx, computed_coefficient, account_weight)
-            })
-            .sorted_by(|(idx_a, _, _), (idx_b, _, _)| Ord::cmp(&idx_b, &idx_a))
-            .map(|(_, coefficient, weight)| (coefficient, weight))
-            .collect::<Vec<(U256, u128)>>();
-        let templates_for_coefficients: Vec<U256> = convert_collection(vec![
-            100000000000000000000000000000000000000_u128,
-            100000000000000000000000000000000000,
-            100000000000000000000000000000000000,
-            100000000000000000000000000000000,
-            10000000000000000000000000000000,
-            10000000000000000000000000000000,
-            100000000000000000000000000000000000,
-        ]);
-        // I was trying to write these assertions so that it wouldn't require us to rewrite
-        // the expected values everytime someone pokes into the formulas.
-        check_relation_to_computed_weight_fairly_but_with_enough_benevolence(
-            &mul_coefficients_and_weights_in_the_same_order_as_original_inputs,
-        );
-        compare_coefficients_to_templates(
-            &mul_coefficients_and_weights_in_the_same_order_as_original_inputs,
-            &templates_for_coefficients,
-        );
+        let expected_result = u128::MAX / largest_weight;
+        assert_eq!(result, expected_result)
     }
 
-    fn get_extreme_weights_and_initial_accounts_order(
-        months_of_debt_and_balances: Vec<(usize, u128)>,
-    ) -> (Vec<WeightedAccount>, Vec<Wallet>) {
-        let now = SystemTime::now();
-        let accounts = make_extreme_payables(Either::Right(months_of_debt_and_balances), now);
-        let wallets_in_order = accounts
-            .iter()
-            .map(|account| account.wallet.clone())
-            .collect();
-        let qualified_accounts =
-            make_guaranteed_qualified_payables(accounts, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
-        let subject = make_initialized_subject(now, None, None);
-        // The initial order is remembered because when the weight are applied the collection
-        // also gets sorted and will not necessarily have to match the initial order
-        let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_accounts);
-        (weights_and_accounts, wallets_in_order)
-    }
+    #[test]
+    fn multiplication_coefficient_computed_when_both_parameters_the_same() {
+        let cw_service_fee_balance_minor = 111111;
+        let largest_weight = 111111;
 
-    fn check_relation_to_computed_weight_fairly_but_with_enough_benevolence(
-        output: &[(U256, u128)],
-    ) {
-        output.iter().for_each(|(coefficient, corresponding_weight)| {
-            let coefficient_num_decimal_length = log_10(coefficient.as_u128());
-            let weight_decimal_length = log_10(*corresponding_weight);
-            assert_eq!(coefficient_num_decimal_length, weight_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
-                       "coefficient with bad safety margin; should be {} but was {}, as one of this set {:?}",
-                       coefficient_num_decimal_length,
-                       weight_decimal_length + EMPIRIC_PRECISION_COEFFICIENT,
-                       output
-            );
-
-            let expected_division_by_10_if_wrong = 10_u128.pow(coefficient_num_decimal_length as u32 - 1);
-            let experiment_result = corresponding_weight / 10;
-            match experiment_result == expected_division_by_10_if_wrong {
-                false => (),
-                true => match corresponding_weight % 10 {
-                    0 => panic!("the weight is a pure power of ten, such a suspicious result, \
-                                check it in {:?}", output),
-                    _ => ()
-                }
-            }
-        })
-    }
-
-    fn compare_coefficients_to_templates(outputs: &[(U256, u128)], templates: &[U256]) {
-        assert_eq!(
-            outputs.len(),
-            templates.len(),
-            "count of actual values {:?} and templates don't match {:?}",
-            outputs,
-            templates
+        let result = compute_mul_coefficient_preventing_fractional_numbers(
+            cw_service_fee_balance_minor,
+            largest_weight,
         );
-        outputs
-            .iter()
-            .zip(templates.iter())
-            .for_each(|((actual_coeff, _), expected_coeff)| {
-                assert_eq!(
-                    actual_coeff, expected_coeff,
-                    "actual coefficient {} does not match the expected one {} in the full set {:?}",
-                    actual_coeff, expected_coeff, outputs
-                )
-            })
+
+        let expected_result = u128::MAX / 111111;
+        assert_eq!(result, expected_result)
     }
 
     #[test]
@@ -555,7 +425,7 @@ mod tests {
         let garbage_weight = 123456;
         let garbage_proposed_adjusted_balance_minor = 9_000_000_000;
         let unconfirmed_adjustment = UnconfirmedAdjustment::new(
-            WeightedAccount::new(qualified_payable, garbage_weight),
+            WeightedPayable::new(qualified_payable, garbage_weight),
             garbage_proposed_adjusted_balance_minor,
         );
         let init = (vec![], vec![]);
@@ -576,7 +446,7 @@ mod tests {
         let garbage_payment_threshold_intercept_minor = u128::MAX;
         let garbage_permanent_debt_allowed_wei = 123456789;
         let qualified_payable = QualifiedPayableAccount {
-            payable: PayableAccount {
+            qualified_as: PayableAccount {
                 wallet: wallet.clone(),
                 balance_wei: original_balance,
                 last_paid_timestamp: garbage_last_paid_timestamp,

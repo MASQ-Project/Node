@@ -131,19 +131,19 @@ pub struct ReceivedPayments {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayableAccount {
-    pub payable: PayableAccount,
+    pub qualified_as: PayableAccount,
     pub payment_threshold_intercept_minor: u128,
     pub creditor_thresholds: CreditorThresholds,
 }
 
 impl QualifiedPayableAccount {
     pub fn new(
-        payable: PayableAccount,
+        qualified_as: PayableAccount,
         payment_threshold_intercept_minor: u128,
         creditor_thresholds: CreditorThresholds,
     ) -> QualifiedPayableAccount {
         Self {
-            payable,
+            qualified_as,
             payment_threshold_intercept_minor,
             creditor_thresholds,
         }
@@ -1545,11 +1545,11 @@ mod tests {
         );
         let adjusted_account_1 = PayableAccount {
             balance_wei: gwei_to_wei(55_550_u64),
-            ..unadjusted_account_1.payable.clone()
+            ..unadjusted_account_1.qualified_as.clone()
         };
         let adjusted_account_2 = PayableAccount {
             balance_wei: gwei_to_wei(100_000_u64),
-            ..unadjusted_account_2.payable.clone()
+            ..unadjusted_account_2.qualified_as.clone()
         };
         let response_skeleton = ResponseSkeleton {
             client_id: 12,

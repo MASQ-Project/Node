@@ -4,12 +4,12 @@ use crate::accountant::QualifiedPayableAccount;
 use web3::types::U256;
 
 #[derive(Clone)]
-pub struct WeightedAccount {
+pub struct WeightedPayable {
     pub qualified_account: QualifiedPayableAccount,
     pub weight: u128,
 }
 
-impl WeightedAccount {
+impl WeightedPayable {
     pub fn new(qualified_account: QualifiedPayableAccount, weight: u128) -> Self {
         Self {
             qualified_account,
@@ -59,17 +59,17 @@ pub enum RequiredSpecialTreatment {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AdjustedAccountBeforeFinalization {
-    pub original_qualified_account: QualifiedPayableAccount,
+    pub qualified_payable: QualifiedPayableAccount,
     pub proposed_adjusted_balance_minor: u128,
 }
 
 impl AdjustedAccountBeforeFinalization {
     pub fn new(
-        original_account: QualifiedPayableAccount,
+        qualified_payable: QualifiedPayableAccount,
         proposed_adjusted_balance_minor: u128,
     ) -> Self {
         Self {
-            original_qualified_account: original_account,
+            qualified_payable,
             proposed_adjusted_balance_minor,
         }
     }
@@ -82,7 +82,7 @@ pub struct UnconfirmedAdjustment {
 }
 
 impl UnconfirmedAdjustment {
-    pub fn new(weighted_account: WeightedAccount, proposed_adjusted_balance_minor: u128) -> Self {
+    pub fn new(weighted_account: WeightedPayable, proposed_adjusted_balance_minor: u128) -> Self {
         Self {
             non_finalized_account: AdjustedAccountBeforeFinalization::new(
                 weighted_account.qualified_account,
@@ -141,15 +141,15 @@ mod tests {
     #[test]
     fn merging_results_from_recursion_works() {
         let non_finalized_account_1 = AdjustedAccountBeforeFinalization {
-            original_qualified_account: make_non_guaranteed_qualified_payable(111),
+            qualified_payable: make_non_guaranteed_qualified_payable(111),
             proposed_adjusted_balance_minor: 1234,
         };
         let non_finalized_account_2 = AdjustedAccountBeforeFinalization {
-            original_qualified_account: make_non_guaranteed_qualified_payable(222),
+            qualified_payable: make_non_guaranteed_qualified_payable(222),
             proposed_adjusted_balance_minor: 5555,
         };
         let non_finalized_account_3 = AdjustedAccountBeforeFinalization {
-            original_qualified_account: make_non_guaranteed_qualified_payable(333),
+            qualified_payable: make_non_guaranteed_qualified_payable(333),
             proposed_adjusted_balance_minor: 6789,
         };
         let subject = RecursionResults {

@@ -127,13 +127,13 @@ pub fn info_log_for_disqualified_account(
         "Shortage of MASQ in your consuming wallet impacts on payable {}, ruled out from this \
         round of payments. The proposed adjustment {} wei was less than half of the recorded \
         debt, {} wei",
-        account.original_qualified_account.payable.wallet,
+        account.qualified_payable.qualified_as.wallet,
         account
             .proposed_adjusted_balance_minor
             .separate_with_commas(),
         account
-            .original_qualified_account
-            .payable
+            .qualified_payable
+            .qualified_as
             .balance_wei
             .separate_with_commas()
     )
