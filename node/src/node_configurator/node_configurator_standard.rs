@@ -660,7 +660,7 @@ mod tests {
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
             .param("--real-user", "999:999:/home/booga")
-            .param("--chain", "polygon-mumbai");
+            .param("--chain", "polygon-amoy");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1611,30 +1611,30 @@ mod tests {
         running_test();
         let home_dir = Path::new("/home/cooga");
         let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
-        let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
+        let home_dir_poly_amoy = home_dir.join(".local").join("MASQ").join("polygon-amoy");
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),
             (
                 Some("polygon-mumbai"),
                 None,
-                Some(home_dir_poly_mumbai.to_str().unwrap()),
+                Some(home_dir_poly_amoy.to_str().unwrap()),
             ),
             (None, Some("/cooga"), Some("/cooga")),
-            (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
+            (Some("polygon-amoy"), Some("/cooga"), Some("/cooga")),
             (
                 None,
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
             (
                 None,
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/polygon-mainnet"),
             ),
             (
-                Some("polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
         ]
         .iter()

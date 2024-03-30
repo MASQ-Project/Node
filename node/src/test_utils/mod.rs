@@ -12,6 +12,7 @@ pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
+mod on_chain_payments_tester;
 pub mod recorder;
 pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;

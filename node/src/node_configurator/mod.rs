@@ -348,7 +348,7 @@ mod tests {
                 "/nonexistent_home/nonexistent_alice".to_string(),
             )),
         );
-        let chain_name = "polygon-mumbai";
+        let chain_name = "polygon-amoy";
 
         let result =
             data_directory_from_context(&dirs_wrapper, &real_user, Chain::from(chain_name));
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-amoy".to_string()
             )
         )
     }

@@ -1228,7 +1228,7 @@ mod tests {
     use core::option::Option;
     use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::blockchains::chains::Chain::PolyMumbai;
+    use masq_lib::blockchains::chains::Chain::PolyAmoy;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -2264,14 +2264,10 @@ mod tests {
         let current_data_dir = base_dir
             .join("data_dir")
             .join("MASQ")
-            .join(BlockChain::PolyMumbai.rec().literal_identifier); //not a default
+            .join(BlockChain::PolyAmoy.rec().literal_identifier); //not a default
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            (
-                "chain",
-                BlockChain::PolyMumbai.rec().literal_identifier,
-                Set,
-            ),
+            ("chain", BlockChain::PolyAmoy.rec().literal_identifier, Set),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -2310,7 +2306,7 @@ mod tests {
             .get_modified_setup(existing_setup, incoming_setup)
             .unwrap_err();
 
-        let expected_chain = PolyMumbai.rec().literal_identifier;
+        let expected_chain = PolyAmoy.rec().literal_identifier;
         let actual_chain = &resulting_setup_cluster.get("chain").unwrap().value;
         assert_eq!(actual_chain, expected_chain);
         let actual_data_directory =
@@ -2757,7 +2753,7 @@ mod tests {
         }
         let setup = vec![
             //no config-file setting
-            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
+            UiSetupResponseValue::new("chain", "polygon-amoy", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new("config-file", "booga/special.toml", Set),
             UiSetupResponseValue::new(
@@ -3716,10 +3712,10 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
+        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
         let home_directory = Path::new("/home/booga");
         let data_directory = home_directory.join("data");
-        let expected = data_directory.join("MASQ").join("polygon-mumbai");
+        let expected = data_directory.join("MASQ").join("polygon-amoy");
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(data_directory))

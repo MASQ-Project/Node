@@ -579,7 +579,7 @@ where
     fn web3_gas_limit_const_part(chain: Chain) -> u64 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
         }
     }
 
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
-        let chain = Chain::PolyMumbai;
+        let chain = Chain::PolyAmoy;
         let wallet = make_wallet("abc");
         let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(
             PersistentConfigError::UninterpretableValue("booga".to_string()),
@@ -1613,10 +1613,7 @@ mod tests {
             Subject::web3_gas_limit_const_part(Chain::PolyMainnet),
             70_000
         );
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::PolyMumbai),
-            70_000
-        );
+        assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 
@@ -1683,7 +1680,7 @@ mod tests {
     #[test]
     fn signing_error_terminates_iteration_over_accounts_and_propagates_it_all_way_up_and_out() {
         let transport = TestTransport::default();
-        let chain = Chain::PolyMumbai;
+        let chain = Chain::PolyAmoy;
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
@@ -1749,7 +1746,7 @@ mod tests {
             .batch_wide_timestamp_result(SystemTime::now())
             .submit_batch_result(Err(Web3Error::Transport("Transaction crashed".to_string())));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let chain = Chain::PolyMumbai;
+        let chain = Chain::PolyAmoy;
         let mut subject =
             BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
@@ -1781,7 +1778,7 @@ mod tests {
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let chain = Chain::PolyMumbai;
+        let chain = Chain::PolyAmoy;
         let mut subject =
             BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
@@ -1800,10 +1797,6 @@ mod tests {
             ))
         );
     }
-
-    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
-    const TEST_GAS_PRICE_ETH: u64 = 110;
-    const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
     fn test_consuming_wallet_with_secret() -> Wallet {
         let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
@@ -1832,12 +1825,13 @@ mod tests {
         let recipient_wallet = test_recipient_wallet();
         let nonce_correct_type = U256::from(nonce);
         let gas_price = match chain {
-            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => TEST_GAS_PRICE_ETH,
-            Chain::PolyMainnet | Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
+            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 110,
+            Chain::PolyMainnet | Chain::PolyAmoy => 50,
         };
+        let payment_size_wei = 1_000_000_000_000;
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
-            TEST_PAYMENT_AMOUNT,
+            payment_size_wei,
             None,
         );
 
@@ -1855,12 +1849,11 @@ mod tests {
         assert_eq!(byte_set_to_compare.as_slice(), template)
     }
 
-    //with a real confirmation through a transaction sent with this data to the network
+    // Verified by a successful transaction on the test network with these inputs
     #[test]
-    fn web3_interface_signing_a_transaction_works_for_polygon_mumbai() {
-        let chain = Chain::PolyMumbai;
+    fn web3_interface_signing_a_transaction_works_for_polygon_amoy() {
+        let chain = Chain::PolyAmoy;
         let nonce = 5;
-        // signed_transaction_data changed after we changed the contract address of polygon matic
         let signed_transaction_data = "f8ad05850ba43b740083011980949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a09fdbbd7064d3b7240f5422b2164aaa13d62f0946a683d82ee26f97f242570d90a077b49dbb408c20d73e0666ba0a77ac888bf7a9cb14824a5f35c97217b9bc0a5a";
 
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
@@ -1868,23 +1861,23 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    //with a real confirmation through a transaction sent with this data to the network
+    // Verified by a successful transaction on the test network with these inputs
     #[test]
     fn web3_interface_signing_a_transaction_works_for_eth_ropsten() {
         let chain = Chain::EthRopsten;
-        let nonce = 1; //must stay like this!
+        let nonce = 1;
         let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    //not confirmed on the real network
+    // Unconfirmed on the real network
     #[test]
     fn web3_interface_signing_a_transaction_for_polygon_mainnet() {
         let chain = Chain::PolyMainnet;
         let nonce = 10;
-        //generated locally
+        // Generated locally
         let signed_transaction_data = [
             248, 172, 10, 133, 11, 164, 59, 116, 0, 131, 1, 25, 128, 148, 238, 154, 53, 47, 106,
             172, 74, 241, 165, 185, 244, 103, 246, 169, 62, 15, 251, 233, 221, 53, 128, 184, 68,
@@ -1900,12 +1893,12 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
     }
 
-    //not confirmed on the real network
+    // Unconfirmed on the real network
     #[test]
     fn web3_interface_signing_a_transaction_for_eth_mainnet() {
         let chain = Chain::EthMainnet;
         let nonce = 10;
-        //generated locally
+        // Generated locally
         let signed_transaction_data = [
             248, 169, 10, 133, 25, 156, 130, 204, 0, 130, 222, 232, 148, 6, 243, 195, 35, 240, 35,
             140, 114, 191, 53, 1, 16, 113, 242, 181, 183, 244, 58, 5, 76, 128, 184, 68, 169, 5,
@@ -1921,8 +1914,8 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
     }
 
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
+    // Adapted test from old times when we had our own signing method.
+    // Don't have data for new chains, so I omit them in this kind of tests
     #[test]
     fn signs_various_transactions_for_eth_mainnet() {
         let signatures = &[
@@ -1955,8 +1948,8 @@ mod tests {
         assert_signature(Chain::EthMainnet, signatures)
     }
 
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
+    // Adapted test from old times when we had our own signing method.
+    // Don't have data for new chains, so I omit them in this kind of tests
     #[test]
     fn signs_various_transactions_for_ropsten() {
         let signatures = &[

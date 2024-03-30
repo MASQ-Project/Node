@@ -107,9 +107,9 @@ mod tests {
         let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
             .join("MASQ")
             .join("polygon-mainnet");
-        let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+        let polygon_amoy_dir = Path::new(&data_dir.to_str().unwrap())
             .join("MASQ")
-            .join("polygon-mumbai");
+            .join("polygon-amoy");
 
         assert_eq!(
             DATA_DIRECTORY_DAEMON_HELP.as_str(),
@@ -117,7 +117,7 @@ mod tests {
             and by default its configuration file as well. By default, your data-directory is located in \
             your application directory, under your home directory e.g.: '{}'.\n\n\
             In case you change your chain to a different one, the data-directory path is automatically changed \
-            to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+            to end with the name of your chain: e.g.: if you choose polygon-amoy, then data-directory is \
             automatically changed to: '{}'.\n\n\
             You can specify your own data-directory to the Daemon in two different ways: \n\n\
             1. If you provide a path without the chain name on the end, the Daemon will automatically change \
@@ -126,7 +126,7 @@ mod tests {
             2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
             there will be no change until you set the chain parameter to a different value.",
             polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
-            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            polygon_amoy_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             home_dir.to_string_lossy().to_string().as_str()

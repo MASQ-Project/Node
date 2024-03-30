@@ -22,7 +22,7 @@ fn dump_configuration_with_an_existing_database_integration() {
             Some(
                 CommandConfig::new()
                     .pair("--ui-port", &port.to_string())
-                    .pair("--chain", "polygon-mumbai"),
+                    .pair("--chain", "polygon-amoy"),
             ),
             true,
             true,
@@ -38,7 +38,7 @@ fn dump_configuration_with_an_existing_database_integration() {
 
     let mut node = utils::MASQNode::run_dump_config(
         test_name,
-        Some(CommandConfig::new().pair("--chain", "polygon-mumbai")),
+        Some(CommandConfig::new().pair("--chain", "polygon-amoy")),
         false,
         true,
         true,

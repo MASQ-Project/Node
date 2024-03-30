@@ -2112,7 +2112,7 @@ dependencies = [
  "flexi_logger 0.15.12",
  "futures",
  "heck",
- "http 0.2.5",
+ "http 0.1.21",
  "indoc",
  "ipconfig 0.2.2",
  "itertools 0.10.3",
