@@ -305,7 +305,7 @@ pub trait DirsWrapper: Send {
     fn dup(&self) -> Box<dyn DirsWrapper>; // because implementing Clone for traits is problematic.
 }
 
-pub struct DirsWrapperReal;
+pub struct DirsWrapperReal {}
 
 impl DirsWrapper for DirsWrapperReal {
     fn data_dir(&self) -> Option<PathBuf> {
@@ -315,7 +315,19 @@ impl DirsWrapper for DirsWrapperReal {
         home_dir()
     }
     fn dup(&self) -> Box<dyn DirsWrapper> {
-        Box::new(DirsWrapperReal)
+        Box::new(DirsWrapperReal::default())
+    }
+}
+
+impl DirsWrapperReal {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for DirsWrapperReal {
+    fn default() -> Self {
+        DirsWrapperReal::new()
     }
 }
 
@@ -377,7 +389,8 @@ mod tests {
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
 
         assert_eq!(
             &format!(
@@ -418,7 +431,8 @@ mod tests {
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
         assert_eq!(
             format!(
                 "{}",
@@ -454,7 +468,8 @@ mod tests {
 
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
 
         assert_eq!(
             "/tmp/booga.toml",
@@ -474,7 +489,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -498,7 +513,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -521,7 +536,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -545,7 +560,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
