@@ -1078,14 +1078,13 @@ mod tests {
 
     #[test]
     fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
-        //server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let (node_home_dir, node_home_dir_relative_to_os_home_dir) =
             make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
                 "node_configurator_standard",
-                "tilde_in_config_file_path_from_commandline_and_real_user_from_config_file",
+                "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
             );
         let data_dir = &node_home_dir.join("data_dir");
         let node_data_dir_relative_to_os_home_dir_str = node_home_dir_relative_to_os_home_dir
@@ -1093,7 +1092,7 @@ mod tests {
             .as_os_str()
             .to_str()
             .unwrap()
-            .to_string();
+            .to_owned();
         create_dir_all(data_dir).unwrap();
         let config_file = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file);
@@ -1280,26 +1279,21 @@ mod tests {
             value_m!(multiconfig, "ip", String).unwrap(),
             "6.6.6.6".to_string()
         );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            node_home_dir
+                .join("booga.toml")
+                .as_os_str()
+                .to_str()
+                .unwrap()
+        );
         #[cfg(not(target_os = "windows"))]
         {
-            assert_eq!(
-                value_m!(multiconfig, "config-file", String).unwrap(),
-                node_home_dir
-                    .join("booga.toml")
-                    .as_os_str()
-                    .to_str()
-                    .unwrap()
-            );
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "1001:1001:cooga".to_string()
             );
         }
-        #[cfg(target_os = "windows")]
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            node_home_dir.to_string_lossy().to_string()
-        );
     }
 
     #[test]

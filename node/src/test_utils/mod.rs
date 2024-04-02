@@ -541,6 +541,8 @@ pub fn make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_d
     let node_base_dir_relative = ensure_node_home_directory_exists(module, name);
     let home_dir_path = home_dir().unwrap();
     let current_dir = current_dir().unwrap();
+    eprintln!("home dir path: {:?}", home_dir_path);
+    eprintln!("current dir path: {:?}", current_dir);
     let current_dir_tilde_like_path = current_dir.strip_prefix(home_dir_path).unwrap();
     let node_base_dir_tilde_path =
         current_dir_tilde_like_path.join(node_home_directory(module, name));
