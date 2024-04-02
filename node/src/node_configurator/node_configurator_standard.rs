@@ -63,7 +63,7 @@ impl Default for NodeConfiguratorStandardPrivileged {
 impl NodeConfiguratorStandardPrivileged {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal {}),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -375,8 +375,10 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use dirs::home_dir;
+    use crate::test_utils::{
+        assert_string_contains, main_cryptde,
+        make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir, ArgsBuilder,
+    };
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -597,8 +599,12 @@ mod tests {
         )
         .unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut bootstrapper_config)
-            .unwrap();
+        privileged_parse_args(
+            &DirsWrapperReal::default(),
+            &multi_config,
+            &mut bootstrapper_config,
+        )
+        .unwrap();
         let node_parse_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
         node_parse_args_configurator
             .unprivileged_parse_args(
@@ -666,7 +672,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", PathBuf),
@@ -711,7 +717,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(None, value_m!(multi_config, "config-file", PathBuf));
         assert_eq!(
@@ -723,7 +729,7 @@ mod tests {
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
@@ -739,7 +745,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -765,7 +771,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(None, value_m!(multi_config, "config-file", PathBuf));
         assert_eq!(
@@ -777,7 +783,7 @@ mod tests {
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
@@ -789,7 +795,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::None);
     }
@@ -802,7 +808,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
@@ -1020,8 +1026,8 @@ mod tests {
         );
         let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("data_dir");
-        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
-        fill_up_config_file(config_file_relative);
+        let config_file = File::create(home_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file);
         let env_vec_array = vec![
             (
                 "MASQ_CONFIG_FILE",
@@ -1071,16 +1077,26 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file(
-    ) {
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
+        //server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = home_dir().expect("expectexd home dir");
-        let data_dir = &home_dir.join("masqhome");
-        let _create_data_dir = create_dir_all(data_dir);
-        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
-        fill_up_config_file(config_file_relative);
+        let (node_home_dir, node_home_dir_relative_to_os_home_dir) =
+            make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
+                "node_configurator_standard",
+                "tilde_in_config_file_path_from_commandline_and_real_user_from_config_file",
+            );
+        let data_dir = &node_home_dir.join("data_dir");
+        let node_data_dir_relative_to_os_home_dir_str = node_home_dir_relative_to_os_home_dir
+            .join("data_dir")
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_string();
+        create_dir_all(data_dir).unwrap();
+        let config_file = File::create(data_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file);
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
             #[cfg(not(target_os = "windows"))]
@@ -1093,24 +1109,40 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param("--config-file", "~/masqhome/config.toml")
-            .param("--data-directory", "~/masqhome");
+            .param(
+                "--config-file",
+                &format!(
+                    "~/{}/config.toml",
+                    node_data_dir_relative_to_os_home_dir_str
+                ),
+            )
+            .param(
+                "--data-directory",
+                &format!("~/{}", node_data_dir_relative_to_os_home_dir_str),
+            );
         #[cfg(target_os = "windows")]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param("--config-file", "~\\masqhome\\config.toml")
-            .param("--data-directory", "~\\masqhome");
+            .param(
+                "--config-file",
+                &format!(
+                    "~\\{}\\config.toml",
+                    node_data_dir_relative_to_os_home_dir_str
+                ),
+            )
+            .param(
+                "--data-directory",
+                &format!("~\\{}", node_data_dir_relative_to_os_home_dir_str),
+            );
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.to_path_buf()))
-            .data_dir_result(Some(data_dir.to_path_buf()));
 
-        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
-        let multiconfig = result.unwrap();
+        let multiconfig =
+            server_initializer_collected_params(&DirsWrapperReal::default(), args_vec.as_slice())
+                .unwrap();
 
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
-            data_dir.to_string_lossy().to_string()
+            data_dir.as_os_str().to_str().unwrap()
         );
         #[cfg(not(target_os = "windows"))]
         {
@@ -1135,12 +1167,11 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory(
-    ) {
+    fn config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory");
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line");
         let data_dir = &home_dir.join("data_dir");
         create_dir_all(home_dir.join("config")).expect("expected directory for config");
         let config_file_relative = File::create(&home_dir.join("config/config.toml")).unwrap();
@@ -1185,7 +1216,6 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory");
-
         let data_dir = &home_dir.join("data_dir");
         vec![("MASQ_CONFIG_FILE", "config/config.toml")]
             .into_iter()
@@ -1204,15 +1234,13 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists(
+        let node_home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_combine_vcls_properly",
         );
-        let data_dir = &home_dir.join("data_dir");
-        let config_file = File::create(&home_dir.join("booga.toml")).unwrap();
-        let current_directory = current_dir().unwrap();
+        let data_dir = &node_home_dir.join("data_dir");
+        let config_file = File::create(&node_home_dir.join("booga.toml")).unwrap();
         fill_up_config_file(config_file);
-
         let env_vec_array = vec![
             ("MASQ_CONFIG_FILE", "booga.toml"),
             ("MASQ_CLANDESTINE_PORT", "8888"),
@@ -1226,10 +1254,13 @@ mod tests {
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.clone()))
+            .home_dir_result(Some(node_home_dir.clone()))
             .data_dir_result(Some(data_dir.to_path_buf()));
         let args = ArgsBuilder::new()
-            .param("--data-directory", current_directory.join(Path::new("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home")).to_string_lossy().to_string().as_str())
+            .param(
+                "--data-directory",
+                node_home_dir.to_string_lossy().to_string().as_str(),
+            )
             .param("--clandestine-port", "1111")
             .param("--real-user", "1001:1001:cooga");
         let args_vec: Vec<String> = args.into();
@@ -1253,7 +1284,11 @@ mod tests {
         {
             assert_eq!(
                 value_m!(multiconfig, "config-file", String).unwrap(),
-                current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home/booga.toml").to_string_lossy().to_string()
+                node_home_dir
+                    .join("booga.toml")
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
             );
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
@@ -1263,7 +1298,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
-            current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home\\booga.toml").to_string_lossy().to_string()
+            node_home_dir.to_string_lossy().to_string()
         );
     }
 
@@ -1615,7 +1650,7 @@ mod tests {
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),
             (
-                Some("polygon-mumbai"),
+                Some("polygon-amoy"),
                 None,
                 Some(home_dir_poly_amoy.to_str().unwrap()),
             ),

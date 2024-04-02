@@ -12,7 +12,6 @@ pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
-mod on_chain_payments_tester;
 pub mod recorder;
 pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
@@ -40,11 +39,14 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use dirs::home_dir;
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::{
+    ensure_node_home_directory_exists, node_home_directory, TEST_DEFAULT_CHAIN,
+};
 use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -52,12 +54,14 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
+use std::env::current_dir;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -517,7 +521,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-//must stay without cfg(test) -- used in another crate
+// Must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
@@ -528,6 +532,20 @@ pub struct TestRawTransaction {
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,
     pub data: Vec<u8>,
+}
+
+pub fn make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
+    module: &str,
+    name: &str,
+) -> (PathBuf, PathBuf) {
+    let node_base_dir_relative = ensure_node_home_directory_exists(module, name);
+    let home_dir_path = home_dir().unwrap();
+    let current_dir = current_dir().unwrap();
+    let current_dir_tilde_like_path = current_dir.strip_prefix(home_dir_path).unwrap();
+    let node_base_dir_tilde_path =
+        current_dir_tilde_like_path.join(node_home_directory(module, name));
+    let node_base_dir_absolute = current_dir.join(node_base_dir_relative);
+    (node_base_dir_absolute, node_base_dir_tilde_path)
 }
 
 #[macro_export]

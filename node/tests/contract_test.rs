@@ -108,9 +108,8 @@ where
 fn masq_erc20_contract_exists_on_polygon_amoy_integration() {
     let blockchain_urls = vec![
         "https://rpc-amoy.polygon.technology",
-        "https://matic-amoy.chainstacklabs.com",
-        "https://rpc-amoy.maticvigil.com",
-        "https://matic-testnet-archive-rpc.bwarelabs.com",
+        "https://rpc.ankr.com/polygon_amoy",
+        "https://80002.rpc.thirdweb.com",
     ];
     let chain = Chain::PolyAmoy;
 
