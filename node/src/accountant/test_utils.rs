@@ -7,7 +7,7 @@ use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
 use crate::accountant::db_access_objects::pending_payable_dao::{
-    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
+    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes,
 };
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
@@ -888,7 +888,7 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
 #[derive(Default)]
 pub struct PendingPayableDaoMock {
     fingerprints_rowids_params: Arc<Mutex<Vec<Vec<H256>>>>,
-    fingerprints_rowids_results: RefCell<Vec<Vec<(Option<u64>, H256)>>>,
+    fingerprints_rowids_results: RefCell<Vec<TransactionHashes>>,
     delete_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
     delete_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_new_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u128)>, SystemTime)>>>,
@@ -903,7 +903,7 @@ pub struct PendingPayableDaoMock {
 }
 
 impl PendingPayableDao for PendingPayableDaoMock {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
         self.fingerprints_rowids_params
             .lock()
             .unwrap()
@@ -974,7 +974,7 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn fingerprints_rowids_result(self, result: Vec<(Option<u64>, H256)>) -> Self {
+    pub fn fingerprints_rowids_result(self, result: TransactionHashes) -> Self {
         self.fingerprints_rowids_results.borrow_mut().push(result);
         self
     }

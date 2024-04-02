@@ -1032,7 +1032,7 @@ mod tests {
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
     use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayable, PendingPayableDaoError,
+        PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
@@ -1459,8 +1459,11 @@ mod tests {
     #[test]
     fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(1), make_tx_hash(123))]);
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(1, make_tx_hash(123))],
+                no_rowid_results: vec![],
+            });
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
@@ -1863,7 +1866,10 @@ mod tests {
         let expected_rowid = 45623;
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(vec![(Some(expected_rowid), expected_hash)]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(expected_rowid, expected_hash)],
+                no_rowid_results: vec![],
+            });
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -3544,10 +3550,13 @@ mod tests {
             ..fingerprint_2_first_round.clone()
         };
         let pending_payable_dao_for_payable_scanner = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![
-                (Some(rowid_for_account_1), pending_tx_hash_1),
-                (Some(rowid_for_account_2), pending_tx_hash_2),
-            ]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (rowid_for_account_1, pending_tx_hash_1),
+                    (rowid_for_account_2, pending_tx_hash_2),
+                ],
+                no_rowid_results: vec![],
+            });
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
             .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
             .return_all_errorless_fingerprints_result(vec![])
@@ -3564,10 +3573,13 @@ mod tests {
                 fingerprint_2_third_round,
             ])
             .return_all_errorless_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
-            .fingerprints_rowids_result(vec![
-                (Some(rowid_for_account_1), pending_tx_hash_1),
-                (Some(rowid_for_account_2), pending_tx_hash_2),
-            ])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (rowid_for_account_1, pending_tx_hash_1),
+                    (rowid_for_account_2, pending_tx_hash_2),
+                ],
+                no_rowid_results: vec![],
+            })
             .increment_scan_attempts_params(&update_fingerprint_params_arc)
             .increment_scan_attempts_result(Ok(()))
             .increment_scan_attempts_result(Ok(()))
