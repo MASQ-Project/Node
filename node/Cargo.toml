@@ -27,7 +27,7 @@ fdlimit = "0.2.1"
 flexi_logger = { version = "0.15.12", features = [ "ziplogs" ] }
 futures = "0.1.31"
 heck = "0.3.3"
-http = "0.1.21"
+http = "0.2.5"
 indoc = "1.0.3"
 itertools = "0.10.1"
 lazy_static = "1.4.0"
