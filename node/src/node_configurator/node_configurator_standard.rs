@@ -376,7 +376,6 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -391,7 +390,7 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use std::vec;
+    use std::{env, vec};
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -1071,14 +1070,21 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file(
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file(
     ) {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = home_dir().expect("expectexd home dir");
-        let data_dir = &home_dir.join("masqhome");
-        let _create_data_dir = create_dir_all(data_dir);
+        //let home_dir = home_dir().expect("expectexd home dir");
+        //let data_dir = &home_dir.join("masqhome");
+        let base_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+        );
+        let home_dir = base_dir.clone();
+        let data_dir = base_dir.join("masqhome");
+        env::set_var("HOME", current_dir().unwrap().join(base_dir.clone()).to_string_lossy().to_string());
+        let _create_data_dir = create_dir_all(&data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
@@ -1121,7 +1127,7 @@ mod tests {
         }
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
-            data_dir
+            current_dir().unwrap().join(data_dir)
                 .join(PathBuf::from("config.toml"))
                 .to_string_lossy()
                 .to_string()

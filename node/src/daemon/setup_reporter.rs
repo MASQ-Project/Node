@@ -1237,8 +1237,10 @@ mod tests {
     use masq_lib::utils::{add_chain_specific_directory, AutomapProtocol};
     use std::cell::RefCell;
     use std::convert::TryFrom;
+    use std::env;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
+    use std::env::current_dir;
     use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::net::IpAddr;
@@ -2053,12 +2055,14 @@ mod tests {
             "get_modified_setup_tilde_in_data_directory",
         );
         let data_dir = base_dir.join("data_dir");
+        env::set_var("HOME", current_dir().unwrap().join(base_dir.clone()).to_string_lossy().to_string());
         std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
+        let config_file_path = home_dir()
+            .expect("expect home dir")
+            .join("masqhome")
+            .join("config.toml");
         let mut config_file = File::create(
-            home_dir()
-                .expect("expect home dir")
-                .join("masqhome")
-                .join("config.toml"),
+            &config_file_path
         )
         .unwrap();
         config_file
