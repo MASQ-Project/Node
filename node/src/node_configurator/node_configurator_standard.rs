@@ -376,6 +376,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use dirs::home_dir as dirs_home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -1129,11 +1130,22 @@ mod tests {
                 "9999:9999:booga"
             );
         }
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
             current_dir()
                 .unwrap()
                 .join(data_dir)
+                .join(PathBuf::from("config.toml"))
+                .to_string_lossy()
+                .to_string()
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            dirs_home_dir()
+                .unwrap()
+                .join("masqhome")
                 .join(PathBuf::from("config.toml"))
                 .to_string_lossy()
                 .to_string()
