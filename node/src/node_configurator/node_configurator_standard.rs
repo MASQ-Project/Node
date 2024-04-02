@@ -1074,8 +1074,6 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        //let home_dir = home_dir().expect("expectexd home dir");
-        //let data_dir = &home_dir.join("masqhome");
         let base_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
