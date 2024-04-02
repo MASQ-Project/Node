@@ -1070,8 +1070,7 @@ mod tests {
     }
 
     #[test]
-    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file(
-    ) {
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
@@ -1083,7 +1082,14 @@ mod tests {
         );
         let home_dir = base_dir.clone();
         let data_dir = base_dir.join("masqhome");
-        env::set_var("HOME", current_dir().unwrap().join(base_dir.clone()).to_string_lossy().to_string());
+        env::set_var(
+            "HOME",
+            current_dir()
+                .unwrap()
+                .join(base_dir.clone())
+                .to_string_lossy()
+                .to_string(),
+        );
         let _create_data_dir = create_dir_all(&data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
@@ -1127,7 +1133,9 @@ mod tests {
         }
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
-            current_dir().unwrap().join(data_dir)
+            current_dir()
+                .unwrap()
+                .join(data_dir)
                 .join(PathBuf::from("config.toml"))
                 .to_string_lossy()
                 .to_string()
