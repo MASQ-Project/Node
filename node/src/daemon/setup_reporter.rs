@@ -1224,11 +1224,9 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{
-        assert_string_contains,
-        make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir, rate_pack,
-    };
+    use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
+    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyAmoy;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -2050,16 +2048,19 @@ mod tests {
     #[test]
     fn get_modified_setup_tilde_in_config_file_path() {
         let _guard = EnvironmentGuard::new();
-        let (node_base_dir, node_base_dir_relative_to_os_home_dir) =
-            make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
-                "setup_reporter",
-                "get_modified_setup_tilde_in_config_file_path",
-            );
-        let existing_data_dir = node_base_dir.join("obsolete_data_dir");
-        let new_dir_levels = PathBuf::new().join("whatever_dir").join("new_data_dir");
-        let new_data_dir = node_base_dir.join(&new_dir_levels);
-        create_dir_all(new_data_dir.as_path()).unwrap();
-        let mut config_file = File::create(new_data_dir.join("config.toml")).unwrap();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_tilde_in_data_directory",
+        );
+        let data_dir = base_dir.join("data_dir");
+        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
+        let mut config_file = File::create(
+            home_dir()
+                .expect("expect home dir")
+                .join("masqhome")
+                .join("config.toml"),
+        )
+        .unwrap();
         config_file
             .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
             .unwrap();
@@ -2068,30 +2069,24 @@ mod tests {
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
-                &existing_data_dir.to_string_lossy().to_string(),
+                &data_dir.to_string_lossy().to_string(),
                 Default,
             ),
         ]);
-        let data_dir_referenced_from_the_home_dir = node_base_dir_relative_to_os_home_dir
-            .join(new_dir_levels)
-            .as_os_str()
-            .to_str()
-            .unwrap()
-            .to_owned();
         let incoming_setup = vec![
-            (
-                "data-directory",
-                &format!("~/{}", data_dir_referenced_from_the_home_dir),
-            ),
-            (
-                "config-file",
-                &format!("~/{}/config.toml", data_dir_referenced_from_the_home_dir),
-            ),
+            ("data-directory", "~/masqhome"),
+            ("config-file", "~/masqhome/config.toml"),
         ]
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal::default());
+
+        let expected_config_file_data = "https://www.mainnet.com";
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2099,7 +2094,7 @@ mod tests {
             .unwrap();
 
         let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
-        assert_eq!(actual_config_file_data, "https://www.mainnet.com");
+        assert_eq!(actual_config_file_data, expected_config_file_data);
     }
 
     #[test]

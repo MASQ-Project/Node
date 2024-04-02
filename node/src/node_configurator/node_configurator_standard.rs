@@ -375,10 +375,8 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{
-        assert_string_contains, main_cryptde,
-        make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir, ArgsBuilder,
-    };
+    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -1077,25 +1075,16 @@ mod tests {
     }
 
     #[test]
-    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
+    fn server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file(
+    ) {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let (node_home_dir, node_home_dir_relative_to_os_home_dir) =
-            make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
-                "node_configurator_standard",
-                "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
-            );
-        let data_dir = &node_home_dir.join("data_dir");
-        let node_data_dir_relative_to_os_home_dir_str = node_home_dir_relative_to_os_home_dir
-            .join("data_dir")
-            .as_os_str()
-            .to_str()
-            .unwrap()
-            .to_owned();
-        create_dir_all(data_dir).unwrap();
-        let config_file = File::create(data_dir.join("config.toml")).unwrap();
-        fill_up_config_file(config_file);
+        let home_dir = home_dir().expect("expectexd home dir");
+        let data_dir = &home_dir.join("masqhome");
+        let _create_data_dir = create_dir_all(data_dir);
+        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
             #[cfg(not(target_os = "windows"))]
@@ -1108,40 +1097,24 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param(
-                "--config-file",
-                &format!(
-                    "~/{}/config.toml",
-                    node_data_dir_relative_to_os_home_dir_str
-                ),
-            )
-            .param(
-                "--data-directory",
-                &format!("~/{}", node_data_dir_relative_to_os_home_dir_str),
-            );
+            .param("--config-file", "~/masqhome/config.toml")
+            .param("--data-directory", "~/masqhome");
         #[cfg(target_os = "windows")]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param(
-                "--config-file",
-                &format!(
-                    "~\\{}\\config.toml",
-                    node_data_dir_relative_to_os_home_dir_str
-                ),
-            )
-            .param(
-                "--data-directory",
-                &format!("~\\{}", node_data_dir_relative_to_os_home_dir_str),
-            );
+            .param("--config-file", "~\\masqhome\\config.toml")
+            .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.to_path_buf()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
 
-        let multiconfig =
-            server_initializer_collected_params(&DirsWrapperReal::default(), args_vec.as_slice())
-                .unwrap();
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let multiconfig = result.unwrap();
 
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
-            data_dir.as_os_str().to_str().unwrap()
+            data_dir.to_string_lossy().to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {
@@ -1166,11 +1139,12 @@ mod tests {
     }
 
     #[test]
-    fn config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line() {
+    fn server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory(
+    ) {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line");
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory");
         let data_dir = &home_dir.join("data_dir");
         create_dir_all(home_dir.join("config")).expect("expected directory for config");
         let config_file_relative = File::create(&home_dir.join("config/config.toml")).unwrap();
