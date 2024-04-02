@@ -39,7 +39,7 @@ pub fn is_test_generated_data_allowed_to_escape_project_dir() -> bool {
 
 fn is_env_variable_set(var_name: &str, searched_value: &str) -> bool {
     if let Ok(value) = std::env::var(var_name) {
-        &value == searched_value
+        value == searched_value
     } else {
         false
     }
