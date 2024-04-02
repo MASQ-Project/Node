@@ -1084,7 +1084,7 @@ mod tests {
             "HOME",
             current_dir()
                 .unwrap()
-                .join(base_dir.clone())
+                .join(&base_dir)
                 .to_string_lossy()
                 .to_string(),
         );
