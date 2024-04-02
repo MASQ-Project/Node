@@ -2057,7 +2057,7 @@ mod tests {
             );
         let existing_data_dir = node_base_dir.join("obsolete_data_dir");
         let new_dir_levels = PathBuf::new().join("whatever_dir").join("new_data_dir");
-        let new_data_dir = node_base_dir.join(new_dir_levels.as_path());
+        let new_data_dir = node_base_dir.join(&new_dir_levels);
         create_dir_all(new_data_dir.as_path()).unwrap();
         let mut config_file = File::create(new_data_dir.join("config.toml")).unwrap();
         config_file
@@ -2077,7 +2077,7 @@ mod tests {
             .as_os_str()
             .to_str()
             .unwrap()
-            .to_string();
+            .to_owned();
         let incoming_setup = vec![
             (
                 "data-directory",
