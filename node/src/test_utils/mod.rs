@@ -516,7 +516,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-//must stay without cfg(test) -- used in another crate
+// Must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,

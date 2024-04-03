@@ -1814,7 +1814,7 @@ mod tests {
         assert_eq!(Some(100000u64), max_block_count);
     }
     /*
-        POKT (Polygon mainnet and mumbai)
+        POKT (Polygon mainnet and amoy)
         {"jsonrpc":"2.0","id":7,"error":{"message":"You cannot query logs for more than 100000 blocks at once.","code":-32064}}
     */
     /*
