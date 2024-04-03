@@ -376,7 +376,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    //#[cfg(target_os = "windows")]
+    #[cfg(target_os = "windows")]
     use dirs::home_dir as dirs_home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
