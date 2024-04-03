@@ -1117,41 +1117,50 @@ mod tests {
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
-        assert_eq!(
-            value_m!(multiconfig, "data-directory", String).unwrap(),
-            current_dir()
-                .unwrap()
-                .join(&data_dir)
-                .to_string_lossy()
-                .to_string()
-        );
         #[cfg(not(target_os = "windows"))]
         {
+            assert_eq!(
+                value_m!(multiconfig, "data-directory", String).unwrap(),
+                current_dir()
+                    .unwrap()
+                    .join(&data_dir)
+                    .to_string_lossy()
+                    .to_string()
+            );
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "9999:9999:booga"
             );
+            assert_eq!(
+                value_m!(multiconfig, "config-file", String).unwrap(),
+                current_dir()
+                    .unwrap()
+                    .join(data_dir)
+                    .join(PathBuf::from("config.toml"))
+                    .to_string_lossy()
+                    .to_string()
+            );
         }
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            current_dir()
-                .unwrap()
-                .join(data_dir)
-                .join(PathBuf::from("config.toml"))
-                .to_string_lossy()
-                .to_string()
-        );
         #[cfg(target_os = "windows")]
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            dirs_home_dir()
-                .unwrap()
-                .join("masqhome")
-                .join(PathBuf::from("config.toml"))
-                .to_string_lossy()
-                .to_string()
-        );
+        {
+            assert_eq!(
+                value_m!(multiconfig, "data-directory", String).unwrap(),
+                dirs_home_dir()
+                    .unwrap()
+                    .join(&data_dir)
+                    .to_string_lossy()
+                    .to_string()
+            );
+            assert_eq!(
+                value_m!(multiconfig, "config-file", String).unwrap(),
+                dirs_home_dir()
+                    .unwrap()
+                    .join("masqhome")
+                    .join(PathBuf::from("config.toml"))
+                    .to_string_lossy()
+                    .to_string()
+            );
+        }
         assert_eq!(
             value_m!(multiconfig, "blockchain-service-url", String).unwrap(),
             "https://www.mainnet1.com"
