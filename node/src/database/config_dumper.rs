@@ -198,7 +198,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
@@ -239,7 +239,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
@@ -468,7 +468,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
@@ -573,7 +573,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());

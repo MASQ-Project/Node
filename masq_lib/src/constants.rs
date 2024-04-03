@@ -26,9 +26,9 @@ pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
-pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
-pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
+pub const AMOY_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 5_323_366;
+pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 
 //Migration versions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -87,15 +87,15 @@ pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //chains
-const MAINNET: &str = "mainnet";
 const POLYGON_FAMILY: &str = "polygon";
 const ETH_FAMILY: &str = "eth";
+const MAINNET: &str = "mainnet";
 const LINK: char = '-';
 pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
-pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
-pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+pub const POLYGON_AMOY_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "amoy");
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
 pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
+pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 
 #[cfg(test)]
 mod tests {
@@ -119,9 +119,9 @@ mod tests {
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
         assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
-        assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
-        assert_eq!(MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, 24_638_838);
+        assert_eq!(AMOY_TESTNET_CONTRACT_CREATION_BLOCK, 5_323_366);
+        assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
         assert_eq!(CONFIGURATOR_PREFIX, 0x0001_0000_0000_0000);
         assert_eq!(CONFIGURATOR_READ_ERROR, CONFIGURATOR_PREFIX | 1);
         assert_eq!(CONFIGURATOR_WRITE_ERROR, CONFIGURATOR_PREFIX | 2);
@@ -157,15 +157,15 @@ mod tests {
         assert_eq!(VALUE_EXCEEDS_ALLOWED_LIMIT, ACCOUNTANT_PREFIX | 3);
         assert_eq!(CENTRAL_DELIMITER, '@');
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
-        assert_eq!(MAINNET, "mainnet");
         assert_eq!(POLYGON_FAMILY, "polygon");
         assert_eq!(ETH_FAMILY, "eth");
+        assert_eq!(MAINNET, "mainnet");
         assert_eq!(LINK, '-');
         assert_eq!(POLYGON_MAINNET_FULL_IDENTIFIER, "polygon-mainnet");
-        assert_eq!(POLYGON_MUMBAI_FULL_IDENTIFIER, "polygon-mumbai");
-        assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
+        assert_eq!(POLYGON_AMOY_FULL_IDENTIFIER, "polygon-amoy");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
+        assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(
             CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }

@@ -82,7 +82,7 @@ pub trait DaemonInitializer {
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
         Box::new(DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         })
     }
 }
@@ -111,7 +111,7 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
 impl Default for DIClusteredParams {
     fn default() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal),
             channel_factory: Box::new(ChannelFactoryReal::new()),
             recipients_factory: Box::new(RecipientsFactoryReal::new()),

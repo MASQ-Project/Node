@@ -161,7 +161,7 @@ impl Daemon {
             node_process_id: None,
             node_ui_port: None,
             verifier_tools: Box::new(VerifierToolsReal::new()),
-            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal {}))),
+            setup_reporter: Box::new(SetupReporterReal::new(Box::new(DirsWrapperReal::default()))),
             logger: Logger::new("Daemon"),
         }
     }
