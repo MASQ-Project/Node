@@ -39,15 +39,11 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use dirs::home_dir;
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::{
-    ensure_node_home_directory_exists, is_running_under_github_actions,
-    is_test_generated_data_allowed_to_escape_project_dir, node_home_directory, TEST_DEFAULT_CHAIN,
-};
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
@@ -55,14 +51,12 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
-use std::env::current_dir;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -533,35 +527,6 @@ pub struct TestRawTransaction {
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,
     pub data: Vec<u8>,
-}
-
-pub fn make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
-    module: &str,
-    name: &str,
-) -> (PathBuf, PathBuf) {
-    let home_dir_path = home_dir().unwrap();
-    let current_dir = current_dir().unwrap();
-    let check = !current_dir.starts_with(&home_dir_path);
-    if check {
-        if is_running_under_github_actions()
-            || is_test_generated_data_allowed_to_escape_project_dir()
-        {
-            return (home_dir_path.join("Node"), PathBuf::from("Node"));
-        } else {
-            panic!(
-                "If you don't mind this test creating data outside the project's folder, \
-            in your home directory, you can set the environment variable
-            'ALLOW_TEST_DATA_ESCAPE_PROJECT_DIR' to 'true'.
-        "
-            )
-        }
-    }
-    let node_base_dir_relative = ensure_node_home_directory_exists(module, name);
-    let current_dir_path_as_if_after_tilde = current_dir.strip_prefix(home_dir_path).unwrap();
-    let node_base_dir_tilde_path =
-        current_dir_path_as_if_after_tilde.join(node_home_directory(module, name));
-    let node_base_dir_absolute = current_dir.join(node_base_dir_relative);
-    (node_base_dir_absolute, node_base_dir_tilde_path)
 }
 
 #[macro_export]

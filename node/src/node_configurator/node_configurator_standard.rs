@@ -1207,12 +1207,12 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let node_home_dir = ensure_node_home_directory_exists(
+        let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_combine_vcls_properly",
         );
-        let data_dir = &node_home_dir.join("data_dir");
-        let config_file = File::create(&node_home_dir.join("booga.toml")).unwrap();
+        let data_dir = &home_dir.join("data_dir");
+        let config_file = File::create(&home_dir.join("booga.toml")).unwrap();
         fill_up_config_file(config_file);
         let env_vec_array = vec![
             ("MASQ_CONFIG_FILE", "booga.toml"),
@@ -1227,12 +1227,12 @@ mod tests {
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(node_home_dir.clone()))
+            .home_dir_result(Some(home_dir.clone()))
             .data_dir_result(Some(data_dir.to_path_buf()));
         let args = ArgsBuilder::new()
             .param(
                 "--data-directory",
-                node_home_dir.to_string_lossy().to_string().as_str(),
+                home_dir.to_string_lossy().to_string().as_str(),
             )
             .param("--clandestine-port", "1111")
             .param("--real-user", "1001:1001:cooga");
@@ -1255,11 +1255,7 @@ mod tests {
         );
         assert_eq!(
             value_m!(multiconfig, "config-file", String).unwrap(),
-            node_home_dir
-                .join("booga.toml")
-                .as_os_str()
-                .to_str()
-                .unwrap()
+            home_dir.join("booga.toml").as_os_str().to_str().unwrap()
         );
         #[cfg(not(target_os = "windows"))]
         {
