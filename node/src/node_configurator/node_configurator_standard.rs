@@ -376,6 +376,8 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    #[cfg(target_os = "windows")]
+    use dirs::home_dir as dirs_home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -391,8 +393,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::{env, vec};
-    #[cfg(target_os = "windows")]
-    use dirs::home_dir as dirs_home_dir;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -1076,17 +1076,16 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let base_dir = ensure_node_home_directory_exists(
+        let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
         );
-        let home_dir = base_dir.clone();
-        let data_dir = base_dir.join("masqhome");
+        let data_dir = home_dir.join("masqhome");
         env::set_var(
             "HOME",
             current_dir()
                 .unwrap()
-                .join(&base_dir)
+                .join(&home_dir)
                 .to_string_lossy()
                 .to_string(),
         );
@@ -1113,16 +1112,18 @@ mod tests {
             .param("--config-file", "~\\masqhome\\config.toml")
             .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.to_path_buf()))
-            .data_dir_result(Some(data_dir.to_path_buf()));
+        let dir_wrapper = DirsWrapperReal {};
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
-            data_dir.to_string_lossy().to_string()
+            current_dir()
+                .unwrap()
+                .join(&data_dir)
+                .to_string_lossy()
+                .to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {

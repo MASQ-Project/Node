@@ -2090,11 +2090,7 @@ mod tests {
         .collect_vec();
 
         let expected_config_file_data = "https://www.mainnet.com";
-        let dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .data_dir_result(Some(data_dir))
-                .home_dir_result(Some(base_dir)),
-        );
+        let dirs_wrapper = Box::new(DirsWrapperReal {});
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
