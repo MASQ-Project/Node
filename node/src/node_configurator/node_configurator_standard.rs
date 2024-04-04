@@ -387,14 +387,14 @@ mod tests {
     use masq_lib::utils::running_test;
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
+    #[cfg(not(target_os = "windows"))]
+    use std::env;
     use std::env::current_dir;
     use std::fs::{canonicalize, create_dir_all, File};
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
-    #[cfg(not(target_os = "windows"))]
-    use std::env;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -1099,16 +1099,13 @@ mod tests {
         }
         #[cfg(target_os = "windows")]
         {
-            let masqhome = dirs_home_dir()
-                .unwrap()
-                .join("masqhome");
+            let masqhome = dirs_home_dir().unwrap().join("masqhome");
             let _dir = create_dir_all(&masqhome.to_string_lossy().to_string());
-            let config_file_path = masqhome
-                .join("config.toml")
-                .to_string_lossy()
-                .to_string();
+            let config_file_path = masqhome.join("config.toml").to_string_lossy().to_string();
             let config_file_relative = File::create(config_file_path).unwrap();
-            crate::node_configurator::node_configurator_standard::tests::fill_up_config_file(config_file_relative);
+            crate::node_configurator::node_configurator_standard::tests::fill_up_config_file(
+                config_file_relative,
+            );
         }
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
