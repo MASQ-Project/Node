@@ -30,12 +30,12 @@ lazy_static! {
 
 pub fn make_initialized_subject(
     now: SystemTime,
-    cw_masq_balance_minor_opt: Option<u128>,
+    cw_service_fee_balance_minor_opt: Option<u128>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
-    let cw_masq_balance_minor = cw_masq_balance_minor_opt.unwrap_or(0);
+    let cw_masq_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
     let logger = logger_opt.unwrap_or(Logger::new("test"));
-    let mut subject = PaymentAdjusterReal::new();
+    let mut subject = PaymentAdjusterReal::default();
     subject.logger = logger;
     subject.inner = Box::new(PaymentAdjusterInnerReal::new(
         now,
@@ -78,7 +78,7 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
     maturity_threshold_sec: 1_000,
     payment_grace_period_sec: 1_000,
     permanent_debt_allowed_gwei: 1_000_000,
-    threshold_interval_sec: 1_000_000,
+    threshold_interval_sec: 500_000,
     unban_below_gwei: 1_000_000,
 };
 
@@ -124,6 +124,7 @@ pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustme
     }
 }
 
+#[derive(Default)]
 pub struct CriterionCalculatorMock {
     calculate_results: RefCell<Vec<u128>>,
 }

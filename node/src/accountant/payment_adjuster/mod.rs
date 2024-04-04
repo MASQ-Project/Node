@@ -206,6 +206,7 @@ impl PaymentAdjusterReal {
             Either::Right(finalized_accounts) => Ok(finalized_accounts),
         }
     }
+
     fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
         unresolved_qualified_accounts: Vec<QualifiedPayableAccount>,
@@ -413,6 +414,7 @@ impl PaymentAdjusterReal {
         AdjustmentIterationResult::AllAccountsProcessed(verified_accounts)
     }
 
+    // TODO Should this become a helper? ...with which I can catch mid-results and assert on them?
     fn compute_unconfirmed_adjustments(
         &self,
         weighted_accounts: Vec<WeightedPayable>,
@@ -689,7 +691,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RequiredSpecialTreatment};
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total};
-    use crate::accountant::payment_adjuster::test_utils::{DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
+    use crate::accountant::payment_adjuster::test_utils::{CriterionCalculatorMock, DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal};
     use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable, make_payable_account};
     use crate::accountant::{CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, ResponseSkeleton};
@@ -701,9 +703,12 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
     use std::sync::{Arc, Mutex};
+    use rand::rngs::mock;
     use thousands::Separable;
     use web3::types::U256;
+    use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
+    use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInnerNull, PaymentAdjusterInnerReal};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -945,34 +950,71 @@ mod tests {
     }
 
     #[test]
-    fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
+    fn payment_adjuster_calculators_expectedly_defaulted(){
+        // First stage: BalanceAndAgeCalculator
+        let calculators_count = PaymentAdjusterReal::default().calculators.len();
+
+        let input_matrix:Vec<(QualifiedPayableAccount, u128)> = vec![
+
+
+
+
+
+
+        ];
         let now = SystemTime::now();
-        let subject = make_initialized_subject(now, None, None);
+        let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(1_000_000);
+        let mut subject = make_initialized_subject(now,Some(cw_service_fee_balance_minor),None);
         let account_1 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: 333_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
+            wallet: make_wallet("abc"),
+            balance_wei: gwei_to_wei::<u128, u64>(3_000_000),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(50_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: 111_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
+            wallet: make_wallet("def"),
+            balance_wei: gwei_to_wei::<u128, u64>(1_000_000),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(70_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_3 = PayableAccount {
-            wallet: make_wallet("ghk"),
-            balance_wei: 444_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
+            wallet: make_wallet("ghi"),
+            balance_wei: gwei_to_wei::<u128, u64>(2_000_000),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(60_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let qualified_payables = make_guaranteed_qualified_payables(
-            vec![account_1.clone(), account_2.clone(), account_3.clone()],
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            now,
-        );
+        let payables = vec![account_1, account_2, account_3];
+        let qualified_payables =
+            make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
 
-        let criteria_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
+
+
+        subject.calculate_criteria_and_propose_adjustments_recursively()
+    }
+
+    #[test]
+    fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
+        let now = SystemTime::now();
+        let subject = make_initialized_subject(now, None, None);
+        let past = now.checked_sub(Duration::from_secs(10)).unwrap();
+        let mut payable_1 = make_non_guaranteed_qualified_payable(111);
+        payable_1.payment_threshold_intercept_minor = 500_000_000;
+        payable_1.qualified_as.balance_wei = 1_000_000_002;
+        payable_1.qualified_as.last_paid_timestamp = past;
+        let mut payable_2 = make_non_guaranteed_qualified_payable(222);
+        payable_2.payment_threshold_intercept_minor = 500_000_000;
+        payable_2.qualified_as.balance_wei = 1_000_000_001;
+        payable_2.qualified_as.last_paid_timestamp = past;
+        let mut payable_3 = make_non_guaranteed_qualified_payable(333);
+        payable_3.payment_threshold_intercept_minor = 500_000_000;
+        payable_3.qualified_as.balance_wei = 1_000_000_003;
+        payable_3.qualified_as.last_paid_timestamp = past;
+
+        let criteria_and_accounts = subject.calculate_weights_for_accounts(vec![
+            payable_1.clone(),
+            payable_2.clone(),
+            payable_3.clone(),
+        ]);
 
         let mut previous_weight = u128::MAX;
         let accounts_alone = criteria_and_accounts
@@ -988,28 +1030,44 @@ mod tests {
                 weighted_account.qualified_account.qualified_as
             })
             .collect::<Vec<PayableAccount>>();
-        assert_eq!(accounts_alone, vec![account_3, account_1, account_2])
+        assert_eq!(
+            accounts_alone,
+            vec![
+                payable_3.qualified_as,
+                payable_1.qualified_as,
+                payable_2.qualified_as
+            ]
+        )
     }
 
     #[test]
-    fn minor_but_a_lot_aged_debt_is_prioritized_outweighed_and_stays_as_the_full_original_balance()
+    fn smaller_but_more_criteria_gaining_account_is_prioritized_outweighed_up_to_original_balance()
     {
         let now = SystemTime::now();
-        let cw_service_fee_balance = 1_500_000_000_000_u128 - 25_000_000 - 1000;
-        let mut subject = make_initialized_subject(now, Some(cw_service_fee_balance), None);
-        let balance_1 = 1_500_000_000_000;
-        let balance_2 = 25_000_000;
-        let wallet_1 = make_wallet("blah");
+        let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(3_500_000);
+        let mut subject = make_initialized_subject(now, Some(cw_service_fee_balance_minor), None);
+        let mock_calculator = CriterionCalculatorMock::default()
+            // Account 1, first iteration
+            .calculate_result(0)
+            // Account 2 in its only iteration, after which it is found outweighed and handled
+            // as a priority
+            .calculate_result(2_000_000_000_000_000)
+            // Account 1, second iteration
+            .calculate_result(0);
+        subject.calculators.push(Box::new(mock_calculator));
+        let balance_1 = gwei_to_wei::<u128, u64>(2_000_100);
+        let balance_2 = gwei_to_wei::<u128, u64>(1_999_900);
         let account_1 = PayableAccount {
-            wallet: wallet_1,
+            wallet: make_wallet("abc"),
             balance_wei: balance_1,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5_500)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(200_001)).unwrap(),
             pending_payable_opt: None,
         };
+        let wallet_2 = make_wallet("def");
         let account_2 = PayableAccount {
-            wallet: make_wallet("argh"),
+            wallet: wallet_2.clone(),
             balance_wei: balance_2,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(20_000)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(200_000)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = make_guaranteed_qualified_payables(
@@ -1027,25 +1085,22 @@ mod tests {
             .left()
             .unwrap();
 
-        // First, let's have an example of why this test is important
-        let criteria_and_accounts =
-            subject.calculate_weights_for_accounts(qualified_payables.clone());
-        let unconfirmed_adjustments =
-            subject.compute_unconfirmed_adjustments(criteria_and_accounts);
-        let proposed_adjusted_balance_2 = unconfirmed_adjustments[1]
-            .non_finalized_account
-            .proposed_adjusted_balance_minor;
-        // The criteria sum of the second account grew very progressively due to the effect of the greater age;
-        // consequences would've been that redistributing the new balances according to the computed criteria would've
-        // attributed the second account with a larger amount to pay than it would've had before the test started;
-        // to prevent it, we set a rule that no account can ever demand more than 100% of itself
-        assert!(
-            proposed_adjusted_balance_2 > 10 * balance_2,
-            "we expected the proposed balance much bigger than the original which is {} but it was {}",
+        // Let's have an example to explain why this test is important.
+        // First, the mock must be renewed; the available cw balance updated to the original value.
+        let mock_calculator = CriterionCalculatorMock::default()
+            .calculate_result(0)
+            .calculate_result(2_000_000_000_000_000);
+        prove_hypothesis_of_proposed_adjusted_balance_be_outweighed(
+            subject,
+            now,
+            cw_service_fee_balance_minor,
+            mock_calculator,
+            qualified_payables.clone(),
+            wallet_2,
             balance_2,
-            proposed_adjusted_balance_2
+            1.5,
         );
-        // So the assertion above shows the concern true.
+        // // So the assertion above showed the concern true.
         let first_returned_account = result.remove(0);
         // Outweighed accounts always take the first places
         assert_eq!(
@@ -1061,78 +1116,59 @@ mod tests {
             &second_returned_account.qualified_payable,
             &qualified_payables[0]
         );
-        let upper_limit = 1_500_000_000_000_u128 - 25_000_000 - 25_000_000 - 1000;
-        let lower_limit = (upper_limit * 9) / 10;
-        assert!(
-            lower_limit <= second_returned_account.proposed_adjusted_balance_minor
-                && second_returned_account.proposed_adjusted_balance_minor <= upper_limit,
-            "we expected the roughly adjusted account to be between {} and {} but was {}",
-            lower_limit,
-            upper_limit,
-            second_returned_account.proposed_adjusted_balance_minor
+        assert_eq!(
+            second_returned_account.proposed_adjusted_balance_minor,
+            1_500_099_999_999_999
         );
         assert!(result.is_empty());
     }
 
-    #[test]
-    fn outweighed_account_never_demands_more_than_cw_balance_because_disqualified_accounts_go_first(
+    fn prove_hypothesis_of_proposed_adjusted_balance_be_outweighed(
+        mut subject: PaymentAdjusterReal,
+        now: SystemTime,
+        cw_service_fee_balance_minor: u128,
+        mock_calculator: CriterionCalculatorMock,
+        accounts: Vec<QualifiedPayableAccount>,
+        wallet_of_expected_outweighed: Wallet,
+        original_balance_of_outweighed_account: u128,
+        outweighed_by_multiple_of: f64,
     ) {
-        // NOTE that the same is true for more outweighed accounts that would require more than
-        // the whole cw balance together, therefore there is no such a test either.
-        // This test answers the question of what is happening when the cw service fee balance cannot
-        // cover the outweighed accounts, which is just a hypothesis we can never reach in
-        // the reality.
-        // If there are outweighed accounts some other accounts must be also around of which some
-        // are under the disqualification limit pointing to one that would definitely head to its
-        // disqualification.
-        // With enough money, the other account might not meet disqualification which means, though,
-        // the initial concern is still groundless: there must be enough money at the moment to
-        // cover the outweighed account if there is another one which is considered neither as
-        // outweighed or disqualified.
-        const SECONDS_IN_3_DAYS: u64 = 259_200;
-        let test_name =
-            "outweighed_account_never_demands_more_than_cw_balance_because_disqualified_accounts_go_first";
-        let now = SystemTime::now();
-        let consuming_wallet_balance = 1_000_000_000_000_u128 - 1;
-        let account_1 = PayableAccount {
-            wallet: make_wallet("blah"),
-            balance_wei: 1_000_000_000_000,
-            last_paid_timestamp: now
-                // Greater age like this together with smaller balance usually causes the account to outweigh
-                .checked_sub(Duration::from_secs(SECONDS_IN_3_DAYS))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let balance_2 = 8_000_000_000_000_000;
-        let wallet_2 = make_wallet("booga");
-        let account_2 = PayableAccount {
-            wallet: wallet_2.clone(),
-            balance_wei: balance_2,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(1000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let accounts = vec![account_1.clone(), account_2];
-        let mut qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
-        let subject = make_initialized_subject(
+        subject.calculators.pop().unwrap();
+        subject.calculators.push(Box::new(mock_calculator));
+        subject.inner = Box::new(PaymentAdjusterInnerReal::new(
             now,
-            Some(consuming_wallet_balance),
-            Some(Logger::new(test_name)),
+            None,
+            cw_service_fee_balance_minor,
+        ));
+        let criteria_and_accounts = subject.calculate_weights_for_accounts(accounts);
+        let unconfirmed_adjustments =
+            subject.compute_unconfirmed_adjustments(criteria_and_accounts);
+        // The results are sorted from the biggest weights down
+        let proposed_adjusted_balance = unconfirmed_adjustments[0]
+            .non_finalized_account
+            .proposed_adjusted_balance_minor;
+        assert_eq!(
+            unconfirmed_adjustments[0]
+                .non_finalized_account
+                .qualified_payable
+                .qualified_as
+                .wallet,
+            wallet_of_expected_outweighed
         );
-        let weighted_accounts = subject.calculate_weights_for_accounts(qualified_payables.clone());
-
-        let result = subject.perform_adjustment_by_service_fee(weighted_accounts);
-
-        let remaining = match result {
-            AdjustmentIterationResult::SpecialTreatmentRequired {
-                case: TreatInsignificantAccount,
-                remaining_undecided_accounts: remaining,
-            } => remaining,
-            x => panic!("we expected to see a disqualified account but got: {:?}", x),
-        };
-        // We eliminated (disqualified) the other account than which was going to qualify as outweighed
-        let expected_account = qualified_payables.remove(0);
-        assert_eq!(remaining, vec![expected_account]);
+        // The weight of this account grew progressively due to the additional criterion added
+        // in to the sum. Consequences would've been that redistribution of the adjusted balances
+        // would've attributed this account with a larger amount to pay than it would've
+        // contained before the test started. To prevent that, we secure a rule that an account can
+        // never demand more than 100% of itself, ever
+        assert!(
+            proposed_adjusted_balance
+                > (outweighed_by_multiple_of * original_balance_of_outweighed_account as f64)
+                    as u128,
+            "we expected the proposed balance clearly bigger than the original which is {} \
+            but it was {}",
+            original_balance_of_outweighed_account.separate_with_commas(),
+            proposed_adjusted_balance.separate_with_commas()
+        );
     }
 
     #[test]
@@ -1141,20 +1177,20 @@ mod tests {
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 3_000_000_000_000,
+            balance_wei: gwei_to_wei::<u128, u64>(3_000_000),
             last_paid_timestamp: now.checked_sub(Duration::from_secs(50_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 1_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
+            balance_wei: gwei_to_wei::<u128, u64>(1_000_000),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(70_000)).unwrap(),
             pending_payable_opt: None,
         };
         let account_3 = PayableAccount {
             wallet: make_wallet("ghi"),
-            balance_wei: 2_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
+            balance_wei: gwei_to_wei::<u128, u64>(2_000_000),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(60_000)).unwrap(),
             pending_payable_opt: None,
         };
         let payables = vec![account_1, account_2, account_3];

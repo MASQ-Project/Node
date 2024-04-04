@@ -20,6 +20,10 @@ impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
             .expect("time traveller")
             .as_secs();
 
+        eprintln!(
+            "{} - {}",
+            account.qualified_as.balance_wei, account.payment_threshold_intercept_minor
+        );
         account.qualified_as.balance_wei - account.payment_threshold_intercept_minor
             + debt_age_s as u128
     }

@@ -11,6 +11,7 @@ use itertools::Either;
 use masq_lib::utils::convert_collection;
 use std::vec;
 
+// TODO review this comment
 // There are only two runners. They perform adjustment either by both the transaction and service
 // fee, or exclusively by the transaction fee. The idea is that the adjustment by the transaction
 // fee may ever appear in the initial iteration of the recursion. In any of the other iterations,
@@ -102,9 +103,11 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         let check_sum: u128 = sum_as(&weighted_accounts, |weighted_account| {
             weighted_account.qualified_account.qualified_as.balance_wei
         });
+
         let unallocated_cw_balance = payment_adjuster
             .inner
             .unallocated_cw_service_fee_balance_minor();
+
         if check_sum <= unallocated_cw_balance {
             // Fast return after a direct conversion into the expected type
             return convert_collection(weighted_accounts);
