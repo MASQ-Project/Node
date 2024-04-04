@@ -1089,9 +1089,25 @@ mod tests {
                 .to_string_lossy()
                 .to_string(),
         );
-        let _create_data_dir = create_dir_all(&data_dir);
-        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
-        fill_up_config_file(config_file_relative);
+        #[cfg(target_os = "windows")]
+        {
+            let masqhome = dirs_home_dir()
+                .unwrap()
+                .join("masqhome");
+            create_dir_all(&masqhome.to_string_lossy().to_string());
+            let config_file_path = masqhome
+                .join("config.toml")
+                .to_string_lossy()
+                .to_string();
+            let config_file_relative = File::create(config_file_path).unwrap();
+            crate::node_configurator::node_configurator_standard::tests::fill_up_config_file(config_file_relative);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            create_dir_all(&data_dir);
+            let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
+            fill_up_config_file(config_file_relative);
+        }
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
             #[cfg(not(target_os = "windows"))]
