@@ -392,7 +392,9 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use std::{env, vec};
+    use std::vec;
+    #[cfg(not(target_os = "windows"))]
+    use std::env;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -1076,37 +1078,37 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists(
-            "node_configurator_standard",
-            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
-        );
-        let data_dir = home_dir.join("masqhome");
-        env::set_var(
-            "HOME",
-            current_dir()
-                .unwrap()
-                .join(&home_dir)
-                .to_string_lossy()
-                .to_string(),
-        );
+        #[cfg(not(target_os = "windows"))]
+        {
+            let home_dir = ensure_node_home_directory_exists(
+                "node_configurator_standard",
+                "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+            );
+            let data_dir = home_dir.join("masqhome");
+            env::set_var(
+                "HOME",
+                current_dir()
+                    .unwrap()
+                    .join(&home_dir)
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            let _dir = create_dir_all(&data_dir);
+            let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
+            fill_up_config_file(config_file_relative);
+        }
         #[cfg(target_os = "windows")]
         {
             let masqhome = dirs_home_dir()
                 .unwrap()
                 .join("masqhome");
-            create_dir_all(&masqhome.to_string_lossy().to_string());
+            let _dir = create_dir_all(&masqhome.to_string_lossy().to_string());
             let config_file_path = masqhome
                 .join("config.toml")
                 .to_string_lossy()
                 .to_string();
             let config_file_relative = File::create(config_file_path).unwrap();
             crate::node_configurator::node_configurator_standard::tests::fill_up_config_file(config_file_relative);
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            create_dir_all(&data_dir);
-            let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
-            fill_up_config_file(config_file_relative);
         }
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
