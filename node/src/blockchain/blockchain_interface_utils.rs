@@ -21,7 +21,8 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use serde_json::Value;
 use std::iter::once;
 use std::net::Ipv4Addr;
-use std::time::SystemTime;
+use std::thread;
+use std::time::{Duration, SystemTime};
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{
@@ -226,6 +227,7 @@ pub fn send_transaction(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Fut
     Box::new(
         result
             .then(move |result| {
+                eprintln!("Send_raw_transaction result: {:?}", result);
                 match result {
                     Ok(result) => {
                         Ok(result)
@@ -491,7 +493,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
-    
+
     #[test]
     fn send_transaction_works() {
         let port = find_free_port();
@@ -685,15 +687,82 @@ mod tests {
         assert_eq!(result, Ok(expected_hash_and_amount));
     }
 
+
+
+    #[test]
+    fn sign_and_append_payment_throws_decode_error_2() {
+        let blockchain_urls = "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
+        let (event_loop_handle, transport) = Http::new(blockchain_urls).unwrap();
+
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, Chain::EthMainnet);
+        let pending_nonce = 1;
+        let chain = Chain::EthMainnet;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account = make_payable_account(1);
+
+        let result = sign_and_append_payment(
+            chain,
+            subject.get_web3(),
+            consuming_wallet,
+            pending_nonce.into(),
+            gas_price,
+            account,
+        ).wait();
+
+        // thread::sleep(Duration::from_millis(1000));
+
+        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+    }
+
     #[test]
     fn sign_and_append_payment_throws_decode_error() {
-        let port = find_free_port();
+        // let port = find_free_port();
+        let port = 40000;
+
         let _test_server = TestServer::start(
             port,
             vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
+                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
+                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
             ],
         );
+
+
+        let blockchain_client_server = MBCSBuilder::new(mbcs_port)
+            .response(
+                vec![LogObject {
+                    removed: false,
+                    log_index: Some("0x20".to_string()),
+                    transaction_index: Some("0x30".to_string()),
+                    transaction_hash: Some(
+                        "0x2222222222222222222222222222222222222222222222222222222222222222"
+                            .to_string(),
+                    ),
+                    block_hash: Some(
+                        "0x1111111111111111111111111111111111111111111111111111111111111111"
+                            .to_string(),
+                    ),
+                    block_number: Some("0x7D0".to_string()), // 2000 decimal
+                    address: "0x3333333333333333333333333333333333333333".to_string(),
+                    data: "0x000000000000000000000000000000000000000000000000000000003b5dc100"
+                        .to_string(),
+                    topics: vec![
+                        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                            .to_string(),
+                        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                            .to_string(),
+                    ],
+                }],
+                1,
+            )
+            .start();
+
+
+
+        // thread::sleep(Duration::from_millis(1000));
+
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -702,7 +771,6 @@ mod tests {
 
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -718,8 +786,57 @@ mod tests {
             account,
         ).wait();
 
+        // thread::sleep(Duration::from_millis(1000));
+
         assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+
+        let _ = _test_server.requests_so_far();
     }
+
+    // #[test]
+    // fn sign_and_append_payment_throws_decode_error() {
+    //     // let port = find_free_port();
+    //     let port = 40000;
+    //
+    //     let _test_server = TestServer::start(
+    //         port,
+    //         vec![
+    //             br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
+    //             br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
+    //         ],
+    //     );
+    //
+    //     // thread::sleep(Duration::from_millis(1000));
+    //
+    //     let (event_loop_handle, transport) = Http::with_max_parallel(
+    //         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+    //         REQUESTS_IN_PARALLEL,
+    //     )
+    //         .unwrap();
+    //
+    //     let subject =
+    //         BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+    //     let pending_nonce = 1;
+    //     let chain = DEFAULT_CHAIN;
+    //     let gas_price = DEFAULT_GAS_PRICE;
+    //     let consuming_wallet = make_paying_wallet(b"paying_wallet");
+    //     let account = make_payable_account(1);
+    //
+    //     let result = sign_and_append_payment(
+    //         chain,
+    //         subject.get_web3(),
+    //         consuming_wallet,
+    //         pending_nonce.into(),
+    //         gas_price,
+    //         account,
+    //     ).wait();
+    //
+    //     // thread::sleep(Duration::from_millis(1000));
+    //
+    //     assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+    //
+    //     let _ = _test_server.requests_so_far();
+    // }
 
     #[test]
     fn sign_and_append_multiple_payments_works() {
@@ -777,7 +894,6 @@ mod tests {
         let test_server = TestServer::start(
             port,
             vec![
-                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
                 br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
                 br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
             ],
