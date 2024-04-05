@@ -98,10 +98,14 @@ eprintln!("After taking {} final back bits ({:b}): {}", final_back_bit_count, bi
     }
 
     fn add_some_back_bits(&mut self, bit_data: u64, bit_count: usize) -> usize {
+        if self.back_blank_bit_count == 0 {
+            self.byte_queue.push_back(0);
+            self.back_blank_bit_count = 8;
+        }
         let bits_to_add = bit_count.min(self.back_blank_bit_count);
+        let back_full_bit_count = self.back_full_bit_count();
         let back_ref = self.byte_queue.back_mut().expect("There should be a back byte");
-        *back_ref = if bits_to_add < 8 {*back_ref << bits_to_add} else {0};
-        *back_ref |= (Self::low_order_ones(bits_to_add) & bit_data) as u8;
+        *back_ref |= (bit_data << back_full_bit_count) as u8;
         self.back_blank_bit_count -= bits_to_add;
         if self.back_blank_bit_count == 0 {
             self.byte_queue.push_back(0);
@@ -135,13 +139,15 @@ eprintln!("After taking {} final back bits ({:b}): {}", final_back_bit_count, bi
     }
 
     fn take_some_front_bits(&mut self, bit_count: usize) -> (u64, usize) {
+        if (self.front_full_bit_count() == 0) && (self.byte_queue.len() > 2) {
+            let _ = self.byte_queue.pop_front();
+            self.front_blank_bit_count = 0;
+        }
         let bits_to_take = bit_count.min(self.front_full_bit_count());
         if bits_to_take == 0 {return (0, 0)}
-        let remaining_bits = self.front_full_bit_count() - bits_to_take;
-        let mask = Self::low_order_ones(bits_to_take) << remaining_bits;
         let front_ref = self.byte_queue.front_mut().expect ("There should be a front byte");
-        let bit_data = if remaining_bits < 8 {(*front_ref & (mask as u8)) >> remaining_bits} else {0};
-        *front_ref |= !mask as u8;
+        let bit_data = *front_ref & (Self::low_order_ones(bits_to_take) as u8);
+        *front_ref = if (bits_to_take < 8) {*front_ref >> bits_to_take} else {0};
         self.front_blank_bit_count += bits_to_take;
         if (self.front_blank_bit_count == 8) && (self.byte_queue.len() > 2) {
             let _ = self.byte_queue.pop_front();
@@ -259,20 +265,49 @@ mod tests {
     }
 
     #[test]
+    fn nine_and_seven_then_nine_and_seven() {
+        let mut subject = BitQueue::new();
+        let sixteen_bits = 0b1000001100000001u64;
+        // let sixteen_bits = 0b1100111010101100u64;
+
+        subject.add_bits(sixteen_bits & 0x1FF, 9);
+        assert_eq!(subject.len(), 9);
+eprintln!("");
+        subject.add_bits(sixteen_bits >> 9, 7);
+        assert_eq!(subject.len(), 16);
+eprintln!("");
+        let nine_bits = subject.take_bits(9).unwrap();
+        assert_eq!(subject.len(), 7);
+eprintln!("");
+        let seven_bits = subject.take_bits(7).unwrap();
+        assert_eq!(subject.len(), 0);
+eprintln!("");
+
+        assert_bit_field(nine_bits, sixteen_bits & 0x1FF);
+        assert_bit_field(seven_bits, sixteen_bits >> 9);
+    }
+
+    #[test]
     fn nine_and_seven_then_seven_and_nine() {
         let mut subject = BitQueue::new();
+        let sixteen_bits = 0b1000000110000001u64;
+        // let sixteen_bits = 0b1100111010101100u64;
 
-        subject.add_bits(0b110011101, 9);
+        subject.add_bits(sixteen_bits & 0x1FF, 9);
         assert_eq!(subject.len(), 9);
-        subject.add_bits(0b0101100, 7);
+eprintln!("");
+        subject.add_bits(sixteen_bits >> 9, 7);
         assert_eq!(subject.len(), 16);
+eprintln!("");
         let seven_bits = subject.take_bits(7).unwrap();
-        assert_eq!(subject.len(), 11);
+        assert_eq!(subject.len(), 9);
+eprintln!("");
         let nine_bits = subject.take_bits(9).unwrap();
         assert_eq!(subject.len(), 0);
+eprintln!("");
 
-        assert_eq!(seven_bits, 0b1100111);
-        assert_eq!(nine_bits, 0b010101100);
+        assert_bit_field(seven_bits, sixteen_bits & 0x7F);
+        assert_bit_field(nine_bits, sixteen_bits >> 7);
     }
 
     #[test]
@@ -280,12 +315,20 @@ mod tests {
         let mut subject = BitQueue::new();
 
         subject.add_bits(0b0101100, 7);
+        assert_eq!(subject.len(), 7);
+eprintln!("");
         subject.add_bits(0b110011101, 9);
+        assert_eq!(subject.len(), 16);
+eprintln!("");
         let nine_bits = subject.take_bits(9).unwrap();
+        assert_eq!(subject.len(), 7);
+eprintln!("");
         let seven_bits = subject.take_bits(7).unwrap();
+        assert_eq!(subject.len(), 0);
+eprintln!("");
 
-        assert_eq!(nine_bits, 0b010101100);
-        assert_eq!(seven_bits, 0b1100111);
+        assert_eq!(nine_bits, 0b010101100, "Got {:b}, wanted {:b}", nine_bits, 0b010101100);
+        assert_eq!(seven_bits, 0b1100111, "Got {:b}, wanted {:b}", seven_bits, 0b1100111);
         assert_eq!(subject.len(), 0);
     }
 
@@ -307,6 +350,7 @@ mod tests {
         subject.add_bits(0b11011, 5);
         subject.add_bits(0b00111001110011100, 17);
         subject.add_bits(0b1, 1);
+        // 0b100_1110_0111_0011_1001_1011
 
         let first_chunk = subject.take_bits(10).unwrap();
         let second_chunk = subject.take_bits(5).unwrap();
@@ -314,10 +358,14 @@ mod tests {
         let fourth_chunk = subject.take_bits(3).unwrap();
         let should_be_none = subject.take_bits(1);
 
-        assert_eq!(first_chunk, 0b1101100111);
-        assert_eq!(second_chunk, 0b00111);
-        assert_eq!(third_chunk, 0b00111);
-        assert_eq!(fourth_chunk, 0b001);
+        assert_bit_field(first_chunk, 0b1110011011);
+        assert_bit_field(second_chunk, 0b11100);
+        assert_bit_field(third_chunk, 0b11100);
+        assert_bit_field(fourth_chunk, 0b100);
         assert_eq!(should_be_none, None);
+    }
+
+    fn assert_bit_field(actual: u64, expected: u64) {
+        assert_eq!(actual, expected, "Got {:b}, wanted {:b}", actual, expected)
     }
 }
