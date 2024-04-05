@@ -25,19 +25,15 @@ impl BitQueue {
         if bit_count > 64 {
             panic! ("You can only add bits up to 64 at a time, not {}", bit_count)
         }
-eprintln!("Before adding {} bits ({:b}): {}", bit_count, bit_data, self.dump_queue());
         let initial_bits_added = self.add_some_back_bits(bit_data, bit_count);
         bit_data >>= initial_bits_added;
         bit_count -= initial_bits_added;
-eprintln!("After adding {} back bits: {}", initial_bits_added, self.dump_queue());
         let byte_bits_added = self.add_back_bytes(bit_data, bit_count);
         bit_data >>= byte_bits_added;
         bit_count -= byte_bits_added;
-eprintln!("After adding {} byte bits: {}", byte_bits_added, self.dump_queue());
         let final_bits_added = self.add_some_back_bits(bit_data, bit_count);
         bit_data >>= final_bits_added;
         bit_count -= final_bits_added;
-eprintln!("After adding {} final bits: {}", final_bits_added, self.dump_queue());
         if bit_count != 0 {
             panic! ("Didn't add all the bits: {} left", bit_count);
         }
@@ -51,29 +47,24 @@ eprintln!("After adding {} final bits: {}", final_bits_added, self.dump_queue())
         if bit_count > self.len() {
             return None
         }
-eprintln!("Before taking {} bits: {}", bit_count, self.dump_queue());
         let mut bit_data = 0u64;
         let mut bit_position = 0usize;
         let (initial_bit_data, initial_bit_count) = self.take_some_front_bits(bit_count);
         bit_data |= initial_bit_data << bit_position;
         bit_position += initial_bit_count;
         bit_count -= initial_bit_count;
-eprintln!("After taking {} initial front bits ({:b}): {}", initial_bit_count, bit_data, self.dump_queue());
         let (byte_bit_data, byte_bit_count) = self.take_front_bytes(bit_count);
         bit_data |= byte_bit_data << bit_position;
         bit_position += byte_bit_count;
         bit_count -= byte_bit_count;
-eprintln!("After taking {} byte front bits ({:b}): {}", byte_bit_count, bit_data, self.dump_queue());
         let (final_front_bit_data, final_front_bit_count) = self.take_some_front_bits(bit_count);
         bit_data |= final_front_bit_data << bit_position;
         bit_position += final_front_bit_count;
         bit_count -= final_front_bit_count;
-eprintln!("After taking {} final front bits ({:b}): {}", final_front_bit_count, bit_data, self.dump_queue());
         let (final_back_bit_data, final_back_bit_count) = self.take_some_back_bits(bit_count);
         bit_data |= final_back_bit_data << bit_position;
         bit_position += final_back_bit_count;
         bit_count -= final_back_bit_count;
-eprintln!("After taking {} final back bits ({:b}): {}", final_back_bit_count, bit_data, self.dump_queue());
         if bit_position != original_bit_count {
             panic! ("Wanted {} bits, but got {} instead", original_bit_count, bit_position);
         }
@@ -247,9 +238,9 @@ mod tests {
         let mut subject = BitQueue::new();
 
         subject.add_bits(0b1101101, 7);
-        let seven_bits = subject.take_bits(7);
+        let seven_bits = subject.take_bits(7).unwrap();
 
-        assert_eq!(seven_bits, Some(0b1101101));
+        assert_bit_field(seven_bits, 0b1101101);
         assert_eq!(subject.len(), 0);
     }
 
@@ -258,9 +249,9 @@ mod tests {
         let mut subject = BitQueue::new();
 
         subject.add_bits(0b110110111, 9);
-        let nine_bits = subject.take_bits(9);
+        let nine_bits = subject.take_bits(9).unwrap();
 
-        assert_eq!(nine_bits, Some(0b110110111));
+        assert_bit_field(nine_bits, 0b110110111);
         assert_eq!(subject.len(), 0);
     }
 
@@ -272,16 +263,12 @@ mod tests {
 
         subject.add_bits(sixteen_bits & 0x1FF, 9);
         assert_eq!(subject.len(), 9);
-eprintln!("");
         subject.add_bits(sixteen_bits >> 9, 7);
         assert_eq!(subject.len(), 16);
-eprintln!("");
         let nine_bits = subject.take_bits(9).unwrap();
         assert_eq!(subject.len(), 7);
-eprintln!("");
         let seven_bits = subject.take_bits(7).unwrap();
         assert_eq!(subject.len(), 0);
-eprintln!("");
 
         assert_bit_field(nine_bits, sixteen_bits & 0x1FF);
         assert_bit_field(seven_bits, sixteen_bits >> 9);
@@ -295,16 +282,12 @@ eprintln!("");
 
         subject.add_bits(sixteen_bits & 0x1FF, 9);
         assert_eq!(subject.len(), 9);
-eprintln!("");
         subject.add_bits(sixteen_bits >> 9, 7);
         assert_eq!(subject.len(), 16);
-eprintln!("");
         let seven_bits = subject.take_bits(7).unwrap();
         assert_eq!(subject.len(), 9);
-eprintln!("");
         let nine_bits = subject.take_bits(9).unwrap();
         assert_eq!(subject.len(), 0);
-eprintln!("");
 
         assert_bit_field(seven_bits, sixteen_bits & 0x7F);
         assert_bit_field(nine_bits, sixteen_bits >> 7);
@@ -316,19 +299,15 @@ eprintln!("");
 
         subject.add_bits(0b0101100, 7);
         assert_eq!(subject.len(), 7);
-eprintln!("");
         subject.add_bits(0b110011101, 9);
         assert_eq!(subject.len(), 16);
-eprintln!("");
         let nine_bits = subject.take_bits(9).unwrap();
         assert_eq!(subject.len(), 7);
-eprintln!("");
         let seven_bits = subject.take_bits(7).unwrap();
         assert_eq!(subject.len(), 0);
-eprintln!("");
 
-        assert_eq!(nine_bits, 0b010101100, "Got {:b}, wanted {:b}", nine_bits, 0b010101100);
-        assert_eq!(seven_bits, 0b1100111, "Got {:b}, wanted {:b}", seven_bits, 0b1100111);
+        assert_bit_field(nine_bits, 0b010101100);
+        assert_bit_field(seven_bits, 0b1100111);
         assert_eq!(subject.len(), 0);
     }
 
