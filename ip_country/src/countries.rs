@@ -285,6 +285,14 @@ impl TryFrom<usize> for Country {
     }
 }
 
+impl TryFrom<u64> for Country {
+    type Error = String;
+
+    fn try_from(index: u64) -> Result<Self, Self::Error> {
+        Country::try_from(index as usize)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::countries::COUNTRIES;
@@ -346,7 +354,7 @@ mod tests {
     #[test]
     fn try_from_index_happy_path() {
 
-        let result = Country::try_from(110);
+        let result = Country::try_from(110u64);
 
         assert_eq!(result, Ok(COUNTRIES.get(110).unwrap().clone()));
     }
@@ -354,7 +362,7 @@ mod tests {
     #[test]
     fn try_from_index_bad_index() {
 
-        let result = Country::try_from(4096);
+        let result = Country::try_from(4096u64);
 
         assert_eq!(result, Err(format!("There are only {} Countries; no Country is at index 4096", COUNTRIES.len())));
     }

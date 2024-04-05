@@ -138,7 +138,7 @@ impl BitQueue {
         if bits_to_take == 0 {return (0, 0)}
         let front_ref = self.byte_queue.front_mut().expect ("There should be a front byte");
         let bit_data = *front_ref & (Self::low_order_ones(bits_to_take) as u8);
-        *front_ref = if (bits_to_take < 8) {*front_ref >> bits_to_take} else {0};
+        *front_ref = if bits_to_take < 8 {*front_ref >> bits_to_take} else {0};
         self.front_blank_bit_count += bits_to_take;
         if (self.front_blank_bit_count == 8) && (self.byte_queue.len() > 2) {
             let _ = self.byte_queue.pop_front();
@@ -180,7 +180,7 @@ impl BitQueue {
         let remaining_bits = self.back_full_bit_count() - bits_to_take;
         let mask = Self::low_order_ones(bits_to_take);
         let back_ref = self.byte_queue.back_mut().expect ("There should be a back byte");
-        let bit_data = if remaining_bits < 8 {(*back_ref & (mask as u8))} else {0};
+        let bit_data = if remaining_bits < 8 {*back_ref & (mask as u8)} else {0};
         *back_ref >>= bits_to_take;
         self.back_blank_bit_count += bits_to_take;
         if (self.back_blank_bit_count == 8) && (self.byte_queue.len() > 2) {

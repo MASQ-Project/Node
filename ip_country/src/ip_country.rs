@@ -1,7 +1,7 @@
 use std::io;
-use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
 use crate::bit_queue::BitQueue;
 use crate::country_block_stream::CountryBlock;
+use crate::ip_serializer::IpSerializer;
 
 pub fn ip_country(
     args: Vec<String>,
@@ -9,7 +9,7 @@ pub fn ip_country(
     stdout: &mut dyn io::Write,
     stderr: &mut dyn io::Write
 ) -> i32 {
-    let mut bit_queue = BitQueue::new();
+    let mut serializer = IpSerializer::new();
     let mut line_number = 0usize;
     let mut csvRdr = csv::Reader::from_reader(stdin);
     let errors = csvRdr.records()
@@ -23,15 +23,16 @@ pub fn ip_country(
             line_number += 1;
             match country_block_result {
                 Ok(country_block) => {
-                    country_block.serialize_to(&mut bit_queue);
+                    serializer.add(country_block);
                     None
                 },
                 Err(e) => Some(format!("Line {}: {}", line_number, e)), // TODO no test for this line yet
             }
         })
         .collect::<Vec<String>>();
-    generate_rust_code (bit_queue, stdout);
-    if (errors.is_empty()) {
+    let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
+    generate_rust_code (ipv4_bit_queue, ipv6_bit_queue, stdout);
+    if errors.is_empty() {
         return 0
     }
     else {
@@ -39,7 +40,7 @@ pub fn ip_country(
     }
 }
 
-fn generate_rust_code(mut bit_queue: BitQueue, output: &mut dyn io::Write) {
+fn generate_rust_code(mut ipv4_bit_queue: BitQueue, ipv6_bit_queue: BitQueue, output: &mut dyn io::Write) {
     todo!()
 }
 
@@ -112,15 +113,19 @@ C0040200C00000020E201171020388205C42071220171201C4A01BA8030003880400
         assert_eq!(stdout_string,
 "
 // GENERATED CODE: DO NOT MODIFY!
-use lazy_static::lazy_static;
 
-lazy_static! {
-    static ref IP_COUNTRY_DATA: Vec<u8> = vec![
+pub fn ipv4_country_data(): Vec<u8> {
+    vec![
         0xC0, 0x04, 0x02, 0x00, 0xC0, 0x00, 0x00, 0x02, 0x0E, 0x20,
         0x11, 0x71, 0x02, 0x03, 0x88, 0x20, 0x5C, 0x42, 0x07, 0x12,
         0x20, 0x17, 0x12, 0x01, 0xC4, 0xA0, 0x1B, 0xA8, 0x03, 0x00,
         0x03, 0x88, 0x04, 0x00,
-    ];
+    ]
+}
+
+pub fn ipv6_country_data(): Vec<u8> {
+    vec![
+    ]
 }
 ".to_string()
         );

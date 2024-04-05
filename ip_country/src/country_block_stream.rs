@@ -1,5 +1,5 @@
 
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use csv::{StringRecord, StringRecordIter};
 use crate::bit_queue::BitQueue;
@@ -22,10 +22,15 @@ impl Country {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+pub enum IpRange {
+    V4 (Ipv4Addr, Ipv4Addr),
+    V6 (Ipv6Addr, Ipv6Addr)
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct CountryBlock {
-    start_ip: IpAddr,
-    end_ip: IpAddr,
-    country: Country,
+    pub ip_range: IpRange,
+    pub country: Country,
 }
 
 impl TryFrom<StringRecord> for CountryBlock {
@@ -43,19 +48,22 @@ impl TryFrom<StringRecord> for CountryBlock {
             return Err(format!("CSV line should contain 3 elements, but contains {}", string_record.len()))
         };
         let country = Country::try_from(iso3166)?;
-        Ok(CountryBlock {
-            start_ip,
-            end_ip,
-            country
-        })
+        let country_block = match (start_ip, end_ip) {
+            (IpAddr::V4(start), IpAddr::V4(end)) => CountryBlock {
+                ip_range: IpRange::V4(start, end),
+                country
+            },
+            (IpAddr::V6(start), IpAddr::V6(end)) => CountryBlock {
+                ip_range: IpRange::V6(start, end),
+                country
+            },
+            (start, end) => panic! ("Start and end addresses must be of the same type, not {} and {}", start, end),
+        };
+        Ok(country_block)
     }
 }
 
 impl CountryBlock {
-    pub fn serialize_to(&self, bit_queue: &mut BitQueue) {
-        todo!()
-    }
-
     fn ip_addr_from_iter(iter: &mut StringRecordIter) -> Result<IpAddr, String> {
         let ip_string = match iter.next() {
             None => return Err("Missing IP address in CSV record".to_string()),
@@ -71,8 +79,8 @@ impl CountryBlock {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use crate::countries::{COUNTRIES, INDEX_BY_ISO3166};
     use super::*;
 
     #[test]
@@ -82,8 +90,10 @@ mod tests {
         let result = CountryBlock::try_from(string_record);
 
         assert_eq! (result, Ok(CountryBlock {
-            start_ip: IpAddr::from_str("1.2.3.4").unwrap(),
-            end_ip: IpAddr::from_str("5.6.7.8").unwrap(),
+            ip_range: IpRange::V4(
+                Ipv4Addr::from_str("1.2.3.4").unwrap(),
+                Ipv4Addr::from_str("5.6.7.8").unwrap()
+            ),
             country: Country::try_from("AS").unwrap().clone(),
         }));
     }
@@ -99,8 +109,10 @@ mod tests {
         let result = CountryBlock::try_from(string_record);
 
         assert_eq! (result, Ok(CountryBlock {
-            start_ip: IpAddr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
-            end_ip: IpAddr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap(),
+            ip_range: IpRange::V6 (
+                Ipv6Addr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
+                Ipv6Addr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap()
+            ),
             country: Country::try_from("VN").unwrap().clone(),
         }));
     }
@@ -131,6 +143,21 @@ mod tests {
         let result = CountryBlock::try_from(string_record);
 
         assert_eq!(result, Err("Missing IP address in CSV record".to_string()));
+    }
+
+    #[test]
+    fn try_from_fails_for_reversed_ipv4_addresses() {
+        todo!()
+    }
+
+    #[test]
+    fn try_from_fails_for_reversed_ipv6_addresses() {
+        todo!()
+    }
+
+    #[test]
+    fn try_from_fails_for_mixed_ip_types() {
+        todo!()
     }
 
     #[test]
