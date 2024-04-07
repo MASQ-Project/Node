@@ -80,7 +80,7 @@ impl CountryBlockSerializer {
                     None
                 }
                 else {
-                    Some(Difference {index: index, value: to_octet as u64})
+                    Some(Difference {index, value: to_octet as u64})
                 }
             })
             .collect::<Vec<Difference>>()
@@ -95,7 +95,7 @@ impl CountryBlockSerializer {
                     None
                 }
                 else {
-                    Some(Difference {index: index, value: to_segment as u64})
+                    Some(Difference {index, value: to_segment as u64})
                 }
             })
             .collect::<Vec<Difference>>()
@@ -142,7 +142,7 @@ impl CountryBlockDeserializer for CountryBlockDeserializerIpv4 {
 }
 
 impl CountryBlockDeserializerIpv4 {
-    pub fn new (mut country_data_ipv4: (Vec<u64>, usize)) -> Self {
+    pub fn new (country_data_ipv4: (Vec<u64>, usize)) -> Self {
         let mut bit_queue = bit_queue_from_country_data(country_data_ipv4);
         let prev_record = Self::get_record(
             &mut bit_queue,
@@ -157,7 +157,7 @@ impl CountryBlockDeserializerIpv4 {
 
     fn get_record (bit_queue: &mut BitQueue, prev_start: Ipv4Addr) -> Option<StreamRecordIpv4> {
         let mut octets = prev_start.octets();
-        let difference_count = (bit_queue.take_bits(2)? + 1) as usize;;
+        let difference_count = (bit_queue.take_bits(2)? + 1) as usize;
         let differences = (0..difference_count).map(|_|
             Some(Difference {
                 index: bit_queue.take_bits(2)? as usize,
@@ -170,7 +170,7 @@ impl CountryBlockDeserializerIpv4 {
         differences.into_iter().for_each(|d| octets[d.index] = d.value as u8);
         Some (StreamRecordIpv4 {
             start: Ipv4Addr::from(octets),
-            country_idx: (bit_queue.take_bits(9)?) as usize,
+            country_idx: bit_queue.take_bits(9)? as usize,
         })
     }
 }
@@ -226,7 +226,7 @@ impl CountryBlockDeserializerIpv6 {
 
     fn get_record (bit_queue: &mut BitQueue, prev_start: Ipv6Addr) -> Option<StreamRecordIpv6> {
         let mut segments = prev_start.segments();
-        let difference_count = (bit_queue.take_bits(3)? + 1) as usize;;
+        let difference_count = (bit_queue.take_bits(3)? + 1) as usize;
         let differences = (0..difference_count).map(|_|
             Some(Difference {
                 index: bit_queue.take_bits(3)? as usize,
@@ -239,7 +239,7 @@ impl CountryBlockDeserializerIpv6 {
         differences.into_iter().for_each(|d| segments[d.index] = d.value as u16);
         Some (StreamRecordIpv6 {
             start: Ipv6Addr::from(segments),
-            country_idx: (bit_queue.take_bits(9)?) as usize,
+            country_idx: bit_queue.take_bits(9)? as usize,
         })
     }
 }
@@ -317,7 +317,7 @@ fn bit_queue_from_country_data(country_data_pair: (Vec<u64>, usize)) -> BitQueue
 }
 
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{Ipv4Addr};
     use std::str::FromStr;
     use crate::country_block_stream::{Country, IpRange};
     use super::*;

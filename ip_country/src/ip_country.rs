@@ -11,8 +11,8 @@ pub fn ip_country(
 ) -> i32 {
     let mut serializer = CountryBlockSerializer::new();
     let mut line_number = 0usize;
-    let mut csvRdr = csv::Reader::from_reader(stdin);
-    let errors = csvRdr.records()
+    let mut csv_rdr = csv::Reader::from_reader(stdin);
+    let errors = csv_rdr.records()
         .map(|string_record_result| {
             match string_record_result {
                 Ok(string_record) => CountryBlock::try_from(string_record),

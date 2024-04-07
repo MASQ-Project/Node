@@ -2,7 +2,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use csv::{StringRecord, StringRecordIter};
-use crate::bit_queue::BitQueue;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Country {
@@ -70,7 +69,7 @@ impl CountryBlock {
             Some (s) => s,
         };
         let ip_addr = match IpAddr::from_str(ip_string) {
-            Err(e) => return Err(format!("Invalid IP address in CSV record: '{}'", ip_string)),
+            Err(e) => return Err(format!("Invalid ({:?}) IP address in CSV record: '{}'", e, ip_string)),
             Ok(ip) => ip,
         };
         Ok(ip_addr)
