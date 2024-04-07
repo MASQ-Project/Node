@@ -274,22 +274,12 @@ impl TryFrom<&str> for Country {
     }
 }
 
-impl TryFrom<usize> for Country {
-    type Error = String;
-
-    fn try_from(index: usize) -> Result<Self, Self::Error> {
+impl From<usize> for Country {
+    fn from(index: usize) -> Self {
         match COUNTRIES.get(index) {
-            None => Err(format!("There are only {} Countries; no Country is at index {}", COUNTRIES.len(), index)),
-            Some(country) => Ok(country.clone()),
+            None => panic!("There are only {} Countries; no Country is at index {}", COUNTRIES.len(), index),
+            Some(country) => country.clone(),
         }
-    }
-}
-
-impl TryFrom<u64> for Country {
-    type Error = String;
-
-    fn try_from(index: u64) -> Result<Self, Self::Error> {
-        Country::try_from(index as usize)
     }
 }
 
@@ -352,18 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn try_from_index_happy_path() {
+    fn from_index_happy_path() {
 
-        let result = Country::try_from(110u64);
+        let result = Country::from(110usize);
 
-        assert_eq!(result, Ok(COUNTRIES.get(110).unwrap().clone()));
+        assert_eq!(result, COUNTRIES.get(110).unwrap().clone());
     }
 
     #[test]
+    #[should_panic(expected = "There are only 45 Countries; no Country is at index 4096")]
     fn try_from_index_bad_index() {
 
-        let result = Country::try_from(4096u64);
-
-        assert_eq!(result, Err(format!("There are only {} Countries; no Country is at index 4096", COUNTRIES.len())));
+        let _ = Country::from(4096usize);
     }
 }

@@ -58,12 +58,16 @@ impl BitQueue {
         bit_position += byte_bit_count;
         bit_count -= byte_bit_count;
         let (final_front_bit_data, final_front_bit_count) = self.take_some_front_bits(bit_count);
-        bit_data |= final_front_bit_data << bit_position;
-        bit_position += final_front_bit_count;
+        if final_front_bit_count > 0 {
+            bit_data |= final_front_bit_data << bit_position;
+            bit_position += final_front_bit_count;
+        }
         bit_count -= final_front_bit_count;
         let (final_back_bit_data, final_back_bit_count) = self.take_some_back_bits(bit_count);
-        bit_data |= final_back_bit_data << bit_position;
-        bit_position += final_back_bit_count;
+        if final_back_bit_count > 0 {
+            bit_data |= final_back_bit_data << bit_position;
+            bit_position += final_back_bit_count;
+        }
         bit_count -= final_back_bit_count;
         if bit_position != original_bit_count {
             panic! ("Wanted {} bits, but got {} instead", original_bit_count, bit_position);

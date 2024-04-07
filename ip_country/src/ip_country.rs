@@ -1,7 +1,7 @@
 use std::io;
 use crate::bit_queue::BitQueue;
 use crate::country_block_stream::CountryBlock;
-use crate::ip_serializer::IpSerializer;
+use crate::country_block_serde::CountryBlockSerializer;
 
 pub fn ip_country(
     args: Vec<String>,
@@ -9,7 +9,7 @@ pub fn ip_country(
     stdout: &mut dyn io::Write,
     stderr: &mut dyn io::Write
 ) -> i32 {
-    let mut serializer = IpSerializer::new();
+    let mut serializer = CountryBlockSerializer::new();
     let mut line_number = 0usize;
     let mut csvRdr = csv::Reader::from_reader(stdin);
     let errors = csvRdr.records()
@@ -114,13 +114,16 @@ C0040200C00000020E201171020388205C42071220171201C4A01BA8030003880400
 "
 // GENERATED CODE: DO NOT MODIFY!
 
-pub fn ipv4_country_data(): Vec<u8> {
-    vec![
-        0xC0, 0x04, 0x02, 0x00, 0xC0, 0x00, 0x00, 0x02, 0x0E, 0x20,
-        0x11, 0x71, 0x02, 0x03, 0x88, 0x20, 0x5C, 0x42, 0x07, 0x12,
-        0x20, 0x17, 0x12, 0x01, 0xC4, 0xA0, 0x1B, 0xA8, 0x03, 0x00,
-        0x03, 0x88, 0x04, 0x00,
-    ]
+pub fn ipv4_country_data(): (Vec<u8>, usize) {
+    (
+        vec![
+            0xC0, 0x04, 0x02, 0x00, 0xC0, 0x00, 0x00, 0x02, 0x0E, 0x20,
+            0x11, 0x71, 0x02, 0x03, 0x88, 0x20, 0x5C, 0x42, 0x07, 0x12,
+            0x20, 0x17, 0x12, 0x01, 0xC4, 0xA0, 0x1B, 0xA8, 0x03, 0x00,
+            0x03, 0x88, 0x04, 0x00,
+        ],
+        92383484893
+    )
 }
 
 pub fn ipv6_country_data(): Vec<u8> {
