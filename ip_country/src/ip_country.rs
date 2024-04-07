@@ -4,7 +4,7 @@ use crate::country_block_stream::CountryBlock;
 use crate::country_block_serde::CountryBlockSerializer;
 
 pub fn ip_country(
-    args: Vec<String>,
+    _args: Vec<String>,
     stdin: &mut dyn io::Read,
     stdout: &mut dyn io::Write,
     stderr: &mut dyn io::Write
@@ -16,7 +16,7 @@ pub fn ip_country(
         .map(|string_record_result| {
             match string_record_result {
                 Ok(string_record) => CountryBlock::try_from(string_record),
-                Err(e) => Err(format!("{:?}", e))
+                Err(e) => Err(format!("CSV format error: {:?}", e))
             }
         })
         .flat_map(|country_block_result| {
@@ -38,7 +38,19 @@ pub fn ip_country(
         return 0
     }
     else {
-        todo!("Write errors to stderr and return error code");
+        let error_list = errors.join("\n");
+        write!(stdout, r#"
+            *** DO NOT USE THIS CODE ***
+            It will produce incorrect results.
+            The process that generated it found these errors:
+
+{}
+
+            Fix the errors and regenerate the code.
+            *** DO NOT USE THIS CODE ***
+"#, error_list);
+        write!(stderr, "{}", errors.join("\n"));
+        return 1
     }
 }
 
@@ -111,8 +123,33 @@ mod tests {
 1:1:0:0:0:0:0:0,1:1:0:255:0:0:0:0,CN
 ";
 
+    static BAD_TEST_DATA: &str =
+"0.0.0.0,0.255.255.255,ZZ
+1.0.0.0,1.0.0.255,AU
+1.0.1.0,1.0.3.255,CN
+1.0.7.255,AU
+1.0.8.0,1.0.15.255
+1.0.16.0,1.0.31.255,JP,
+BOOGA,BOOGA,BOOGA
+1.0.63.255,1.0.32.0,CN
+1.0.64.0,1.0.64.0,JP
+1.0.128.0,1.0.255.255,TH
+1.1.0.0,1.1.0.255,CN
+0:0:0:0:0:0:0:0,0:255:255:255:0:0:0:0,ZZ
+1:0:0:0:0:0:0:0,1:0:0:255:0:0:0:0,AU
+1:0:1:0:0:0:0:0,1:0:3:255:0:0:0:0,CN
+1:0:4:0:0:0:0:0,1:0:7:255:0:0:0:0,AU
+1:0:8:0:0:0:0:0,1:0:15:255:0:0:0:0,CN
+1:0:16:0:0:0:0:0,1:0:31:255:0:0:0:0,JP
+BOOGA,BOOGA,BOOGA
+1:0:32:0:0:0:0:0,1:0:63:255:0:0:0:0,CN
+1:0:64:0:0:0:0:0,1:0:127:255:0:0:0:0,JP
+1:0:128:0:0:0:0:0,1:0:255:255:0:0:0:0,TH
+1:1:0:0:0:0:0:0,1:1:0:255:0:0:0:0,CN
+";
+
     #[test]
-    fn high_level_test() {
+    fn happy_path_test() {
         let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
@@ -152,5 +189,69 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
 "#.to_string()
         );
         assert_eq!(stderr_string, "".to_string());
+    }
+
+    #[test]
+    fn sad_path_test() {
+        let mut stdin = ByteArrayReader::new(BAD_TEST_DATA.as_bytes());
+        let mut stdout = ByteArrayWriter::new();
+        let mut stderr = ByteArrayWriter::new();
+
+        let result = ip_country(vec![], &mut stdin, &mut stdout, &mut stderr);
+
+        assert_eq!(result, 1);
+        let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
+        let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
+        assert_eq!(stdout_string, r#"
+// GENERATED CODE: REGENERATE, DO NOT MODIFY!
+
+pub fn ipv4_country_data() -> (Vec<u64>, usize) {
+    (
+        vec![
+            0x0080000300801003, 0x6020000902E01807, 0x00000605C0100AB7,
+        ],
+        187
+    )
+}
+
+pub fn ipv6_country_data() -> (Vec<u64>, usize) {
+    (
+        vec![
+            0x3000040000400007, 0x00C0001400020000, 0xA80954B000000700, 0x4000000F0255604A,
+            0x0300004000040004, 0xE04AAC8380003800, 0x00018000A4000001, 0x2AB0003485C0001C,
+            0x0600089000000781, 0xC001D20700007000, 0x00424000001E04AA, 0x15485C0001C00018,
+            0xC90000007812AB00, 0x2388000700006002, 0x000001E04AAC00C5, 0xC0001C0001801924,
+            0x0007812AB0063485, 0x0070000600C89000, 0x1E04AAC049D23880, 0xC000180942400000,
+            0x12AB025549BA0001, 0x0040002580000078, 0xAC8B800038000300, 0x000000000001E04A,
+        ],
+        1513
+    )
+}
+
+            *** DO NOT USE THIS CODE ***
+            It will produce incorrect results.
+            The process that generated it found these errors:
+
+Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })
+Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
+Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
+Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
+Line 7: Ending address 1.0.32.0 is not greater than starting address 1.0.63.255
+Line 8: Ending address 1.0.64.0 is not greater than starting address 1.0.64.0
+Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
+
+            Fix the errors and regenerate the code.
+            *** DO NOT USE THIS CODE ***
+"#);
+        assert_eq!(stderr_string,
+r#"Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })
+Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
+Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
+Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
+Line 7: Ending address 1.0.32.0 is not greater than starting address 1.0.63.255
+Line 8: Ending address 1.0.64.0 is not greater than starting address 1.0.64.0
+Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
+.to_string()
+        );
     }
 }
