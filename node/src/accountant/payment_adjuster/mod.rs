@@ -11,6 +11,7 @@ mod loading_test;
 mod log_fns;
 mod miscellaneous;
 mod preparatory_analyser;
+mod service_fee_adjuster;
 #[cfg(test)]
 mod test_utils;
 
@@ -45,8 +46,9 @@ use web3::types::U256;
 use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criterion_calculators::{CriterionCalculator};
-use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics, proposed_adjusted_balance_diagnostics};
-use crate::accountant::payment_adjuster::disqualification_arbiter::{DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal};
+use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{calculated_criterion_and_weight_diagnostics};
+use crate::accountant::payment_adjuster::disqualification_arbiter::{DisqualificationArbiter, DisqualificationGauge};
+use crate::accountant::payment_adjuster::service_fee_adjuster::{ServiceFeeAdjuster, ServiceFeeAdjusterReal};
 use crate::accountant::QualifiedPayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -71,6 +73,7 @@ pub struct PaymentAdjusterReal {
     analyzer: PreparatoryAnalyzer,
     disqualification_arbiter: DisqualificationArbiter,
     inner: Box<dyn PaymentAdjusterInner>,
+    service_fee_adjuster: Box<dyn ServiceFeeAdjuster>,
     calculators: Vec<Box<dyn CriterionCalculator>>,
     logger: Logger,
 }
@@ -153,6 +156,7 @@ impl PaymentAdjusterReal {
             analyzer: PreparatoryAnalyzer::new(),
             disqualification_arbiter: DisqualificationArbiter::default(),
             inner: Box::new(PaymentAdjusterInnerNull {}),
+            service_fee_adjuster: Box::new(ServiceFeeAdjusterReal::default()),
             calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
             logger: Logger::new("PaymentAdjuster"),
         }
@@ -288,7 +292,14 @@ impl PaymentAdjusterReal {
         &mut self,
         weighed_accounts: Vec<WeightedPayable>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
-        let current_iteration_result = self.perform_adjustment_by_service_fee(weighed_accounts);
+        let unallocated_cw_service_fee_balance =
+            self.inner.unallocated_cw_service_fee_balance_minor();
+        let logger = &self.logger;
+        let current_iteration_result = self.service_fee_adjuster.perform_adjustment_by_service_fee(
+            weighed_accounts,
+            unallocated_cw_service_fee_balance,
+            logger,
+        );
 
         let recursion_results = self.resolve_current_iteration_result(current_iteration_result);
 
@@ -390,68 +401,68 @@ impl PaymentAdjusterReal {
 
         sort_in_descendant_order_by_weights(weighted_accounts)
     }
+    //
+    // fn perform_adjustment_by_service_fee(
+    //     &self,
+    //     weighted_accounts: Vec<WeightedPayable>,
+    // ) -> AdjustmentIterationResult {
+    //     let non_finalized_adjusted_accounts =
+    //         self.compute_unconfirmed_adjustments(weighted_accounts);
+    //
+    //     let still_unchecked_for_disqualified =
+    //         match self.handle_possibly_outweighed_accounts(non_finalized_adjusted_accounts) {
+    //             Either::Left(first_check_passing_accounts) => first_check_passing_accounts,
+    //             Either::Right(with_some_outweighed) => return with_some_outweighed,
+    //         };
+    //
+    //     let verified_accounts = match self
+    //         .consider_account_disqualification(still_unchecked_for_disqualified, &self.logger)
+    //     {
+    //         Either::Left(verified_accounts) => verified_accounts,
+    //         Either::Right(with_some_disqualified) => return with_some_disqualified,
+    //     };
+    //
+    //     AdjustmentIterationResult::AllAccountsProcessed(verified_accounts)
+    // }
 
-    fn perform_adjustment_by_service_fee(
-        &self,
-        weighted_accounts: Vec<WeightedPayable>,
-    ) -> AdjustmentIterationResult {
-        let non_finalized_adjusted_accounts =
-            self.compute_unconfirmed_adjustments(weighted_accounts);
-
-        let still_unchecked_for_disqualified =
-            match self.handle_possibly_outweighed_accounts(non_finalized_adjusted_accounts) {
-                Either::Left(first_check_passing_accounts) => first_check_passing_accounts,
-                Either::Right(with_some_outweighed) => return with_some_outweighed,
-            };
-
-        let verified_accounts = match self
-            .consider_account_disqualification(still_unchecked_for_disqualified, &self.logger)
-        {
-            Either::Left(verified_accounts) => verified_accounts,
-            Either::Right(with_some_disqualified) => return with_some_disqualified,
-        };
-
-        AdjustmentIterationResult::AllAccountsProcessed(verified_accounts)
-    }
-
-    // TODO Should this become a helper? ...with which I can catch mid-results and assert on them?
-    fn compute_unconfirmed_adjustments(
-        &self,
-        weighted_accounts: Vec<WeightedPayable>,
-    ) -> Vec<UnconfirmedAdjustment> {
-        let weights_total = weights_total(&weighted_accounts);
-        let largest_weight = find_largest_weight(&weighted_accounts);
-        let cw_service_fee_balance = self.inner.unallocated_cw_service_fee_balance_minor();
-
-        let multiplication_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
-            cw_service_fee_balance,
-            largest_weight,
-        );
-
-        let proportional_cw_balance_fragment = Self::compute_proportional_cw_fragment(
-            cw_service_fee_balance,
-            weights_total,
-            multiplication_coefficient,
-        );
-
-        let compute_proposed_adjusted_balance =
-            |weight: u128| weight * proportional_cw_balance_fragment / multiplication_coefficient;
-
-        weighted_accounts
-            .into_iter()
-            .map(|weighted_account| {
-                let proposed_adjusted_balance =
-                    compute_proposed_adjusted_balance(weighted_account.weight);
-
-                proposed_adjusted_balance_diagnostics(
-                    &weighted_account.qualified_account,
-                    proposed_adjusted_balance,
-                );
-
-                UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
-            })
-            .collect()
-    }
+    // // TODO Should this become a helper? ...with which I can catch mid-results and assert on them?
+    // fn compute_unconfirmed_adjustments(
+    //     &self,
+    //     weighted_accounts: Vec<WeightedPayable>,
+    // ) -> Vec<UnconfirmedAdjustment> {
+    //     let weights_total = weights_total(&weighted_accounts);
+    //     let largest_weight = find_largest_weight(&weighted_accounts);
+    //     let cw_service_fee_balance = self.inner.unallocated_cw_service_fee_balance_minor();
+    //
+    //     let multiplication_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
+    //         cw_service_fee_balance,
+    //         largest_weight,
+    //     );
+    //
+    //     let proportional_cw_balance_fragment = Self::compute_proportional_cw_fragment(
+    //         cw_service_fee_balance,
+    //         weights_total,
+    //         multiplication_coefficient,
+    //     );
+    //
+    //     let compute_proposed_adjusted_balance =
+    //         |weight: u128| weight * proportional_cw_balance_fragment / multiplication_coefficient;
+    //
+    //     weighted_accounts
+    //         .into_iter()
+    //         .map(|weighted_account| {
+    //             let proposed_adjusted_balance =
+    //                 compute_proposed_adjusted_balance(weighted_account.weight);
+    //
+    //             proposed_adjusted_balance_diagnostics(
+    //                 &weighted_account.qualified_account,
+    //                 proposed_adjusted_balance,
+    //             );
+    //
+    //             UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
+    //         })
+    //         .collect()
+    // }
 
     fn compute_proportional_cw_fragment(
         cw_service_fee_balance: u128,
@@ -688,10 +699,10 @@ impl Display for PaymentAdjusterError {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RequiredSpecialTreatment};
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RequiredSpecialTreatment, WeightedPayable};
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::RequiredSpecialTreatment::TreatInsignificantAccount;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{weights_total};
-    use crate::accountant::payment_adjuster::test_utils::{CriterionCalculatorMock, DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS};
+    use crate::accountant::payment_adjuster::test_utils::{CriterionCalculatorMock, DisqualificationGaugeMock, make_extreme_payables, make_initialized_subject, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS, ServiceFeeAdjusterMock};
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal};
     use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable, make_payable_account};
     use crate::accountant::{CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, ResponseSkeleton};
@@ -702,13 +713,17 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
+    use std::collections::HashMap;
+    use std::iter::zip;
     use std::sync::{Arc, Mutex};
+    use lazy_static::lazy_static;
     use rand::rngs::mock;
     use thousands::Separable;
     use web3::types::U256;
     use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInnerNull, PaymentAdjusterInnerReal};
+    use crate::accountant::payment_adjuster::service_fee_adjuster::{AdjustmentComputer, ServiceFeeAdjusterReal};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -950,49 +965,6 @@ mod tests {
     }
 
     #[test]
-    fn payment_adjuster_calculators_expectedly_defaulted(){
-        // First stage: BalanceAndAgeCalculator
-        let calculators_count = PaymentAdjusterReal::default().calculators.len();
-
-        let input_matrix:Vec<(QualifiedPayableAccount, u128)> = vec![
-
-
-
-
-
-
-        ];
-        let now = SystemTime::now();
-        let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(1_000_000);
-        let mut subject = make_initialized_subject(now,Some(cw_service_fee_balance_minor),None);
-        let account_1 = PayableAccount {
-            wallet: make_wallet("abc"),
-            balance_wei: gwei_to_wei::<u128, u64>(3_000_000),
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(50_000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: make_wallet("def"),
-            balance_wei: gwei_to_wei::<u128, u64>(1_000_000),
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(70_000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_3 = PayableAccount {
-            wallet: make_wallet("ghi"),
-            balance_wei: gwei_to_wei::<u128, u64>(2_000_000),
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(60_000)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let payables = vec![account_1, account_2, account_3];
-        let qualified_payables =
-            make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
-
-
-
-        subject.calculate_criteria_and_propose_adjustments_recursively()
-    }
-
-    #[test]
     fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
         let now = SystemTime::now();
         let subject = make_initialized_subject(now, None, None);
@@ -1141,8 +1113,8 @@ mod tests {
             cw_service_fee_balance_minor,
         ));
         let criteria_and_accounts = subject.calculate_weights_for_accounts(accounts);
-        let unconfirmed_adjustments =
-            subject.compute_unconfirmed_adjustments(criteria_and_accounts);
+        let unconfirmed_adjustments = AdjustmentComputer::default()
+            .compute_unconfirmed_adjustments(criteria_and_accounts, cw_service_fee_balance_minor);
         // The results are sorted from the biggest weights down
         let proposed_adjusted_balance = unconfirmed_adjustments[0]
             .non_finalized_account
@@ -2292,5 +2264,323 @@ mod tests {
             );
 
         Box::new(blockchain_agent)
+    }
+
+    // The following tests together prove the use of correct calculators in the production code
+
+    #[test]
+    fn each_of_defaulted_calculators_returns_different_value() {
+        let now = SystemTime::now();
+        let payment_adjuster = PaymentAdjusterReal::default();
+        let qualified_payable = QualifiedPayableAccount {
+            qualified_as: PayableAccount {
+                wallet: make_wallet("abc"),
+                balance_wei: gwei_to_wei::<u128, u64>(444_666_888),
+                last_paid_timestamp: now.checked_sub(Duration::from_secs(123_000)).unwrap(),
+                pending_payable_opt: None,
+            },
+            payment_threshold_intercept_minor: gwei_to_wei::<u128, u64>(20_000),
+            creditor_thresholds: CreditorThresholds::new(gwei_to_wei::<u128, u64>(10_000)),
+        };
+        let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(3_000);
+        let context = PaymentAdjusterInnerReal::new(now, None, cw_service_fee_balance_minor);
+        let _ = payment_adjuster
+            .calculators
+            .into_iter()
+            .map(|calculator| calculator.calculate(&qualified_payable, &context))
+            .fold(0, |previous_result, current_result| {
+                let min = (current_result * 97) / 100;
+                let max = (current_result * 97) / 100;
+                assert_ne!(current_result, 0);
+                assert!(min <= previous_result || previous_result <= max);
+                current_result
+            });
+    }
+
+    type InputMatrixConfigurator = fn(
+        (QualifiedPayableAccount, QualifiedPayableAccount, SystemTime),
+    ) -> Vec<[(QualifiedPayableAccount, u128); 2]>;
+
+    #[test]
+    fn defaulted_calculators_react_on_correct_params() {
+        // When adding a test case for a new calculator, you need to make an array of inputs. Don't
+        // create brand-new accounts but clone the provided nominal accounts and modify them
+        // accordingly. Modify only those parameters that affect your calculator.
+        // It's recommended to orientate the modifications rather positively (additions), because
+        // there is a smaller chance you would run into some limit
+        let input_matrix: InputMatrixConfigurator =
+            |(nominal_account_1, nominal_account_2, now)| {
+                vec![
+                    // First stage: BalanceAndAgeCalculator
+                    {
+                        let mut account_1 = nominal_account_1;
+                        account_1.qualified_as.balance_wei += 123_456_789;
+                        let mut account_2 = nominal_account_2;
+                        account_2.qualified_as.last_paid_timestamp = account_2
+                            .qualified_as
+                            .last_paid_timestamp
+                            .checked_sub(Duration::from_secs(4_000))
+                            .unwrap();
+                        [(account_1, 8000000123466789), (account_2, 8000000000014000)]
+                    },
+                ]
+            };
+        // This is the value that is computed if the account stays unmodified. Same for both nominal
+        // accounts.
+        let current_nominal_weight = 8000000000010000;
+
+        test_calculators_reactivity(input_matrix, current_nominal_weight)
+    }
+
+    #[derive(Clone, Copy)]
+    struct TemplateComputedWeight {
+        common_weight: u128,
+    }
+
+    struct SingleAccountInput {
+        account: QualifiedPayableAccount,
+        assertion_value: AssertionValue,
+    }
+
+    struct AssertionValue {
+        wallet_to_match_result_with: Wallet,
+        expected_computed_weight: u128,
+    }
+
+    fn test_calculators_reactivity(
+        input_matrix_configurator: InputMatrixConfigurator,
+        nominal_weight: u128,
+    ) {
+        let defaulted_payment_adjuster = PaymentAdjusterReal::default();
+        let calculators_count = defaulted_payment_adjuster.calculators.len();
+        let now = SystemTime::now();
+        let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(1_000_000);
+        let (template_accounts, template_computed_weight) =
+            prepare_nominal_data_before_loading_actual_test_input(
+                now,
+                cw_service_fee_balance_minor,
+            );
+        assert_eq!(template_computed_weight.common_weight, nominal_weight);
+        let mut template_accounts = template_accounts.to_vec();
+        let mut pop_account = || template_accounts.remove(0);
+        let nominal_account_1 = pop_account();
+        let nominal_account_2 = pop_account();
+        let input_matrix = input_matrix_configurator((nominal_account_1, nominal_account_2, now));
+        assert_eq!(
+            input_matrix.len(),
+            calculators_count,
+            "If you've recently added in a new \
+        calculator, you should add a single test case for it this test. See the input matrix, \
+        it is the place where you should use the two accounts you can clone. Make sure you \
+        modify only those parameters processed by your new calculator "
+        );
+        test_accounts_from_input_matrix(
+            input_matrix,
+            defaulted_payment_adjuster,
+            now,
+            cw_service_fee_balance_minor,
+            template_computed_weight,
+        )
+    }
+
+    fn prepare_nominal_data_before_loading_actual_test_input(
+        now: SystemTime,
+        cw_service_fee_balance_minor: u128,
+    ) -> ([QualifiedPayableAccount; 2], TemplateComputedWeight) {
+        let template_accounts = initialize_template_accounts(now);
+        let template_weight = compute_common_weight_for_templates(
+            template_accounts.clone(),
+            now,
+            cw_service_fee_balance_minor,
+        );
+        (template_accounts, template_weight)
+    }
+
+    fn initialize_template_accounts(now: SystemTime) -> [QualifiedPayableAccount; 2] {
+        let make_qualified_payable = |wallet| QualifiedPayableAccount {
+            qualified_as: PayableAccount {
+                wallet,
+                balance_wei: gwei_to_wei::<u128, u64>(20_000_000),
+                last_paid_timestamp: now.checked_sub(Duration::from_secs(10_000)).unwrap(),
+                pending_payable_opt: None,
+            },
+            payment_threshold_intercept_minor: gwei_to_wei::<u128, u64>(12_000_000),
+            creditor_thresholds: CreditorThresholds::new(gwei_to_wei::<u128, u64>(1_000_000)),
+        };
+
+        [
+            make_qualified_payable(make_wallet("abc")),
+            make_qualified_payable(make_wallet("def")),
+        ]
+    }
+
+    fn compute_common_weight_for_templates(
+        template_accounts: [QualifiedPayableAccount; 2],
+        now: SystemTime,
+        cw_service_fee_balance_minor: u128,
+    ) -> TemplateComputedWeight {
+        let template_results = exercise_production_code_to_get_weighted_accounts(
+            template_accounts.to_vec(),
+            now,
+            cw_service_fee_balance_minor,
+        );
+        let templates_common_weight = template_results
+            .iter()
+            .map(|account| account.weight)
+            .reduce(|previous, current| {
+                assert_eq!(previous, current);
+                current
+            })
+            .unwrap();
+        // Formal test if the value is different from zero,
+        // and ideally much bigger than that
+        assert!(1_000_000_000_000 < templates_common_weight);
+        TemplateComputedWeight {
+            common_weight: templates_common_weight,
+        }
+    }
+
+    fn exercise_production_code_to_get_weighted_accounts(
+        qualified_payables: Vec<QualifiedPayableAccount>,
+        now: SystemTime,
+        cw_service_fee_balance_minor: u128,
+    ) -> Vec<WeightedPayable> {
+        let mut subject = make_initialized_subject(now, Some(cw_service_fee_balance_minor), None);
+        let perform_adjustment_by_service_fee_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let service_fee_adjuster_mock = ServiceFeeAdjusterMock::default()
+            // We use this container to intercept those values we are after
+            .perform_adjustment_by_service_fee_params(&perform_adjustment_by_service_fee_params_arc)
+            // This is just a sentinel for an actual result.
+            // We care only for the params
+            .perform_adjustment_by_service_fee_result(
+                AdjustmentIterationResult::AllAccountsProcessed(vec![]),
+            );
+        subject.service_fee_adjuster = Box::new(service_fee_adjuster_mock);
+
+        let result = subject.run_adjustment(qualified_payables.to_vec());
+
+        less_important_constant_assertions_and_weighted_accounts_extraction(
+            result,
+            perform_adjustment_by_service_fee_params_arc,
+            cw_service_fee_balance_minor,
+        )
+    }
+
+    fn less_important_constant_assertions_and_weighted_accounts_extraction(
+        actual_result: Result<Vec<PayableAccount>, PaymentAdjusterError>,
+        perform_adjustment_by_service_fee_params_arc: Arc<Mutex<Vec<(Vec<WeightedPayable>, u128)>>>,
+        cw_service_fee_balance_minor: u128,
+    ) -> Vec<WeightedPayable> {
+        // This error should be ignored, as it has no real meaning.
+        // It allows to halt the code executions without a dive in the recursion
+        assert_eq!(
+            actual_result,
+            Err(PaymentAdjusterError::AllAccountsEliminated)
+        );
+        let mut perform_adjustment_by_service_fee_params =
+            perform_adjustment_by_service_fee_params_arc.lock().unwrap();
+        let (weighted_accounts, captured_cw_service_fee_balance_minor) =
+            perform_adjustment_by_service_fee_params.remove(0);
+        assert_eq!(
+            captured_cw_service_fee_balance_minor,
+            cw_service_fee_balance_minor
+        );
+        assert!(perform_adjustment_by_service_fee_params.is_empty());
+        weighted_accounts
+    }
+
+    fn test_accounts_from_input_matrix(
+        input_matrix: Vec<[(QualifiedPayableAccount, u128); 2]>,
+        defaulted_payment_adjuster: PaymentAdjusterReal,
+        now: SystemTime,
+        cw_service_fee_balance_minor: u128,
+        template_computed_weight: TemplateComputedWeight,
+    ) {
+        fn prepare_args_expected_weights_for_comparison(
+            (qualified_payable, expected_computed_payable): (QualifiedPayableAccount, u128),
+        ) -> (QualifiedPayableAccount, (Wallet, u128)) {
+            let wallet = qualified_payable.qualified_as.wallet.clone();
+            (qualified_payable, (wallet, expected_computed_payable))
+        }
+
+        input_matrix
+            .into_iter()
+            .map(|test_case| {
+                test_case
+                    .into_iter()
+                    .map(prepare_args_expected_weights_for_comparison)
+                    .collect::<Vec<_>>()
+            })
+            .zip(defaulted_payment_adjuster.calculators.into_iter())
+            .for_each(
+                |((qualified_payments_and_expected_computed_weights), calculator)| {
+                    let (qualified_payments, expected_computed_weights): (Vec<_>, Vec<_>) =
+                        qualified_payments_and_expected_computed_weights
+                            .into_iter()
+                            .unzip();
+
+                    let weighted_accounts = exercise_production_code_to_get_weighted_accounts(
+                        qualified_payments,
+                        now,
+                        cw_service_fee_balance_minor,
+                    );
+
+                    assert_results(
+                        weighted_accounts,
+                        expected_computed_weights,
+                        template_computed_weight,
+                    )
+                },
+            );
+    }
+
+    fn make_comparison_hashmap(
+        weighted_accounts: Vec<WeightedPayable>,
+    ) -> HashMap<Wallet, WeightedPayable> {
+        let feeding_iterator = weighted_accounts.into_iter().map(|account| {
+            (
+                account.qualified_account.qualified_as.wallet.clone(),
+                account,
+            )
+        });
+        HashMap::from_iter(feeding_iterator)
+    }
+
+    fn assert_results(
+        weighted_accounts: Vec<WeightedPayable>,
+        expected_computed_weights: Vec<(Wallet, u128)>,
+        template_computed_weight: TemplateComputedWeight,
+    ) {
+        let weighted_accounts_as_hash_map = make_comparison_hashmap(weighted_accounts);
+        expected_computed_weights.into_iter().fold(
+            0,
+            |previous_account_actual_weight, (account_wallet, expected_computed_weight)| {
+                let actual_account = weighted_accounts_as_hash_map
+                    .get(&account_wallet)
+                    .unwrap_or_else(|| {
+                        panic!("Account for wallet {:?} disappeared", account_wallet)
+                    });
+                assert_ne!(
+                    actual_account.weight, template_computed_weight.common_weight,
+                    "Weight is exactly the same as that one from the template. The inputs \
+                    (modifications in the template accounts) are supposed to cause the weight to \
+                    evaluated differently."
+                );
+                assert_eq!(
+                    actual_account.weight,
+                    expected_computed_weight,
+                    "Computed weight {} differs from what was expected {}",
+                    actual_account.weight.separate_with_commas(),
+                    expected_computed_weight.separate_with_commas()
+                );
+                assert_ne!(
+                    actual_account.weight, previous_account_actual_weight,
+                    "You were expected to prepare two accounts with at least slightly \
+                    different parameters. Therefore, the evenness of their weights is \
+                    highly improbable and suspicious."
+                );
+                actual_account.weight
+            },
+        );
     }
 }

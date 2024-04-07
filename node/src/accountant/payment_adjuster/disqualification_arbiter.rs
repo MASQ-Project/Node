@@ -202,6 +202,7 @@ mod tests {
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
+    use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
         DisqualificationGaugeMock,
@@ -425,7 +426,7 @@ mod tests {
         let test_name =
             "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
         let now = SystemTime::now();
-        let cw_masq_balance = 200_000_000_000;
+        let cw_service_fee_balance_minor = 200_000_000_000;
         let mut payment_thresholds = PaymentThresholds::default();
         payment_thresholds.permanent_debt_allowed_gwei = 10;
         payment_thresholds.maturity_threshold_sec = 1_000;
@@ -434,7 +435,7 @@ mod tests {
             + payment_thresholds.threshold_interval_sec
             + 1;
         let logger = Logger::new(test_name);
-        let subject = make_initialized_subject(now, Some(cw_masq_balance), None);
+        let subject = make_initialized_subject(now, Some(cw_service_fee_balance_minor), None);
         let wallet_1 = make_wallet("abc");
         let debt_age_1 = base_time_for_qualified + 1;
         let account_1 = PayableAccount {
@@ -471,7 +472,8 @@ mod tests {
         let qualified_payables =
             make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
         let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
-        let unconfirmed_adjustments = subject.compute_unconfirmed_adjustments(weights_and_accounts);
+        let unconfirmed_adjustments = AdjustmentComputer::default()
+            .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
         let subject = DisqualificationArbiter::default();
 
         let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(

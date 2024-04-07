@@ -7,8 +7,10 @@ use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalcula
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationGauge;
 use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+    AdjustedAccountBeforeFinalization, AdjustmentIterationResult, UnconfirmedAdjustment,
+    WeightedPayable,
 };
+use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
 use crate::accountant::QualifiedPayableAccount;
@@ -181,6 +183,48 @@ impl DisqualificationGaugeMock {
 
     pub fn determine_limit_result(mut self, result: u128) -> Self {
         self.determine_limit_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct ServiceFeeAdjusterMock {
+    perform_adjustment_by_service_fee_params: Arc<Mutex<Vec<(Vec<WeightedPayable>, u128)>>>,
+    perform_adjustment_by_service_fee_results: RefCell<Vec<AdjustmentIterationResult>>,
+}
+impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
+    fn perform_adjustment_by_service_fee(
+        &self,
+        weighted_accounts: Vec<WeightedPayable>,
+        unallocated_cw_service_fee_balance_minor: u128,
+        _logger: &Logger,
+    ) -> AdjustmentIterationResult {
+        self.perform_adjustment_by_service_fee_params
+            .lock()
+            .unwrap()
+            .push((weighted_accounts, unallocated_cw_service_fee_balance_minor));
+        self.perform_adjustment_by_service_fee_results
+            .borrow_mut()
+            .remove(0)
+    }
+}
+
+impl ServiceFeeAdjusterMock {
+    pub fn perform_adjustment_by_service_fee_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Vec<WeightedPayable>, u128)>>>,
+    ) -> Self {
+        self.perform_adjustment_by_service_fee_params = params.clone();
+        self
+    }
+
+    pub fn perform_adjustment_by_service_fee_result(
+        self,
+        result: AdjustmentIterationResult,
+    ) -> Self {
+        self.perform_adjustment_by_service_fee_results
+            .borrow_mut()
+            .push(result);
         self
     }
 }
