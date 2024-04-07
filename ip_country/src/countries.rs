@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "There are only 45 Countries; no Country is at index 4096")]
+    #[should_panic(expected = "There are only 250 Countries; no Country is at index 4096")]
     fn try_from_index_bad_index() {
 
         let _ = Country::from(4096usize);
