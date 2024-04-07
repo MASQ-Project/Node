@@ -46,6 +46,7 @@ impl TryFrom<StringRecord> for CountryBlock {
         if iter.next().is_some() {
             return Err(format!("CSV line should contain 3 elements, but contains {}", string_record.len()))
         };
+        Self::validate_ip_addresses(start_ip, end_ip)?;
         let country = Country::try_from(iso3166)?;
         let country_block = match (start_ip, end_ip) {
             (IpAddr::V4(start), IpAddr::V4(end)) => CountryBlock {
@@ -73,6 +74,30 @@ impl CountryBlock {
             Ok(ip) => ip,
         };
         Ok(ip_addr)
+    }
+
+    fn validate_ip_addresses(start_ip: IpAddr, end_ip: IpAddr) -> Result<(), String> {
+        match (start_ip, end_ip) {
+            (IpAddr::V4(start_v4), IpAddr::V4(end_v4)) => {
+                if u32::from(start_v4) >= u32::from(end_v4) {
+                    Err(format!("Ending address {} is not greater than starting address {}", end_v4, start_v4))
+                }
+                else {
+                    Ok(())
+                }
+            },
+            (IpAddr::V6(start_v6), IpAddr::V6(end_v6)) => {
+                if u128::from(start_v6) >= u128::from(end_v6) {
+                    Err(format!("Ending address {} is not greater than starting address {}", end_v6, start_v6))
+                }
+                else {
+                    Ok(())
+                }
+            },
+            (s, e) => {
+                Err(format!("Beginning address {} and ending address {} must be the same IP address version", s, e))
+            }
+        }
     }
 }
 
@@ -122,7 +147,7 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Invalid IP address in CSV record: 'Ooga'".to_string()));
+        assert_eq!(result, Err("Invalid (AddrParseError(Ip)) IP address in CSV record: 'Ooga'".to_string()));
     }
 
     #[test]
@@ -146,17 +171,41 @@ mod tests {
 
     #[test]
     fn try_from_fails_for_reversed_ipv4_addresses() {
-        todo!()
+        let string_record = StringRecord::from(vec!["4.3.2.1", "1.2.3.4", "ZZ"]);
+
+        let result = CountryBlock::try_from(string_record);
+
+        assert_eq!(result, Err("Ending address 1.2.3.4 is not greater than starting address 4.3.2.1".to_string()));
     }
 
     #[test]
     fn try_from_fails_for_reversed_ipv6_addresses() {
-        todo!()
+        let string_record = StringRecord::from(vec!["8:7:6:5:4:3:2:1", "1:2:3:4:5:6:7:8", "ZZ"]);
+
+        let result = CountryBlock::try_from(string_record);
+
+        assert_eq!(result, Err("Ending address 1:2:3:4:5:6:7:8 is not greater than starting address 8:7:6:5:4:3:2:1".to_string()));
     }
 
     #[test]
     fn try_from_fails_for_mixed_ip_types() {
-        todo!()
+        let string_record_46 = StringRecord::from(vec!["4.3.2.1", "1:2:3:4:5:6:7:8", "ZZ"]);
+        let string_record_64 = StringRecord::from(vec!["1:2:3:4:5:6:7:8", "4.3.2.1", "ZZ"]);
+
+        let result_46 = CountryBlock::try_from(string_record_46);
+        let result_64 = CountryBlock::try_from(string_record_64);
+
+        assert_eq!(result_46, Err("Beginning address 4.3.2.1 and ending address 1:2:3:4:5:6:7:8 must be the same IP address version".to_string()));
+        assert_eq!(result_64, Err("Beginning address 1:2:3:4:5:6:7:8 and ending address 4.3.2.1 must be the same IP address version".to_string()));
+    }
+
+    #[test]
+    fn try_from_fails_for_unrecognized_iso3166() {
+        let string_record = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", "XY"]);
+
+        let result = CountryBlock::try_from(string_record);
+
+        assert_eq!(result, Err("'XY' is not a valid ISO3166 country code".to_string()));
     }
 
     #[test]
