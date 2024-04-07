@@ -26,6 +26,33 @@ pub enum IpRange {
     V6 (Ipv6Addr, Ipv6Addr)
 }
 
+impl IpRange {
+    pub fn contains(&self, ip_addr: IpAddr) -> bool {
+        match self {
+            IpRange::V4(begin, end) => match ip_addr {
+                IpAddr::V4(candidate) => Self::contains_inner(
+                    u32::from(*begin) as u128,
+                    u32::from(*end) as u128,
+                    u32::from(candidate) as u128
+                ),
+                IpAddr::V6(candidate) => false,
+            },
+            IpRange::V6(begin, end) => match ip_addr {
+                IpAddr::V4(candidate) => false,
+                IpAddr::V6(candidate) => Self::contains_inner(
+                    u128::from(*begin),
+                    u128::from(*end),
+                    u128::from(candidate)
+                )
+            }
+        }
+    }
+
+    fn contains_inner(begin: u128, end: u128, candidate: u128) -> bool {
+        (candidate >= begin) && (candidate <= end)
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct CountryBlock {
     pub ip_range: IpRange,
@@ -106,6 +133,86 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use super::*;
+
+    #[test]
+    fn ip_range_finds_ipv4_address() {
+        let subject = IpRange::V4(
+            Ipv4Addr::from_str("1.2.3.4").unwrap(),
+            Ipv4Addr::from_str("4.3.2.1").unwrap()
+        );
+
+        let result_start = subject.contains (IpAddr::from_str("1.2.3.4").unwrap());
+        let result_end = subject.contains (IpAddr::from_str("4.3.2.1").unwrap());
+
+        assert_eq!(result_start, true);
+        assert_eq!(result_end, true);
+    }
+
+    #[test]
+    fn ip_range_doesnt_find_ipv4_address() {
+        let subject = IpRange::V4(
+            Ipv4Addr::from_str("1.2.3.4").unwrap(),
+            Ipv4Addr::from_str("4.3.2.1").unwrap()
+        );
+
+        let result_start = subject.contains (IpAddr::from_str("1.2.3.3").unwrap());
+        let result_end = subject.contains (IpAddr::from_str("4.3.2.2").unwrap());
+
+        assert_eq!(result_start, false);
+        assert_eq!(result_end, false);
+    }
+
+    #[test]
+    fn ip_range_finds_ipv6_address() {
+        let subject = IpRange::V6(
+            Ipv6Addr::from_str("1:2:3:4:0:0:0:0").unwrap(),
+            Ipv6Addr::from_str("4:3:2:1:0:0:0:0").unwrap()
+        );
+
+        let result_start = subject.contains (IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
+        let result_end = subject.contains (IpAddr::from_str("4:3:2:1:0:0:0:0").unwrap());
+
+        assert_eq!(result_start, true);
+        assert_eq!(result_end, true);
+    }
+
+    #[test]
+    fn ip_range_doesnt_find_ipv6_address() {
+        let subject = IpRange::V6(
+            Ipv6Addr::from_str("0:0:0:0:1:2:3:4").unwrap(),
+            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap()
+        );
+
+        let result_start = subject.contains (IpAddr::from_str("0:0:0:0:1:2:3:3").unwrap());
+        let result_end = subject.contains (IpAddr::from_str("0:0:0:0:4:3:2:2").unwrap());
+
+        assert_eq!(result_start, false);
+        assert_eq!(result_end, false);
+    }
+
+    #[test]
+    fn ip_range_doesnt_find_ipv6_address_in_ipv4_range() {
+        let subject = IpRange::V4(
+            Ipv4Addr::from_str("1.2.3.4").unwrap(),
+            Ipv4Addr::from_str("4.3.2.1").unwrap()
+        );
+
+        let result = subject.contains (IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
+
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn ip_range_doesnt_find_ipv4_address_in_ipv6_range() {
+        let subject = IpRange::V6(
+            Ipv6Addr::from_str("0:0:0:0:1:2:3:4").unwrap(),
+            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap()
+        );
+
+        let result = subject.contains (IpAddr::from_str("1.2.3.4").unwrap());
+
+        assert_eq!(result, false);
+    }
 
     #[test]
     fn try_from_works_for_ipv4() {

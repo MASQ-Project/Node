@@ -217,11 +217,11 @@ impl CountryBlockSerializer {
     }
 }
 
-trait CountryBlockDeserializer {
+pub trait CountryBlockDeserializer {
     fn next(&mut self) -> Option<CountryBlock>;
 }
 
-struct CountryBlockDeserializerIpv4 {
+pub struct CountryBlockDeserializerIpv4 {
     prev_record: StreamRecordIpv4,
     bit_queue: BitQueue,
     empty: bool,
@@ -290,7 +290,7 @@ impl CountryBlockDeserializerIpv4 {
     }
 }
 
-struct CountryBlockDeserializerIpv6 {
+pub struct CountryBlockDeserializerIpv6 {
     prev_record: StreamRecordIpv6,
     bit_queue: BitQueue,
     empty: bool,
