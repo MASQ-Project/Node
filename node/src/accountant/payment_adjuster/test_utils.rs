@@ -4,7 +4,9 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
-use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationGauge;
+use crate::accountant::payment_adjuster::disqualification_arbiter::{
+    DisqualificationArbiter, DisqualificationGauge,
+};
 use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, UnconfirmedAdjustment,
@@ -13,8 +15,9 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::{gwei_to_wei, QualifiedPayableAccount};
 use crate::sub_lib::accountant::PaymentThresholds;
+use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::Either;
 use lazy_static::lazy_static;
@@ -31,19 +34,23 @@ lazy_static! {
 }
 
 pub fn make_initialized_subject(
-    now: SystemTime,
+    now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
+    criterion_calculator_mock_opt: Option<CriterionCalculatorMock>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
-    let cw_masq_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
+    let cw_service_fee_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
     let logger = logger_opt.unwrap_or(Logger::new("test"));
     let mut subject = PaymentAdjusterReal::default();
     subject.logger = logger;
     subject.inner = Box::new(PaymentAdjusterInnerReal::new(
-        now,
+        now_opt.unwrap_or(SystemTime::now()),
         None,
-        cw_masq_balance_minor,
+        cw_service_fee_balance_minor,
     ));
+    if let Some(calculator) = criterion_calculator_mock_opt {
+        subject.calculators = vec![Box::new(calculator)]
+    }
     subject
 }
 
@@ -196,6 +203,7 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
     fn perform_adjustment_by_service_fee(
         &self,
         weighted_accounts: Vec<WeightedPayable>,
+        disqualification_arbiter: &DisqualificationArbiter,
         unallocated_cw_service_fee_balance_minor: u128,
         _logger: &Logger,
     ) -> AdjustmentIterationResult {
@@ -227,4 +235,16 @@ impl ServiceFeeAdjusterMock {
             .push(result);
         self
     }
+}
+
+pub fn multiple_by_billion(num: u128) -> u128 {
+    num * 10_u128.pow(9)
+}
+
+pub fn make_qualified_payable_by_wallet(wallet_address_segment: &str) -> QualifiedPayableAccount {
+    let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
+    let wallet = make_wallet(wallet_address_segment);
+    let mut account = make_non_guaranteed_qualified_payable(num);
+    account.qualified_as.wallet = wallet;
+    account
 }

@@ -21,8 +21,8 @@ impl WeightedPayable {
 #[derive(Debug)]
 pub enum AdjustmentIterationResult {
     AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
-    SpecialTreatmentRequired {
-        case: RequiredSpecialTreatment,
+    IterationWithSpecialHandling {
+        case: SpecialHandling,
         remaining_undecided_accounts: Vec<QualifiedPayableAccount>,
     },
 }
@@ -52,9 +52,9 @@ impl RecursionResults {
 }
 
 #[derive(Debug)]
-pub enum RequiredSpecialTreatment {
-    TreatInsignificantAccount,
-    TreatOutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
+pub enum SpecialHandling {
+    InsignificantAccountEliminated,
+    OutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -200,7 +200,7 @@ mod tests {
         now: SystemTime,
         service_fee_balance: u128,
     ) -> PaymentAdjusterReal {
-        make_initialized_subject(now, Some(service_fee_balance), None)
+        make_initialized_subject(Some(now), Some(service_fee_balance), None, None)
     }
 
     fn make_weighed_payable(n: u64, initial_balance_minor: u128) -> WeightedPayable {
@@ -217,8 +217,8 @@ mod tests {
         payable_2: WeightedPayable,
         cw_service_fee_balance_minor: u128,
     ) {
-        // The disqualification doesn't take part in here, it is just an explanation for
-        // those who wonder why the implied surplus may happen
+        // The disqualification doesn't take part in here, it is just an explanation for those who
+        // wonder why the implied surplus may happen
         let now = SystemTime::now();
         let mut payment_adjuster = initialize_payment_adjuster(now, cw_service_fee_balance_minor);
         let initial_balance_minor_1 = payable_1.qualified_account.qualified_as.balance_wei;
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_handles_surplus_even_to_cw_after_dql_in_previous_iteration() {
+    fn service_fee_only_runner_cw_balance_equals_requested_money_after_dql_in_previous_iteration() {
         let cw_service_fee_balance_minor = 10_000_000_000;
         let payable_1 = make_weighed_payable(111, 5_000_000_000);
         let payable_2 = make_weighed_payable(222, 5_000_000_000);
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_handles_surplus_incurred_after_disqualification_in_previous_iteration(
+    fn service_fee_only_runner_handles_means_bigger_requested_money_after_dql_in_previous_iteration(
     ) {
         let cw_service_fee_balance_minor = 10_000_000_000;
         let payable_1 = make_weighed_payable(111, 5_000_000_000);

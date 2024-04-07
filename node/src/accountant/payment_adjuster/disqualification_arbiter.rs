@@ -423,74 +423,75 @@ mod tests {
 
     #[test]
     fn only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration() {
-        let test_name =
-            "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
-        let now = SystemTime::now();
-        let cw_service_fee_balance_minor = 200_000_000_000;
-        let mut payment_thresholds = PaymentThresholds::default();
-        payment_thresholds.permanent_debt_allowed_gwei = 10;
-        payment_thresholds.maturity_threshold_sec = 1_000;
-        payment_thresholds.threshold_interval_sec = 10_000;
-        let base_time_for_qualified = payment_thresholds.maturity_threshold_sec
-            + payment_thresholds.threshold_interval_sec
-            + 1;
-        let logger = Logger::new(test_name);
-        let subject = make_initialized_subject(now, Some(cw_service_fee_balance_minor), None);
-        let wallet_1 = make_wallet("abc");
-        let debt_age_1 = base_time_for_qualified + 1;
-        let account_1 = PayableAccount {
-            wallet: wallet_1.clone(),
-            balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_1)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let wallet_2 = make_wallet("def");
-        let debt_age_2 = base_time_for_qualified + 3;
-        let account_2 = PayableAccount {
-            wallet: wallet_2.clone(),
-            balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_2)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let wallet_3 = make_wallet("ghi");
-        let debt_age_3 = base_time_for_qualified;
-        let account_3 = PayableAccount {
-            wallet: wallet_3.clone(),
-            balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_3)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let wallet_4 = make_wallet("jkl");
-        let debt_age_4 = base_time_for_qualified + 2;
-        let account_4 = PayableAccount {
-            wallet: wallet_4.clone(),
-            balance_wei: 120_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_4)).unwrap(),
-            pending_payable_opt: None,
-        };
-        let accounts = vec![account_1, account_2, account_3, account_4];
-        let qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
-        let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
-        let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
-        let subject = DisqualificationArbiter::default();
-
-        let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
-            &unconfirmed_adjustments,
-            &logger,
-        );
-
-        unconfirmed_adjustments.iter().for_each(|payable| {
-            // Condition of disqualification at the horizontal threshold
-            assert!(
-                payable
-                    .non_finalized_account
-                    .proposed_adjusted_balance_minor
-                    < 120_000_000_000
-            )
-        });
-        assert_eq!(result, Some(wallet_3));
+        todo!()
+        // let test_name =
+        //     "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
+        // let now = SystemTime::now();
+        // let cw_service_fee_balance_minor = 200_000_000_000;
+        // let mut payment_thresholds = PaymentThresholds::default();
+        // payment_thresholds.permanent_debt_allowed_gwei = 10;
+        // payment_thresholds.maturity_threshold_sec = 1_000;
+        // payment_thresholds.threshold_interval_sec = 10_000;
+        // let base_time_for_qualified = payment_thresholds.maturity_threshold_sec
+        //     + payment_thresholds.threshold_interval_sec
+        //     + 1;
+        // let logger = Logger::new(test_name);
+        // let subject = make_initialized_subject(now, Some(cw_service_fee_balance_minor), None, None);
+        // let wallet_1 = make_wallet("abc");
+        // let debt_age_1 = base_time_for_qualified + 1;
+        // let account_1 = PayableAccount {
+        //     wallet: wallet_1.clone(),
+        //     balance_wei: 120_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_1)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let wallet_2 = make_wallet("def");
+        // let debt_age_2 = base_time_for_qualified + 3;
+        // let account_2 = PayableAccount {
+        //     wallet: wallet_2.clone(),
+        //     balance_wei: 120_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_2)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let wallet_3 = make_wallet("ghi");
+        // let debt_age_3 = base_time_for_qualified;
+        // let account_3 = PayableAccount {
+        //     wallet: wallet_3.clone(),
+        //     balance_wei: 120_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_3)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let wallet_4 = make_wallet("jkl");
+        // let debt_age_4 = base_time_for_qualified + 2;
+        // let account_4 = PayableAccount {
+        //     wallet: wallet_4.clone(),
+        //     balance_wei: 120_000_000_000,
+        //     last_paid_timestamp: now.checked_sub(Duration::from_secs(debt_age_4)).unwrap(),
+        //     pending_payable_opt: None,
+        // };
+        // let accounts = vec![account_1, account_2, account_3, account_4];
+        // let qualified_payables =
+        //     make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
+        // let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
+        // let unconfirmed_adjustments = AdjustmentComputer::default()
+        //     .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
+        // let subject = DisqualificationArbiter::default();
+        //
+        // let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
+        //     &unconfirmed_adjustments,
+        //     &logger,
+        // );
+        //
+        // unconfirmed_adjustments.iter().for_each(|payable| {
+        //     // Condition of disqualification at the horizontal threshold
+        //     assert!(
+        //         payable
+        //             .non_finalized_account
+        //             .proposed_adjusted_balance_minor
+        //             < 120_000_000_000
+        //     )
+        // });
+        // assert_eq!(result, Some(wallet_3));
     }
 
     fn make_unconfirmed_adjustments_and_expected_test_result(
