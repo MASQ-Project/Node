@@ -2,6 +2,121 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::bit_queue::BitQueue;
 use crate::country_block_stream::{Country, CountryBlock, IpRange};
 
+/*
+
+Compressed Data Format
+
+Country IP-address data is stored in compressed format as a literal Vec<u64>. In order to
+traverse it, it's fed into a BitQueue and then retrieved as a series of variably-sized bit strings.
+IPv4 data is stored in one Vec<u64>, and IPv6 data is stored in a different one.
+
+Conceptually, the compressed data format is a sequence of two-element records:
+
+<IP address at beginning of country block>, <index of country in COUNTRIES list>
+<IP address at beginning of country block>, <index of country in COUNTRIES list>
+<IP address at beginning of country block>, <index of country in COUNTRIES list>
+[...]
+
+Each block is assumed to end at the address immediately before the one where the next block starts.
+If the data contains no block starting at the lowest possible address (0.0.0.0 for IPv4,
+0:0:0:0:0:0:0:0 for IPv6), the deserializer will invent one starting at that address, ending just
+before the first address specified in the data, and having country index 0. The last block ends at
+the maximum possible address: 255.255.255.255 for IPv4, FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF
+for IPv6.
+
+The index of the country in the COUNTRIES list is specified as nine bits. At the time this code was
+written, there were 250 countries in ISO3166, so we could have used eight bits; but 250 is close
+enough to 256 that we added an extra bit for future-proofing.
+
+The block-start IP addresses are specified in compressed fashion. Only the parts (octets for IPv4,
+segments for IPv6) of the start address that are different from the corresponding segments of the
+previous address are stored, like this:
+
+<difference count minus one> <differences>
+
+For IPv4, the difference-count-minus-one is stored as two bits, and for IPv6 it's stored as three
+bits. Make sure you add 1 to the value before you use it. (The data is stored this way because
+there can't be no changes (that'd imply a zero-length block), but it _is_ possible that every part
+of the new start address is different, and that number wouldn't fit into the available bit field.)
+
+Each difference is stored as two fields: an index and a value, like this:
+
+<index> <value>
+
+The index refers to the number of the address part that's different, and the value is the new
+address part. For IPv4, the index is two bits long and the value is eight bits long. For IPv6,
+the index is three bits long and the value is sixteen bits long.
+
+Since every start address is composed of differences from the address before it, the very first
+start address is compared against 255.255.255.254 for IPv4 and
+FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFE for IPv6.
+
+Examples
+
+Here are two compressed IPv4 records, with whitespace for clarity:
+
+11 00 00000001 01 00000010 10 00000011 11 00000100 011101101
+00 00 11111111 011101011
+
+This says:
+1. There are 4 (3 + 1) differences. Octet 0 is 1; octet 1 is 2; octet 2 is 3; octet 3 is 4. The
+country index is 237, which is "US" in the COUNTRIES list.
+2. There is 1 (0 + 1) difference. Octet 0 changes to 255. The country index is 235, which is "GB"
+in the COUNTRIES list.
+
+It would deserialize into three CountryBlocks:
+CountryBlock { // this block is implied by the fact that the first start address wasn't 0.0.0.0
+    pub ip_range: IpRange::V4(Ipv4Addr.from_str("0.0.0.0").unwrap(), Ipv4Addr.from_str("1.2.3.3").unwrap()),
+    pub country: Country::try_from("ZZ").unwrap(), // generated blocks are always for ZZ
+}
+CountryBlock {
+    pub ip_range: IpRange::V4(Ipv4Addr.from_str("1.2.3.4").unwrap(), Ipv4Addr.from_str("255.2.3.3").unwrap()),
+    pub country: Country::try_from("US").unwrap(),
+}
+CountryBlock {
+    pub ip_range: IpRange::V4(Ipv4Addr.from_str("255.2.3.4").unwrap(), Ipv4Addr.from_str("255.255.255.255").unwrap()),
+    pub country: Country::try_from("GB").unwrap(),
+}
+
+Here are two compressed IPv6 records, with whitespace for clarity:
+
+111
+    000 0000000000000001
+    001 0000000000000010
+    010 0000000000000011
+    011 0000000000000100
+    100 0000000000000000
+    101 0000000000000000
+    110 0000000000000000
+    111 0000000000000000
+    011101101
+000
+    000 0000000011111111
+    011101011
+
+This says:
+1. There are 8 (7 + 1) differences. Segment 0 is 1; segment 1 is 2; segment 2 is 3; segment 3 is 4;
+and the other four segments are all 0. The country index is 237, which is "US" in the COUNTRIES
+list.
+2. There is 1 (0 + 1) difference. Segment 0 changes to 255. The country index is 235, which is "GB"
+in the COUNTRIES list.
+
+It would deserialize into three CountryBlocks:
+CountryBlock { // this block is implied by the fact that the first start address wasn't 0.0.0.0
+    pub ip_range: IpRange::V6(Ipv6Addr.from_str("0:0:0:0:0:0:0:0").unwrap(), Ipv6Addr.from_str("1:2:3:3:FFFF:FFFF:FFFF:FFFF").unwrap()),
+    pub country: Country::try_from("ZZ").unwrap(), // generated blocks are always for ZZ
+}
+CountryBlock {
+    pub ip_range: IpRange::V6(Ipv6Addr.from_str("1:2:3:4:0:0:0:0").unwrap(), Ipv6Addr.from_str("FF:2:3:3:FFFF:FFFF:FFFF:FFFF").unwrap()),
+    pub country: Country::try_from("US").unwrap(),
+}
+CountryBlock {
+    pub ip_range: IpRange::V6(Ipv6Addr.from_str("FF:2:3:4:0:0:0:0").unwrap(), Ipv6Addr.from_str("FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF").unwrap()),
+    pub country: Country::try_from("GB").unwrap(),
+}
+
+ */
+
 pub struct CountryBlockSerializer {
     prev_start_ipv4: Ipv4Addr,
     prev_end_ipv4: Ipv4Addr,
