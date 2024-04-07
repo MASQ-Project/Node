@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::bit_queue::BitQueue;
 use crate::country_block_stream::{Country, CountryBlock, IpRange};
 
@@ -143,15 +143,7 @@ impl CountryBlockDeserializer for CountryBlockDeserializerIpv4 {
 
 impl CountryBlockDeserializerIpv4 {
     pub fn new (mut country_data_ipv4: (Vec<u64>, usize)) -> Self {
-        let (mut country_data, mut bit_count) = country_data_ipv4;
-        let mut bit_queue = BitQueue::new();
-        while bit_count >= 64 {
-            bit_queue.add_bits(country_data.remove(0), 64);
-            bit_count -= 64;
-        }
-        if bit_count > 0 {
-            bit_queue.add_bits(country_data.remove(0), bit_count);
-        }
+        let mut bit_queue = bit_queue_from_country_data(country_data_ipv4);
         let prev_record = Self::get_record(
             &mut bit_queue,
             Ipv4Addr::new(255, 255, 255, 254)
@@ -184,25 +176,81 @@ impl CountryBlockDeserializerIpv4 {
 }
 
 struct CountryBlockDeserializerIpv6 {
-
+    prev_record: StreamRecordIpv6,
+    bit_queue: BitQueue,
+    empty: bool,
 }
 
 impl CountryBlockDeserializer for CountryBlockDeserializerIpv6 {
     fn next(&mut self) -> Option<CountryBlock> {
-        todo!()
+        if self.empty {return None}
+        let next_record_opt = Self::get_record(
+            &mut self.bit_queue, self.prev_record.start
+        );
+        match next_record_opt {
+            Some(next_record) => {
+                let prev_block = CountryBlock {
+                    ip_range: IpRange::V6 (
+                        self.prev_record.start,
+                        minus_one_ipv6(next_record.start)
+                    ),
+                    country: Country::from(self.prev_record.country_idx)
+                };
+                self.prev_record = next_record;
+                Some(prev_block)
+            },
+            None => {
+                self.empty = true;
+                Some(CountryBlock {
+                    ip_range: IpRange::V6(self.prev_record.start, Ipv6Addr::new(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF)),
+                    country: Country::from(self.prev_record.country_idx)
+                })
+            }
+        }
     }
 }
 
 impl CountryBlockDeserializerIpv6 {
     pub fn new (country_data_ipv6: (Vec<u64>, usize)) -> Self {
+        let mut bit_queue = bit_queue_from_country_data(country_data_ipv6);
+        let prev_record = Self::get_record(
+            &mut bit_queue,
+            Ipv6Addr::new(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFE)
+        ).expect("Empty BitQueue");
         Self {
-
+            prev_record,
+            bit_queue,
+            empty: false,
         }
+    }
+
+    fn get_record (bit_queue: &mut BitQueue, prev_start: Ipv6Addr) -> Option<StreamRecordIpv6> {
+        let mut segments = prev_start.segments();
+        let difference_count = (bit_queue.take_bits(3)? + 1) as usize;;
+        let differences = (0..difference_count).map(|_|
+            Some(Difference {
+                index: bit_queue.take_bits(3)? as usize,
+                value: bit_queue.take_bits(16)?,
+            })
+        )
+            .flatten()
+            .collect::<Vec<Difference>>();
+        if differences.len() < difference_count {return None}
+        differences.into_iter().for_each(|d| segments[d.index] = d.value as u16);
+        Some (StreamRecordIpv6 {
+            start: Ipv6Addr::from(segments),
+            country_idx: (bit_queue.take_bits(9)?) as usize,
+        })
     }
 }
 
 struct StreamRecordIpv4 {
     start: Ipv4Addr,
+    country_idx: usize
+}
+
+struct StreamRecordIpv6 {
+    start: Ipv6Addr,
     country_idx: usize
 }
 
@@ -253,6 +301,19 @@ fn u128_from_ipv6(ip_addr: Ipv6Addr) -> u128 {
         bit_data |= octet as u128;
     });
     bit_data
+}
+
+fn bit_queue_from_country_data(country_data_pair: (Vec<u64>, usize)) -> BitQueue {
+    let (mut country_data, mut bit_count) = country_data_pair;
+    let mut bit_queue = BitQueue::new();
+    while bit_count >= 64 {
+        bit_queue.add_bits(country_data.remove(0), 64);
+        bit_count -= 64;
+    }
+    if bit_count > 0 {
+        bit_queue.add_bits(country_data.remove(0), bit_count);
+    }
+    bit_queue
 }
 
 mod tests {
@@ -694,5 +755,68 @@ mod tests {
             assert_eq!(Country::from(country_index as usize).iso3166, "ZZ".to_string())
         }
         assert_eq!(bit_queue.take_bits(1), None);
+    }
+
+    #[test]
+    fn next_works_for_ipv6() {
+        let mut serializer = CountryBlockSerializer::new();
+        ipv6_country_blocks().into_iter().for_each (|country_block| serializer.add(country_block));
+        let mut bit_queue = serializer.finish().1;
+        let mut bit_queue_len = bit_queue.len();
+        let mut bit_data: Vec<u64> = vec![];
+        while bit_queue.len() >= 64 {
+            let data = bit_queue.take_bits(64).unwrap();
+            bit_data.push(data);
+        }
+        let remaining_bit_count = bit_queue.len();
+        let data = bit_queue.take_bits(remaining_bit_count).unwrap();
+        bit_data.push(data);
+        let mut subject = CountryBlockDeserializerIpv6::new ((
+            bit_data, bit_queue_len
+        ));
+
+        let country_block1 = subject.next().unwrap();
+        let country_block2 = subject.next().unwrap();
+        let country_block3 = subject.next().unwrap();
+        let country_block4 = subject.next().unwrap();
+        let country_block5 = subject.next().unwrap();
+        let country_block6 = subject.next().unwrap();
+        let result = subject.next();
+
+        let original_country_blocks = ipv6_country_blocks();
+        assert_eq!(
+            country_block1,
+            CountryBlock {
+                ip_range: IpRange::V6(
+                    Ipv6Addr::from_str("0:0:0:0:0:0:0:0").unwrap(),
+                    Ipv6Addr::from_str("1:2:3:4:5:6:7:7").unwrap()
+                ),
+                country: Country::from(0usize) // sentinel
+            }
+        );
+        assert_eq!(country_block2, original_country_blocks[0]);
+        assert_eq!(country_block3, original_country_blocks[1]);
+        assert_eq!(
+            country_block4,
+            CountryBlock {
+                ip_range: IpRange::V6(
+                    Ipv6Addr::from_str("B:C:D:E:F:10:11:13").unwrap(),
+                    Ipv6Addr::from_str("13:14:15:16:17:18:19:19").unwrap(),
+                ),
+                country: Country::from(0usize) // sentinel
+            }
+        );
+        assert_eq!(country_block5, original_country_blocks[2]);
+        assert_eq!(
+            country_block6,
+            CountryBlock {
+                ip_range: IpRange::V6(
+                    Ipv6Addr::from_str("14:14:15:16:17:18:19:1B").unwrap(),
+                    Ipv6Addr::from_str("FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF").unwrap(),
+                ),
+                country: Country::from(0usize) // sentinel
+            }
+        );
+        assert_eq!(result, None);
     }
 }
