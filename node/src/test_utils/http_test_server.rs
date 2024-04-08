@@ -39,9 +39,7 @@ impl TestServer {
                 eprintln!("Connection made - req: {:?}", req);
 
                 tx.send(req).unwrap();
-                // thread::sleep(Duration::from_millis(500));
                 let body = bodies_arc.lock().unwrap().remove(0);
-                // rsp.header("CONNECTION", "keep-alive"); // This did not do anything
                 let result = rsp.body(body);
 
                 eprintln!("Result: {:?}", result);

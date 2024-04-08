@@ -21,10 +21,10 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-
-pub trait UrlHolder {
-    fn url(&self) -> String;
-}
+//
+// pub trait UrlHolder {
+//     fn url(&self) -> String;
+// }
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream

@@ -37,6 +37,10 @@ pub fn is_running_under_github_actions() -> bool {
     }
 }
 
+pub trait UrlHolder {
+    fn url(&self) -> String;
+}
+
 #[derive(PartialEq, Eq)]
 pub enum ShouldWeRunTheTest {
     GoAhead,

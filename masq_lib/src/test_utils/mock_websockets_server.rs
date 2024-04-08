@@ -380,6 +380,10 @@ fn log(log: bool, index: u64, msg: &str) {
     }
 }
 
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

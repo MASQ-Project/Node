@@ -485,6 +485,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::Error as Web3Error;
     use web3::Error::Unreachable;
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::ProcessedPayableFallible::{Correct, Failed};
@@ -718,57 +719,15 @@ mod tests {
 
     #[test]
     fn sign_and_append_payment_throws_decode_error() {
-        // let port = find_free_port();
-        let port = 40000;
-
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
-                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
-            ],
-        );
-
-
-        let blockchain_client_server = MBCSBuilder::new(mbcs_port)
-            .response(
-                vec![LogObject {
-                    removed: false,
-                    log_index: Some("0x20".to_string()),
-                    transaction_index: Some("0x30".to_string()),
-                    transaction_hash: Some(
-                        "0x2222222222222222222222222222222222222222222222222222222222222222"
-                            .to_string(),
-                    ),
-                    block_hash: Some(
-                        "0x1111111111111111111111111111111111111111111111111111111111111111"
-                            .to_string(),
-                    ),
-                    block_number: Some("0x7D0".to_string()), // 2000 decimal
-                    address: "0x3333333333333333333333333333333333333333".to_string(),
-                    data: "0x000000000000000000000000000000000000000000000000000000003b5dc100"
-                        .to_string(),
-                    topics: vec![
-                        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                            .to_string(),
-                        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                            .to_string(),
-                    ],
-                }],
-                1,
-            )
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("Trash".to_string(),1 )
             .start();
-
-
-
-        // thread::sleep(Duration::from_millis(1000));
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
             .unwrap();
-
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let pending_nonce = 1;
@@ -786,106 +745,39 @@ mod tests {
             account,
         ).wait();
 
-        // thread::sleep(Duration::from_millis(1000));
-
         assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
-
-        let _ = _test_server.requests_so_far();
     }
-
-    // #[test]
-    // fn sign_and_append_payment_throws_decode_error() {
-    //     // let port = find_free_port();
-    //     let port = 40000;
-    //
-    //     let _test_server = TestServer::start(
-    //         port,
-    //         vec![
-    //             br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
-    //             br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec(),
-    //         ],
-    //     );
-    //
-    //     // thread::sleep(Duration::from_millis(1000));
-    //
-    //     let (event_loop_handle, transport) = Http::with_max_parallel(
-    //         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-    //         REQUESTS_IN_PARALLEL,
-    //     )
-    //         .unwrap();
-    //
-    //     let subject =
-    //         BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-    //     let pending_nonce = 1;
-    //     let chain = DEFAULT_CHAIN;
-    //     let gas_price = DEFAULT_GAS_PRICE;
-    //     let consuming_wallet = make_paying_wallet(b"paying_wallet");
-    //     let account = make_payable_account(1);
-    //
-    //     let result = sign_and_append_payment(
-    //         chain,
-    //         subject.get_web3(),
-    //         consuming_wallet,
-    //         pending_nonce.into(),
-    //         gas_price,
-    //         account,
-    //     ).wait();
-    //
-    //     // thread::sleep(Duration::from_millis(1000));
-    //
-    //     assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
-    //
-    //     let _ = _test_server.requests_so_far();
-    // }
 
     #[test]
     fn sign_and_append_multiple_payments_works() {
-        let iteration_count = 10;
-        for i in 1..=iteration_count {
-            eprintln!("Iteration {i}");
-            let port = find_free_port();
-            eprintln!("port: {port}");
-            let test_server = TestServer::start(
-                port,
-                vec![
-                    br#"{"jsonrpc":"2.0","id":7,"result":"0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"}"#.to_vec(),
-                    br#"{"jsonrpc":"2.0","id":7,"result":"0x3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5"}"#.to_vec(),
-                ],
-            );
-            let logger = Logger::new("sign_and_append_multiple_payments_works");
-            let blockchain_web3 = make_blockchain_interface(Some(port));
-            let chain = DEFAULT_CHAIN;
-            let gas_price = DEFAULT_GAS_PRICE;
-            let pending_nonce = 1;
-            let web3 = blockchain_web3.get_web3();
-            let consuming_wallet = make_paying_wallet(b"paying_wallet");
-            let account_1 = make_payable_account(1);
-            let account_2 = make_payable_account(2);
-            let accounts = vec![account_1, account_2];
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
+            .response("0x3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5".to_string(),7 )
+            .start();
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
+        let blockchain_web3 = make_blockchain_interface(Some(port));
+        let chain = DEFAULT_CHAIN;
+        let gas_price = DEFAULT_GAS_PRICE;
+        let pending_nonce = 1;
+        let web3 = blockchain_web3.get_web3();
+        let consuming_wallet = make_paying_wallet(b"paying_wallet");
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
+        let accounts = vec![account_1, account_2];
 
-            let result = sign_and_append_multiple_payments(
-                logger,
-                chain,
-                web3,
-                consuming_wallet,
-                gas_price,
-                pending_nonce.into(),
-                accounts,
-            ).collect().wait();
+        let result = sign_and_append_multiple_payments(
+            logger,
+            chain,
+            web3,
+            consuming_wallet,
+            gas_price,
+            pending_nonce.into(),
+            accounts,
+        ).collect().wait();
 
-            // TODO: GH-744: Assert on the sending
-            if i == iteration_count {
-                panic!("Received Sending Error for each and every iteration");
-            }
-            if let Err(PayableTransactionError::Sending { msg, .. }) = result.clone() {
-                if msg.contains("Connection reset") {
-                    continue;
-                } else {
-                    eprintln!("error: {msg}");
-                }
-            }
-            assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
-        }
+        // TODO: GH-744: Assert on the sending
+        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
     }
 
     #[test]
