@@ -18,7 +18,7 @@ fn find_country_ipv4(data: (Vec<u64>, usize), ip_addr: Ipv4Addr) -> Option<Count
             None => return None, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
             Some (country_block) => {
                 if country_block.ip_range.contains(IpAddr::V4(ip_addr)) {
-                    if (country_block.country.index == 0) {
+                    if country_block.country.index == 0 {
                         return None
                     }
                     else {
@@ -108,5 +108,27 @@ mod tests {
         let result = country_finder(ipv4_country_data, ipv6_country_data, IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap());
 
         assert_eq!(result, None)
+    }
+
+    #[test]
+    fn real_test_ipv4_with_google() {
+        let result = country_finder(
+            crate::dbip_country::ipv4_country_data,
+            crate::dbip_country::ipv6_country_data,
+            IpAddr::from_str("142.250.191.132").unwrap() // dig www.google.com A
+        ).unwrap();
+
+        assert_eq!(result.name, "United States".to_string());
+    }
+
+    #[test]
+    fn real_test_ipv6_with_google() {
+        let result = country_finder(
+            crate::dbip_country::ipv4_country_data,
+            crate::dbip_country::ipv6_country_data,
+            IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap() // dig www.google.com AAAA
+        ).unwrap();
+
+        assert_eq!(result.name, "United States".to_string());
     }
 }

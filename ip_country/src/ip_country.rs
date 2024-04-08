@@ -208,9 +208,9 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
         vec![
-            0x0080000300801003, 0x6020000902E01807, 0x00000605C0100AB7,
+            0x0080000300801003, 0x5020000902E01807, 0xAB74038090000E1C, 0x00000000605C0100,
         ],
-        187
+        239
     )
 }
 
@@ -236,8 +236,7 @@ Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, 
 Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
 Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
 Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
-Line 7: Ending address 1.0.32.0 is not greater than starting address 1.0.63.255
-Line 8: Ending address 1.0.64.0 is not greater than starting address 1.0.64.0
+Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
 Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
 
             Fix the errors and regenerate the code.
@@ -248,8 +247,7 @@ r#"Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 6
 Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
 Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
 Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
-Line 7: Ending address 1.0.32.0 is not greater than starting address 1.0.63.255
-Line 8: Ending address 1.0.64.0 is not greater than starting address 1.0.64.0
+Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
 Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
 .to_string()
         );

@@ -8,14 +8,16 @@ pub struct Country {
     pub index: usize,
     pub iso3166: String,
     pub name: String,
+    pub free_world: bool,
 }
 
 impl Country {
-    pub fn new(index: usize, iso3166: &str, name: &str) -> Self {
+    pub fn new(index: usize, iso3166: &str, name: &str, free_world: bool) -> Self {
         Self {
             index,
             iso3166: iso3166.to_string(),
             name: name.to_string(),
+            free_world
         }
     }
 }
@@ -106,16 +108,16 @@ impl CountryBlock {
     fn validate_ip_addresses(start_ip: IpAddr, end_ip: IpAddr) -> Result<(), String> {
         match (start_ip, end_ip) {
             (IpAddr::V4(start_v4), IpAddr::V4(end_v4)) => {
-                if u32::from(start_v4) >= u32::from(end_v4) {
-                    Err(format!("Ending address {} is not greater than starting address {}", end_v4, start_v4))
+                if u32::from(start_v4) > u32::from(end_v4) {
+                    Err(format!("Ending address {} is less than starting address {}", end_v4, start_v4))
                 }
                 else {
                     Ok(())
                 }
             },
             (IpAddr::V6(start_v6), IpAddr::V6(end_v6)) => {
-                if u128::from(start_v6) >= u128::from(end_v6) {
-                    Err(format!("Ending address {} is not greater than starting address {}", end_v6, start_v6))
+                if u128::from(start_v6) > u128::from(end_v6) {
+                    Err(format!("Ending address {} is less than starting address {}", end_v6, start_v6))
                 }
                 else {
                     Ok(())
@@ -282,7 +284,7 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Ending address 1.2.3.4 is not greater than starting address 4.3.2.1".to_string()));
+        assert_eq!(result, Err("Ending address 1.2.3.4 is less than starting address 4.3.2.1".to_string()));
     }
 
     #[test]
@@ -291,7 +293,7 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Ending address 1:2:3:4:5:6:7:8 is not greater than starting address 8:7:6:5:4:3:2:1".to_string()));
+        assert_eq!(result, Err("Ending address 1:2:3:4:5:6:7:8 is less than starting address 8:7:6:5:4:3:2:1".to_string()));
     }
 
     #[test]
