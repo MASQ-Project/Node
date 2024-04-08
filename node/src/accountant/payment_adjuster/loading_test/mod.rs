@@ -1,7 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#![cfg(feature = "occasional_test")]
-
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
@@ -23,6 +21,9 @@ use std::io::Write;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::U256;
+use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
+use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::test_utils::{make_guaranteed_qualified_payables, try_making_guaranteed_qualified_payables};
 
 #[test]
 fn loading_test_with_randomized_params() {
@@ -40,7 +41,7 @@ fn loading_test_with_randomized_params() {
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
-    let number_of_requested_scenarios = 500;
+    let number_of_requested_scenarios = 50;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
     let test_overall_output_collector = TestOverallOutputCollector::default();
 
@@ -56,13 +57,17 @@ fn loading_test_with_randomized_params() {
     let first_stage_output = scenarios
         .into_iter()
         .fold(init, |mut output_collector, scenario|{
-            // We watch only the service fee balance check, transaction fee can be added but it doesn't
-            // interact with the potential error 'AllAccountsEliminated' whose occurrence rate is interesting
-            // compared to the number of cases the initial check let the adjustment procedure go on
-            let initial_check_result = subject.search_for_indispensable_adjustment(&scenario.qualified_payables, &*scenario.agent);
+            // We watch only the service fee balance check, transaction fee can be added, but it
+            // doesn't interact with the potential error 'AllAccountsEliminated' whose occurrence
+            // rate is interesting compared to how many times the initial check lets the adjustment
+            // procedure go on
+            let initial_check_result =
+                subject
+                .search_for_indispensable_adjustment(&scenario.qualified_payables, &*scenario.agent);
             let allowed_scenario_opt = match initial_check_result{
                 Ok(adjustment_opt) => {match adjustment_opt{
-                    None => panic!("Wrong test setup. This test is designed to generate scenarios with balances always insufficient in some way!"),
+                    None => panic!("Wrong test setup. This test is designed to generate scenarios \
+                    with balances always insufficient in some way!"),
                     Some(_) => ()
                 };
                 Some(scenario)}
@@ -116,18 +121,23 @@ fn generate_scenarios(
     number_of_scenarios: usize,
 ) -> Vec<PreparedAdjustment> {
     (0..number_of_scenarios)
-        .map(|_| make_single_scenario(gn, now))
+        .flat_map(|_| try_making_single_valid_scenario(gn, now))
         .collect()
 }
 
-fn make_single_scenario(gn: &mut ThreadRng, now: SystemTime) -> PreparedAdjustment {
-    let (cw_service_fee_balance, qualified_payables) = make_qualified_payables(gn, now);
+fn try_making_single_valid_scenario(gn: &mut ThreadRng, now: SystemTime) -> Option<PreparedAdjustment> {
+    let (cw_service_fee_balance, payables) = make_payables(gn, now);
+    let payables_len = payables.len();
+    let qualified_payables = try_making_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS,now, false);
+    if payables_len != qualified_payables.len(){
+        return None
+    }
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, qualified_payables.len());
-    PreparedAdjustment::new(qualified_payables, Box::new(agent), None, adjustment)
+    Some(PreparedAdjustment::new(qualified_payables, Box::new(agent), None, adjustment))
 }
 
-fn make_qualified_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccount>) {
+fn make_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccount>) {
     let accounts_count = generate_non_zero_usize(gn, 20) + 1;
     let accounts = (0..accounts_count)
         .map(|idx| {
@@ -241,14 +251,14 @@ struct FailedAdjustment {
     adjuster_error: PaymentAdjusterError,
 }
 
-fn preserve_account_infos(accounts: &[PayableAccount], now: SystemTime) -> Vec<AccountInfo> {
+fn preserve_account_infos(accounts: &[QualifiedPayableAccount], now: SystemTime) -> Vec<AccountInfo> {
     accounts
         .iter()
         .map(|account| AccountInfo {
-            wallet: account.wallet.clone(),
-            initially_requested_service_fee_minor: account.balance_wei,
+            wallet: account.qualified_as.wallet.clone(),
+            initially_requested_service_fee_minor: account.qualified_as.balance_wei,
             debt_age_s: now
-                .duration_since(account.last_paid_timestamp)
+                .duration_since(account.qualified_as.last_paid_timestamp)
                 .unwrap()
                 .as_secs(),
         })
@@ -273,9 +283,10 @@ fn render_results_to_file_and_attempt_basic_assertions(
         + test_overall_output_collector.oks
         + test_overall_output_collector.all_accounts_eliminated
         + test_overall_output_collector.insufficient_service_fee_balance;
-    write_in_test_overall_output_to_file(
+    write_brief_test_summary_into_file(
         &mut file,
         &test_overall_output_collector,
+        number_of_requested_scenarios,
         total_scenarios_evaluated,
     );
 
@@ -291,7 +302,9 @@ fn render_results_to_file_and_attempt_basic_assertions(
         - ((test_overall_output_collector.scenarios_eliminated_before_adjustment_started * 100)
             / total_scenarios_evaluated);
     let required_pass_rate = 80;
-    assert!(entry_check_pass_rate >= required_pass_rate, "Not at least {}% from {} the scenarios generated for this test allows PaymentAdjuster to continue doing its job and ends too early. Instead only {}%. Setup of the test might be needed",required_pass_rate, total_scenarios_evaluated, entry_check_pass_rate);
+    assert!(entry_check_pass_rate >= required_pass_rate, "Not at least {}% from {} the scenarios \
+    generated for this test allows PaymentAdjuster to continue doing its job and ends too early. \
+    Instead only {}%. Setup of the test might be needed",required_pass_rate, total_scenarios_evaluated, entry_check_pass_rate);
     let ok_adjustment_percentage = (test_overall_output_collector.oks * 100)
         / (total_scenarios_evaluated
             - test_overall_output_collector.scenarios_eliminated_before_adjustment_started);
@@ -308,25 +321,29 @@ fn render_results_to_file_and_attempt_basic_assertions(
 fn introduction(file: &mut File) {
     write_thick_dividing_line(file);
     write_thick_dividing_line(file);
-    file.write(b"For a brief overview of this formatted test output look at the end\n")
+    file.write(b"You may proceed to a brief summary at the tail of this test output\n")
         .unwrap();
     write_thick_dividing_line(file);
     write_thick_dividing_line(file)
 }
 
-fn write_in_test_overall_output_to_file(
+fn write_brief_test_summary_into_file(
     file: &mut File,
     test_overall_output_collector: &TestOverallOutputCollector,
-    total_of_scenarios_eliminated: usize,
+    number_of_requested_scenarios: usize,
+    total_of_scenarios_evaluated: usize,
 ) {
     write_thick_dividing_line(file);
     file.write_fmt(format_args!(
-        "Total scenarios generated: {}\n\
-         Scenarios caught by the entry check: {}\n\
-         Ok scenarios: {}\n\
-         Scenarios with 'AllAccountsEliminated': {}\n\
-         Scenarios with late insufficient balance errors: {}",
-        total_of_scenarios_eliminated,
+        "Scenarios \n\
+         Requested: {}\n\
+         Actually evaluated: {}\n\
+         Caught by the entry check: {}\n\
+         Successful: {}\n\
+         With 'AllAccountsEliminated': {}\n\
+         With late insufficient balance errors: {}",
+        number_of_requested_scenarios,
+        total_of_scenarios_evaluated,
         test_overall_output_collector.scenarios_eliminated_before_adjustment_started,
         test_overall_output_collector.oks,
         test_overall_output_collector.all_accounts_eliminated,

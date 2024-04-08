@@ -57,8 +57,8 @@ impl OutboundPaymentsInstructions {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         let affordable_accounts = match accounts {
-            Either::Left(qualified_account) => convert_collection(qualified_account),
-            Either::Right(adjusted_account) => todo!(),
+            Either::Left(qualified_accounts) => convert_collection(qualified_accounts),
+            Either::Right(adjusted_accounts) => adjusted_accounts,
         };
 
         Self {

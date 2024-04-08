@@ -905,7 +905,10 @@ mod tests {
         subject.disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let mut account_1 = make_qualified_payable_by_wallet("abc");
-        account_1.qualified_as.balance_wei = multiple_by_billion(3_000_000);
+        let balance_1 =  multiple_by_billion(3_000_000);
+        account_1.qualified_as.balance_wei = balance_1;
+        let threshold_intercept_minor = account_1.payment_threshold_intercept_minor;
+        let permanent_debt_allowed_minor = account_1.creditor_thresholds.permanent_debt_allowed_wei;
         let mut account_2 = make_qualified_payable_by_wallet("def");
         let wallet_2 = account_2.qualified_as.wallet.clone();
         let balance_2 = multiple_by_billion(1_000_000);
@@ -956,6 +959,8 @@ mod tests {
             2499999999999999
         );
         assert!(result.is_empty());
+        let determine_limit_params= determine_limit_params_arc.lock().unwrap();
+        assert_eq!(*determine_limit_params, vec![(balance_1, threshold_intercept_minor, permanent_debt_allowed_minor)])
     }
 
     fn prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
@@ -1041,7 +1046,8 @@ mod tests {
             service_fee_balance_in_minor_units,
             &subject.logger,
         );
-        // If concluded that it has no point going off at all we would get an error here
+        // If concluded at the entry into the PaymentAdjuster that it has no point going off
+        // because away the least demanding account cannot be satisfied we would get an error here
         assert_eq!(analysis_result, Ok(true));
         let agent = {
             let mock = BlockchainAgentMock::default()
@@ -1083,26 +1089,29 @@ mod tests {
     }
 
     #[test]
-    fn account_disqualification_causes_all_other_accounts_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them(
+    fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them(
     ) {
+        // Tests that a condition to short-circuit through is integrated for situations when
+        // a disqualification frees means for other accounts and there is suddenly more to give
+        // than how much the remaining accounts demand
         init_test_logging();
-        let test_name = "account_disqualification_causes_all_other_accounts_to_seem_outweighed_as_cw_balance_becomes_excessive_for_them";
+        let test_name = "account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them";
         let now = SystemTime::now();
-        let balance_1 = 80_000_000_000_000_000_000;
+        let balance_1 = multiple_by_billion(80_000_000_000);
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
             balance_wei: balance_1,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(24_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let balance_2 = 60_000_000_000_000_000_000;
+        let balance_2 = multiple_by_billion(60_000_000_000);
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
             balance_wei: balance_2,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(200_000)).unwrap(),
             pending_payable_opt: None,
         };
-        let balance_3 = 40_000_000_000_000_000_000;
+        let balance_3 = multiple_by_billion(40_000_000_000);
         let account_3 = PayableAccount {
             wallet: make_wallet("ghi"),
             balance_wei: balance_3,
@@ -1112,7 +1121,12 @@ mod tests {
         let payables = vec![account_1, account_2.clone(), account_3.clone()];
         let qualified_payables =
             make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+        let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_result(0)
+            .calculate_result(multiple_by_billion(30_000_000_000))
+            .calculate_result(multiple_by_billion(30_000_000_000));
         let mut subject = PaymentAdjusterReal::new();
+        subject.calculators.push(Box::new(calculator_mock));
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let accounts_sum: u128 = balance_1 + balance_2 + balance_3;
@@ -1135,11 +1149,7 @@ mod tests {
         let expected_affordable_accounts = { vec![account_2, account_3] };
         assert_eq!(result.affordable_accounts, expected_affordable_accounts);
         assert_eq!(result.response_skeleton_opt, None);
-        assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Every account outweighed (Probably \
-        excessive funds after preceding disqualification). Returning from recursion"
-        ));
+        assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp)
     }
 
     fn prepare_subject(

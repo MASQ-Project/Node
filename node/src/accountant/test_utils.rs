@@ -1701,13 +1701,22 @@ pub fn make_guaranteed_qualified_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
+   try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+}
+
+pub fn try_making_guaranteed_qualified_payables(
+    payables: Vec<PayableAccount>,
+    payment_thresholds: &PaymentThresholds,
+    now: SystemTime,
+    should_panic: bool,
+) -> Vec<QualifiedPayableAccount> {
     fn panic(
         payable: &PayableAccount,
         payment_thresholds: &PaymentThresholds,
         now: SystemTime,
     ) -> ! {
         panic!(
-        "You intend to create qualified payables but their parameters not always make them qualify \
+            "You intend to create qualified payables but their parameters not always make them qualify \
         as in: {:?} where the balance needs to get over {}",
             payable,
             PayableThresholdsGaugeReal::default().calculate_payout_threshold_in_gwei(
@@ -1720,17 +1729,26 @@ pub fn make_guaranteed_qualified_payables(
     let payable_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     payables
         .into_iter()
-        .map(|payable| {
-            let payment_threshold_intercept = payable_inspector
-                .payable_exceeded_threshold(&payable, payment_thresholds, now)
-                .unwrap_or_else(|| panic(&payable, payment_thresholds, now));
-            QualifiedPayableAccount::new(
-                payable,
-                payment_threshold_intercept,
-                CreditorThresholds::new(gwei_to_wei(
-                    payment_thresholds.permanent_debt_allowed_gwei,
-                )),
-            )
-        })
+        .flat_map(|payable|
+            match payable_inspector
+                .payable_exceeded_threshold(&payable, payment_thresholds, now) {
+                Some(payment_threshold_intercept) => {
+                    Some(QualifiedPayableAccount::new(
+                        payable,
+                        payment_threshold_intercept,
+                        CreditorThresholds::new(gwei_to_wei(
+                            payment_thresholds.permanent_debt_allowed_gwei,
+                        )),
+                    ))
+                },
+                None => if should_panic {
+                    panic(&payable, &payment_thresholds, now)
+                } else {
+                    None
+                }
+            }
+        )
         .collect()
 }
+
+
