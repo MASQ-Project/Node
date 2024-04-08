@@ -93,7 +93,7 @@ impl PreparatoryAnalyzer {
         let qualified_payables = Self::comb_qualified_payables(payables);
 
         let required_service_fee_sum: u128 =
-            sum_as(&qualified_payables, |qa| qa.qualified_as.balance_wei);
+            sum_as(&qualified_payables, |qa| qa.bare_account.balance_wei);
 
         if cw_service_fee_balance_minor >= required_service_fee_sum {
             Ok(false)
@@ -142,7 +142,7 @@ impl PreparatoryAnalyzer {
             Ok(())
         } else {
             let total_amount_demanded_minor =
-                sum_as(qualified_payables, |qp| qp.qualified_as.balance_wei);
+                sum_as(qualified_payables, |qp| qp.bare_account.balance_wei);
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: qualified_payables.len(),
@@ -228,12 +228,12 @@ mod tests {
             *determine_limit_params,
             vec![
                 (
-                    account_1.qualified_as.balance_wei,
+                    account_1.bare_account.balance_wei,
                     account_1.payment_threshold_intercept_minor,
                     account_1.creditor_thresholds.permanent_debt_allowed_wei
                 ),
                 (
-                    account_2.qualified_as.balance_wei,
+                    account_2.bare_account.balance_wei,
                     account_2.payment_threshold_intercept_minor,
                     account_2.creditor_thresholds.permanent_debt_allowed_wei
                 )
@@ -244,9 +244,9 @@ mod tests {
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_slightly_bigger() {
         let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.qualified_as.balance_wei = 1_000_000_000;
+        account_1.bare_account.balance_wei = 1_000_000_000;
         let mut account_2 = make_non_guaranteed_qualified_payable(333);
-        account_2.qualified_as.balance_wei = 2_000_000_000;
+        account_2.bare_account.balance_wei = 2_000_000_000;
         let cw_service_fee_balance = 750_000_001;
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(750_000_000)
@@ -263,9 +263,9 @@ mod tests {
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_equal() {
         let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.qualified_as.balance_wei = 2_000_000_000;
+        account_1.bare_account.balance_wei = 2_000_000_000;
         let mut account_2 = make_non_guaranteed_qualified_payable(333);
-        account_2.qualified_as.balance_wei = 1_000_000_000;
+        account_2.bare_account.balance_wei = 1_000_000_000;
         let cw_service_fee_balance = 750_000_000;
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(1_500_000_000)
@@ -282,11 +282,11 @@ mod tests {
     #[test]
     fn adjustment_possibility_err_from_insufficient_balance_for_even_the_least_demanding_account() {
         let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.qualified_as.balance_wei = 2_000_000_000;
+        account_1.bare_account.balance_wei = 2_000_000_000;
         let mut account_2 = make_non_guaranteed_qualified_payable(222);
-        account_2.qualified_as.balance_wei = 1_000_050_000;
+        account_2.bare_account.balance_wei = 1_000_050_000;
         let mut account_3 = make_non_guaranteed_qualified_payable(333);
-        account_3.qualified_as.balance_wei = 1_000_111_111;
+        account_3.bare_account.balance_wei = 1_000_111_111;
         let cw_service_fee_balance = 1_000_000_100;
         let original_accounts = vec![account_1, account_2, account_3];
         let accounts_in_expected_format = original_accounts

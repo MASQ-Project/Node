@@ -6,7 +6,7 @@ use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functi
 };
 use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
 };
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::wallet::Wallet;
@@ -42,8 +42,9 @@ impl DisqualificationArbiter {
                 Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
 
             let wallet = account_to_disqualify
-                .qualified_payable
-                .qualified_as
+                .weighted_account
+                .qualified_account
+                .bare_account
                 .wallet
                 .clone();
 
@@ -74,7 +75,7 @@ impl DisqualificationArbiter {
         qualified_payable: &QualifiedPayableAccount,
     ) -> u128 {
         self.disqualification_gauge.determine_limit(
-            qualified_payable.qualified_as.balance_wei,
+            qualified_payable.bare_account.balance_wei,
             qualified_payable.payment_threshold_intercept_minor,
             qualified_payable
                 .creditor_thresholds
@@ -90,11 +91,9 @@ impl DisqualificationArbiter {
             .iter()
             .flat_map(|adjustment_info| {
                 let disqualification_edge = self.calculate_disqualification_edge(
-                    &adjustment_info.non_finalized_account.qualified_payable,
+                    &adjustment_info.weighted_account.qualified_account,
                 );
-                let proposed_adjusted_balance = adjustment_info
-                    .non_finalized_account
-                    .proposed_adjusted_balance_minor;
+                let proposed_adjusted_balance = adjustment_info.proposed_adjusted_balance_minor;
 
                 if proposed_adjusted_balance < disqualification_edge {
                     account_nominated_for_disqualification_diagnostics(
@@ -112,22 +111,19 @@ impl DisqualificationArbiter {
 
     fn find_account_with_smallest_weight<'account>(
         accounts: &'account [&'account UnconfirmedAdjustment],
-    ) -> &'account AdjustedAccountBeforeFinalization {
+    ) -> &'account UnconfirmedAdjustment {
         let first_account = &accounts.first().expect("collection was empty");
-        &accounts
-            .iter()
-            .fold(
-                **first_account,
-                |with_smallest_weight_so_far, current| match Ord::cmp(
-                    &current.weight,
-                    &with_smallest_weight_so_far.weight,
-                ) {
-                    Ordering::Less => current,
-                    Ordering::Greater => with_smallest_weight_so_far,
-                    Ordering::Equal => with_smallest_weight_so_far,
-                },
-            )
-            .non_finalized_account
+        accounts.iter().fold(
+            **first_account,
+            |with_smallest_weight_so_far, current| match Ord::cmp(
+                &current.weighted_account.weight,
+                &with_smallest_weight_so_far.weighted_account.weight,
+            ) {
+                Ordering::Less => current,
+                Ordering::Greater => with_smallest_weight_so_far,
+                Ordering::Equal => with_smallest_weight_so_far,
+            },
+        )
     }
 }
 
@@ -370,13 +366,9 @@ mod tests {
             .determine_limit_result(1_000_000_000)
             .determine_limit_result(9_999_999_999);
         let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(444);
-        account_1
-            .non_finalized_account
-            .proposed_adjusted_balance_minor = 1_000_000_000;
+        account_1.proposed_adjusted_balance_minor = 1_000_000_000;
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(777);
-        account_2
-            .non_finalized_account
-            .proposed_adjusted_balance_minor = 9_999_999_999;
+        account_2.proposed_adjusted_balance_minor = 9_999_999_999;
         let accounts = vec![account_1, account_2];
         let subject = DisqualificationArbiter::new(Box::new(disqualification_gauge));
 
@@ -497,14 +489,8 @@ mod tests {
     fn make_unconfirmed_adjustments_and_expected_test_result(
         weights: Vec<u128>,
         idx_of_expected_result: usize,
-    ) -> (
-        Vec<UnconfirmedAdjustment>,
-        AdjustedAccountBeforeFinalization,
-    ) {
-        let init: (
-            Vec<UnconfirmedAdjustment>,
-            Option<AdjustedAccountBeforeFinalization>,
-        ) = (vec![], None);
+    ) -> (Vec<UnconfirmedAdjustment>, UnconfirmedAdjustment) {
+        let init: (Vec<UnconfirmedAdjustment>, Option<UnconfirmedAdjustment>) = (vec![], None);
 
         let (adjustments, expected_result_opt) = weights.into_iter().enumerate().fold(
             init,
@@ -513,7 +499,7 @@ mod tests {
                 let garbage_intercept = 2_000_000_000; // Unimportant for the tests this is used in;
                 let garbage_permanent_debt_allowed_wei = 1_111_111_111;
                 let qualified_account = QualifiedPayableAccount {
-                    qualified_as: original_account,
+                    bare_account: original_account,
                     payment_threshold_intercept_minor: garbage_intercept,
                     creditor_thresholds: CreditorThresholds {
                         permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
@@ -527,7 +513,7 @@ mod tests {
                 let expected_result_opt = if expected_result_opt_so_far.is_none()
                     && actual_idx == idx_of_expected_result
                 {
-                    Some(new_adjustment_to_be_added.non_finalized_account.clone())
+                    Some(new_adjustment_to_be_added.clone())
                 } else {
                     expected_result_opt_so_far
                 };

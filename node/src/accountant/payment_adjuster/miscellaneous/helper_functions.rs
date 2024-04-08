@@ -77,29 +77,33 @@ fn find_largest_u128(slice: &[u128]) -> u128 {
 }
 
 pub fn adjust_account_balance_if_outweighed(
-    (mut outweighed, mut passing_through): (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>),
+    (mut outweighed, mut passing_through): (
+        Vec<AdjustedAccountBeforeFinalization>,
+        Vec<UnconfirmedAdjustment>,
+    ),
     mut current_adjustment_info: UnconfirmedAdjustment,
-) -> (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) {
-    if current_adjustment_info
-        .non_finalized_account
-        .proposed_adjusted_balance_minor
+) -> (
+    Vec<AdjustedAccountBeforeFinalization>,
+    Vec<UnconfirmedAdjustment>,
+) {
+    if current_adjustment_info.proposed_adjusted_balance_minor
         > current_adjustment_info
-            .non_finalized_account
-            .qualified_payable
-            .qualified_as
+            .weighted_account
+            .qualified_account
+            .bare_account
             .balance_wei
     {
-        possibly_outweighed_accounts_diagnostics(&current_adjustment_info.non_finalized_account);
+        possibly_outweighed_accounts_diagnostics(&current_adjustment_info);
 
-        current_adjustment_info
-            .non_finalized_account
-            .proposed_adjusted_balance_minor = current_adjustment_info
-            .non_finalized_account
-            .qualified_payable
-            .qualified_as
-            .balance_wei;
+        let almost_finalized_account = AdjustedAccountBeforeFinalization::new(
+            current_adjustment_info
+                .weighted_account
+                .qualified_account
+                .bare_account,
+            current_adjustment_info.proposed_adjusted_balance_minor,
+        );
 
-        outweighed.push(current_adjustment_info);
+        outweighed.push(todo!());
     } else {
         passing_through.push(current_adjustment_info);
     }
@@ -149,8 +153,7 @@ fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
 ) -> ConsumingWalletExhaustingStatus {
     if status.remainder != 0 {
         let balance_gap_minor = non_finalized_account
-            .qualified_payable
-            .qualified_as
+            .original_account
             .balance_wei
             .checked_sub(non_finalized_account.proposed_adjusted_balance_minor)
             .unwrap_or_else(|| {
@@ -158,10 +161,7 @@ fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
                     "Proposed balance should never be bigger than the original one. Proposed: \
                         {}, original: {}",
                     non_finalized_account.proposed_adjusted_balance_minor,
-                    non_finalized_account
-                        .qualified_payable
-                        .qualified_as
-                        .balance_wei
+                    non_finalized_account.original_account.balance_wei
                 )
             });
         let possible_extra_addition = if balance_gap_minor < status.remainder {
@@ -232,7 +232,7 @@ pub fn drop_no_longer_needed_weights_away_from_accounts(
 ) -> Vec<PayableAccount> {
     weights_and_accounts
         .into_iter()
-        .map(|weighted_account| weighted_account.qualified_account.qualified_as)
+        .map(|weighted_account| weighted_account.qualified_account.bare_account)
         .collect()
 }
 
@@ -246,28 +246,35 @@ pub fn nonzero_positive(x: u128) -> u128 {
 
 impl From<QualifiedPayableAccount> for PayableAccount {
     fn from(qualified_payable: QualifiedPayableAccount) -> Self {
-        qualified_payable.qualified_as
+        qualified_payable.bare_account
     }
 }
 
-impl From<UnconfirmedAdjustment> for QualifiedPayableAccount {
+impl From<UnconfirmedAdjustment> for WeightedPayable {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
-        AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment).qualified_payable
+        unconfirmed_adjustment.weighted_account
     }
 }
 
 impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
-        unconfirmed_adjustment.non_finalized_account
+        todo!();
+        AdjustedAccountBeforeFinalization::new(
+            unconfirmed_adjustment
+                .weighted_account
+                .qualified_account
+                .bare_account,
+            unconfirmed_adjustment.proposed_adjusted_balance_minor,
+        )
     }
 }
 
 impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighted_account: WeightedPayable) -> Self {
         let proposed_adjusted_balance_minor =
-            weighted_account.qualified_account.qualified_as.balance_wei;
+            weighted_account.qualified_account.bare_account.balance_wei;
         AdjustedAccountBeforeFinalization {
-            qualified_payable: weighted_account.qualified_account,
+            original_account: weighted_account.qualified_account.bare_account,
             proposed_adjusted_balance_minor,
         }
     }
@@ -280,16 +287,10 @@ impl From<NonFinalizedAdjustmentWithResolution> for PayableAccount {
                 balance_wei: resolution_info
                     .non_finalized_adjustment
                     .proposed_adjusted_balance_minor,
-                ..resolution_info
-                    .non_finalized_adjustment
-                    .qualified_payable
-                    .qualified_as
+                ..resolution_info.non_finalized_adjustment.original_account
             },
             AdjustmentResolution::Revert => {
-                resolution_info
-                    .non_finalized_adjustment
-                    .qualified_payable
-                    .qualified_as
+                resolution_info.non_finalized_adjustment.original_account
             }
         }
     }
@@ -325,10 +326,7 @@ mod tests {
     #[test]
     fn zero_affordable_accounts_found_returns_false_for_non_finalized_accounts() {
         let result = zero_affordable_accounts_found(&Either::Left(vec![
-            AdjustedAccountBeforeFinalization::new(
-                make_non_guaranteed_qualified_payable(456),
-                1234,
-            ),
+            AdjustedAccountBeforeFinalization::new(make_payable_account(456), 1234),
         ]));
 
         assert_eq!(result, false)
@@ -445,19 +443,13 @@ mod tests {
         let garbage_last_paid_timestamp = SystemTime::now();
         let garbage_payment_threshold_intercept_minor = u128::MAX;
         let garbage_permanent_debt_allowed_wei = 123456789;
-        let qualified_payable = QualifiedPayableAccount {
-            qualified_as: PayableAccount {
-                wallet: wallet.clone(),
-                balance_wei: original_balance,
-                last_paid_timestamp: garbage_last_paid_timestamp,
-                pending_payable_opt: None,
-            },
-            payment_threshold_intercept_minor: garbage_payment_threshold_intercept_minor,
-            creditor_thresholds: CreditorThresholds {
-                permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
-            },
+        let payable_account = PayableAccount {
+            wallet: wallet.clone(),
+            balance_wei: original_balance,
+            last_paid_timestamp: garbage_last_paid_timestamp,
+            pending_payable_opt: None,
         };
-        AdjustedAccountBeforeFinalization::new(qualified_payable, proposed_adjusted_balance)
+        AdjustedAccountBeforeFinalization::new(payable_account, proposed_adjusted_balance)
     }
 
     fn assert_payable_accounts_after_adjustment_finalization(

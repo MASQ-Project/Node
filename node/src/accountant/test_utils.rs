@@ -1701,7 +1701,7 @@ pub fn make_guaranteed_qualified_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
-   try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+    try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
 }
 
 pub fn try_making_guaranteed_qualified_payables(
@@ -1729,26 +1729,23 @@ pub fn try_making_guaranteed_qualified_payables(
     let payable_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     payables
         .into_iter()
-        .flat_map(|payable|
-            match payable_inspector
-                .payable_exceeded_threshold(&payable, payment_thresholds, now) {
-                Some(payment_threshold_intercept) => {
-                    Some(QualifiedPayableAccount::new(
-                        payable,
-                        payment_threshold_intercept,
-                        CreditorThresholds::new(gwei_to_wei(
-                            payment_thresholds.permanent_debt_allowed_gwei,
-                        )),
-                    ))
-                },
-                None => if should_panic {
-                    panic(&payable, &payment_thresholds, now)
-                } else {
-                    None
+        .flat_map(|payable| {
+            match payable_inspector.payable_exceeded_threshold(&payable, payment_thresholds, now) {
+                Some(payment_threshold_intercept) => Some(QualifiedPayableAccount::new(
+                    payable,
+                    payment_threshold_intercept,
+                    CreditorThresholds::new(gwei_to_wei(
+                        payment_thresholds.permanent_debt_allowed_gwei,
+                    )),
+                )),
+                None => {
+                    if should_panic {
+                        panic(&payable, &payment_thresholds, now)
+                    } else {
+                        None
+                    }
                 }
             }
-        )
+        })
         .collect()
 }
-
-

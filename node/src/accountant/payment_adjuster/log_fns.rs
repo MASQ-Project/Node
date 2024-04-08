@@ -1,7 +1,9 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
+};
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -118,22 +120,24 @@ pub fn accounts_before_and_after_debug(
     )
 }
 
-pub fn info_log_for_disqualified_account(
-    logger: &Logger,
-    account: &AdjustedAccountBeforeFinalization,
-) {
+pub fn info_log_for_disqualified_account(logger: &Logger, account: &UnconfirmedAdjustment) {
     info!(
         logger,
         "Shortage of MASQ in your consuming wallet impacts on payable {}, ruled out from this \
         round of payments. The proposed adjustment {} wei was less than half of the recorded \
         debt, {} wei",
-        account.qualified_payable.qualified_as.wallet,
+        account
+            .weighted_account
+            .qualified_account
+            .bare_account
+            .wallet,
         account
             .proposed_adjusted_balance_minor
             .separate_with_commas(),
         account
-            .qualified_payable
-            .qualified_as
+            .weighted_account
+            .qualified_account
+            .bare_account
             .balance_wei
             .separate_with_commas()
     )

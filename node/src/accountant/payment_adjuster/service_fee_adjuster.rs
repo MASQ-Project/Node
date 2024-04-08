@@ -91,7 +91,7 @@ impl ServiceFeeAdjusterReal {
         if outweighed.is_empty() {
             Either::Left(properly_adjusted_accounts)
         } else {
-            let remaining_undecided_accounts: Vec<QualifiedPayableAccount> =
+            let remaining_undecided_accounts: Vec<WeightedPayable> =
                 convert_collection(properly_adjusted_accounts);
             let pre_processed_outweighed: Vec<AdjustedAccountBeforeFinalization> =
                 convert_collection(outweighed);
@@ -115,9 +115,9 @@ impl ServiceFeeAdjusterReal {
         {
             let remaining = unconfirmed_adjustments.into_iter().filter(|account_info| {
                 account_info
-                    .non_finalized_account
-                    .qualified_payable
-                    .qualified_as
+                    .weighted_account
+                    .qualified_account
+                    .bare_account
                     .wallet
                     != disqualified_account_wallet
             });
@@ -125,7 +125,7 @@ impl ServiceFeeAdjusterReal {
             let remaining_reverted = remaining
                 .map(|account_info| {
                     //TODO maybe implement from like before
-                    account_info.non_finalized_account.qualified_payable
+                    account_info.weighted_account
                     // PayableAccount::from(NonFinalizedAdjustmentWithResolution::new(
                     //     account_info.non_finalized_account,
                     //     AdjustmentResolution::Revert,

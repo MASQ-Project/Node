@@ -101,7 +101,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType {
         let check_sum: u128 = sum_as(&weighted_accounts, |weighted_account| {
-            weighted_account.qualified_account.qualified_as.balance_wei
+            weighted_account.qualified_account.bare_account.balance_wei
         });
 
         let unallocated_cw_balance = payment_adjuster
@@ -157,28 +157,29 @@ mod tests {
         AR: AdjustmentRunner<ReturnType = RT>,
         RT: Debug + PartialEq,
     {
-        let now = SystemTime::now();
-        let wallet = make_wallet("abc");
-        let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
-        qualified_payable.qualified_as.balance_wei = 9_000_000_000;
-        qualified_payable.payment_threshold_intercept_minor = 7_000_000_000;
-        qualified_payable
-            .creditor_thresholds
-            .permanent_debt_allowed_wei = 2_000_000_000;
-        let cw_balance = 8_645_123_505;
-        let adjustment = Adjustment::ByServiceFee;
-        let mut payment_adjuster = PaymentAdjusterReal::new();
-        payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
-
-        let result = subject.adjust_last_one(&mut payment_adjuster, qualified_payable.clone());
-
-        assert_eq!(
-            result,
-            expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
-                qualified_payable: qualified_payable,
-                proposed_adjusted_balance_minor: cw_balance,
-            }])
-        )
+        todo!()
+        // let now = SystemTime::now();
+        // let wallet = make_wallet("abc");
+        // let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
+        // qualified_payable.bare_account.balance_wei = 9_000_000_000;
+        // qualified_payable.payment_threshold_intercept_minor = 7_000_000_000;
+        // qualified_payable
+        //     .creditor_thresholds
+        //     .permanent_debt_allowed_wei = 2_000_000_000;
+        // let cw_balance = 8_645_123_505;
+        // let adjustment = Adjustment::ByServiceFee;
+        // let mut payment_adjuster = PaymentAdjusterReal::new();
+        // payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
+        //
+        // let result = subject.adjust_last_one(&mut payment_adjuster, qualified_payable.clone());
+        //
+        // assert_eq!(
+        //     result,
+        //     expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
+        //         weighted_account: qualified_payable,
+        //         proposed_adjusted_balance_minor: cw_balance,
+        //     }])
+        // )
     }
 
     #[test]
@@ -208,7 +209,7 @@ mod tests {
             qualified_account: make_non_guaranteed_qualified_payable(111),
             weight: n as u128 * 1234,
         };
-        payable.qualified_account.qualified_as.balance_wei = initial_balance_minor;
+        payable.qualified_account.bare_account.balance_wei = initial_balance_minor;
         payable
     }
 
@@ -221,8 +222,8 @@ mod tests {
         // wonder why the implied surplus may happen
         let now = SystemTime::now();
         let mut payment_adjuster = initialize_payment_adjuster(now, cw_service_fee_balance_minor);
-        let initial_balance_minor_1 = payable_1.qualified_account.qualified_as.balance_wei;
-        let initial_balance_minor_2 = payable_2.qualified_account.qualified_as.balance_wei;
+        let initial_balance_minor_1 = payable_1.qualified_account.bare_account.balance_wei;
+        let initial_balance_minor_2 = payable_2.qualified_account.bare_account.balance_wei;
         let subject = ServiceFeeOnlyAdjustmentRunner {};
 
         let result = subject.adjust_accounts(
@@ -234,11 +235,11 @@ mod tests {
             result,
             vec![
                 AdjustedAccountBeforeFinalization {
-                    qualified_payable: payable_1.qualified_account,
+                    original_account: payable_1.qualified_account.bare_account,
                     proposed_adjusted_balance_minor: initial_balance_minor_1
                 },
                 AdjustedAccountBeforeFinalization {
-                    qualified_payable: payable_2.qualified_account,
+                    original_account: payable_2.qualified_account.bare_account,
                     proposed_adjusted_balance_minor: initial_balance_minor_2
                 }
             ]
@@ -308,7 +309,7 @@ mod tests {
 
         let returned_accounts = result
             .into_iter()
-            .map(|account| account.qualified_payable.qualified_as.wallet)
+            .map(|account| account.original_account.wallet)
             .collect::<Vec<Wallet>>();
         assert_eq!(returned_accounts, vec![wallet_1, wallet_2])
         // If the transaction fee adjustment had been available to be performed, only one account
@@ -324,12 +325,13 @@ mod tests {
 
     #[test]
     fn empty_or_single_element_vector_for_some() {
-        let account_info = AdjustedAccountBeforeFinalization {
-            qualified_payable: make_non_guaranteed_qualified_payable(123),
-            proposed_adjusted_balance_minor: 123_456_789,
-        };
-        let result = empty_or_single_element_vector(Some(account_info.clone()));
-
-        assert_eq!(result, vec![account_info])
+        todo!()
+        // let account_info = AdjustedAccountBeforeFinalization {
+        //     weighted_account: make_non_guaranteed_qualified_payable(123),
+        //     proposed_adjusted_balance_minor: 123_456_789,
+        // };
+        // let result = empty_or_single_element_vector(Some(account_info.clone()));
+        //
+        // assert_eq!(result, vec![account_info])
     }
 }

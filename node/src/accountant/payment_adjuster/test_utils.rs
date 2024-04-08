@@ -123,13 +123,11 @@ pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
     let qualified_payable = make_non_guaranteed_qualified_payable(n);
     let proposed_adjusted_balance_minor =
-        (qualified_payable.qualified_as.balance_wei / 2) * (n as f64).sqrt() as u128;
+        (qualified_payable.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
+    let weight = (n as u128).pow(3);
     UnconfirmedAdjustment {
-        non_finalized_account: AdjustedAccountBeforeFinalization {
-            qualified_payable,
-            proposed_adjusted_balance_minor,
-        },
-        weight: (n as u128).pow(3),
+        weighted_account: WeightedPayable::new(qualified_payable, weight),
+        proposed_adjusted_balance_minor,
     }
 }
 
@@ -245,6 +243,6 @@ pub fn make_qualified_payable_by_wallet(wallet_address_segment: &str) -> Qualifi
     let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
     let wallet = make_wallet(wallet_address_segment);
     let mut account = make_non_guaranteed_qualified_payable(num);
-    account.qualified_as.wallet = wallet;
+    account.bare_account.wallet = wallet;
     account
 }

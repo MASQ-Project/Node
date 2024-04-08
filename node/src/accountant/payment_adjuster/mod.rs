@@ -197,8 +197,9 @@ impl PaymentAdjusterReal {
         &mut self,
         qualified_accounts: Vec<QualifiedPayableAccount>,
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
+        let weighted_accounts_sorted = self.calculate_weights_for_accounts(qualified_accounts);
         let processed_accounts = self.calculate_criteria_and_propose_adjustments_recursively(
-            qualified_accounts,
+            weighted_accounts_sorted,
             TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
@@ -222,7 +223,7 @@ impl PaymentAdjusterReal {
 
     fn calculate_criteria_and_propose_adjustments_recursively<AR, RT>(
         &mut self,
-        unresolved_qualified_accounts: Vec<QualifiedPayableAccount>,
+        unresolved_accounts: Vec<WeightedPayable>,
         adjustment_runner: AR,
     ) -> RT
     where
@@ -230,22 +231,10 @@ impl PaymentAdjusterReal {
     {
         diagnostics!(
             "\nUNRESOLVED QUALIFIED ACCOUNTS IN CURRENT ITERATION:",
-            &unresolved_qualified_accounts
+            &unresolved_accounts
         );
 
-        //TODO remove me
-        // if unresolved_qualified_accounts.len() == 1 {
-        //     let last_one = unresolved_qualified_accounts
-        //         .into_iter()
-        //         .next()
-        //         .expect("previous if stmt must be wrong");
-        //     return adjustment_runner.adjust_last_one(self, last_one);
-        // }
-
-        let weights_and_accounts_sorted =
-            self.calculate_weights_for_accounts(unresolved_qualified_accounts);
-
-        adjustment_runner.adjust_accounts(self, weights_and_accounts_sorted)
+        adjustment_runner.adjust_accounts(self, unresolved_accounts)
     }
 
     fn begin_with_adjustment_by_transaction_fee(
@@ -394,7 +383,7 @@ impl PaymentAdjusterReal {
                         let summed_up = weight + new_criterion;
 
                         calculated_criterion_and_weight_diagnostics(
-                            &payable.qualified_as.wallet,
+                            &payable.bare_account.wallet,
                             criterion_calculator.as_ref(),
                             new_criterion,
                             summed_up,
@@ -436,8 +425,8 @@ impl PaymentAdjusterReal {
                 .iter()
                 .map(|payable| {
                     (
-                        payable.qualified_as.wallet.clone(),
-                        payable.qualified_as.balance_wei,
+                        payable.bare_account.wallet.clone(),
+                        payable.bare_account.balance_wei,
                     )
                 })
                 .collect::<HashMap<Wallet, u128>>()
@@ -460,38 +449,39 @@ impl PaymentAdjusterReal {
         &self,
         last_payable: QualifiedPayableAccount,
     ) -> Option<AdjustedAccountBeforeFinalization> {
-        let cw_balance = self.inner.unallocated_cw_service_fee_balance_minor();
-        let proposed_adjusted_balance = if last_payable
-            .qualified_as
-            .balance_wei
-            .checked_sub(cw_balance)
-            == None
-        {
-            last_payable.qualified_as.balance_wei
-        } else {
-            diagnostics!(
-                "LAST REMAINING ACCOUNT",
-                "Balance adjusted to {} by exhausting the cw balance fully",
-                cw_balance
-            );
-
-            cw_balance
-        };
-        // TODO the Disqualification check really makes sense only if we assigned less than the full balance!!
-        let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
-            WeightedPayable::new(last_payable, u128::MAX), // The weight doesn't matter really and is made up
-            proposed_adjusted_balance,
-        )];
-
-        match self
-            .disqualification_arbiter
-            .try_finding_an_account_to_disqualify_in_this_iteration(
-                &proposed_adjustment_vec,
-                &self.logger,
-            ) {
-            Some(_) => None,
-            None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
-        }
+        todo!()
+        // let cw_balance = self.inner.unallocated_cw_service_fee_balance_minor();
+        // let proposed_adjusted_balance = if last_payable
+        //     .bare_account
+        //     .balance_wei
+        //     .checked_sub(cw_balance)
+        //     == None
+        // {
+        //     last_payable.bare_account.balance_wei
+        // } else {
+        //     diagnostics!(
+        //         "LAST REMAINING ACCOUNT",
+        //         "Balance adjusted to {} by exhausting the cw balance fully",
+        //         cw_balance
+        //     );
+        //
+        //     cw_balance
+        // };
+        // // TODO the Disqualification check really makes sense only if we assigned less than the full balance!!
+        // let mut proposed_adjustment_vec = vec![UnconfirmedAdjustment::new(
+        //     WeightedPayable::new(last_payable, u128::MAX), // The weight doesn't matter really and is made up
+        //     proposed_adjusted_balance,
+        // )];
+        //
+        // match self
+        //     .disqualification_arbiter
+        //     .try_finding_an_account_to_disqualify_in_this_iteration(
+        //         &proposed_adjustment_vec,
+        //         &self.logger,
+        //     ) {
+        //     Some(_) => None,
+        //     None => Some(proposed_adjustment_vec.remove(0).non_finalized_account),
+        // }
     }
 }
 
@@ -568,7 +558,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, AdjustmentIterationResult, SpecialHandling,
-        WeightedPayable,
+        UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
     use crate::accountant::payment_adjuster::service_fee_adjuster::{
@@ -853,7 +843,7 @@ mod tests {
         let subject = make_initialized_subject(None, None, Some(calculator), None);
         let make_account = |n: u64| {
             let account = make_non_guaranteed_qualified_payable(n);
-            let wallet = account.qualified_as.wallet.clone();
+            let wallet = account.bare_account.wallet.clone();
             (wallet, account)
         };
         let (wallet_1, payable_1) = make_account(111);
@@ -874,7 +864,7 @@ mod tests {
                     weighted_account.weight
                 );
                 previous_weight = weighted_account.weight;
-                weighted_account.qualified_account.qualified_as.wallet
+                weighted_account.qualified_account.bare_account.wallet
             })
             .collect::<Vec<Wallet>>();
         assert_eq!(accounts_alone, vec![wallet_3, wallet_1, wallet_2])
@@ -885,39 +875,30 @@ mod tests {
         let now = SystemTime::now();
         let cw_service_fee_balance_minor = multiple_by_billion(3_500_000);
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
-        let calculator_mock = CriterionCalculatorMock::default()
-            // Account 1, first iteration
-            .calculate_result(multiple_by_billion(2_000_100))
-            // Account 2 in its only iteration, after which it is found outweighed and handled
-            // as a priority
-            .calculate_result(multiple_by_billion(3_999_900))
-            // Account 1, second iteration
-            .calculate_result(multiple_by_billion(2_000_100));
-        let mut subject = make_initialized_subject(
-            None,
-            Some(cw_service_fee_balance_minor),
-            Some(calculator_mock),
-            None,
-        );
+        let mut subject =
+            make_initialized_subject(None, Some(cw_service_fee_balance_minor), None, None);
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(cw_service_fee_balance_minor / 2)
             .determine_limit_params(&determine_limit_params_arc);
         subject.disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let mut account_1 = make_qualified_payable_by_wallet("abc");
-        let balance_1 =  multiple_by_billion(3_000_000);
-        account_1.qualified_as.balance_wei = balance_1;
+        let balance_1 = multiple_by_billion(3_000_000);
+        account_1.bare_account.balance_wei = balance_1;
         let threshold_intercept_minor = account_1.payment_threshold_intercept_minor;
         let permanent_debt_allowed_minor = account_1.creditor_thresholds.permanent_debt_allowed_wei;
         let mut account_2 = make_qualified_payable_by_wallet("def");
-        let wallet_2 = account_2.qualified_as.wallet.clone();
+        let wallet_2 = account_2.bare_account.wallet.clone();
         let balance_2 = multiple_by_billion(1_000_000);
-        account_2.qualified_as.balance_wei = balance_2;
-        let qualified_payables = vec![account_1, account_2];
+        account_2.bare_account.balance_wei = balance_2;
+        let weighted_payables = vec![
+            WeightedPayable::new(account_1, multiple_by_billion(2_000_100)),
+            WeightedPayable::new(account_2, 3_999_900),
+        ];
 
         let mut result = subject
             .calculate_criteria_and_propose_adjustments_recursively(
-                qualified_payables.clone(),
+                weighted_payables.clone(),
                 TransactionAndServiceFeeAdjustmentRunner {},
             )
             .unwrap()
@@ -933,7 +914,7 @@ mod tests {
         prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
             subject,
             cw_service_fee_balance_minor,
-            qualified_payables.clone(),
+            weighted_payables.clone(),
             wallet_2,
             balance_2,
             2.3,
@@ -942,8 +923,8 @@ mod tests {
         let first_returned_account = result.remove(0);
         // Outweighed accounts always take the first places
         assert_eq!(
-            &first_returned_account.qualified_payable,
-            &qualified_payables[1]
+            &first_returned_account.original_account,
+            &weighted_payables[1].qualified_account.bare_account
         );
         assert_eq!(
             first_returned_account.proposed_adjusted_balance_minor,
@@ -951,22 +932,29 @@ mod tests {
         );
         let second_returned_account = result.remove(0);
         assert_eq!(
-            &second_returned_account.qualified_payable,
-            &qualified_payables[0]
+            &second_returned_account.original_account,
+            &weighted_payables[0].qualified_account.bare_account
         );
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
             2499999999999999
         );
         assert!(result.is_empty());
-        let determine_limit_params= determine_limit_params_arc.lock().unwrap();
-        assert_eq!(*determine_limit_params, vec![(balance_1, threshold_intercept_minor, permanent_debt_allowed_minor)])
+        let determine_limit_params = determine_limit_params_arc.lock().unwrap();
+        assert_eq!(
+            *determine_limit_params,
+            vec![(
+                balance_1,
+                threshold_intercept_minor,
+                permanent_debt_allowed_minor
+            )]
+        )
     }
 
     fn prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
         mut subject: PaymentAdjusterReal,
         cw_service_fee_balance_minor: u128,
-        accounts: Vec<QualifiedPayableAccount>,
+        weighted_accounts: Vec<WeightedPayable>,
         wallet_of_expected_outweighed: Wallet,
         original_balance_of_outweighed_account: u128,
         outweighed_by_multiple_of: f64,
@@ -976,18 +964,15 @@ mod tests {
             None,
             cw_service_fee_balance_minor,
         ));
-        let criteria_and_accounts = subject.calculate_weights_for_accounts(accounts);
         let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(criteria_and_accounts, cw_service_fee_balance_minor);
+            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
         // The results are sorted from the biggest weights down
-        let proposed_adjusted_balance = unconfirmed_adjustments[0]
-            .non_finalized_account
-            .proposed_adjusted_balance_minor;
+        let proposed_adjusted_balance = unconfirmed_adjustments[0].proposed_adjusted_balance_minor;
         assert_eq!(
             unconfirmed_adjustments[0]
-                .non_finalized_account
-                .qualified_payable
-                .qualified_as
+                .weighted_account
+                .qualified_account
+                .bare_account
                 .wallet,
             wallet_of_expected_outweighed
         );
@@ -1079,7 +1064,7 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         let iteration_result = AdjustmentIterationResult::IterationWithSpecialHandling {
             case: OutweighedAccounts(vec![AdjustedAccountBeforeFinalization::new(
-                make_qualified_payable_by_wallet("abc"),
+                make_payable_account(123),
                 123456,
             )]),
             remaining_undecided_accounts: vec![],
@@ -1089,8 +1074,8 @@ mod tests {
     }
 
     #[test]
-    fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them(
-    ) {
+    fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them()
+    {
         // Tests that a condition to short-circuit through is integrated for situations when
         // a disqualification frees means for other accounts and there is suddenly more to give
         // than how much the remaining accounts demand
@@ -1190,7 +1175,7 @@ mod tests {
         assert_eq!(
             result,
             Some(AdjustedAccountBeforeFinalization {
-                qualified_payable: qualified_payable.clone(),
+                original_account: qualified_payable.bare_account.clone(),
                 proposed_adjusted_balance_minor: cw_balance,
             })
         );
@@ -1198,7 +1183,7 @@ mod tests {
         assert_eq!(
             *determine_limit_params,
             vec![(
-                qualified_payable.qualified_as.balance_wei,
+                qualified_payable.bare_account.balance_wei,
                 qualified_payable.payment_threshold_intercept_minor,
                 qualified_payable
                     .creditor_thresholds
@@ -1223,7 +1208,7 @@ mod tests {
             pending_payable_opt: None,
         };
         let qualified_payable = QualifiedPayableAccount {
-            qualified_as: payable,
+            bare_account: payable,
             payment_threshold_intercept_minor: garbage_payment_threshold_intercept_minor,
             creditor_thresholds: CreditorThresholds {
                 permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
@@ -1398,15 +1383,15 @@ mod tests {
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_1,
-                ..qualified_account_1.qualified_as
+                ..qualified_account_1.bare_account
             };
             let account_2_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_2,
-                ..qualified_account_2.qualified_as
+                ..qualified_account_2.bare_account
             };
             let account_3_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_3,
-                ..qualified_account_3.qualified_as
+                ..qualified_account_3.bare_account
             };
             vec![account_2_adjusted, account_3_adjusted, account_1_adjusted]
         };
@@ -1500,7 +1485,7 @@ mod tests {
         // (it weights more if the balance is so small)
         assert_eq!(
             result.affordable_accounts,
-            vec![account_3.qualified_as, account_2.qualified_as]
+            vec![account_3.bare_account, account_2.bare_account]
         );
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
@@ -1590,9 +1575,9 @@ mod tests {
         let expected_accounts = {
             let account_2_adjusted = PayableAccount {
                 balance_wei: 222_000_000_000_000,
-                ..account_2.qualified_as
+                ..account_2.bare_account
             };
-            vec![account_3.qualified_as, account_2_adjusted]
+            vec![account_3.bare_account, account_2_adjusted]
         };
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
@@ -1669,9 +1654,9 @@ mod tests {
         let expected_accounts = {
             let account_1_adjusted = PayableAccount {
                 balance_wei: 272_000_000_000,
-                ..account_1.qualified_as
+                ..account_1.bare_account
             };
-            vec![account_1_adjusted, account_2.qualified_as]
+            vec![account_1_adjusted, account_2.bare_account]
         };
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
@@ -2115,7 +2100,7 @@ mod tests {
             .map(|(idx, payable)| {
                 let balance = payable.balance_wei;
                 QualifiedPayableAccount {
-                    qualified_as: payable,
+                    bare_account: payable,
                     payment_threshold_intercept_minor: (balance / 10) * 7,
                     creditor_thresholds: CreditorThresholds {
                         permanent_debt_allowed_wei: (balance / 10) * 7,
@@ -2153,7 +2138,7 @@ mod tests {
         let now = SystemTime::now();
         let payment_adjuster = PaymentAdjusterReal::default();
         let qualified_payable = QualifiedPayableAccount {
-            qualified_as: PayableAccount {
+            bare_account: PayableAccount {
                 wallet: make_wallet("abc"),
                 balance_wei: gwei_to_wei::<u128, u64>(444_666_888),
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(123_000)).unwrap(),
@@ -2194,10 +2179,10 @@ mod tests {
                     // First stage: BalanceAndAgeCalculator
                     {
                         let mut account_1 = nominal_account_1;
-                        account_1.qualified_as.balance_wei += 123_456_789;
+                        account_1.bare_account.balance_wei += 123_456_789;
                         let mut account_2 = nominal_account_2;
-                        account_2.qualified_as.last_paid_timestamp = account_2
-                            .qualified_as
+                        account_2.bare_account.last_paid_timestamp = account_2
+                            .bare_account
                             .last_paid_timestamp
                             .checked_sub(Duration::from_secs(4_000))
                             .unwrap();
@@ -2278,7 +2263,7 @@ mod tests {
 
     fn initialize_template_accounts(now: SystemTime) -> [QualifiedPayableAccount; 2] {
         let make_qualified_payable = |wallet| QualifiedPayableAccount {
-            qualified_as: PayableAccount {
+            bare_account: PayableAccount {
                 wallet,
                 balance_wei: gwei_to_wei::<u128, u64>(20_000_000),
                 last_paid_timestamp: now.checked_sub(Duration::from_secs(10_000)).unwrap(),
@@ -2380,7 +2365,7 @@ mod tests {
         fn prepare_args_expected_weights_for_comparison(
             (qualified_payable, expected_computed_payable): (QualifiedPayableAccount, u128),
         ) -> (QualifiedPayableAccount, (Wallet, u128)) {
-            let wallet = qualified_payable.qualified_as.wallet.clone();
+            let wallet = qualified_payable.bare_account.wallet.clone();
             (qualified_payable, (wallet, expected_computed_payable))
         }
 
@@ -2420,7 +2405,7 @@ mod tests {
     ) -> HashMap<Wallet, WeightedPayable> {
         let feeding_iterator = weighted_accounts.into_iter().map(|account| {
             (
-                account.qualified_account.qualified_as.wallet.clone(),
+                account.qualified_account.bare_account.wallet.clone(),
                 account,
             )
         });

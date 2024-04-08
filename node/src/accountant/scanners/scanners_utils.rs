@@ -177,7 +177,7 @@ pub mod payable_scanner_utils {
             qualified_accounts
                 .iter()
                 .map(|qualified_account| {
-                    let account = &qualified_account.qualified_as;
+                    let account = &qualified_account.bare_account;
                     let p_age = now
                         .duration_since(account.last_paid_timestamp)
                         .expect("Payable time is corrupt");
@@ -651,7 +651,7 @@ mod tests {
         let now = to_time_t(SystemTime::now());
         let qualified_payables_and_threshold_points = vec![
             QualifiedPayableAccount {
-                qualified_as: PayableAccount {
+                bare_account: PayableAccount {
                     wallet: make_wallet("wallet0"),
                     balance_wei: gwei_to_wei(10_002_000_u64),
                     last_paid_timestamp: from_time_t(now - 2678400),
@@ -663,7 +663,7 @@ mod tests {
                 },
             },
             QualifiedPayableAccount {
-                qualified_as: PayableAccount {
+                bare_account: PayableAccount {
                     wallet: make_wallet("wallet1"),
                     balance_wei: gwei_to_wei(999_999_999_u64),
                     last_paid_timestamp: from_time_t(now - 86455),
