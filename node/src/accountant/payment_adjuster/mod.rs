@@ -41,8 +41,8 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     drop_no_longer_needed_weights_away_from_accounts, dump_unaffordable_accounts_by_txn_fee,
-    exhaust_cw_till_the_last_drop, sort_in_descendant_order_by_weights, sum_as,
-    zero_affordable_accounts_found,
+    exhaust_cw_till_the_last_drop, find_largest_exceeding_balance,
+    sort_in_descendant_order_by_weights, sum_as, zero_affordable_accounts_found,
 };
 use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
 use crate::accountant::payment_adjuster::service_fee_adjuster::{
@@ -134,8 +134,15 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let agent = setup.agent;
         let initial_service_fee_balance_minor = agent.service_fee_balance_minor();
         let required_adjustment = setup.adjustment;
+        let largest_exceeding_balance_recently_qualified =
+            find_largest_exceeding_balance(&qualified_payables);
 
-        self.initialize_inner(initial_service_fee_balance_minor, required_adjustment, now);
+        self.initialize_inner(
+            initial_service_fee_balance_minor,
+            required_adjustment,
+            largest_exceeding_balance_recently_qualified,
+            now,
+        );
 
         let sketched_debug_info_opt = self.sketch_debug_info_opt(&qualified_payables);
 
@@ -175,6 +182,7 @@ impl PaymentAdjusterReal {
         &mut self,
         cw_service_fee_balance: u128,
         required_adjustment: Adjustment,
+        largest_exceeding_balance_recently_qualified: u128,
         now: SystemTime,
     ) {
         let transaction_fee_limitation_opt = match required_adjustment {
@@ -188,6 +196,7 @@ impl PaymentAdjusterReal {
             now,
             transaction_fee_limitation_opt,
             cw_service_fee_balance,
+            largest_exceeding_balance_recently_qualified,
         );
 
         self.inner = Box::new(inner);
@@ -560,7 +569,9 @@ mod tests {
         AdjustedAccountBeforeFinalization, AdjustmentIterationResult, SpecialHandling,
         UnconfirmedAdjustment, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::weights_total;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
+        find_largest_exceeding_balance, weights_total,
+    };
     use crate::accountant::payment_adjuster::service_fee_adjuster::{
         AdjustmentComputer, ServiceFeeAdjusterReal,
     };
@@ -606,6 +617,52 @@ mod tests {
         let result = PaymentAdjusterReal::new();
 
         let _ = result.inner.unallocated_cw_service_fee_balance_minor();
+    }
+
+    fn test_initialize_inner_works(
+        required_adjustment: Adjustment,
+        expected_tx_fee_limit_opt_result: Option<u16>,
+    ) {
+        let mut subject = PaymentAdjusterReal::default();
+        let cw_service_fee_balance = 111_222_333_444;
+        let largest_exceeding_balance_recently_qualified = 3_555_666;
+        let now = SystemTime::now();
+
+        subject.initialize_inner(
+            cw_service_fee_balance,
+            required_adjustment,
+            largest_exceeding_balance_recently_qualified,
+            now,
+        );
+
+        assert_eq!(subject.inner.now(), now);
+        assert_eq!(
+            subject.inner.transaction_fee_count_limit_opt(),
+            expected_tx_fee_limit_opt_result
+        );
+        assert_eq!(
+            subject.inner.original_cw_service_fee_balance_minor(),
+            cw_service_fee_balance
+        );
+        assert_eq!(
+            subject.inner.unallocated_cw_service_fee_balance_minor(),
+            cw_service_fee_balance
+        );
+        assert_eq!(
+            subject.inner.largest_exceeding_balance_recently_qualified(),
+            largest_exceeding_balance_recently_qualified
+        )
+    }
+
+    #[test]
+    fn initialize_inner_processes_works() {
+        test_initialize_inner_works(Adjustment::ByServiceFee, None);
+        test_initialize_inner_works(
+            Adjustment::TransactionFeeInPriority {
+                affordable_transaction_count: 5,
+            },
+            Some(5),
+        );
     }
 
     #[test]
@@ -840,7 +897,7 @@ mod tests {
             .calculate_result(1_000_000_002)
             .calculate_result(1_000_000_001)
             .calculate_result(1_000_000_003);
-        let subject = make_initialized_subject(None, None, Some(calculator), None);
+        let subject = make_initialized_subject(None, None, Some(calculator), Some(12345678), None);
         let make_account = |n: u64| {
             let account = make_non_guaranteed_qualified_payable(n);
             let wallet = account.bare_account.wallet.clone();
@@ -875,13 +932,6 @@ mod tests {
         let now = SystemTime::now();
         let cw_service_fee_balance_minor = multiple_by_billion(3_500_000);
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject =
-            make_initialized_subject(None, Some(cw_service_fee_balance_minor), None, None);
-        let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(cw_service_fee_balance_minor / 2)
-            .determine_limit_params(&determine_limit_params_arc);
-        subject.disqualification_arbiter =
-            DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let mut account_1 = make_qualified_payable_by_wallet("abc");
         let balance_1 = multiple_by_billion(3_000_000);
         account_1.bare_account.balance_wei = balance_1;
@@ -891,8 +941,22 @@ mod tests {
         let wallet_2 = account_2.bare_account.wallet.clone();
         let balance_2 = multiple_by_billion(1_000_000);
         account_2.bare_account.balance_wei = balance_2;
+        let largest_exceeding_balance = (balance_1 - account_1.payment_threshold_intercept_minor)
+            .max(balance_2 - account_2.payment_threshold_intercept_minor);
+        let mut subject = make_initialized_subject(
+            None,
+            Some(cw_service_fee_balance_minor),
+            None,
+            Some(largest_exceeding_balance),
+            None,
+        );
+        let disqualification_gauge = DisqualificationGaugeMock::default()
+            .determine_limit_result(cw_service_fee_balance_minor / 2)
+            .determine_limit_params(&determine_limit_params_arc);
+        subject.disqualification_arbiter =
+            DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let weighted_payables_in_descending_order = vec![
-             WeightedPayable::new(account_2, multiple_by_billion(3_999_900)),
+            WeightedPayable::new(account_2, multiple_by_billion(3_999_900)),
             WeightedPayable::new(account_1, multiple_by_billion(2_000_100)),
         ];
 
@@ -920,7 +984,9 @@ mod tests {
         // Outweighed accounts always take the first places
         assert_eq!(
             &first_returned_account.original_account,
-            &weighted_payables_in_descending_order[0].qualified_account.bare_account
+            &weighted_payables_in_descending_order[0]
+                .qualified_account
+                .bare_account
         );
         assert_eq!(
             first_returned_account.proposed_adjusted_balance_minor,
@@ -929,7 +995,9 @@ mod tests {
         let second_returned_account = result.remove(0);
         assert_eq!(
             &second_returned_account.original_account,
-            &weighted_payables_in_descending_order[1].qualified_account.bare_account
+            &weighted_payables_in_descending_order[1]
+                .qualified_account
+                .bare_account
         );
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
@@ -955,10 +1023,12 @@ mod tests {
         original_balance_of_outweighed_account: u128,
         outweighed_by_multiple_of: f64,
     ) {
+        let garbage_largest_exceeding_balance_recently_qualified = 123456789;
         subject.inner = Box::new(PaymentAdjusterInnerReal::new(
             SystemTime::now(),
             None,
             cw_service_fee_balance_minor,
+            garbage_largest_exceeding_balance_recently_qualified,
         ));
         let unconfirmed_adjustments = AdjustmentComputer::default()
             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
@@ -1016,7 +1086,12 @@ mod tests {
         let payables = vec![account_1, account_2, account_3];
         let qualified_payables =
             make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+        let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_result(multiple_by_billion(2_000_000_000))
+            .calculate_result(0)
+            .calculate_result(0);
         let mut subject = PaymentAdjusterReal::new();
+        subject.calculators.push(Box::new(calculator_mock));
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let service_fee_balance_in_minor_units = balance_2;
@@ -1028,7 +1103,10 @@ mod tests {
             &subject.logger,
         );
         // If concluded at the entry into the PaymentAdjuster that it has no point going off
-        // because away the least demanding account cannot be satisfied we would get an error here
+        // because away the least demanding account cannot be satisfied we would get an error here.
+        // However, it can only assess the balance (that early - in the real world) and accounts
+        // with the smallest balance is outplayed by the other one gaining some kind of extra
+        // significance
         assert_eq!(analysis_result, Ok(true));
         let agent = {
             let mock = BlockchainAgentMock::default()
@@ -1047,7 +1125,10 @@ mod tests {
 
         let err = match result {
             Err(e) => e,
-            Ok(_) => panic!("we expected to get an error but it was ok"),
+            Ok(ok) => panic!(
+                "we expected to get an error but it was ok: {:?}",
+                ok.affordable_accounts
+            ),
         };
         assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated)
     }
@@ -2144,7 +2225,14 @@ mod tests {
             creditor_thresholds: CreditorThresholds::new(gwei_to_wei::<u128, u64>(10_000)),
         };
         let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(3_000);
-        let context = PaymentAdjusterInnerReal::new(now, None, cw_service_fee_balance_minor);
+        let exceeding_balance = qualified_payable.bare_account.balance_wei
+            - qualified_payable.payment_threshold_intercept_minor;
+        let context = PaymentAdjusterInnerReal::new(
+            now,
+            None,
+            cw_service_fee_balance_minor,
+            exceeding_balance,
+        );
         let _ = payment_adjuster
             .calculators
             .into_iter()
@@ -2177,18 +2265,14 @@ mod tests {
                         let mut account_1 = nominal_account_1;
                         account_1.bare_account.balance_wei += 123_456_789;
                         let mut account_2 = nominal_account_2;
-                        account_2.bare_account.last_paid_timestamp = account_2
-                            .bare_account
-                            .last_paid_timestamp
-                            .checked_sub(Duration::from_secs(4_000))
-                            .unwrap();
-                        [(account_1, 8000000123466789), (account_2, 8000000000014000)]
+                        account_2.bare_account.balance_wei += 999_999_999;
+                        [(account_1, 8000001876543209), (account_2, 8000000999999999)]
                     },
                 ]
             };
         // This is the value that is computed if the account stays unmodified. Same for both nominal
         // accounts.
-        let current_nominal_weight = 8000000000010000;
+        let current_nominal_weight = 8000000000000000;
 
         test_calculators_reactivity(input_matrix, current_nominal_weight)
     }
@@ -2306,8 +2390,15 @@ mod tests {
         now: SystemTime,
         cw_service_fee_balance_minor: u128,
     ) -> Vec<WeightedPayable> {
-        let mut subject =
-            make_initialized_subject(Some(now), Some(cw_service_fee_balance_minor), None, None);
+        let largest_exceeding_balance_recently_qualified =
+            find_largest_exceeding_balance(&qualified_payables);
+        let mut subject = make_initialized_subject(
+            Some(now),
+            Some(cw_service_fee_balance_minor),
+            None,
+            Some(largest_exceeding_balance_recently_qualified),
+            None,
+        );
         let perform_adjustment_by_service_fee_params_arc = Arc::new(Mutex::new(Vec::new()));
         let service_fee_adjuster_mock = ServiceFeeAdjusterMock::default()
             // We use this container to intercept those values we are after

@@ -37,6 +37,7 @@ pub fn make_initialized_subject(
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
     criterion_calculator_mock_opt: Option<CriterionCalculatorMock>,
+    largest_exceeding_balance_recently_qualified: Option<u128>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
     let cw_service_fee_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
@@ -47,6 +48,7 @@ pub fn make_initialized_subject(
         now_opt.unwrap_or(SystemTime::now()),
         None,
         cw_service_fee_balance_minor,
+        largest_exceeding_balance_recently_qualified.unwrap_or(0),
     ));
     if let Some(calculator) = criterion_calculator_mock_opt {
         subject.calculators = vec![Box::new(calculator)]

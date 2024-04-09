@@ -70,6 +70,20 @@ pub fn find_largest_weight(weighted_accounts: &[WeightedPayable]) -> u128 {
     find_largest_u128(&weights)
 }
 
+pub fn find_largest_exceeding_balance(qualified_accounts: &[QualifiedPayableAccount]) -> u128 {
+    let diffs = qualified_accounts
+        .iter()
+        .map(|account| {
+            account
+                .bare_account
+                .balance_wei
+                .checked_sub(account.payment_threshold_intercept_minor)
+                .expect("should be: balance > intercept!")
+        })
+        .collect::<Vec<u128>>();
+    find_largest_u128(&diffs)
+}
+
 fn find_largest_u128(slice: &[u128]) -> u128 {
     slice
         .iter()
@@ -95,15 +109,13 @@ pub fn adjust_account_balance_if_outweighed(
     {
         possibly_outweighed_accounts_diagnostics(&current_adjustment_info);
 
-        let original_account =    current_adjustment_info
+        let original_account = current_adjustment_info
             .weighted_account
             .qualified_account
             .bare_account;
         let proposed_full_balance = original_account.balance_wei;
-        let almost_finalized_account = AdjustedAccountBeforeFinalization::new(
-         original_account,
-         proposed_full_balance
-        );
+        let almost_finalized_account =
+            AdjustedAccountBeforeFinalization::new(original_account, proposed_full_balance);
 
         outweighed.push(almost_finalized_account);
     } else {
@@ -306,8 +318,10 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         adjust_account_balance_if_outweighed,
         compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_till_the_last_drop,
-        find_largest_u128, zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
+        find_largest_exceeding_balance, find_largest_u128, zero_affordable_accounts_found,
+        ConsumingWalletExhaustingStatus,
     };
+    use crate::accountant::payment_adjuster::test_utils::make_non_guaranteed_unconfirmed_adjustment;
     use crate::accountant::test_utils::{
         make_non_guaranteed_qualified_payable, make_payable_account,
     };
@@ -360,6 +374,21 @@ mod tests {
         let result = find_largest_u128(&[45, 2, 456565, 0, 2, 456565, 456564]);
 
         assert_eq!(result, 456565)
+    }
+
+    #[test]
+    fn find_largest_exceeding_balance_works() {
+        let mut account_1 = make_non_guaranteed_qualified_payable(111);
+        account_1.bare_account.balance_wei = 5_000_000_000;
+        account_1.payment_threshold_intercept_minor = 2_000_000_000;
+        let mut account_2 = make_non_guaranteed_qualified_payable(222);
+        account_2.bare_account.balance_wei = 4_000_000_000;
+        account_2.payment_threshold_intercept_minor = 800_000_000;
+        let qualified_accounts = &[account_1, account_2];
+
+        let result = find_largest_exceeding_balance(qualified_accounts);
+
+        assert_eq!(result, 4_000_000_000 - 800_000_000)
     }
 
     #[test]

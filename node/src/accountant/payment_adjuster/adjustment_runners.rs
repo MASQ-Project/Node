@@ -136,6 +136,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, WeightedPayable,
     };
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
     };
@@ -200,8 +201,15 @@ mod tests {
     fn initialize_payment_adjuster(
         now: SystemTime,
         service_fee_balance: u128,
+        largest_exceeding_balance_recently_qualified: u128,
     ) -> PaymentAdjusterReal {
-        make_initialized_subject(Some(now), Some(service_fee_balance), None, None)
+        make_initialized_subject(
+            Some(now),
+            Some(service_fee_balance),
+            None,
+            Some(largest_exceeding_balance_recently_qualified),
+            None,
+        )
     }
 
     fn make_weighed_payable(n: u64, initial_balance_minor: u128) -> WeightedPayable {
@@ -221,7 +229,8 @@ mod tests {
         // The disqualification doesn't take part in here, it is just an explanation for those who
         // wonder why the implied surplus may happen
         let now = SystemTime::now();
-        let mut payment_adjuster = initialize_payment_adjuster(now, cw_service_fee_balance_minor);
+        let mut payment_adjuster =
+            initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);
         let initial_balance_minor_1 = payable_1.qualified_account.bare_account.balance_wei;
         let initial_balance_minor_2 = payable_2.qualified_account.bare_account.balance_wei;
         let subject = ServiceFeeOnlyAdjustmentRunner {};
@@ -247,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_cw_balance_equals_requested_money_after_dql_in_previous_iteration() {
+    fn service_fee_only_runner_cw_balance_equals_requested_money_after_dsq_in_previous_iteration() {
         let cw_service_fee_balance_minor = 10_000_000_000;
         let payable_1 = make_weighed_payable(111, 5_000_000_000);
         let payable_2 = make_weighed_payable(222, 5_000_000_000);
@@ -260,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_handles_means_bigger_requested_money_after_dql_in_previous_iteration(
+    fn service_fee_only_runner_handles_means_bigger_requested_money_after_dsq_in_previous_iteration(
     ) {
         let cw_service_fee_balance_minor = 10_000_000_000;
         let payable_1 = make_weighed_payable(111, 5_000_000_000);
@@ -293,14 +302,20 @@ mod tests {
         let wallet_3 = make_wallet("ghj");
         let mut account_3 = account_1.clone();
         account_3.wallet = wallet_3;
-        let accounts = vec![account_1, account_2];
+        let accounts = vec![account_1, account_2, account_3];
         let qualified_payables =
             make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
+        let largest_exceeding_balance_recently_qualified =
+            find_largest_exceeding_balance(&qualified_payables);
         let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
         let service_fee_balance_wei = 10_000_000_000;
-        let mut payment_adjuster = initialize_payment_adjuster(now, service_fee_balance_wei);
+        let mut payment_adjuster = initialize_payment_adjuster(
+            now,
+            service_fee_balance_wei,
+            largest_exceeding_balance_recently_qualified,
+        );
         let subject = ServiceFeeOnlyAdjustmentRunner {};
         let criteria_and_accounts =
             payment_adjuster.calculate_weights_for_accounts(qualified_payables);
