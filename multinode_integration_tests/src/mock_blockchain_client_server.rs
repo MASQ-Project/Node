@@ -380,9 +380,9 @@ c//     pub fn response<R>(self, result: R, id: u64) -> Self
 //     request_accumulator: String,
 // }
 //
-//
 
 
+// TODO: GH-744: Write a card about fixing this.
 
 #[cfg(test)]
 mod tests {

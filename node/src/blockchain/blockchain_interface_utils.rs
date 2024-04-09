@@ -174,8 +174,7 @@ pub fn sign_transaction(
     )
 }
 
-// Result<H256, PayableTransactionError>
-pub fn handle_new_transaction(
+pub fn sign_and_send_payment(
     chain: Chain,
     web3: Web3<Http>,
     recipient_wallet: Wallet,
@@ -241,7 +240,7 @@ pub fn send_transaction(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Fut
 }
 
 // TODO: GH-744 Rename and refactor this function after merging with Master
-pub fn sign_and_append_payment(
+pub fn send_and_append_payment(
     chain: Chain,
     web3: Web3<Http>,
     consuming_wallet: Wallet,
@@ -249,9 +248,8 @@ pub fn sign_and_append_payment(
     gas_price: u64,
     account: PayableAccount,
 ) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static> {
-    // todo!("GH-744: We need to provide web3 instead of batch_web3");
     Box::new(
-        handle_new_transaction(
+        sign_and_send_payment(
             chain,
             web3,
             account.wallet.clone(),
@@ -273,7 +271,7 @@ pub fn sign_and_append_payment(
 }
 
 // HashAndAmountResult
-pub fn sign_and_append_multiple_payments(
+pub fn send_and_append_multiple_payments(
     logger: Logger,
     chain: Chain,
     web3: Web3<Http>,
@@ -293,7 +291,7 @@ pub fn sign_and_append_multiple_payments(
             pending_nonce
         );
 
-        let payable_future = sign_and_append_payment(
+        let payable_future = send_and_append_payment(
             chain,
             web3.clone(),
             consuming_wallet.clone(),
@@ -331,7 +329,7 @@ pub fn send_payables_within_batch(
             gas_price
         );
 
-    // let hashes_and_paid_amounts = match sign_and_append_multiple_payments(
+    // let hashes_and_paid_amounts = match send_and_append_multiple_payments(
     //     logger,
     //     chain,
     //     batch_web3.clone(),
@@ -362,7 +360,7 @@ pub fn send_payables_within_batch(
 
 
     return Box::new(
-        sign_and_append_multiple_payments(
+        send_and_append_multiple_payments(
             logger.clone(),
             chain,
             web3,
@@ -373,7 +371,7 @@ pub fn send_payables_within_batch(
         )
         .collect()
         // .map_err(|e| {
-        //     todo!("sign_and_append_multiple_payments -- map_err");
+        //     todo!("send_and_append_multiple_payments -- map_err");
         //     // return err(e);
         // })
         // TODO: GH-744: Need to fix errors -- The current version of futures, doesnt give us enough util to catch errors here.
@@ -498,12 +496,9 @@ mod tests {
     #[test]
     fn send_transaction_works() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
-            ],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
+            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -537,12 +532,9 @@ mod tests {
     #[test]
     fn send_transaction_throws_decode_error() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
-            ],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("Trash".to_string(),7 )
+            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -576,12 +568,9 @@ mod tests {
     #[test]
     fn handle_new_transaction_works() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
-            ],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
+            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -597,7 +586,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = handle_new_transaction(
+        let result = sign_and_send_payment(
             chain,
             subject.get_web3(),
             account.wallet,
@@ -613,12 +602,9 @@ mod tests {
     #[test]
     fn handle_new_transaction_throws_decode_error() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"Trash"}"#.to_vec()
-            ],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("Trash".to_string(),7 )
+            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -634,7 +620,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = handle_new_transaction(
+        let result = sign_and_send_payment(
             chain,
             subject.get_web3(),
             account.wallet,
@@ -650,21 +636,16 @@ mod tests {
     #[test]
     fn sign_and_append_payment_works() {
         let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":7,"result":"0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c"}"#.to_vec()
-            ],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
+            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
             .unwrap();
-
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -672,7 +653,7 @@ mod tests {
         let account = make_payable_account(1);
         let amount = account.balance_wei;
 
-        let result = sign_and_append_payment(
+        let result = send_and_append_payment(
             chain,
             subject.get_web3(),
             consuming_wallet,
@@ -703,7 +684,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = sign_and_append_payment(
+        let result = send_and_append_payment(
             chain,
             subject.get_web3(),
             consuming_wallet,
@@ -736,7 +717,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = sign_and_append_payment(
+        let result = send_and_append_payment(
             chain,
             subject.get_web3(),
             consuming_wallet,
@@ -749,13 +730,13 @@ mod tests {
     }
 
     #[test]
-    fn sign_and_append_multiple_payments_works() {
+    fn send_and_append_multiple_payments_works() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
             .response("0x3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5".to_string(),7 )
             .start();
-        let logger = Logger::new("sign_and_append_multiple_payments_works");
+        let logger = Logger::new("send_and_append_multiple_payments_works");
         let blockchain_web3 = make_blockchain_interface(Some(port));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -766,7 +747,7 @@ mod tests {
         let account_2 = make_payable_account(2);
         let accounts = vec![account_1, account_2];
 
-        let result = sign_and_append_multiple_payments(
+        let result = send_and_append_multiple_payments(
             logger,
             chain,
             web3,
@@ -781,16 +762,14 @@ mod tests {
     }
 
     #[test]
-    fn sign_and_append_multiple_payments_sending_error() {
+    fn send_and_append_multiple_payments_sending_error() {
         let port = find_free_port();
-        let test_server = TestServer::start(
-            port,
-            vec![
-                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
-                br#"{"jsonrpc":"2.0","id":0,"result":"0xDEADBEEF"}"#.to_vec(),
-            ],
-        );
-        let logger = Logger::new("sign_and_append_multiple_payments_works");
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0xDEADBEEF".to_string(),0 )
+            // .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b1".to_string(),7 )
+            .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
+            .start();
+        let logger = Logger::new("send_and_append_multiple_payments_works");
         let blockchain_web3 = make_blockchain_interface(Some(port));
         let chain= DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -801,7 +780,7 @@ mod tests {
         let account_2 = make_payable_account(2);
         let accounts = vec![account_1, account_2];
 
-        let result = sign_and_append_multiple_payments(
+        let result = send_and_append_multiple_payments(
             logger,
             chain,
             web3,
@@ -809,9 +788,16 @@ mod tests {
             gas_price,
             pending_nonce.into(),
             accounts,
-        ).collect().wait();
+        ).map(|result| {
+            eprintln!("Test result: {:?}", result);
+            return result;
+        }).collect().wait();
 
-        assert_eq!(result, Err(PayableTransactionError::Sending { msg: "Internal Web3 error".to_string(), hashes: vec![] }));
+
+
+        // ).collect().wait();
+
+        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"invalid length 8, expected a 0x-prefixed hex string with length of 64\", line: 0, column: 0)".to_string(), hashes: vec![] }));
     }
 
     #[test]
@@ -838,6 +824,11 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
+
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("Trash".to_string(),7 )
+            .start();
+
         // let transport = TestTransport::default()
         //     .send_batch_params(&send_batch_params_arc)
         //     .send_batch_result(expected_batch_responses);
@@ -1386,7 +1377,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = sign_and_append_payment(
+        let result = send_and_append_payment(
             TEST_DEFAULT_CHAIN,
             Web3::new(transport),
             incomplete_consuming_wallet,
@@ -1423,7 +1414,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = sign_and_append_payment(
+        let result = send_and_append_payment(
             TEST_DEFAULT_CHAIN,
             Web3::new(transport),
             consuming_wallet,
