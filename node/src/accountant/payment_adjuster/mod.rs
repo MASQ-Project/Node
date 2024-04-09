@@ -891,14 +891,14 @@ mod tests {
         let wallet_2 = account_2.bare_account.wallet.clone();
         let balance_2 = multiple_by_billion(1_000_000);
         account_2.bare_account.balance_wei = balance_2;
-        let weighted_payables = vec![
+        let weighted_payables_in_descending_order = vec![
+             WeightedPayable::new(account_2, multiple_by_billion(3_999_900)),
             WeightedPayable::new(account_1, multiple_by_billion(2_000_100)),
-            WeightedPayable::new(account_2, 3_999_900),
         ];
 
         let mut result = subject
             .calculate_criteria_and_propose_adjustments_recursively(
-                weighted_payables.clone(),
+                weighted_payables_in_descending_order.clone(),
                 TransactionAndServiceFeeAdjustmentRunner {},
             )
             .unwrap()
@@ -907,14 +907,10 @@ mod tests {
 
         // Let's have an example to explain why this test is important.
         // First, the mock must be renewed; the available cw balance updated to the original value.
-        let mock_calculator = CriterionCalculatorMock::default()
-            .calculate_result(multiple_by_billion(2_000_100))
-            .calculate_result(multiple_by_billion(3_999_900));
-        subject.calculators = vec![Box::new(mock_calculator)];
         prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
             subject,
             cw_service_fee_balance_minor,
-            weighted_payables.clone(),
+            weighted_payables_in_descending_order.clone(),
             wallet_2,
             balance_2,
             2.3,
@@ -924,7 +920,7 @@ mod tests {
         // Outweighed accounts always take the first places
         assert_eq!(
             &first_returned_account.original_account,
-            &weighted_payables[1].qualified_account.bare_account
+            &weighted_payables_in_descending_order[0].qualified_account.bare_account
         );
         assert_eq!(
             first_returned_account.proposed_adjusted_balance_minor,
@@ -933,7 +929,7 @@ mod tests {
         let second_returned_account = result.remove(0);
         assert_eq!(
             &second_returned_account.original_account,
-            &weighted_payables[0].qualified_account.bare_account
+            &weighted_payables_in_descending_order[1].qualified_account.bare_account
         );
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
@@ -1108,8 +1104,8 @@ mod tests {
             make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let calculator_mock = CriterionCalculatorMock::default()
             .calculate_result(0)
-            .calculate_result(multiple_by_billion(30_000_000_000))
-            .calculate_result(multiple_by_billion(30_000_000_000));
+            .calculate_result(multiple_by_billion(50_000_000_000))
+            .calculate_result(multiple_by_billion(50_000_000_000));
         let mut subject = PaymentAdjusterReal::new();
         subject.calculators.push(Box::new(calculator_mock));
         subject.logger = Logger::new(test_name);

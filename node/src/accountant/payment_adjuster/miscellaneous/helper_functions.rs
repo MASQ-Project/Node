@@ -95,15 +95,17 @@ pub fn adjust_account_balance_if_outweighed(
     {
         possibly_outweighed_accounts_diagnostics(&current_adjustment_info);
 
+        let original_account =    current_adjustment_info
+            .weighted_account
+            .qualified_account
+            .bare_account;
+        let proposed_full_balance = original_account.balance_wei;
         let almost_finalized_account = AdjustedAccountBeforeFinalization::new(
-            current_adjustment_info
-                .weighted_account
-                .qualified_account
-                .bare_account,
-            current_adjustment_info.proposed_adjusted_balance_minor,
+         original_account,
+         proposed_full_balance
         );
 
-        outweighed.push(todo!());
+        outweighed.push(almost_finalized_account);
     } else {
         passing_through.push(current_adjustment_info);
     }
@@ -258,7 +260,6 @@ impl From<UnconfirmedAdjustment> for WeightedPayable {
 
 impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
-        todo!();
         AdjustedAccountBeforeFinalization::new(
             unconfirmed_adjustment
                 .weighted_account
