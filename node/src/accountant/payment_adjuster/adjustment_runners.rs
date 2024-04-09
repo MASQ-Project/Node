@@ -23,16 +23,6 @@ use std::vec;
 pub trait AdjustmentRunner {
     type ReturnType;
 
-    //TODO old code
-    // This specialized method:
-    // a) helps with writing tests targeting edge cases,
-    // b) allows to avoid performing unnecessary computation for an evident result
-    fn adjust_last_one(
-        &self,
-        payment_adjuster: &PaymentAdjusterReal,
-        last_account: QualifiedPayableAccount,
-    ) -> Self::ReturnType;
-
     fn adjust_accounts(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
@@ -47,16 +37,6 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     >;
-
-    fn adjust_last_one(
-        &self,
-        payment_adjuster: &PaymentAdjusterReal,
-        last_account: QualifiedPayableAccount,
-    ) -> Self::ReturnType {
-        todo!("to be pulled out");
-        let account_opt = payment_adjuster.adjust_last_account_opt(last_account);
-        Ok(Either::Left(empty_or_single_element_vector(account_opt)))
-    }
 
     fn adjust_accounts(
         &self,
@@ -85,16 +65,6 @@ pub struct ServiceFeeOnlyAdjustmentRunner {}
 impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     type ReturnType = Vec<AdjustedAccountBeforeFinalization>;
 
-    fn adjust_last_one(
-        &self,
-        payment_adjuster: &PaymentAdjusterReal,
-        last_account: QualifiedPayableAccount,
-    ) -> Self::ReturnType {
-        todo!("to be pulled out");
-        let account_opt = payment_adjuster.adjust_last_account_opt(last_account);
-        empty_or_single_element_vector(account_opt)
-    }
-
     fn adjust_accounts(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
@@ -117,21 +87,11 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
     }
 }
 
-fn empty_or_single_element_vector(
-    adjusted_account_opt: Option<AdjustedAccountBeforeFinalization>,
-) -> Vec<AdjustedAccountBeforeFinalization> {
-    match adjusted_account_opt {
-        Some(elem) => vec![elem],
-        None => vec![],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        empty_or_single_element_vector, AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
-        TransactionAndServiceFeeAdjustmentRunner,
+        AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, WeightedPayable,
@@ -150,53 +110,6 @@ mod tests {
     use itertools::Either;
     use std::fmt::Debug;
     use std::time::{Duration, SystemTime};
-
-    fn test_adjust_last_one<AR, RT>(
-        subject: AR,
-        expected_return_type_finalizer: fn(Vec<AdjustedAccountBeforeFinalization>) -> RT,
-    ) where
-        AR: AdjustmentRunner<ReturnType = RT>,
-        RT: Debug + PartialEq,
-    {
-        todo!()
-        // let now = SystemTime::now();
-        // let wallet = make_wallet("abc");
-        // let mut qualified_payable = make_non_guaranteed_qualified_payable(111);
-        // qualified_payable.bare_account.balance_wei = 9_000_000_000;
-        // qualified_payable.payment_threshold_intercept_minor = 7_000_000_000;
-        // qualified_payable
-        //     .creditor_thresholds
-        //     .permanent_debt_allowed_wei = 2_000_000_000;
-        // let cw_balance = 8_645_123_505;
-        // let adjustment = Adjustment::ByServiceFee;
-        // let mut payment_adjuster = PaymentAdjusterReal::new();
-        // payment_adjuster.initialize_inner(cw_balance.into(), adjustment, now);
-        //
-        // let result = subject.adjust_last_one(&mut payment_adjuster, qualified_payable.clone());
-        //
-        // assert_eq!(
-        //     result,
-        //     expected_return_type_finalizer(vec![AdjustedAccountBeforeFinalization {
-        //         weighted_account: qualified_payable,
-        //         proposed_adjusted_balance_minor: cw_balance,
-        //     }])
-        // )
-    }
-
-    #[test]
-    fn transaction_and_service_fee_adjust_last_one_works() {
-        test_adjust_last_one(
-            TransactionAndServiceFeeAdjustmentRunner {},
-            |expected_vec| Ok(Either::Left(expected_vec)),
-        )
-    }
-
-    #[test]
-    fn service_fee_only_adjust_last_one_works() {
-        test_adjust_last_one(ServiceFeeOnlyAdjustmentRunner {}, |expected_vec| {
-            expected_vec
-        })
-    }
 
     fn initialize_payment_adjuster(
         now: SystemTime,
@@ -329,24 +242,5 @@ mod tests {
         assert_eq!(returned_accounts, vec![wallet_1, wallet_2])
         // If the transaction fee adjustment had been available to be performed, only one account
         // would've been returned. This test passes
-    }
-
-    #[test]
-    fn empty_or_single_element_vector_for_none() {
-        let result = empty_or_single_element_vector(None);
-
-        assert_eq!(result, vec![])
-    }
-
-    #[test]
-    fn empty_or_single_element_vector_for_some() {
-        todo!()
-        // let account_info = AdjustedAccountBeforeFinalization {
-        //     weighted_account: make_non_guaranteed_qualified_payable(123),
-        //     proposed_adjusted_balance_minor: 123_456_789,
-        // };
-        // let result = empty_or_single_element_vector(Some(account_info.clone()));
-        //
-        // assert_eq!(result, vec![account_info])
     }
 }
