@@ -1224,9 +1224,8 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, rate_pack};
+    use crate::test_utils::{assert_string_contains, get_project_root, rate_pack};
     use core::option::Option;
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyMumbai;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -2055,19 +2054,8 @@ mod tests {
             "get_modified_setup_tilde_in_data_directory",
         );
         let data_dir = base_dir.join("data_dir");
-        env::set_var(
-            "HOME",
-            current_dir()
-                .unwrap()
-                .join(&base_dir)
-                .to_string_lossy()
-                .to_string(),
-        );
-        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
-        let config_file_path = home_dir()
-            .expect("expect home dir")
-            .join("masqhome")
-            .join("config.toml");
+        std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
+        let config_file_path = base_dir.join("masqhome").join("config.toml");
         let mut config_file = File::create(&config_file_path).unwrap();
         config_file
             .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
@@ -2090,8 +2078,12 @@ mod tests {
         .collect_vec();
 
         let expected_config_file_data = "https://www.mainnet.com";
-        let dirs_wrapper = Box::new(DirsWrapperReal {});
-        let subject = SetupReporterReal::new(dirs_wrapper);
+        //let dirs_wrapper = Box::new(DirsWrapperReal {});
+        let dirs_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&base_dir))),
+        };
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
         let result = subject
             .get_modified_setup(existing_setup, incoming_setup)

@@ -375,9 +375,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    #[cfg(target_os = "windows")]
-    use dirs::home_dir as dirs_home_dir;
+    use crate::test_utils::{assert_string_contains, get_project_root, main_cryptde, ArgsBuilder};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -387,8 +385,6 @@ mod tests {
     use masq_lib::utils::running_test;
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    #[cfg(not(target_os = "windows"))]
-    use std::env;
     use std::env::current_dir;
     use std::fs::{canonicalize, create_dir_all, File};
     use std::io::Write;
@@ -1078,35 +1074,14 @@ mod tests {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        #[cfg(not(target_os = "windows"))]
-        {
-            let home_dir = ensure_node_home_directory_exists(
-                "node_configurator_standard",
-                "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
-            );
-            let data_dir = home_dir.join("masqhome");
-            env::set_var(
-                "HOME",
-                current_dir()
-                    .unwrap()
-                    .join(&home_dir)
-                    .to_string_lossy()
-                    .to_string(),
-            );
-            let _dir = create_dir_all(&data_dir);
-            let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
-            fill_up_config_file(config_file_relative);
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let masqhome = dirs_home_dir().unwrap().join("masqhome");
-            let _dir = create_dir_all(&masqhome.to_string_lossy().to_string());
-            let config_file_path = masqhome.join("config.toml").to_string_lossy().to_string();
-            let config_file_relative = File::create(config_file_path).unwrap();
-            crate::node_configurator::node_configurator_standard::tests::fill_up_config_file(
-                config_file_relative,
-            );
-        }
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+        );
+        let data_dir = home_dir.join("masqhome");
+        let _dir = create_dir_all(&data_dir);
+        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
             ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
             #[cfg(not(target_os = "windows"))]
@@ -1116,64 +1091,41 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
-        #[cfg(not(target_os = "windows"))]
-        let args = ArgsBuilder::new()
-            .param("--blockchain-service-url", "https://www.mainnet1.com")
-            .param("--config-file", "~/masqhome/config.toml")
-            .param("--data-directory", "~/masqhome");
-        #[cfg(target_os = "windows")]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
             .param("--config-file", "~\\masqhome\\config.toml")
             .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperReal {};
+        let dir_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&home_dir))),
+        };
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
+        assert_eq!(
+            value_m!(multiconfig, "data-directory", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(&data_dir)
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(data_dir)
+                .join(PathBuf::from("config.toml"))
+                .to_string_lossy()
+                .to_string()
+        );
         #[cfg(not(target_os = "windows"))]
         {
             assert_eq!(
-                value_m!(multiconfig, "data-directory", String).unwrap(),
-                current_dir()
-                    .unwrap()
-                    .join(&data_dir)
-                    .to_string_lossy()
-                    .to_string()
-            );
-            assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "9999:9999:booga"
-            );
-            assert_eq!(
-                value_m!(multiconfig, "config-file", String).unwrap(),
-                current_dir()
-                    .unwrap()
-                    .join(data_dir)
-                    .join(PathBuf::from("config.toml"))
-                    .to_string_lossy()
-                    .to_string()
-            );
-        }
-        #[cfg(target_os = "windows")]
-        {
-            assert_eq!(
-                value_m!(multiconfig, "data-directory", String).unwrap(),
-                dirs_home_dir()
-                    .unwrap()
-                    .join("masqhome")
-                    .to_string_lossy()
-                    .to_string()
-            );
-            assert_eq!(
-                value_m!(multiconfig, "config-file", String).unwrap(),
-                dirs_home_dir()
-                    .unwrap()
-                    .join("masqhome")
-                    .join(PathBuf::from("config.toml"))
-                    .to_string_lossy()
-                    .to_string()
             );
         }
         assert_eq!(
