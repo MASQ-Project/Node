@@ -1,6 +1,13 @@
 # MASQ Node ![masq-logo](images/masq-logo-sm.png)
 
+<div align="center">
+
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
+![GitHub Release](https://img.shields.io/github/v/release/MASQ-Project/Node?display_name=release&color=green)
+[![Discord](https://badgen.net/badge/icon/discord?icon=discord&label)](https://discord.gg/masq)
+
+</div>
+
 
 MASQ Node combines the benefits of VPN and Tor technology, to create superior next-generation privacy software, where 
 users are rewarded for supporting an uncensored, global Web.  Users gain privacy and anonymity, while helping promote 
@@ -9,7 +16,7 @@ Internet Freedom.
 ## Purpose
 **MASQ Node** forms the foundation of the MASQ Network.
 
-The MASQ Network is an open-source decentralized mesh-network (dMN) that allows any user to allocate spare computing resources to make the Internet
+The MASQ Network is an open-source decentralized mesh-network for privacy (dMeshVPN) that allows any user to allocate spare computing resources to make the Internet
 a free and fair place for the entire world. It is a worldwide collection of Nodes that securely delivers content without
 the need of a VPN or Tor.
 
@@ -33,8 +40,8 @@ stage - MASQ Network and it's developers are not responsible for any activity, o
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
 operations in October of 2019. In 2021, Substratum's Node repositories were removed from GitHub, so the fork link
-with MASQ was broken, but all credit for the original idea, the original design, and the first two years of MASQ's
-development belongs to Substratum. 
+with MASQ was broken, but all credit for the original idea, the original design, and the inherited code during first two years of MASQ's
+development is attributed to Substratum. 
 
 ## Running the MASQ Node
 
@@ -43,9 +50,9 @@ A [Knowledge Base](https://docs.masq.ai/masq) and testing resources are being re
 levels of technical ability.
 
 There you can find further information, guides and configuration examples for running MASQ Node from:
-- MASQ app - v0.2 (formerly called "GEMINI")
+- MASQ Browser
 - CLI
-- Docker image
+- Docker image (beta)
 
 If you are interested in testing stages, speak to the team in the official [Discord channel](https://discord.gg/masq)
 
