@@ -1224,7 +1224,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, get_project_root, rate_pack};
+    use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyMumbai;
@@ -1238,7 +1238,6 @@ mod tests {
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
-    use std::env;
     use std::env::current_dir;
     use std::fs::{create_dir_all, File};
     use std::io::Write;
@@ -2051,7 +2050,7 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "get_modified_setup_tilde_in_data_directory",
+            "get_modified_setup_tilde_in_config_file_path",
         );
         let data_dir = base_dir.join("data_dir");
         std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
@@ -2080,8 +2079,8 @@ mod tests {
         let expected_config_file_data = "https://www.mainnet.com";
         //let dirs_wrapper = Box::new(DirsWrapperReal {});
         let dirs_wrapper = DirsWrapperMock {
-            data_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&data_dir))),
-            home_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&base_dir))),
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
         };
         let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 

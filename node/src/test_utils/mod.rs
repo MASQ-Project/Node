@@ -51,20 +51,19 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
-use std::ffi::OsString;
 use std::fmt::Debug;
-use std::fs::read_dir;
+
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
-use std::path::PathBuf;
+
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use std::{env, io, thread};
 use web3::types::{Address, U256};
 
 lazy_static! {
@@ -1222,39 +1221,19 @@ pub mod unshared_test_utils {
     }
 }
 
-pub fn get_project_root() -> io::Result<PathBuf> {
-    let path = env::current_dir()?;
-    let mut path_ancestors = path.as_path().ancestors();
-
-    while let Some(p) = path_ancestors.next() {
-        let has_cargo = read_dir(p)?
-            .into_iter()
-            .any(|p| p.unwrap().file_name() == OsString::from("Cargo.lock"));
-        if has_cargo {
-            return Ok(PathBuf::from(p));
-        }
-    }
-    Err(io::Error::new(
-        ErrorKind::NotFound,
-        "Ran out of places to find Cargo.toml",
-    ))
-}
-
 #[cfg(test)]
 mod tests {
-    use std::borrow::BorrowMut;
-    use std::fs::read_to_string;
-    use std::iter;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
         ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
     };
+    use std::borrow::BorrowMut;
+    use std::iter;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     use super::*;
 
@@ -1421,16 +1400,5 @@ mod tests {
         // be made involve verifying that an object that comes out of the black box at some point is
         // exactly the same object that went into the black box at some other point, when the object
         // itself does not otherwise provide enough identifying information to make the assertion.
-    }
-
-    #[test]
-    fn it_should_find_our_project_root() {
-        let crate_name = "name = \"node\"";
-
-        let project_root = get_project_root().expect("There is no project root");
-
-        let toml_path = project_root.to_str().unwrap().to_owned() + "/Cargo.toml";
-        let toml_string = read_to_string(toml_path).unwrap();
-        assert!(toml_string.contains(crate_name));
     }
 }

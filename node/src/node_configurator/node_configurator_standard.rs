@@ -375,7 +375,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, get_project_root, main_cryptde, ArgsBuilder};
+    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -1091,14 +1091,20 @@ mod tests {
             .clone()
             .into_iter()
             .for_each(|(name, value)| std::env::set_var(name, value));
+        #[cfg(not(target_os = "windows"))]
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet1.com")
+            .param("--config-file", "~/masqhome/config.toml")
+            .param("--data-directory", "~/masqhome");
+        #[cfg(target_os = "windows")]
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://www.mainnet1.com")
             .param("--config-file", "~\\masqhome\\config.toml")
             .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock {
-            data_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&data_dir))),
-            home_dir_result: Some(PathBuf::from(get_project_root().unwrap().join(&home_dir))),
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&home_dir))),
         };
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
