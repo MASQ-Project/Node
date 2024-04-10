@@ -37,7 +37,7 @@ fn find_country_ipv6(data: (Vec<u64>, usize), ip_addr: Ipv6Addr) -> Option<Count
             None => return None, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
             Some (country_block) => {
                 if country_block.ip_range.contains(IpAddr::V6(ip_addr)) {
-                    if (country_block.country.index == 0) {
+                    if country_block.country.index == 0 {
                         return None
                     }
                     else {
@@ -119,6 +119,19 @@ mod tests {
         ).unwrap();
 
         assert_eq!(result.name, "United States".to_string());
+    }
+
+    #[test]
+    fn real_test_ipv4_with_cz_isp() {
+        let result = country_finder(
+            crate::dbip_country::ipv4_country_data,
+            crate::dbip_country::ipv6_country_data,
+            IpAddr::from_str("195.181.248.196").unwrap() // dig www.google.com A
+        ).unwrap();
+
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "SK".to_string());
+        assert_eq!(result.name, "Slovakia".to_string());
     }
 
     #[test]
