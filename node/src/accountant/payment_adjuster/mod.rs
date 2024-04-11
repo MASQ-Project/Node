@@ -715,14 +715,14 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Transaction fee amount 16,499,999,000,000,000 wei \
-        from your wallet will not cover anticipated fees to send 3 transactions. \
-        Maximum is 2. The payments count needs to be adjusted."
+            "WARN: {test_name}: Transaction fee amount 16,499,999,000,000,000 wei from your wallet \
+            will not cover anticipated fees to send 3 transactions. Maximum is 2. The payments \
+            count needs to be adjusted."
         ));
         log_handler.exists_log_containing(&format!(
-            "INFO: {test_name}: Please be aware that \
-        ignoring your debts might result in delinquency bans. In order to consume services without \
-        limitations, you will need to put more funds into your consuming wallet."
+            "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
+            delinquency bans. In order to consume services without limitations, you will need to \
+            place more funds into your consuming wallet."
         ));
     }
 
@@ -748,13 +748,13 @@ mod tests {
 
         assert_eq!(result, Ok(Some(Adjustment::ByServiceFee)));
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,000,001 \
-        wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of the MASQ \
-        token. Adjustment in their count or the amounts is required."));
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,\
+        000,001 wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of \
+        the MASQ token. Adjustment in their count or the amounts is required."));
         log_handler.exists_log_containing(&format!(
-            "INFO: {test_name}: Please be aware that \
-        ignoring your debts might result in delinquency bans. In order to consume services without \
-        limitations, you will need to put more funds into your consuming wallet."
+            "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
+            delinquency bans. In order to consume services without limitations, you will need to \
+            place more funds into your consuming wallet."
         ));
     }
 
@@ -1169,7 +1169,7 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        let expected_affordable_accounts = { vec![account_2, account_3] };
+        let expected_affordable_accounts = { vec![account_3, account_2] };
         assert_eq!(result.affordable_accounts, expected_affordable_accounts);
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp)
@@ -1224,9 +1224,9 @@ mod tests {
         assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated);
         let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
             format!(
-                "INFO: {test_name}: Shortage of MASQ in your consuming wallet impacts on payable \
-                {wallet}, ruled out from this round of payments. The proposed adjustment {} wei \
-                was less than half of the recorded debt, {} wei",
+                "INFO: {test_name}: Shortage of MASQ in your consuming wallet will impact payable \
+                {wallet}, ruled out from this round of payments. The proposed adjustment {} wei was \
+                below the disqualification limit {} wei",
                 proposed_adjusted_balance_in_this_iteration.separate_with_commas(),
                 (*MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR).separate_with_commas()
             )
@@ -1243,59 +1243,67 @@ mod tests {
         ));
         log_handler.exists_log_containing(&expected_log(
             "0x000000000000000000000000000000626c616832",
-            1000,
+            999,
         ));
     }
 
+    fn meaningless_timestamp() -> SystemTime {
+        SystemTime::now()
+    }
+
+    // This function should take just such args that affects the adjustment mechanism, except
+    // those that work as pure criteria parameters (= make up the weights). These should be
+    // limited to minimum because in this kind of tests we don't want to be burdened with their
+    // consideration.
+    fn make_plucked_qualified_account(
+        wallet_addr_fragment: &str,
+        balance_major: u128,
+        threshold_intercept_major: u128,
+        permanent_debt_allowed_major: u128,
+    ) -> QualifiedPayableAccount {
+        QualifiedPayableAccount::new(
+            PayableAccount {
+                wallet: make_wallet(wallet_addr_fragment),
+                balance_wei: multiple_by_billion(balance_major),
+                last_paid_timestamp: meaningless_timestamp(),
+                pending_payable_opt: None,
+            },
+            multiple_by_billion(threshold_intercept_major),
+            CreditorThresholds::new(multiple_by_billion(permanent_debt_allowed_major)),
+        )
+    }
+
     #[test]
-    fn qualified_accounts_count_before_equals_the_payments_count_after() {
-        // Meaning adjustment by service fee but no account elimination
+    fn count_of_qualified_accounts_before_equals_the_one_of_payments_after() {
+        // In other words, adjustment by service fee with no account eliminated
         init_test_logging();
-        let test_name = "qualified_accounts_count_before_equals_the_payments_count_after";
+        let test_name = "count_of_qualified_accounts_before_equals_the_one_of_payments_after";
         let now = SystemTime::now();
-        let balance_1 = 4_444_444_444_444_444_444;
-        let qualified_account_1 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("abc"),
-                balance_wei: balance_1,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(101_000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let balance_2 = 6_000_000_000_000_000_000;
-        let qualified_account_2 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("def"),
-                balance_wei: balance_2,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(150_000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let balance_3 = 6_666_666_666_000_000_000;
-        let qualified_account_3 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("ghi"),
-                balance_wei: balance_3,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(100_000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
+        let balance_1 = 5_444_444_444;
+        let qualified_account_1 =
+            make_plucked_qualified_account("abc", balance_1, 2_000_000_000, 1_000_000_000);
+        let balance_2 = 6_000_000_000;
+        let qualified_account_2 =
+            make_plucked_qualified_account("def", balance_2, 2_500_000_000, 2_000_000_000);
+        let balance_3 = 6_666_666_666;
+        let qualified_account_3 =
+            make_plucked_qualified_account("ghi", balance_3, 3_000_000_000, 1_111_111_111);
         let qualified_payables = vec![
             qualified_account_1.clone(),
             qualified_account_2.clone(),
             qualified_account_3.clone(),
         ];
         let mut subject = PaymentAdjusterReal::new();
+        let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_result(multiple_by_billion(4_500_000_000))
+            .calculate_result(multiple_by_billion(4_200_000_000))
+            .calculate_result(multiple_by_billion(3_800_000_000));
+        subject.calculators = vec![Box::new(calculator_mock)];
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let accounts_sum = balance_1 + balance_2 + balance_3;
-        let service_fee_balance_in_minor_units = accounts_sum - 3_000_000_000_000_000_000;
+        let accounts_sum_minor = balance_1 + balance_2 + balance_3;
+        let service_fee_balance_in_minor_units =
+            multiple_by_billion(accounts_sum_minor) - multiple_by_billion(3_000_000_000);
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)

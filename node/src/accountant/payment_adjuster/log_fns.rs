@@ -1,9 +1,7 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
-};
+use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
 use crate::masq_lib::utils::ExpectValue;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -16,11 +14,11 @@ use thousands::Separable;
 use web3::types::U256;
 
 const REFILL_RECOMMENDATION: &str = "\
-Please be aware that ignoring your debts might result in delinquency bans. In order to consume \
-services without limitations, you will need to put more funds into your consuming wallet.";
+Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
+consume services without limitations, you will need to place more funds into your consuming wallet.";
 const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
-Passed successfully adjustment by transaction fee but noticing critical scarcity of MASQ balance. \
-Operation will abort.";
+Passed successfully adjustment by transaction fee, but by a second look, noticing of critical \
+shortage of MASQ balance. Operation will abort.";
 
 const BLANK_SPACE: &str = "";
 
@@ -120,26 +118,20 @@ pub fn accounts_before_and_after_debug(
     )
 }
 
-pub fn info_log_for_disqualified_account(logger: &Logger, account: &UnconfirmedAdjustment) {
+pub fn info_log_for_disqualified_account(
+    logger: &Logger,
+    account: &DisqualificationSuspectedAccount,
+) {
     info!(
         logger,
-        "Shortage of MASQ in your consuming wallet impacts on payable {}, ruled out from this \
-        round of payments. The proposed adjustment {} wei was less than half of the recorded \
-        debt, {} wei",
-        account
-            .weighted_account
-            .qualified_account
-            .bare_account
-            .wallet,
+        "Shortage of MASQ in your consuming wallet will impact payable {}, ruled out from this \
+        round of payments. The proposed adjustment {} wei was below the disqualification limit \
+        {} wei",
+        account.wallet,
         account
             .proposed_adjusted_balance_minor
             .separate_with_commas(),
-        account
-            .weighted_account
-            .qualified_account
-            .bare_account
-            .balance_wei
-            .separate_with_commas()
+        account.disqualification_edge.separate_with_commas()
     )
 }
 
@@ -182,22 +174,51 @@ pub fn log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(logger: &Lo
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::log_fns::{
-        LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY, REFILL_RECOMMENDATION,
+        info_log_for_disqualified_account, LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
+        REFILL_RECOMMENDATION,
     };
+    use crate::test_utils::make_wallet;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "Please be aware that ignoring your debts might result in delinquency bans. In order to \
-            consume services without limitations, you will need to put more funds into your \
-            consuming wallet."
+            "Please be aware that abandoning your debts is going to result in delinquency bans. In \
+            order to consume services without limitations, you will need to place more funds into \
+            your consuming wallet."
         );
         assert_eq!(
             LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
-            "Passed successfully adjustment by transaction fee but noticing critical scarcity of \
-            MASQ balance. Operation will abort."
+            "Passed successfully adjustment by transaction fee, but by a second look, noticing of \
+            critical shortage of MASQ balance. Operation will abort."
         )
+    }
+
+    #[test]
+    fn disqualification_log_properly_formatted() {
+        init_test_logging();
+        let test_name = "disqualification_log_properly_formatted";
+        let logger = Logger::new(test_name);
+        let wallet = make_wallet("aaa");
+        let disqualified_account = DisqualificationSuspectedAccount {
+            wallet: &wallet,
+            weight: 0,
+            proposed_adjusted_balance_minor: 1_555_666_777,
+            disqualification_edge: 2_000_000_000,
+        };
+
+        info_log_for_disqualified_account(&logger, &disqualified_account);
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {}: Shortage of MASQ \
+        in your consuming wallet will impact payable 0x0000000000000000000000000000000000616161, \
+        ruled out from this round of payments. The proposed adjustment 1,555,666,777 wei was \
+        below the disqualification limit 2,000,000,000 wei",
+            test_name
+        ));
     }
 }

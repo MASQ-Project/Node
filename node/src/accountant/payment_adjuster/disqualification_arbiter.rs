@@ -5,9 +5,7 @@ use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functi
     try_finding_an_account_to_disqualify_diagnostics,
 };
 use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
-};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
@@ -41,12 +39,7 @@ impl DisqualificationArbiter {
             let account_to_disqualify =
                 Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
 
-            let wallet = account_to_disqualify
-                .weighted_account
-                .qualified_account
-                .bare_account
-                .wallet
-                .clone();
+            let wallet = account_to_disqualify.wallet.clone();
 
             try_finding_an_account_to_disqualify_diagnostics(
                 &disqualification_suspected_accounts,
@@ -55,11 +48,8 @@ impl DisqualificationArbiter {
 
             debug!(
                 logger,
-                "Found accounts {:?} whose proposed adjusted balances didn't get above the limit \
-            for disqualification. Chose the least desirable disqualified account as the one \
-            with the biggest balance, which is {}. To be thrown away in this iteration.",
+                "Found accounts {:?} applying for disqualification",
                 disqualification_suspected_accounts,
-                wallet
             );
 
             info_log_for_disqualified_account(logger, account_to_disqualify);
@@ -86,7 +76,7 @@ impl DisqualificationArbiter {
     fn list_accounts_nominated_for_disqualification<'unconfirmed_adj>(
         &self,
         unconfirmed_adjustments: &'unconfirmed_adj [UnconfirmedAdjustment],
-    ) -> Vec<&'unconfirmed_adj UnconfirmedAdjustment> {
+    ) -> Vec<DisqualificationSuspectedAccount<'unconfirmed_adj>> {
         unconfirmed_adjustments
             .iter()
             .flat_map(|adjustment_info| {
@@ -101,7 +91,11 @@ impl DisqualificationArbiter {
                         proposed_adjusted_balance,
                         disqualification_edge,
                     );
-                    Some(adjustment_info)
+
+                    let suspected_account: DisqualificationSuspectedAccount =
+                        (adjustment_info.into(), disqualification_edge).into();
+
+                    Some(suspected_account)
                 } else {
                     None
                 }
@@ -109,21 +103,52 @@ impl DisqualificationArbiter {
             .collect()
     }
 
-    fn find_account_with_smallest_weight<'account>(
-        accounts: &'account [&'account UnconfirmedAdjustment],
-    ) -> &'account UnconfirmedAdjustment {
-        let first_account = &accounts.first().expect("collection was empty");
+    fn find_account_with_smallest_weight<'accounts>(
+        accounts: &'accounts [DisqualificationSuspectedAccount],
+    ) -> &'accounts DisqualificationSuspectedAccount<'accounts> {
+        let first_account = accounts.first().expect("collection was empty");
         accounts.iter().fold(
-            **first_account,
+            first_account,
             |with_smallest_weight_so_far, current| match Ord::cmp(
-                &current.weighted_account.weight,
-                &with_smallest_weight_so_far.weighted_account.weight,
+                &current.weight,
+                &with_smallest_weight_so_far.weight,
             ) {
                 Ordering::Less => current,
                 Ordering::Greater => with_smallest_weight_so_far,
                 Ordering::Equal => with_smallest_weight_so_far,
             },
         )
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DisqualificationSuspectedAccount<'account> {
+    pub wallet: &'account Wallet,
+    pub weight: u128,
+    // For an Info log message
+    pub proposed_adjusted_balance_minor: u128,
+    pub disqualification_edge: u128,
+}
+
+impl<'unconfirmed_accounts> From<(&'unconfirmed_accounts UnconfirmedAdjustment, u128)>
+    for DisqualificationSuspectedAccount<'unconfirmed_accounts>
+{
+    fn from(
+        (unconfirmed_account, disqualification_edge): (
+            &'unconfirmed_accounts UnconfirmedAdjustment,
+            u128,
+        ),
+    ) -> Self {
+        DisqualificationSuspectedAccount {
+            wallet: &unconfirmed_account
+                .weighted_account
+                .qualified_account
+                .bare_account
+                .wallet,
+            weight: unconfirmed_account.weighted_account.weight,
+            proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
+            disqualification_edge,
+        }
     }
 }
 
@@ -194,27 +219,24 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::payment_adjuster::disqualification_arbiter::{
         DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
+        DisqualificationSuspectedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
+        UnconfirmedAdjustment, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        find_largest_exceeding_balance, weights_total,
-    };
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
         DisqualificationGaugeMock,
     };
-    use crate::accountant::test_utils::{
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account,
-    };
+    use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_payable_account};
     use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
-    use std::time::{Duration, SystemTime};
+    use masq_lib::utils::convert_collection;
+    use std::time::SystemTime;
 
     #[test]
     fn constants_are_correct() {
@@ -382,38 +404,27 @@ mod tests {
 
     #[test]
     fn find_account_with_smallest_weight_works_for_unequal_weights() {
-        let idx_of_expected_result = 1;
-        let (adjustments, expected_result) = make_unconfirmed_adjustments_and_expected_test_result(
-            vec![1004, 1000, 1002, 1001],
-            idx_of_expected_result,
-        );
-        let referenced_unconfirmed_adjustments = by_reference(&adjustments);
+        let pairs =
+            make_pairs_of_unconfirmed_adjustments_and_dsq_edges(vec![1004, 1000, 1002, 1001]);
+        let dsq_suspected_accounts = make_dsq_suspected_accounts(&pairs);
 
-        let result = DisqualificationArbiter::find_account_with_smallest_weight(
-            &referenced_unconfirmed_adjustments,
-        );
+        let result =
+            DisqualificationArbiter::find_account_with_smallest_weight(&dsq_suspected_accounts);
 
-        assert_eq!(result, &expected_result)
+        let expected_result = &dsq_suspected_accounts[1];
+        assert_eq!(result, expected_result)
     }
 
     #[test]
     fn find_account_with_smallest_weight_for_equal_weights_chooses_the_first_of_the_same_size() {
-        let idx_of_expected_result = 0;
-        let (adjustments, expected_result) = make_unconfirmed_adjustments_and_expected_test_result(
-            vec![1111, 1113, 1111],
-            idx_of_expected_result,
-        );
-        let referenced_non_finalized_accounts = by_reference(&adjustments);
+        let pairs = make_pairs_of_unconfirmed_adjustments_and_dsq_edges(vec![1111, 1113, 1111]);
+        let dsq_suspected_accounts = make_dsq_suspected_accounts(&pairs);
 
-        let result = DisqualificationArbiter::find_account_with_smallest_weight(
-            &referenced_non_finalized_accounts,
-        );
+        let result =
+            DisqualificationArbiter::find_account_with_smallest_weight(&dsq_suspected_accounts);
 
-        assert_eq!(result, &expected_result)
-    }
-
-    fn by_reference(adjusted_accounts: &[UnconfirmedAdjustment]) -> Vec<&UnconfirmedAdjustment> {
-        adjusted_accounts.iter().collect()
+        let expected_result = &dsq_suspected_accounts[0];
+        assert_eq!(result, expected_result)
     }
 
     #[test]
@@ -490,17 +501,15 @@ mod tests {
         assert_eq!(result, Some(wallet_3));
     }
 
-    fn make_unconfirmed_adjustments_and_expected_test_result(
+    fn make_pairs_of_unconfirmed_adjustments_and_dsq_edges(
         weights: Vec<u128>,
-        idx_of_expected_result: usize,
-    ) -> (Vec<UnconfirmedAdjustment>, UnconfirmedAdjustment) {
-        let init: (Vec<UnconfirmedAdjustment>, Option<UnconfirmedAdjustment>) = (vec![], None);
-
-        let (adjustments, expected_result_opt) = weights.into_iter().enumerate().fold(
-            init,
-            |(mut adjustments_so_far, expected_result_opt_so_far), (actual_idx, weight)| {
-                let original_account = make_payable_account(actual_idx as u64);
-                let garbage_intercept = 2_000_000_000; // Unimportant for the tests this is used in;
+    ) -> Vec<(UnconfirmedAdjustment, u128)> {
+        weights
+            .into_iter()
+            .enumerate()
+            .map(|(index, weight)| {
+                let original_account = make_payable_account(index as u64);
+                let garbage_intercept = 2_000_000_000;
                 let garbage_permanent_debt_allowed_wei = 1_111_111_111;
                 let qualified_account = QualifiedPayableAccount {
                     bare_account: original_account,
@@ -509,22 +518,26 @@ mod tests {
                         permanent_debt_allowed_wei: garbage_permanent_debt_allowed_wei,
                     },
                 };
-                let garbage_proposed_balance = 1_000_000_000; // Same here
-                let new_adjustment_to_be_added = UnconfirmedAdjustment::new(
-                    WeightedPayable::new(qualified_account, weight),
-                    garbage_proposed_balance,
-                );
-                let expected_result_opt = if expected_result_opt_so_far.is_none()
-                    && actual_idx == idx_of_expected_result
-                {
-                    Some(new_adjustment_to_be_added.clone())
-                } else {
-                    expected_result_opt_so_far
-                };
-                adjustments_so_far.push(new_adjustment_to_be_added);
-                (adjustments_so_far, expected_result_opt)
-            },
-        );
-        (adjustments, expected_result_opt.unwrap())
+                let garbage_proposed_balance = 1_000_000_000;
+                let garbage_dsq_edge = garbage_intercept - 1_500_000_000;
+                (
+                    UnconfirmedAdjustment::new(
+                        WeightedPayable::new(qualified_account, weight),
+                        garbage_proposed_balance,
+                    ),
+                    garbage_dsq_edge,
+                )
+            })
+            .collect()
+    }
+
+    fn make_dsq_suspected_accounts(
+        accounts_and_dsq_edges: &[(UnconfirmedAdjustment, u128)],
+    ) -> Vec<DisqualificationSuspectedAccount> {
+        let with_referred_accounts: Vec<(&UnconfirmedAdjustment, u128)> = accounts_and_dsq_edges
+            .iter()
+            .map(|(account, dsq_edge)| (account, *dsq_edge))
+            .collect();
+        convert_collection(with_referred_accounts)
     }
 }

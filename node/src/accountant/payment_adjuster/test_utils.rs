@@ -9,15 +9,13 @@ use crate::accountant::payment_adjuster::disqualification_arbiter::{
 };
 use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, AdjustmentIterationResult, UnconfirmedAdjustment,
-    WeightedPayable,
+    AdjustmentIterationResult, UnconfirmedAdjustment, WeightedPayable,
 };
 use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
-use crate::accountant::{gwei_to_wei, QualifiedPayableAccount};
+use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::accountant::PaymentThresholds;
-use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::Either;
 use lazy_static::lazy_static;
@@ -93,35 +91,6 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
     unban_below_gwei: 1_000_000,
 };
 
-pub fn assert_constants_and_remind_checking_sync_of_calculators_if_any_constant_changes(
-    constants_and_expected_values: &[(i128, i128)],
-    expected_num_sum: i128,
-) {
-    constants_and_expected_values.iter().enumerate().for_each(
-        |(idx, (constant, expected_value))| {
-            assert_eq!(
-                constant, expected_value,
-                "constant wrong value at position {}",
-                idx
-            )
-        },
-    );
-
-    // This matters only if the constants participate in the calculator's formula. If that's not
-    // true, simply update the num sum and ignore the concern about synchronization
-    let actual_sum: i128 = constants_and_expected_values
-        .iter()
-        .map(|(val, _)| *val)
-        .sum();
-    assert_eq!(actual_sum, expected_num_sum,
-               "The sum of constants used to calibre the calculator has changed, therefore you ought to see about \n\
-               maintenance of the whole system with its all parameters (e.g. debt age, debt balance,...) and make \n\
-               sure the weights coming from them are sensibly proportionate. There is a tool that can help you with \n\
-               that, look for a global flag in the file 'diagnostics' in the PaymentAdjuster module. It will enable \n\
-               rendering characteristics of the curves the calculations of these parameters are based on."
-    )
-}
-
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
     let qualified_payable = make_non_guaranteed_qualified_payable(n);
     let proposed_adjusted_balance_minor =
@@ -188,7 +157,7 @@ impl DisqualificationGaugeMock {
         self
     }
 
-    pub fn determine_limit_result(mut self, result: u128) -> Self {
+    pub fn determine_limit_result(self, result: u128) -> Self {
         self.determine_limit_results.borrow_mut().push(result);
         self
     }

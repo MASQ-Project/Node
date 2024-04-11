@@ -6,10 +6,8 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
-use crate::accountant::QualifiedPayableAccount;
 use itertools::Either;
 use masq_lib::utils::convert_collection;
-use std::vec;
 
 // TODO review this comment
 // There are only two runners. They perform adjustment either by both the transaction and service
@@ -89,27 +87,20 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::{
-        AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
+        AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
-    use crate::accountant::payment_adjuster::test_utils::{
-        make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
-    };
+    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
-    use crate::accountant::test_utils::{
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-    };
+    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
+    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use itertools::Either;
-    use std::fmt::Debug;
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
 
     fn initialize_payment_adjuster(
         now: SystemTime,
@@ -197,41 +188,38 @@ mod tests {
 
     #[test]
     fn adjust_accounts_for_service_fee_only_runner_is_not_supposed_to_care_about_transaction_fee() {
-        let now = SystemTime::now();
-        let wallet_1 = make_wallet("abc");
         let mut payment_thresholds = PaymentThresholds::default();
         payment_thresholds.maturity_threshold_sec = 100;
         payment_thresholds.threshold_interval_sec = 1000;
         payment_thresholds.permanent_debt_allowed_gwei = 1;
-        let account_1 = PayableAccount {
-            wallet: wallet_1.clone(),
-            balance_wei: 5_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(2_500)).unwrap(),
-            pending_payable_opt: None,
-        };
+        let balance = 5_000_000_000;
+        let mut account = make_non_guaranteed_qualified_payable(111);
+        account.bare_account.balance_wei = 5_000_000_000;
+        account.payment_threshold_intercept_minor = 4_000_000_000;
+        account.creditor_thresholds = CreditorThresholds::new(1_000_000_000);
+        let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");
-        let mut account_2 = account_1.clone();
-        account_2.wallet = wallet_2.clone();
-        let wallet_3 = make_wallet("ghj");
-        let mut account_3 = account_1.clone();
-        account_3.wallet = wallet_3;
-        let accounts = vec![account_1, account_2, account_3];
-        let qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
-        let largest_exceeding_balance_recently_qualified =
-            find_largest_exceeding_balance(&qualified_payables);
+        let mut account_1 = account.clone();
+        account_1.bare_account.wallet = wallet_1.clone();
+        let mut account_2 = account;
+        account_2.bare_account.wallet = wallet_2.clone();
         let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
-        let service_fee_balance_wei = 10_000_000_000;
-        let mut payment_adjuster = initialize_payment_adjuster(
-            now,
-            service_fee_balance_wei,
-            largest_exceeding_balance_recently_qualified,
+        let service_fee_balance_minor = (5 * balance) / 3;
+        let mut payment_adjuster = PaymentAdjusterReal::new();
+        payment_adjuster.initialize_inner(
+            service_fee_balance_minor,
+            adjustment,
+            123456789,
+            SystemTime::now(),
         );
         let subject = ServiceFeeOnlyAdjustmentRunner {};
-        let criteria_and_accounts =
-            payment_adjuster.calculate_weights_for_accounts(qualified_payables);
+        let weighted_account = |account: QualifiedPayableAccount| WeightedPayable {
+            qualified_account: account,
+            weight: 4_000_000_000,
+        };
+        let criteria_and_accounts = vec![weighted_account(account_1), weighted_account(account_2)];
 
         let result = subject.adjust_accounts(&mut payment_adjuster, criteria_and_accounts);
 

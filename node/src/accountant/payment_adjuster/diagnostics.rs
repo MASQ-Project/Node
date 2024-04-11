@@ -93,6 +93,7 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
 pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::diagnostics;
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
     };
@@ -100,7 +101,7 @@ pub mod ordinary_diagnostic_functions {
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
-    pub fn possibly_outweighed_accounts_diagnostics(account_info: &UnconfirmedAdjustment) {
+    pub fn outweighed_accounts_diagnostics(account_info: &UnconfirmedAdjustment) {
         diagnostics!(
             &account_info
                 .weighted_account
@@ -177,7 +178,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn try_finding_an_account_to_disqualify_diagnostics(
-        disqualification_suspected_accounts: &[&UnconfirmedAdjustment],
+        disqualification_suspected_accounts: &[DisqualificationSuspectedAccount],
         wallet: &Wallet,
     ) {
         diagnostics!(

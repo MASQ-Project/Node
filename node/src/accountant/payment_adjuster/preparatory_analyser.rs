@@ -12,10 +12,8 @@ use crate::accountant::payment_adjuster::PaymentAdjusterError;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::QualifiedPayableAccount;
 use ethereum_types::U256;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::logger::Logger;
-use std::cmp::Ordering;
-use std::ops::Mul;
 
 pub struct PreparatoryAnalyzer {}
 

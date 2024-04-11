@@ -88,29 +88,6 @@ impl UnconfirmedAdjustment {
     }
 }
 
-pub struct NonFinalizedAdjustmentWithResolution {
-    pub non_finalized_adjustment: AdjustedAccountBeforeFinalization,
-    pub adjustment_resolution: AdjustmentResolution,
-}
-
-impl NonFinalizedAdjustmentWithResolution {
-    pub fn new(
-        non_finalized_adjustment: AdjustedAccountBeforeFinalization,
-        adjustment_resolution: AdjustmentResolution,
-    ) -> Self {
-        Self {
-            non_finalized_adjustment,
-            adjustment_resolution,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum AdjustmentResolution {
-    Finalize,
-    Revert,
-}
-
 pub struct TransactionCountsWithin16bits {
     pub affordable: u16,
     pub required: u16,
@@ -130,9 +107,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsWithin16bits,
     };
-    use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable, make_payable_account,
-    };
+    use crate::accountant::test_utils::make_payable_account;
     use ethereum_types::U256;
 
     #[test]

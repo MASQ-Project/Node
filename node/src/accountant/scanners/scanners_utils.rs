@@ -489,7 +489,7 @@ mod tests {
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, SentPayables};
+    use crate::accountant::{CreditorThresholds, gwei_to_wei, QualifiedPayableAccount, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
