@@ -41,7 +41,7 @@ fn loading_test_with_randomized_params() {
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
-    let number_of_requested_scenarios = 50;
+    let number_of_requested_scenarios = 500;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
     let test_overall_output_collector = TestOverallOutputCollector::default();
 
@@ -83,7 +83,7 @@ fn loading_test_with_randomized_params() {
                 ) => {
                     output_collector
                         .test_overall_output_collector
-                        .scenarios_eliminated_before_adjustment_started += 1;
+                        .scenarios_denied_before_adjustment_started += 1;
                     None
                 }
                 _e => Some(scenario),
@@ -186,8 +186,11 @@ fn make_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccou
         let sum: u128 = sum_as(&accounts, |account| account.balance_wei);
         sum / accounts_count as u128
     };
-    let cw_service_fee_balance_minor =
-        balance_average * (generate_usize(gn, accounts_count - 1) as u128 + 1);
+    let cw_service_fee_balance_minor = {
+        let max_pieces = accounts_count * 6;
+        let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
+        balance_average / 6 * number_of_pieces
+    };
     (cw_service_fee_balance_minor, accounts)
 }
 
@@ -231,17 +234,19 @@ fn prepare_single_scenario_result(
     let reinterpreted_result = match payment_adjuster_result {
         Ok(outbound_payment_instructions) => {
             let mut adjusted_accounts = outbound_payment_instructions.affordable_accounts;
-            let adjusted_accounts = account_infos
-                .into_iter()
-                .map(|account_info| {
-                    prepare_interpretable_account_resolution(account_info, &mut adjusted_accounts)
-                })
-                .collect();
-            let sorted_interpretable_adjustments =
+            let portion_of_cw_cumulatively_used_percents = {
+                let used_absolute: u128 = sum_as(&adjusted_accounts, |account| account.balance_wei);
+                ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8
+            };
+            let adjusted_accounts =
+                interpretable_account_resolutions(account_infos, &mut adjusted_accounts);
+            let (partially_sorted_interpretable_adjustments, were_no_accounts_eliminated) =
                 sort_interpretable_adjustments(adjusted_accounts);
             Ok(SuccessfulAdjustment {
                 common,
-                partially_sorted_interpretable_adjustments: sorted_interpretable_adjustments,
+                portion_of_cw_cumulatively_used_percents,
+                partially_sorted_interpretable_adjustments,
+                were_no_accounts_eliminated,
             })
         }
         Err(adjuster_error) => Err(FailedAdjustment {
@@ -252,6 +257,18 @@ fn prepare_single_scenario_result(
     };
 
     ScenarioResult::new(reinterpreted_result)
+}
+
+fn interpretable_account_resolutions(
+    account_infos: Vec<AccountInfo>,
+    adjusted_accounts: &mut Vec<PayableAccount>,
+) -> Vec<InterpretableAdjustmentResult> {
+    account_infos
+        .into_iter()
+        .map(|account_info| {
+            prepare_interpretable_account_resolution(account_info, adjusted_accounts)
+        })
+        .collect()
 }
 
 struct ScenarioResult {
@@ -266,7 +283,9 @@ impl ScenarioResult {
 
 struct SuccessfulAdjustment {
     common: CommonScenarioInfo,
+    portion_of_cw_cumulatively_used_percents: u8,
     partially_sorted_interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
+    were_no_accounts_eliminated: bool,
 }
 
 struct FailedAdjustment {
@@ -300,13 +319,14 @@ fn render_results_to_file_and_attempt_basic_assertions(
     let file_dir = ensure_node_home_directory_exists("payment_adjuster", "loading_test");
     let mut file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
     introduction(&mut file);
-    let test_overall_output_collector = scenario_results
-        .into_iter()
-        .fold(overall_output_collector, |acc, scenario_result| {
-            process_single_scenario(&mut file, acc, scenario_result)
-        });
+    let test_overall_output_collector =
+        scenario_results
+            .into_iter()
+            .fold(overall_output_collector, |acc, scenario_result| {
+                do_final_processing_of_single_scenario(&mut file, acc, scenario_result)
+            });
     let total_scenarios_evaluated = test_overall_output_collector
-        .scenarios_eliminated_before_adjustment_started
+        .scenarios_denied_before_adjustment_started
         + test_overall_output_collector.oks
         + test_overall_output_collector.all_accounts_eliminated
         + test_overall_output_collector.insufficient_service_fee_balance;
@@ -326,7 +346,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
     // It rather indicates how well the setting is so that you can adjust it eventually,
     // to see more relevant results
     let entry_check_pass_rate = 100
-        - ((test_overall_output_collector.scenarios_eliminated_before_adjustment_started * 100)
+        - ((test_overall_output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
     let required_pass_rate = 80;
     assert!(
@@ -340,7 +360,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
     );
     let ok_adjustment_percentage = (test_overall_output_collector.oks * 100)
         / (total_scenarios_evaluated
-            - test_overall_output_collector.scenarios_eliminated_before_adjustment_started);
+            - test_overall_output_collector.scenarios_denied_before_adjustment_started);
     let required_success_rate = 70;
     assert!(
         ok_adjustment_percentage >= required_success_rate,
@@ -367,31 +387,50 @@ fn write_brief_test_summary_into_file(
     total_of_scenarios_evaluated: usize,
 ) {
     write_thick_dividing_line(file);
+    write_thick_dividing_line(file);
     file.write_fmt(format_args!(
-        "Scenarios\n\
+        "\n\
+         Scenarios\n\
          Requested:............................. {}\n\
-         Actually evaluated:.................... {}\n\
-         Caught by the entry check:............. {}\n\
+         Actually evaluated:.................... {}\n\n\
          Successful:............................ {}\n\
+         Successes with no accounts eliminated:. {}\n\
+         Fulfillment distribution (service fee adjustment only):\n\
+         {}\n\n\
+         Unsuccessful\n\
+         Caught by the entry check:............. {}\n\
          With 'AllAccountsEliminated':.......... {}\n\
          With late insufficient balance errors:. {}",
         number_of_requested_scenarios,
         total_of_scenarios_evaluated,
-        overall_output_collector.scenarios_eliminated_before_adjustment_started,
         overall_output_collector.oks,
+        overall_output_collector.with_no_accounts_eliminated,
+        overall_output_collector
+            .fulfillment_distribution
+            .render_in_two_lines(),
+        overall_output_collector.scenarios_denied_before_adjustment_started,
         overall_output_collector.all_accounts_eliminated,
         overall_output_collector.insufficient_service_fee_balance
     ))
     .unwrap()
 }
 
-fn process_single_scenario(
+fn do_final_processing_of_single_scenario(
     file: &mut File,
     mut test_overall_output: TestOverallOutputCollector,
     scenario: ScenarioResult,
 ) -> TestOverallOutputCollector {
     match scenario.result {
         Ok(positive) => {
+            if positive.were_no_accounts_eliminated {
+                test_overall_output.with_no_accounts_eliminated += 1
+            }
+            if Adjustment::ByServiceFee == positive.common.required_adjustment {
+                test_overall_output
+                    .fulfillment_distribution
+                    .collected_fulfillment_percentages
+                    .push(positive.portion_of_cw_cumulatively_used_percents)
+            }
             render_positive_scenario(file, positive);
             test_overall_output.oks += 1;
             test_overall_output
@@ -399,7 +438,7 @@ fn process_single_scenario(
         Err(negative) => {
             match negative.adjuster_error {
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => {
-                    panic!("impossible in this kind of test without the initial check")
+                    panic!("impossible in this kind of test without the tx fee initial check")
                 }
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     ..
@@ -417,12 +456,15 @@ fn process_single_scenario(
 fn render_scenario_header(
     file: &mut File,
     cw_service_fee_balance_minor: u128,
+    portion_of_cw_used_percents: u8,
     required_adjustment: Adjustment,
 ) {
     file.write_fmt(format_args!(
         "CW service fee balance: {} wei\n\
+         Portion of CW balance used: {}%\n\
          Maximal txt count due to CW txt fee balance: {}\n",
         cw_service_fee_balance_minor.separate_with_commas(),
+        portion_of_cw_used_percents,
         resolve_affordable_transaction_count(required_adjustment)
     ))
     .unwrap();
@@ -432,6 +474,7 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
     render_scenario_header(
         file,
         result.common.cw_service_fee_balance_minor,
+        result.portion_of_cw_cumulatively_used_percents,
         result.common.required_adjustment,
     );
     write_thin_dividing_line(file);
@@ -481,6 +524,7 @@ fn render_negative_scenario(file: &mut File, negative_result: FailedAdjustment) 
     render_scenario_header(
         file,
         negative_result.common.cw_service_fee_balance_minor,
+        0,
         negative_result.common.required_adjustment,
     );
     write_thin_dividing_line(file);
@@ -555,13 +599,14 @@ fn prepare_interpretable_account_resolution(
 
 fn sort_interpretable_adjustments(
     interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
-) -> Vec<InterpretableAdjustmentResult> {
+) -> (Vec<InterpretableAdjustmentResult>, bool) {
     let (finished, eliminated): (
         Vec<InterpretableAdjustmentResult>,
         Vec<InterpretableAdjustmentResult>,
     ) = interpretable_adjustments
         .into_iter()
         .partition(|adjustment| adjustment.bill_coverage_in_percentage_opt.is_some());
+    let were_no_accounts_eliminated = eliminated.is_empty();
     let finished_sorted = finished.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(
             &result_b.bill_coverage_in_percentage_opt.unwrap(),
@@ -571,7 +616,8 @@ fn sort_interpretable_adjustments(
     let eliminated_sorted = eliminated.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(&result_b.initial_balance, &result_a.initial_balance)
     });
-    finished_sorted.chain(eliminated_sorted).collect()
+    let all_results = finished_sorted.chain(eliminated_sorted).collect();
+    (all_results, were_no_accounts_eliminated)
 }
 
 fn generate_usize_guts(gn: &mut ThreadRng, low: usize, up_to: usize) -> usize {
@@ -594,13 +640,87 @@ fn generate_boolean(gn: &mut ThreadRng) -> bool {
 struct TestOverallOutputCollector {
     // First stage: entry check
     // ____________________________________
-    scenarios_eliminated_before_adjustment_started: usize,
-    // Second stage: proper adjustment
+    scenarios_denied_before_adjustment_started: usize,
+    // Second stage: proper adjustments
     // ____________________________________
     oks: usize,
+    with_no_accounts_eliminated: usize,
+    fulfillment_distribution: PercentageFulfillmentDistribution,
     // Errors
     all_accounts_eliminated: usize,
     insufficient_service_fee_balance: usize,
+}
+
+#[derive(Default)]
+struct PercentageFulfillmentDistribution {
+    collected_fulfillment_percentages: Vec<u8>,
+}
+
+impl PercentageFulfillmentDistribution {
+    fn render_in_two_lines(&self) -> String {
+        #[derive(Default)]
+        struct Ranges {
+            from_0_to_10: usize,
+            from_10_to_20: usize,
+            from_20_to_30: usize,
+            from_30_to_40: usize,
+            from_40_to_50: usize,
+            from_50_to_60: usize,
+            from_60_to_70: usize,
+            from_70_to_80: usize,
+            from_80_to_90: usize,
+            from_90_to_100: usize,
+        }
+
+        let full_count = self.collected_fulfillment_percentages.len();
+        let ranges_populated = self.collected_fulfillment_percentages.iter().fold(
+            Ranges::default(),
+            |mut ranges, current| {
+                match current {
+                    0..=9 => ranges.from_0_to_10 += 1,
+                    10..=19 => ranges.from_10_to_20 += 1,
+                    20..=29 => ranges.from_20_to_30 += 1,
+                    30..=39 => ranges.from_30_to_40 += 1,
+                    40..=49 => ranges.from_40_to_50 += 1,
+                    50..=59 => ranges.from_50_to_60 += 1,
+                    60..=69 => ranges.from_60_to_70 += 1,
+                    70..=79 => ranges.from_70_to_80 += 1,
+                    80..=89 => ranges.from_80_to_90 += 1,
+                    90..=100 => ranges.from_90_to_100 += 1,
+                    _ => panic!("Shouldn't happen"),
+                }
+                ranges
+            },
+        );
+        let digits = 6.max(full_count.to_string().len());
+        format!(
+            "Percentage ranges\n\
+        {:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|\
+        {:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}\n\
+        {:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|\
+        {:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}|{:^digits$}",
+            "0-9",
+            "10-19",
+            "20-29",
+            "30-39",
+            "40-49",
+            "50-59",
+            "60-69",
+            "70-79",
+            "80-89",
+            "90-100",
+            ranges_populated.from_0_to_10,
+            ranges_populated.from_10_to_20,
+            ranges_populated.from_20_to_30,
+            ranges_populated.from_30_to_40,
+            ranges_populated.from_40_to_50,
+            ranges_populated.from_50_to_60,
+            ranges_populated.from_60_to_70,
+            ranges_populated.from_70_to_80,
+            ranges_populated.from_80_to_90,
+            ranges_populated.from_90_to_100
+        )
+    }
 }
 
 struct CommonScenarioInfo {
