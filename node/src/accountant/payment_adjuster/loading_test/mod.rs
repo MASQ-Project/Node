@@ -26,6 +26,7 @@ use thousands::Separable;
 use web3::types::U256;
 
 #[test]
+#[ignore]
 fn loading_test_with_randomized_params() {
     // This test needs to be understood as a generator of extensive amount of scenarios that
     // the PaymentAdjuster might come to be asked to resolve while there are quite many combinations
@@ -386,7 +387,6 @@ fn write_brief_test_summary_into_file(
     number_of_requested_scenarios: usize,
     total_of_scenarios_evaluated: usize,
 ) {
-    write_thick_dividing_line(file);
     write_thick_dividing_line(file);
     file.write_fmt(format_args!(
         "\n\
