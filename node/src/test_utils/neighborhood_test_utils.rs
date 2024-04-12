@@ -17,6 +17,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use crate::neighborhood::node_location::{get_node_location, NodeLocation};
 
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
@@ -45,6 +46,7 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
         u64::from(n),
         true,
         true,
+        if has_ip { get_node_location(Some(node_addr.ip_addr)) } else { get_node_location(None) },
     )
 }
 
@@ -156,6 +158,7 @@ impl NodeRecord {
         base_rate: u64,
         accepts_connections: bool,
         routes_data: bool,
+        node_location: Option<NodeLocation>
     ) -> NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
@@ -165,6 +168,7 @@ impl NodeRecord {
             routes_data,
             0,
             &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN),
+            node_location
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();

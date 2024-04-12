@@ -13,6 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
+use crate::neighborhood::node_location::{get_node_location, NodeLocation};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -67,9 +68,10 @@ impl NodeRecord {
         routes_data: bool,
         version: u32,
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
+        location: Option<NodeLocation>,
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
-            metadata: NodeRecordMetadata::new(),
+            metadata: NodeRecordMetadata::new(location),
             inner: NodeRecordInner_0v1 {
                 public_key: public_key.clone(),
                 earning_wallet,
@@ -283,7 +285,7 @@ impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
         let mut node_record = NodeRecord {
             inner: agr.inner,
-            metadata: NodeRecordMetadata::new(),
+            metadata: NodeRecordMetadata::new(get_node_location(Some(agr.node_addr_opt.as_ref().expect("expect ip add").ip_addr))),
             signed_gossip: agr.signed_gossip,
             signature: agr.signature,
         };
@@ -306,7 +308,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
         let inner = NodeRecordInner_0v1::try_from(gnr)?;
         let mut node_record = NodeRecord {
             inner,
-            metadata: NodeRecordMetadata::new(),
+            metadata: NodeRecordMetadata::new(get_node_location(None)),
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
@@ -321,14 +323,19 @@ pub struct NodeRecordMetadata {
     pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
+    pub free_world: bool,
+    pub node_location: Option<NodeLocation>,
 }
 
 impl NodeRecordMetadata {
-    pub fn new() -> NodeRecordMetadata {
+    pub fn new(node_location: Option<NodeLocation>) -> NodeRecordMetadata {
+        let free_world = &node_location.as_ref().expect("expected NodeLocation data");
         NodeRecordMetadata {
             last_update: time_t_timestamp(),
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
+            free_world: free_world.free_world,
+            node_location,
         }
     }
 }
@@ -591,6 +598,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -600,6 +608,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -609,6 +618,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
@@ -618,6 +628,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -630,6 +641,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -645,6 +657,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -654,6 +667,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -663,6 +677,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -672,6 +687,7 @@ mod tests {
             false,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -681,6 +697,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
@@ -691,6 +708,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         mod_signature.signature = CryptData::new(&[]);
         let mod_version = NodeRecord::new(
@@ -701,6 +719,7 @@ mod tests {
             true,
             1,
             main_cryptde(),
+            get_node_location(None)
         );
 
         assert_eq!(exemplar, exemplar);

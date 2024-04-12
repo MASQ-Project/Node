@@ -19,6 +19,7 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+use crate::neighborhood::node_location::get_node_location;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -58,6 +59,7 @@ impl NeighborhoodDatabase {
             neighborhood_mode.routes_data(),
             0,
             cryptde,
+            get_node_location(None)
         );
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
             node_record

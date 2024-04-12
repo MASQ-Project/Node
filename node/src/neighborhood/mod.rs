@@ -7,6 +7,7 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
+pub mod node_location;
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
@@ -1646,7 +1647,7 @@ mod tests {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::net::{IpAddr, SocketAddr};
+    use std::net::SocketAddr;
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1715,6 +1716,7 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::neighborhood::node_location::get_node_location;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -3528,6 +3530,7 @@ mod tests {
             100,
             true,
             true,
+            None,
         );
         let this_node_inside = this_node.clone();
         let removed_neighbor = make_node_record(2345, true);
@@ -4635,6 +4638,7 @@ mod tests {
             100,
             true,
             true,
+            None,
         );
         let mut db = db_from_node(&this_node);
         let far_neighbor = make_node_record(1324, true);
@@ -5527,6 +5531,7 @@ mod tests {
             true,
             0,
             main_cryptde(),
+            get_node_location(None)
         );
         let unreachable_host = String::from("facebook.com");
         let mut subject = neighborhood_from_nodes(&subject_node, None);
