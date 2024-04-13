@@ -526,7 +526,9 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
     use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
-    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
+    use crate::accountant::payment_adjuster::disqualification_arbiter::{
+        DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
+    };
     use crate::accountant::payment_adjuster::inner::{
         PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
     };
@@ -1274,10 +1276,10 @@ mod tests {
         SystemTime::now()
     }
 
-    // This function should take just such args that affects the adjustment mechanism, except
-    // those that work as pure criteria parameters (= make up the weights). These should be
-    // limited to minimum because in this kind of tests we don't want to be burdened with their
-    // consideration.
+    // This function should take just such essential args as balances and those that play rather
+    // a secondary role, yet an important one in the verification processes for proposed adjusted
+    // balances. Refrain from employing more of the weights-affecting parameters as they would
+    // only burden us with their consideration in these tests.
     fn make_plucked_qualified_account(
         wallet_addr_fragment: &str,
         balance_minor: u128,
@@ -1325,17 +1327,13 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
         let accounts_sum_minor = balance_1 + balance_2 + balance_3;
-        let service_fee_balance_in_minor_units =
-            accounts_sum_minor - multiple_by_billion(2_000_000_000);
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
-            Box::new(mock)
-        };
+        let cw_service_fee_balance_minor = accounts_sum_minor - multiple_by_billion(2_000_000_000);
+        let agent = BlockchainAgentMock::default()
+            .set_arbitrary_id_stamp(agent_id_stamp)
+            .service_fee_balance_minor_result(cw_service_fee_balance_minor);
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
-            agent,
+            agent: Box::new(agent),
             adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt: None,
         };
@@ -1395,49 +1393,30 @@ mod tests {
         let test_name =
             "only_transaction_fee_causes_limitations_and_the_service_fee_balance_suffices";
         let now = SystemTime::now();
-        let account_1 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("abc"),
-                balance_wei: 111_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let account_2 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("def"),
-                balance_wei: 333_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let account_3 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("ghi"),
-                balance_wei: 222_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let balance_1 = multiple_by_billion(111_000_000);
+        let account_1 = make_plucked_qualified_account("abc", balance_1, 100_000_000, 20_000_000);
+        let balance_2 = multiple_by_billion(300_000_000);
+        let account_2 = make_plucked_qualified_account("def", balance_2, 120_000_000, 50_000_000);
+        let balance_3 = multiple_by_billion(222_222_222);
+        let account_3 = make_plucked_qualified_account("ghi", balance_3, 100_000_000, 40_000_000);
+        let qualified_payables = vec![account_1.clone(), account_2, account_3.clone()];
+        let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_result(multiple_by_billion(400_000_000))
+            // This account will be cut off because it has the lowest weight and only two accounts
+            // can be kept according to the limitations detected in the transaction fee balance
+            .calculate_result(multiple_by_billion(120_000_000))
+            .calculate_result(multiple_by_billion(250_000_000));
         let mut subject = PaymentAdjusterReal::new();
+        subject.calculators = vec![Box::new(calculator_mock)];
         subject.logger = Logger::new(test_name);
+        let cw_service_fee_balance_minor = balance_1 + balance_2 + balance_3;
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(10_u128.pow(22));
-            Box::new(mock)
-        };
+        let agent = BlockchainAgentMock::default()
+            .set_arbitrary_id_stamp(agent_id_stamp)
+            .service_fee_balance_minor_result(10_u128.pow(22));
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
-            agent,
+            agent: Box::new(agent),
             adjustment: Adjustment::TransactionFeeInPriority {
                 affordable_transaction_count: 2,
             },
@@ -1446,11 +1425,10 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        // The account 3 takes the first place for its age
-        // (it weights more if the balance is so small)
+        // The account 1 takes the first place for its weight being the biggest
         assert_eq!(
             result.affordable_accounts,
-            vec![account_3.bare_account, account_2.bare_account]
+            vec![account_1.bare_account, account_3.bare_account]
         );
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
@@ -1461,14 +1439,14 @@ mod tests {
 |                                           Original
 |                                           Adjusted
 |
-|0x0000000000000000000000000000000000646566 333,000,000,000,000
-|                                           333,000,000,000,000
-|0x0000000000000000000000000000000000676869 222,000,000,000,000
-|                                           222,000,000,000,000
+|0x0000000000000000000000000000000000676869 222,222,222,000,000,000
+|                                           222,222,222,000,000,000
+|0x0000000000000000000000000000000000616263 111,000,000,000,000,000
+|                                           111,000,000,000,000,000
 |
 |Ruled Out Accounts                         Original
 |
-|0x0000000000000000000000000000000000616263 111,000,000,000,000"
+|0x0000000000000000000000000000000000646566 300,000,000,000,000,000"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
     }
@@ -1481,53 +1459,36 @@ mod tests {
         // 2) adjustment by service fee (can but not have to cause an account drop-off)
         init_test_logging();
         let now = SystemTime::now();
-        let account_1 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("abc"),
-                balance_wei: 111_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(3333)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let account_2 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("def"),
-                balance_wei: 333_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(4444)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let account_3 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: make_wallet("ghk"),
-                balance_wei: 222_000_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(5555)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
-        let qualified_payables = vec![account_1, account_2.clone(), account_3.clone()];
+        let balance_1 = multiple_by_billion(111_000_000);
+        let account_1 = make_plucked_qualified_account("abc", balance_1, 50_000_000, 10_000_000);
+        let balance_2 = multiple_by_billion(333_000_000);
+        let account_2 = make_plucked_qualified_account("def", balance_2, 200_000_000, 50_000_000);
+        let balance_3 = multiple_by_billion(222_000_000);
+        let account_3 = make_plucked_qualified_account("ghi", balance_3, 100_000_000, 35_000_000);
+        let disqualification_arbiter = DisqualificationArbiter::default();
+        let disqualification_limit_1 =
+            disqualification_arbiter.calculate_disqualification_edge(&account_1);
+        let disqualification_limit_3 =
+            disqualification_arbiter.calculate_disqualification_edge(&account_3);
+        let qualified_payables = vec![account_1.clone(), account_2, account_3.clone()];
+        let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_result(multiple_by_billion(400_000_000))
+            .calculate_result(multiple_by_billion(200_000_000))
+            .calculate_result(multiple_by_billion(300_000_000));
         let mut subject = PaymentAdjusterReal::new();
-        let service_fee_balance_in_minor_units = 111_000_000_000_000_u128 + 333_000_000_000_000;
+        let cw_service_fee_balance_minor =
+            disqualification_limit_1 + disqualification_limit_3 + multiple_by_billion(10_000_000);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
-            Box::new(mock)
-        };
+        let agent = BlockchainAgentMock::default()
+            .set_arbitrary_id_stamp(agent_id_stamp)
+            .service_fee_balance_minor_result(cw_service_fee_balance_minor);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 123,
             context_id: 321,
-        }); //just hardening, not so important
+        }); // Just hardening, not so important
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
-            agent,
+            agent: Box::new(agent),
             adjustment: Adjustment::TransactionFeeInPriority {
                 affordable_transaction_count: 2,
             },
@@ -1536,13 +1497,17 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        // Account_1, the least important one, was eliminated for not big enough transaction fee balance
+        // Account 2, the least important one, was eliminated for a lack of transaction fee in the cw
         let expected_accounts = {
-            let account_2_adjusted = PayableAccount {
-                balance_wei: 222_000_000_000_000,
-                ..account_2.bare_account
+            let account_1_adjusted = PayableAccount {
+                balance_wei: 71_000_000_000_000_001,
+                ..account_1.bare_account
             };
-            vec![account_3.bare_account, account_2_adjusted]
+            let account_3_adjusted = PayableAccount {
+                balance_wei: 166_999_999_999_999_999,
+                ..account_3.bare_account
+            };
+            vec![account_1_adjusted, account_3_adjusted]
         };
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
@@ -1641,156 +1606,138 @@ mod tests {
         ));
     }
 
-    struct CompetitiveAccountsTestInputs<'a> {
-        common: WalletsSetup<'a>,
-        account_1_balance_positive_correction_minor: u128,
-        account_2_balance_positive_correction_minor: u128,
-        account_1_age_positive_correction_secs: u64,
-        account_2_age_positive_correction_secs: u64,
-    }
-
-    #[derive(Clone, Copy)]
-    struct WalletsSetup<'a> {
-        wallet_1: &'a Wallet,
-        wallet_2: &'a Wallet,
-    }
-
-    fn test_two_competitive_accounts_with_one_disqualified<'a>(
-        test_scenario_name: &str,
-        inputs: CompetitiveAccountsTestInputs,
-        expected_wallet_of_the_winning_account: &'a Wallet,
-    ) {
-        let now = SystemTime::now();
-        let cw_service_fee_balance_in_minor = 100_000_000_000_000 - 1;
-        let standard_balance_per_account = 100_000_000_000_000;
-        let standard_age_per_account = 12000;
-        let account_1 = PayableAccount {
-            wallet: inputs.common.wallet_1.clone(),
-            balance_wei: standard_balance_per_account
-                + inputs.account_1_balance_positive_correction_minor,
-            last_paid_timestamp: now
-                .checked_sub(Duration::from_secs(
-                    standard_age_per_account + inputs.account_1_age_positive_correction_secs,
-                ))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: inputs.common.wallet_2.clone(),
-            balance_wei: standard_balance_per_account
-                + inputs.account_2_balance_positive_correction_minor,
-            last_paid_timestamp: now
-                .checked_sub(Duration::from_secs(
-                    standard_age_per_account + inputs.account_2_age_positive_correction_secs,
-                ))
-                .unwrap(),
-            pending_payable_opt: None,
-        };
-        let payables = vec![account_1, account_2];
-        let qualified_payables =
-            make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
-        let mut subject = PaymentAdjusterReal::new();
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .service_fee_balance_minor_result(cw_service_fee_balance_in_minor);
-            Box::new(mock)
-        };
-        let adjustment_setup = PreparedAdjustment {
-            qualified_payables,
-            agent,
-            adjustment: Adjustment::ByServiceFee,
-            response_skeleton_opt: None,
-        };
-
-        let mut result = subject
-            .adjust_payments(adjustment_setup, now)
-            .unwrap()
-            .affordable_accounts;
-
-        let winning_account = result.remove(0);
-        assert_eq!(
-            &winning_account.wallet, expected_wallet_of_the_winning_account,
-            "{}: expected wallet {} but got {}",
-            test_scenario_name, winning_account.wallet, expected_wallet_of_the_winning_account
-        );
-        assert_eq!(
-            winning_account.balance_wei, cw_service_fee_balance_in_minor,
-            "{}: expected full cw balance {}, but the account had {}",
-            test_scenario_name, winning_account.balance_wei, cw_service_fee_balance_in_minor
-        );
-        assert!(
-            result.is_empty(),
-            "{}: is not empty, {:?} remains",
-            test_scenario_name,
-            result
-        )
-    }
-
-    #[test]
-    fn not_enough_service_fee_for_both_accounts_at_least_by_their_half_so_only_one_wins() {
-        fn merge_test_name_with_test_scenario(description: &str) -> String {
-            format!(
-                "not_enough_service_fee_for_both_accounts_at_least_by_their_half_so_only_one_wins{}",
-                description
-            )
-        }
-
-        let w1 = make_wallet("abcd");
-        let w2 = make_wallet("cdef");
-        let common_input = WalletsSetup {
-            wallet_1: &w1,
-            wallet_2: &w2,
-        };
-        // scenario A
-        let first_scenario_name = merge_test_name_with_test_scenario("when equally significant");
-        let expected_wallet_of_the_winning_account = &w2;
-
-        test_two_competitive_accounts_with_one_disqualified(
-            &first_scenario_name,
-            CompetitiveAccountsTestInputs {
-                common: common_input,
-                account_1_balance_positive_correction_minor: 0,
-                account_2_balance_positive_correction_minor: 0,
-                account_1_age_positive_correction_secs: 0,
-                account_2_age_positive_correction_secs: 0,
-            },
-            expected_wallet_of_the_winning_account,
-        );
-        //--------------------------------------------------------------------
-        // scenario B
-        let second_scenario_name =
-            merge_test_name_with_test_scenario("first more significant by balance");
-        let expected_wallet_of_the_winning_account = &w1;
-
-        test_two_competitive_accounts_with_one_disqualified(
-            &second_scenario_name,
-            CompetitiveAccountsTestInputs {
-                common: common_input,
-                account_1_balance_positive_correction_minor: 1,
-                account_2_balance_positive_correction_minor: 0,
-                account_1_age_positive_correction_secs: 0,
-                account_2_age_positive_correction_secs: 0,
-            },
-            expected_wallet_of_the_winning_account,
-        );
-        //--------------------------------------------------------------------
-        // scenario C
-        let third_scenario_name =
-            merge_test_name_with_test_scenario("second more significant by age");
-        let expected_wallet_of_the_winning_account = &w2;
-
-        test_two_competitive_accounts_with_one_disqualified(
-            &third_scenario_name,
-            CompetitiveAccountsTestInputs {
-                common: common_input,
-                account_1_balance_positive_correction_minor: 0,
-                account_2_balance_positive_correction_minor: 0,
-                account_1_age_positive_correction_secs: 0,
-                account_2_age_positive_correction_secs: 1,
-            },
-            expected_wallet_of_the_winning_account,
-        );
-    }
+    //TODO Should I keep the next test? It works but it might be unnecessary now...
+    //
+    // struct CompetitiveAccountsTestInputs {
+    //     common: WalletsSetup,
+    //     account_1_balance_positive_correction_minor: u128,
+    //     account_2_balance_positive_correction_minor: u128,
+    // }
+    //
+    // #[derive(Clone)]
+    // struct WalletsSetup {
+    //     wallet_1: Wallet,
+    //     wallet_2: Wallet,
+    // }
+    //
+    // fn test_two_competitive_accounts_with_one_disqualified<'a>(
+    //     test_scenario_name: &str,
+    //     inputs: CompetitiveAccountsTestInputs,
+    //     expected_wallet_of_the_winning_account: &'a Wallet,
+    // ) {
+    //     let now = SystemTime::now();
+    //     let standard_balance_per_account = multiple_by_billion(2_000_000);
+    //     let garbage_timestamp = now.checked_sub(Duration::from_secs(120000)).unwrap();
+    //     // Ideally, cancel out the impact of those other parameters than purely balances.
+    //     let account_1 = PayableAccount {
+    //         wallet: inputs.common.wallet_1.clone(),
+    //         balance_wei: standard_balance_per_account
+    //             + inputs.account_1_balance_positive_correction_minor,
+    //         last_paid_timestamp: garbage_timestamp,
+    //         pending_payable_opt: None,
+    //     };
+    //     let mut account_2 = account_1.clone();
+    //     account_2.wallet = inputs.common.wallet_2.clone();
+    //     account_2.balance_wei = standard_balance_per_account + inputs.account_2_balance_positive_correction_minor;
+    //     let payables = vec![account_1, account_2];
+    //     let qualified_payables =
+    //         make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+    //     let disqualification_limit = DisqualificationArbiter::default().calculate_disqualification_edge(&qualified_payables[0]);
+    //     let cw_service_fee_balance_minor = 2 * disqualification_limit - 1;
+    //     let mut subject = PaymentAdjusterReal::new();
+    //     let agent = BlockchainAgentMock::default()
+    //             .service_fee_balance_minor_result(cw_service_fee_balance_minor);
+    //     let adjustment_setup = PreparedAdjustment {
+    //         qualified_payables,
+    //         agent: Box::new(agent),
+    //         adjustment: Adjustment::ByServiceFee,
+    //         response_skeleton_opt: None,
+    //     };
+    //
+    //     let mut result = subject
+    //         .adjust_payments(adjustment_setup, now)
+    //         .unwrap()
+    //         .affordable_accounts;
+    //
+    //     let winning_account = result.remove(0);
+    //     assert_eq!(
+    //         &winning_account.wallet, expected_wallet_of_the_winning_account,
+    //         "{}: expected wallet {} but got {}",
+    //         test_scenario_name, winning_account.wallet, expected_wallet_of_the_winning_account
+    //     );
+    //     assert_eq!(
+    //         winning_account.balance_wei, standard_balance_per_account,
+    //         "{}: expected full cw balance {}, but the account had {}",
+    //         test_scenario_name, standard_balance_per_account, winning_account.balance_wei
+    //     );
+    //     assert!(
+    //         result.is_empty(),
+    //         "{}: is not empty, {:?} remains",
+    //         test_scenario_name,
+    //         result
+    //     )
+    // }
+    //
+    // #[test]
+    // fn granularity_test_one_unit_missing_in_service_fee_balance_for_two_accounts_means_only_one_wins() {
+    //     fn prepare_scenario_name(description: &str) -> String {
+    //         format!(
+    //             "testing_granularity_on_one_unit_missing_in_service_fee_for_two_accounts_means_\
+    //             only_one_wins: {}",
+    //             description
+    //         )
+    //     }
+    //
+    //     let w1 = make_wallet("abc");
+    //     let w2 = make_wallet("def");
+    //     let common_input = WalletsSetup {
+    //         wallet_1: w1.clone(),
+    //         wallet_2: w2.clone(),
+    //     };
+    //     // scenario A
+    //     let first_scenario_name = prepare_scenario_name("when equally significant");
+    //     let expected_wallet_of_the_winning_account = &w2;
+    //
+    //     test_two_competitive_accounts_with_one_disqualified(
+    //         &first_scenario_name,
+    //         CompetitiveAccountsTestInputs {
+    //             common: common_input.clone(),
+    //             account_1_balance_positive_correction_minor: 0,
+    //             account_2_balance_positive_correction_minor: 0,
+    //         },
+    //         expected_wallet_of_the_winning_account,
+    //     );
+    //     //--------------------------------------------------------------------
+    //     // scenario B
+    //     let second_scenario_name =
+    //         prepare_scenario_name("first more significant by balance");
+    //     let expected_wallet_of_the_winning_account = &w2;
+    //
+    //     test_two_competitive_accounts_with_one_disqualified(
+    //         &second_scenario_name,
+    //         CompetitiveAccountsTestInputs {
+    //             common: common_input.clone(),
+    //             account_1_balance_positive_correction_minor: 1,
+    //             account_2_balance_positive_correction_minor: 0,
+    //         },
+    //         expected_wallet_of_the_winning_account,
+    //     );
+    //     //--------------------------------------------------------------------
+    //     // scenario C
+    //     let second_scenario_name =
+    //         prepare_scenario_name("second more significant by balance");
+    //     let expected_wallet_of_the_winning_account = &w1;
+    //
+    //     test_two_competitive_accounts_with_one_disqualified(
+    //         &second_scenario_name,
+    //         CompetitiveAccountsTestInputs {
+    //             common: common_input,
+    //             account_1_balance_positive_correction_minor: 0,
+    //             account_2_balance_positive_correction_minor: 1,
+    //         },
+    //         expected_wallet_of_the_winning_account,
+    //     );
+    // }
 
     #[test]
     fn service_fee_as_well_as_transaction_fee_limits_the_payments_count() {
