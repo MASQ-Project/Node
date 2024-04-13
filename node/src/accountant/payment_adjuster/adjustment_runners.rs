@@ -5,9 +5,9 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, WeightedPayable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
+use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use itertools::Either;
-use masq_lib::utils::convert_collection;
 
 // TODO review this comment
 // There are only two runners. They perform adjustment either by both the transaction and service
@@ -78,7 +78,10 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
         if check_sum <= unallocated_cw_balance {
             // Fast return after a direct conversion into the expected type
-            return convert_collection(weighted_accounts);
+            return ServiceFeeAdjusterReal::assign_accounts_their_minimal_acceptable_balance(
+                weighted_accounts,
+                &payment_adjuster.disqualification_arbiter,
+            );
         }
 
         payment_adjuster.propose_possible_adjustment_recursively(weighted_accounts)

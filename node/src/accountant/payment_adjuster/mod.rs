@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 // If possible, let these modules be private
 mod adjustment_runners;
@@ -304,9 +304,9 @@ impl PaymentAdjusterReal {
         &mut self,
         weighed_accounts: Vec<WeightedPayable>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
+        let disqualification_arbiter = &self.disqualification_arbiter;
         let unallocated_cw_service_fee_balance =
             self.inner.unallocated_cw_service_fee_balance_minor();
-        let disqualification_arbiter = &self.disqualification_arbiter;
         let logger = &self.logger;
 
         let current_iteration_result = self.service_fee_adjuster.perform_adjustment_by_service_fee(
@@ -1519,54 +1519,26 @@ mod tests {
         init_test_logging();
         let test_name = "only_service_fee_balance_limits_the_payments_count";
         let now = SystemTime::now();
-        let wallet_1 = make_wallet("def");
         // Account to be adjusted to keep as much as how much is left in the cw balance
-        let account_1 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: wallet_1.clone(),
-                balance_wei: 333_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(12000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
+        let balance_1 = multiple_by_billion(333_000_000);
+        let account_1 = make_plucked_qualified_account("abc", balance_1, 200_000_000, 50_000_000);
+        let wallet_1 = account_1.bare_account.wallet.clone();
         // Account to be outweighed and fully preserved
-        let wallet_2 = make_wallet("abc");
-        let account_2 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: wallet_2.clone(),
-                balance_wei: 111_000_000_000,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(8000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
+        let balance_2 = multiple_by_billion(111_000_000);
+        let account_2 = make_plucked_qualified_account("def", balance_2, 50_000_000, 10_000_000);
+        let wallet_2 = account_2.bare_account.wallet.clone();
         // Account to be disqualified
-        let wallet_3 = make_wallet("ghk");
-        let balance_3 = 600_000_000_000;
-        let account_3 = QualifiedPayableAccount::new(
-            PayableAccount {
-                wallet: wallet_3.clone(),
-                balance_wei: balance_3,
-                last_paid_timestamp: now.checked_sub(Duration::from_secs(6000)).unwrap(),
-                pending_payable_opt: None,
-            },
-            todo!(),
-            todo!(),
-        );
+        let balance_3 = multiple_by_billion(600_000_000);
+        let account_3 = make_plucked_qualified_account("ghi", balance_3, 400_000_000, 100_000_000);
+        let wallet_3 = account_3.bare_account.wallet.clone();
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        let service_fee_balance_in_minor_units = 333_000_000_000 + 50_000_000_000;
+        let service_fee_balance_in_minor_units = balance_3 + balance_2;
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = {
-            let mock = BlockchainAgentMock::default()
-                .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
-            Box::new(mock)
-        };
+        let agent = BlockchainAgentMock::default()
+            .set_arbitrary_id_stamp(agent_id_stamp)
+            .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 111,
             context_id: 234,
@@ -1574,7 +1546,7 @@ mod tests {
         // Another place where I pick a populated response skeleton for hardening
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
-            agent,
+            agent: Box::new(agent),
             adjustment: Adjustment::ByServiceFee,
             response_skeleton_opt,
         };
