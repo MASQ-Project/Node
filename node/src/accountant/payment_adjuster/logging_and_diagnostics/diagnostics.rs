@@ -216,9 +216,9 @@ pub mod ordinary_diagnostic_functions {
     ) {
         diagnostics!(
             "PICKED DISQUALIFIED ACCOUNT",
-            "From {:?} picked {}",
-            disqualification_suspected_accounts,
-            wallet
+            "Picked {} from nominated accounts {:?}",
+            wallet,
+            disqualification_suspected_accounts
         );
     }
 

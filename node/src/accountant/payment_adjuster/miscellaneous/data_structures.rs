@@ -102,6 +102,11 @@ impl TransactionCountsWithin16bits {
     }
 }
 
+pub struct AccountsEliminatedByTxFeeInfo {
+    pub count: usize,
+    pub sum_of_balances: u128,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{

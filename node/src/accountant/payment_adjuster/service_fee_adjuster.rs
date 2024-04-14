@@ -43,14 +43,6 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
         let non_finalized_adjusted_accounts = self
             .adjustment_computer
             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
-        // let non_finalized_adjusted_accounts = match self.generate_adjustments(
-        //     weighted_accounts,
-        //     disqualification_arbiter,
-        //     cw_service_fee_balance_minor,
-        // ){
-        //     Either::Left(multiple_accounts)=> multiple_accounts,
-        //     Either::Right(single_account) => return single_account
-        // };
 
         let still_unchecked_for_disqualified = match Self::handle_possibly_outweighed_accounts(
             disqualification_arbiter,
@@ -112,32 +104,6 @@ impl ServiceFeeAdjusterReal {
             adjustment_computer: Default::default(),
         }
     }
-
-    //TODO delete me
-    // fn generate_adjustments(
-    //     &self,
-    //     weighted_accounts: Vec<WeightedPayable>,
-    //     disqualification_arbiter: &DisqualificationArbiter,
-    //     cw_service_fee_balance_minor: u128,
-    // ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
-    //     let remaining_count = weighted_accounts.len();
-    //     if remaining_count > 1 {
-    //         Either::Left(self.adjustment_computer
-    //             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor))
-    //     } else if remaining_count == 1 {
-    //         let last_account = {
-    //             let mut weighted_accounts = weighted_accounts;
-    //             weighted_accounts.remove(0)
-    //         };
-    //         Either::Right(Self::handle_last_account(
-    //             last_account,
-    //             disqualification_arbiter,
-    //             cw_service_fee_balance_minor,
-    //         ))
-    //     } else {
-    //         unreachable!("Should end by processing one or multiple accounts")
-    //     }
-    // }
 
     // The term "outweighed account" comes from a phenomenon with account weight increasing
     // significantly based on a different parameter than the debt size. Untreated, we would
@@ -253,28 +219,6 @@ impl ServiceFeeAdjusterReal {
 
         (outweighed_adjusted, properly_adjusted_accounts)
     }
-
-    //TODO delete me
-    // fn handle_last_account(
-    //     account: WeightedPayable,
-    //     disqualification_arbiter: &DisqualificationArbiter,
-    //     cw_service_fee_balance_minor: u128,
-    // ) -> AdjustmentIterationResult {
-    //     let disqualification_limit =
-    //         disqualification_arbiter.calculate_disqualification_edge(&account.qualified_account);
-    //     let non_finalized_account = if disqualification_limit >= cw_service_fee_balance_minor {
-    //         handle_last_account_diagnostics(&account, cw_service_fee_balance_minor, None);
-    //         AdjustedAccountBeforeFinalization::new(account.qualified_account.bare_account, cw_service_fee_balance_minor)
-    //     } else {
-    //         handle_last_account_diagnostics(
-    //             &account,
-    //             cw_service_fee_balance_minor,
-    //             Some(disqualification_limit),
-    //         );
-    //         AdjustedAccountBeforeFinalization::new(account.qualified_account.bare_account, disqualification_limit)
-    //     };
-    //     AdjustmentIterationResult::AllAccountsProcessed(vec![non_finalized_account])
-    // }
 }
 
 #[derive(Default)]
@@ -340,15 +284,12 @@ impl AdjustmentComputer {
 mod tests {
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, AdjustmentIterationResult, UnconfirmedAdjustment,
-        WeightedPayable,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment
     };
     use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
     use crate::accountant::payment_adjuster::test_utils::{
         make_non_guaranteed_unconfirmed_adjustment, multiple_by_billion, DisqualificationGaugeMock,
     };
-    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
-    use itertools::Either;
 
     #[test]
     fn adjust_account_balance_if_outweighed_limits_them_by_the_standard_disqualification_edge() {
@@ -484,51 +425,4 @@ mod tests {
         ];
         assert_eq!(result, expected_result)
     }
-
-    //TODO delete us
-    // #[test]
-    // fn handle_last_account_works_for_remaining_cw_balance_compared_to_the_disqualification_limit() {
-    //     let cw_service_fee_balance_minor = 123_000;
-    //     let expected_proposed_balances = vec![
-    //         cw_service_fee_balance_minor - 1,
-    //         cw_service_fee_balance_minor,
-    //         cw_service_fee_balance_minor,
-    //     ];
-    //     let qualified_account = make_non_guaranteed_qualified_payable(456);
-    //     let weighted_account = WeightedPayable::new(qualified_account, 1111111);
-    //     let disqualification_gauge = DisqualificationGaugeMock::default()
-    //         .determine_limit_result(cw_service_fee_balance_minor - 1)
-    //         .determine_limit_result(cw_service_fee_balance_minor)
-    //         .determine_limit_result(cw_service_fee_balance_minor + 1);
-    //     let disqualification_arbiter =
-    //         DisqualificationArbiter::new(Box::new(disqualification_gauge));
-    //     let subject = ServiceFeeAdjusterReal::default();
-    //     expected_proposed_balances
-    //         .iter()
-    //         .for_each(|expected_proposed_balance| {
-    //             let result = subject.generate_adjustments(
-    //                 vec![weighted_account.clone()],
-    //                 &disqualification_arbiter,
-    //                 cw_service_fee_balance_minor,
-    //             );
-    //
-    //             assert_eq!(
-    //                 result,
-    //                 Either::Right(AdjustmentIterationResult::AllAccountsProcessed(vec![AdjustedAccountBeforeFinalization::new(
-    //                     weighted_account.qualified_account.bare_account.clone(),
-    //                     *expected_proposed_balance
-    //                 )]))
-    //             )
-    //         });
-    // }
-    //
-    // #[test]
-    // #[should_panic(expected = "internal error: entered unreachable code: Should end by processing \
-    // one or multiple accounts")]
-    // fn generate_adjustments_with_no_account_remaining(){
-    //     let subject = ServiceFeeAdjusterReal::default();
-    //     let disqualification_arbiter = DisqualificationArbiter::default();
-    //
-    //     let _ = subject.generate_adjustments(vec![], &disqualification_arbiter, 123456789);
-    // }
 }

@@ -5,7 +5,7 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    TransactionCountsWithin16bits, WeightedPayable,
+    AccountsEliminatedByTxFeeInfo, TransactionCountsWithin16bits, WeightedPayable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
@@ -84,6 +84,7 @@ impl PreparatoryAnalyzer {
     pub fn check_need_of_adjustment_by_service_fee(
         &self,
         disqualification_arbiter: &DisqualificationArbiter,
+        accounts_eliminated_by_tx_fee_info_opt: Option<AccountsEliminatedByTxFeeInfo>,
         payables: Either<&[QualifiedPayableAccount], &[WeightedPayable]>,
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
@@ -98,6 +99,7 @@ impl PreparatoryAnalyzer {
         } else {
             self.analyse_smallest_adjustment_possibility(
                 disqualification_arbiter,
+                accounts_eliminated_by_tx_fee_info_opt,
                 &qualified_payables,
                 cw_service_fee_balance_minor,
             )?;
@@ -130,6 +132,7 @@ impl PreparatoryAnalyzer {
     fn analyse_smallest_adjustment_possibility(
         &self,
         disqualification_arbiter: &DisqualificationArbiter,
+        accounts_eliminated_by_tx_fee_info_opt: Option<AccountsEliminatedByTxFeeInfo>,
         qualified_payables: &[&QualifiedPayableAccount],
         cw_service_fee_balance_minor: u128,
     ) -> Result<(), PaymentAdjusterError> {
@@ -141,9 +144,18 @@ impl PreparatoryAnalyzer {
         } else {
             let total_amount_demanded_minor =
                 sum_as(qualified_payables, |qp| qp.bare_account.balance_wei);
+            let (number_of_accounts, total_amount_demanded_minor) =
+                if let Some(info) = accounts_eliminated_by_tx_fee_info_opt {
+                    (
+                        qualified_payables.len() + info.count,
+                        total_amount_demanded_minor + info.sum_of_balances,
+                    )
+                } else {
+                    (qualified_payables.len(), total_amount_demanded_minor)
+                };
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                    number_of_accounts: qualified_payables.len(),
+                    number_of_accounts,
                     total_amount_demanded_minor,
                     cw_service_fee_balance_minor,
                 },
@@ -214,6 +226,7 @@ mod tests {
 
         let result = subject.analyse_smallest_adjustment_possibility(
             &disqualification_arbiter,
+            None,
             &accounts_in_expected_format,
             cw_service_fee_balance,
         );
@@ -300,6 +313,7 @@ mod tests {
 
         let result = subject.analyse_smallest_adjustment_possibility(
             &disqualification_arbiter,
+            None,
             &accounts_in_expected_format,
             cw_service_fee_balance,
         );

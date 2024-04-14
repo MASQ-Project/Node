@@ -17,8 +17,8 @@ const REFILL_RECOMMENDATION: &str = "\
 Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
 consume services without limitations, you will need to place more funds into your consuming wallet.";
 const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
-Passed successfully adjustment by transaction fee, but by a second look, noticing of critical \
-shortage of MASQ balance. Operation will abort.";
+Passed successfully adjustment by transaction fee, however, that was not enough regarding the other \
+fee. Now, a critical shortage of MASQ balance has been noticed. Operation will abort.";
 
 const BLANK_SPACE: &str = "";
 
@@ -193,8 +193,9 @@ mod tests {
         );
         assert_eq!(
             LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
-            "Passed successfully adjustment by transaction fee, but by a second look, noticing of \
-            critical shortage of MASQ balance. Operation will abort."
+            "Passed successfully adjustment by transaction fee, however, that was not enough \
+            regarding the other fee. Now, a critical shortage of MASQ balance has been noticed. \
+            Operation will abort."
         )
     }
 

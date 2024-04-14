@@ -5,9 +5,7 @@ use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
-};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AccountsEliminatedByTxFeeInfo, AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable};
 use crate::accountant::QualifiedPayableAccount;
 use itertools::{Either, Itertools};
 
@@ -37,17 +35,36 @@ pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
 pub fn dump_unaffordable_accounts_by_txn_fee(
     weighted_accounts_in_descending_order: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
-) -> Vec<WeightedPayable> {
+) -> (Vec<WeightedPayable>, AccountsEliminatedByTxFeeInfo) {
+    let to_be_dumped = weighted_accounts_in_descending_order
+        .iter()
+        .skip(affordable_transaction_count as usize)
+        .collect::<Vec<_>>();
+    let elimination_info = {
+        let count = to_be_dumped.len();
+        let sum_of_balances = sum_as(&to_be_dumped, |account| {
+            account.qualified_account.bare_account.balance_wei
+        });
+        AccountsEliminatedByTxFeeInfo {
+            count,
+            sum_of_balances,
+        }
+    };
+
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
-        "keeping {} out of {} accounts",
+        "Keeping {} out of {} accounts. Dumping these accounts: {:?}",
         affordable_transaction_count,
-        weighted_accounts_in_descending_order.len()
+        weighted_accounts_in_descending_order.len(),
+        to_be_dumped
     );
-    weighted_accounts_in_descending_order
+
+    let kept_accounts = weighted_accounts_in_descending_order
         .into_iter()
         .take(affordable_transaction_count as usize)
-        .collect()
+        .collect();
+
+    (kept_accounts, elimination_info)
 }
 
 pub fn compute_mul_coefficient_preventing_fractional_numbers(
@@ -76,7 +93,7 @@ fn find_largest_u128(slice: &[u128]) -> u128 {
         .fold(0, |largest_so_far, num| largest_so_far.max(*num))
 }
 
-pub fn exhaust_cw_till_the_last_drop(
+pub fn exhaust_cw_balance_entirely(
     approved_accounts: Vec<AdjustedAccountBeforeFinalization>,
     original_cw_service_fee_balance_minor: u128,
 ) -> Vec<PayableAccount> {
@@ -202,7 +219,7 @@ mod tests {
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_till_the_last_drop,
+        compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_balance_entirely,
         find_largest_exceeding_balance, find_largest_u128, zero_affordable_accounts_found,
         ConsumingWalletExhaustingStatus,
     };
@@ -376,7 +393,7 @@ mod tests {
         ];
 
         let result =
-            exhaust_cw_till_the_last_drop(non_finalized_adjusted_accounts, original_cw_balance);
+            exhaust_cw_balance_entirely(non_finalized_adjusted_accounts, original_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, original_requested_balance_1),
@@ -421,7 +438,7 @@ mod tests {
         ];
 
         let result =
-            exhaust_cw_till_the_last_drop(non_finalized_adjusted_accounts, original_cw_balance);
+            exhaust_cw_balance_entirely(non_finalized_adjusted_accounts, original_cw_balance);
 
         let expected_resulted_balances = vec![
             (wallet_1, original_requested_balance_1),
