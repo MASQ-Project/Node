@@ -20,12 +20,9 @@ impl WeightedPayable {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum AdjustmentIterationResult {
-    AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
-    IterationWithSpecialHandling {
-        case: SpecialHandling,
-        remaining_undecided_accounts: Vec<WeightedPayable>,
-    },
+pub struct AdjustmentIterationResult {
+    pub decided_accounts: DecidedAccounts,
+    pub remaining_undecided_accounts: Vec<WeightedPayable>,
 }
 
 pub struct RecursionResults {
@@ -53,9 +50,9 @@ impl RecursionResults {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum SpecialHandling {
-    InsignificantAccountEliminated,
-    OutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),
+pub enum DecidedAccounts {
+    LowGainingAccountEliminated,
+    SomeAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

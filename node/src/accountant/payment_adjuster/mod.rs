@@ -31,8 +31,8 @@ use crate::accountant::payment_adjuster::inner::{
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug, log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::SpecialHandling::{
-    InsignificantAccountEliminated, OutweighedAccounts,
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
+    LowGainingAccountEliminated, SomeAccountsProcessed,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults,
@@ -329,46 +329,32 @@ impl PaymentAdjusterReal {
         &mut self,
         adjustment_iteration_result: AdjustmentIterationResult,
     ) -> RecursionResults {
-        match adjustment_iteration_result {
-            AdjustmentIterationResult::AllAccountsProcessed(decided_accounts) => {
-                RecursionResults::new(decided_accounts, vec![])
+        let remaining_undecided_accounts = adjustment_iteration_result.remaining_undecided_accounts;
+        let here_decided_accounts = match adjustment_iteration_result.decided_accounts {
+            LowGainingAccountEliminated => {
+                if remaining_undecided_accounts.is_empty() {
+                    return RecursionResults::new(vec![], vec![]);
+                }
+
+                vec![]
             }
-            AdjustmentIterationResult::IterationWithSpecialHandling {
-                case,
+            SomeAccountsProcessed(decided_accounts) => {
+                if remaining_undecided_accounts.is_empty() {
+                    return RecursionResults::new(decided_accounts, vec![]);
+                }
+
+                self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts);
+                decided_accounts
+            }
+        };
+
+        let down_stream_decided_accounts = self
+            .calculate_criteria_and_propose_adjustments_recursively(
                 remaining_undecided_accounts,
-            } => {
-                let here_decided_accounts = match case {
-                    InsignificantAccountEliminated => {
-                        if remaining_undecided_accounts.is_empty() {
-                            return RecursionResults::new(vec![], vec![]);
-                        }
+                ServiceFeeOnlyAdjustmentRunner {},
+            );
 
-                        vec![]
-                    }
-                    OutweighedAccounts(outweighed) => {
-                        if remaining_undecided_accounts.is_empty() {
-                            // The only known reason for this would be an account disqualification,
-                            // after which the unallocated cw balance begins to suffice for the rest
-                            // of those unresolved accounts.
-                            // Because it is definitely possible, there is a check aimed at this
-                            // in the AdjustmentRunner's adjust_accounts()
-                            unreachable!("This shouldn't be possible due to a preceding check");
-                        }
-
-                        self.adjust_remaining_unallocated_cw_balance_down(&outweighed);
-                        outweighed
-                    }
-                };
-
-                let down_stream_decided_accounts = self
-                    .calculate_criteria_and_propose_adjustments_recursively(
-                        remaining_undecided_accounts,
-                        ServiceFeeOnlyAdjustmentRunner {},
-                    );
-
-                RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
-            }
-        }
+        RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
     }
 
     fn calculate_weights_for_accounts(
@@ -529,11 +515,11 @@ mod tests {
     use crate::accountant::payment_adjuster::inner::{
         PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::SpecialHandling::{
-        InsignificantAccountEliminated, OutweighedAccounts,
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
+        LowGainingAccountEliminated, SomeAccountsProcessed,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, AdjustmentIterationResult, SpecialHandling,
+        AdjustedAccountBeforeFinalization, AdjustmentIterationResult, DecidedAccounts,
         UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
@@ -895,7 +881,8 @@ mod tests {
     }
 
     #[test]
-    fn tinier_but_larger_in_weight_account_is_prioritized_outweighed_up_to_its_original_balance() {
+    fn tinier_but_larger_in_weight_account_is_prioritized_and_gains_up_to_its_disqualification_limit(
+    ) {
         let cw_service_fee_balance_minor = multiple_by_billion(3_600_000);
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
         let mut account_1 = make_qualified_payable_by_wallet("abc");
@@ -1118,23 +1105,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "internal error: entered unreachable code: This shouldn't be possible due to a preceding check"
-    )]
-    fn outweighed_accounts_with_no_remaining_accounts_is_not_possible() {
-        let mut subject = PaymentAdjusterReal::new();
-        let iteration_result = AdjustmentIterationResult::IterationWithSpecialHandling {
-            case: OutweighedAccounts(vec![AdjustedAccountBeforeFinalization::new(
-                make_payable_account(123),
-                123456,
-            )]),
-            remaining_undecided_accounts: vec![],
-        };
-
-        let _ = subject.resolve_current_iteration_result(iteration_result);
-    }
-
-    #[test]
     fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them()
     {
         // Tests that a condition to short-circuit through is integrated for situations when
@@ -1310,7 +1280,7 @@ mod tests {
             make_plucked_qualified_account("def", balance_2, 2_500_000_000, 2_000_000_000);
         let balance_3 = multiple_by_billion(6_666_666_666);
         let qualified_account_3 =
-            make_plucked_qualified_account("ghi", balance_3, 3_000_000_000, 1_111_111_111);
+            make_plucked_qualified_account("ghi", balance_3, 2_000_000_000, 1_111_111_111);
         let qualified_payables = vec![
             qualified_account_1.clone(),
             qualified_account_2.clone(),
@@ -1338,9 +1308,9 @@ mod tests {
 
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
-        let expected_adjusted_balance_1 = 4_444_444_444_000_000_001;
+        let expected_adjusted_balance_1 = 4_833_333_333_000_000_000;
         let expected_adjusted_balance_2 = 5_500_000_000_000_000_000;
-        let expected_adjusted_balance_3 = 6_166_666_665_999_999_999;
+        let expected_adjusted_balance_3 = 5_777_777_777_000_000_000;
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_1,
@@ -1498,11 +1468,11 @@ mod tests {
         // Account 2, the least important one, was eliminated for a lack of transaction fee in the cw
         let expected_accounts = {
             let account_1_adjusted = PayableAccount {
-                balance_wei: 71_000_000_000_000_001,
+                balance_wei: 81_000_000_000_000_000,
                 ..account_1.bare_account
             };
             let account_3_adjusted = PayableAccount {
-                balance_wei: 166_999_999_999_999_999,
+                balance_wei: 157_000_000_000_000_000,
                 ..account_3.bare_account
             };
             vec![account_1_adjusted, account_3_adjusted]
@@ -1573,7 +1543,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Shortage of MASQ in your consuming wallet will impact payable \
             0x0000000000000000000000000000000000676869, ruled out from this round of payments. \
-            The proposed adjustment 149,199,999,999,999,977 wei was below the disqualification \
+            The proposed adjustment 189,999,999,999,999,944 wei was below the disqualification \
             limit 300,000,000,000,000,000 wei"
         ));
     }
@@ -2034,9 +2004,11 @@ mod tests {
             .perform_adjustment_by_service_fee_params(&perform_adjustment_by_service_fee_params_arc)
             // This is just a sentinel for an actual result.
             // We care only for the params
-            .perform_adjustment_by_service_fee_result(
-                AdjustmentIterationResult::AllAccountsProcessed(vec![]),
-            );
+            // TODO check this carefully...ugly
+            .perform_adjustment_by_service_fee_result(AdjustmentIterationResult {
+                decided_accounts: SomeAccountsProcessed(vec![]),
+                remaining_undecided_accounts: vec![],
+            });
         subject.service_fee_adjuster = Box::new(service_fee_adjuster_mock);
 
         let result = subject.run_adjustment(qualified_payables.to_vec());
@@ -2095,7 +2067,7 @@ mod tests {
             })
             .zip(defaulted_payment_adjuster.calculators.into_iter())
             .for_each(
-                |((qualified_payments_and_expected_computed_weights), calculator)| {
+                |(qualified_payments_and_expected_computed_weights, calculator)| {
                     let (qualified_payments, expected_computed_weights): (Vec<_>, Vec<_>) =
                         qualified_payments_and_expected_computed_weights
                             .into_iter()

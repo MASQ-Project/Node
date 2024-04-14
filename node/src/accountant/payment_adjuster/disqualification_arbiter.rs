@@ -27,11 +27,11 @@ impl DisqualificationArbiter {
             disqualification_gauge,
         }
     }
-    pub fn try_finding_an_account_to_disqualify_in_this_iteration(
+    pub fn find_an_account_to_disqualify_in_this_iteration(
         &self,
         unconfirmed_adjustments: &[UnconfirmedAdjustment],
         logger: &Logger,
-    ) -> Option<Wallet> {
+    ) -> Wallet {
         let disqualification_suspected_accounts =
             self.list_accounts_nominated_for_disqualification(unconfirmed_adjustments);
 
@@ -54,12 +54,13 @@ impl DisqualificationArbiter {
 
             info_log_for_disqualified_account(logger, account_to_disqualify);
 
-            Some(wallet)
+            wallet
         } else {
-            None
+            todo!()
         }
     }
 
+    //TODO this should go away
     pub fn calculate_disqualification_edge(
         &self,
         qualified_payable: &QualifiedPayableAccount,
@@ -489,16 +490,14 @@ mod tests {
             .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
         let subject = DisqualificationArbiter::default();
 
-        let result = subject.try_finding_an_account_to_disqualify_in_this_iteration(
-            &unconfirmed_adjustments,
-            &logger,
-        );
+        let result = subject
+            .find_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, &logger);
 
         unconfirmed_adjustments.iter().for_each(|payable| {
             // Condition of disqualification at the horizontal threshold
             assert!(payable.proposed_adjusted_balance_minor < 120_000_000_000)
         });
-        assert_eq!(result, Some(wallet_3));
+        assert_eq!(result, wallet_3);
     }
 
     fn make_pairs_of_unconfirmed_adjustments_and_dsq_edges(
