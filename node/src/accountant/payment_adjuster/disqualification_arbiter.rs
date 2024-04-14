@@ -1,10 +1,10 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     account_nominated_for_disqualification_diagnostics,
     try_finding_an_account_to_disqualify_diagnostics,
 };
-use crate::accountant::payment_adjuster::log_fns::info_log_for_disqualified_account;
+use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::wallet::Wallet;

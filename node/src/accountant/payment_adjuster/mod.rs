@@ -3,13 +3,12 @@
 // If possible, let these modules be private
 mod adjustment_runners;
 mod criterion_calculators;
-mod diagnostics;
 mod disqualification_arbiter;
 mod inner;
-#[cfg(test)]
-mod loading_test;
-mod log_fns;
+mod logging_and_diagnostics;
 mod miscellaneous;
+#[cfg(test)]
+mod non_unit_tests;
 mod preparatory_analyser;
 mod service_fee_adjuster;
 #[cfg(test)]
@@ -21,15 +20,15 @@ use crate::accountant::payment_adjuster::adjustment_runners::{
 };
 use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
-use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::calculated_criterion_and_weight_diagnostics;
-use crate::accountant::payment_adjuster::diagnostics::{collection_diagnostics, diagnostics};
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::calculated_criterion_and_weight_diagnostics;
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::{collection_diagnostics, diagnostics};
 use crate::accountant::payment_adjuster::disqualification_arbiter::{
     DisqualificationArbiter, DisqualificationGauge,
 };
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
-use crate::accountant::payment_adjuster::log_fns::{
+use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug, log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::SpecialHandling::{
@@ -980,7 +979,7 @@ mod tests {
         );
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
-            2799999999999999
+            2300000000000000
         );
         assert!(result.is_empty());
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();
@@ -1279,7 +1278,7 @@ mod tests {
     // This function should take just such essential args as balances and those that play rather
     // a secondary role, yet an important one in the verification processes for proposed adjusted
     // balances. Refrain from employing more of the weights-affecting parameters as they would
-    // only burden us with their consideration in these tests.
+    // only burden us with their consideration in these non_unit_tests.
     fn make_plucked_qualified_account(
         wallet_addr_fragment: &str,
         balance_minor: u128,
@@ -1519,7 +1518,7 @@ mod tests {
         init_test_logging();
         let test_name = "only_service_fee_balance_limits_the_payments_count";
         let now = SystemTime::now();
-        // Account to be adjusted to keep as much as how much is left in the cw balance
+        // Account to be adjusted to keep as much as it is left in the cw balance
         let balance_1 = multiple_by_billion(333_000_000);
         let account_1 = make_plucked_qualified_account("abc", balance_1, 200_000_000, 50_000_000);
         let wallet_1 = account_1.bare_account.wallet.clone();
@@ -1534,16 +1533,15 @@ mod tests {
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3];
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        let service_fee_balance_in_minor_units = balance_3 + balance_2;
+        let service_fee_balance_in_minor_units = balance_1 + balance_2 - 55;
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default()
             .set_arbitrary_id_stamp(agent_id_stamp)
             .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
         let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 111,
+            client_id: 11,
             context_id: 234,
         });
-        // Another place where I pick a populated response skeleton for hardening
         let adjustment_setup = PreparedAdjustment {
             qualified_payables,
             agent: Box::new(agent),
@@ -1554,27 +1552,25 @@ mod tests {
         let result = subject.adjust_payments(adjustment_setup, now).unwrap();
 
         let expected_accounts = {
-            let account_1_adjusted = PayableAccount {
-                balance_wei: 272_000_000_000,
-                ..account_1.bare_account
-            };
-            vec![account_1_adjusted, account_2.bare_account]
+            let mut account_1_adjusted = account_1;
+            account_1_adjusted.bare_account.balance_wei -= 55;
+            vec![account_2.bare_account, account_1_adjusted.bare_account]
         };
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
         assert_eq!(
             result.response_skeleton_opt,
             Some(ResponseSkeleton {
-                client_id: 111,
+                client_id: 11,
                 context_id: 234
             })
         );
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Shortage of MASQ \
-        in your consuming wallet impacts on payable 0x000000000000000000000000000000000067686b, \
-        ruled out from this round of payments. The proposed adjustment 79,556,958,958 wei was less \
-        than half of the recorded debt, 600,000,000,000 wei"
+            "INFO: {test_name}: Shortage of MASQ in your consuming wallet will impact payable \
+            0x0000000000000000000000000000000000676869, ruled out from this round of payments. \
+            The proposed adjustment 159,743,040,685,224,815 wei was below the disqualification \
+            limit 300,000,000,000,000,000 wei"
         ));
     }
 
@@ -2015,7 +2011,7 @@ mod tests {
         Box::new(blockchain_agent)
     }
 
-    // The following tests together prove the use of correct calculators in the production code
+    // The following non_unit_tests together prove the use of correct calculators in the production code
 
     #[test]
     fn each_of_defaulted_calculators_returns_different_value() {

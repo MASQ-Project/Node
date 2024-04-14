@@ -79,7 +79,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    // Test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
+    // Test-only-like method but because of share with multi-node non_unit_tests #[cfg(test)] is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     as_any_in_trait!();

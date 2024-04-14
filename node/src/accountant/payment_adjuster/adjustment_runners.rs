@@ -78,9 +78,10 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
         if check_sum <= unallocated_cw_balance {
             // Fast return after a direct conversion into the expected type
+            let disqualification_arbiter = &payment_adjuster.disqualification_arbiter;
             return ServiceFeeAdjusterReal::assign_accounts_their_minimal_acceptable_balance(
                 weighted_accounts,
-                &payment_adjuster.disqualification_arbiter,
+                disqualification_arbiter,
             );
         }
 
@@ -132,9 +133,15 @@ mod tests {
         payable_1: WeightedPayable,
         payable_2: WeightedPayable,
         cw_service_fee_balance_minor: u128,
+        expected_proposed_balance_1: u128,
+        expected_proposed_balance_2: u128,
     ) {
-        // The disqualification doesn't take part in here, it is just an explanation for those who
-        // wonder why the implied surplus may happen
+        // Explanation: The hypothesis is that the previous iteration disqualified an account after
+        // which the remaining means are enough for the other accounts.
+        // We could assign the accounts all they initially requested but a fairer way to do that
+        // is to give out only that much up to the disqualification limit of these accounts. Later on,
+        // the accounts that deserves it more will split the rest of the means among them (Their
+        // weights were higher).
         let now = SystemTime::now();
         let mut payment_adjuster =
             initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);
@@ -152,26 +159,40 @@ mod tests {
             vec![
                 AdjustedAccountBeforeFinalization {
                     original_account: payable_1.qualified_account.bare_account,
-                    proposed_adjusted_balance_minor: initial_balance_minor_1
+                    proposed_adjusted_balance_minor: expected_proposed_balance_1
                 },
                 AdjustedAccountBeforeFinalization {
                     original_account: payable_2.qualified_account.bare_account,
-                    proposed_adjusted_balance_minor: initial_balance_minor_2
+                    proposed_adjusted_balance_minor: expected_proposed_balance_2
                 }
             ]
         )
     }
 
+    fn weighted_payable_setup_for_surplus_test(
+        n: u64,
+        initial_balance_minor: u128,
+    ) -> WeightedPayable {
+        let mut account = make_weighed_payable(n, initial_balance_minor);
+        account.qualified_account.payment_threshold_intercept_minor = 3_000_000_000;
+        account.qualified_account.creditor_thresholds = CreditorThresholds::new(1_000_000_000);
+        account
+    }
+
     #[test]
     fn service_fee_only_runner_cw_balance_equals_requested_money_after_dsq_in_previous_iteration() {
         let cw_service_fee_balance_minor = 10_000_000_000;
-        let payable_1 = make_weighed_payable(111, 5_000_000_000);
-        let payable_2 = make_weighed_payable(222, 5_000_000_000);
+        let payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
+        let payable_2 = weighted_payable_setup_for_surplus_test(222, 5_000_000_000);
+        let expected_proposed_balance_1 = 3_000_000_000;
+        let expected_proposed_balance_2 = 3_000_000_000;
 
         test_surplus_incurred_after_disqualification_in_previous_iteration(
             payable_1,
             payable_2,
             cw_service_fee_balance_minor,
+            expected_proposed_balance_1,
+            expected_proposed_balance_2,
         )
     }
 
@@ -179,13 +200,17 @@ mod tests {
     fn service_fee_only_runner_handles_means_bigger_requested_money_after_dsq_in_previous_iteration(
     ) {
         let cw_service_fee_balance_minor = 10_000_000_000;
-        let payable_1 = make_weighed_payable(111, 5_000_000_000);
-        let payable_2 = make_weighed_payable(222, 4_999_999_999);
+        let payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
+        let payable_2 = weighted_payable_setup_for_surplus_test(222, 4_999_999_999);
+        let expected_proposed_balance_1 = 3_000_000_000;
+        let expected_proposed_balance_2 = 2_999_999_999;
 
         test_surplus_incurred_after_disqualification_in_previous_iteration(
             payable_1,
             payable_2,
             cw_service_fee_balance_minor,
+            expected_proposed_balance_1,
+            expected_proposed_balance_2,
         )
     }
 

@@ -14,7 +14,7 @@ use websocket::{ClientBuilder, OwnedMessage};
 //blockchain_bridge,
 //dispatcher,
 //configurator,
-//don't add more tests unless you know what you're doing
+//don't add more non_unit_tests unless you know what you're doing
 
 #[test]
 fn node_exits_from_blockchain_bridge_panic_integration() {

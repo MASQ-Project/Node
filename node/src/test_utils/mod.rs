@@ -1054,7 +1054,7 @@ pub mod unshared_test_utils {
                         // In some implementations of mocks that have methods demanding args, the best we can do in order to
                         // capture and examine these args in assertions is to receive the ArbitraryIdStamp of the given
                         // argument.
-                        // If such strategy is once decided for, transfers of this id will have to happen in all the tests
+                        // If such strategy is once decided for, transfers of this id will have to happen in all the non_unit_tests
                         // relying on this mock, while also calling the intended method. So even in cases where we certainly
                         // are not really interested in checking that id, if we ignored that, the call of this method would
                         // blow up because the field that stores it is likely optional, with the value defaulted to None.
@@ -1062,7 +1062,7 @@ pub mod unshared_test_utils {
                         // As prevention of confusion from putting a requirement on devs to set the id stamp even though
                         // they're not planning to use it, we have a null type of that stamp to be there at most cases.
                         // As a result, we don't risk a direct punishment (for the None value being the problem) but also
-                        // we'll set the assertion on fire if it doesn't match the expected id in tests where we suddenly
+                        // we'll set the assertion on fire if it doesn't match the expected id in non_unit_tests where we suddenly
                         // do care
                         None => ArbitraryIdStamp::null(),
                     }
@@ -1122,7 +1122,7 @@ pub mod unshared_test_utils {
 
         // Objects of that trait have some native field about them that can be set to
         // different values so that we can distinguish different instances in an assertion.
-        // There are no tests involving objects of that trait where instances are passed
+        // There are no non_unit_tests involving objects of that trait where instances are passed
         // as parameters to a mock and need to be asserted on as part of a ..._params_arc
         // collection.
 

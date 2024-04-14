@@ -703,7 +703,7 @@ pub mod test_utils {
             intentionally_blank!()
             /*all existing test calls only initialize() in the mocked version,
             but we need to call initialize_to_version() for the real object
-            in order to carry out some important tests too*/
+            in order to carry out some important non_unit_tests too*/
         }
     }
 

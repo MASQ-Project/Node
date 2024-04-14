@@ -1885,7 +1885,7 @@ mod tests {
     }
 
     //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
+    //I don't have data for the new chains so I omit them in this kind of non_unit_tests
     #[test]
     fn signs_various_transactions_for_eth_mainnet() {
         let signatures = &[
@@ -1919,7 +1919,7 @@ mod tests {
     }
 
     //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
+    //I don't have data for the new chains so I omit them in this kind of non_unit_tests
     #[test]
     fn signs_various_transactions_for_ropsten() {
         let signatures = &[

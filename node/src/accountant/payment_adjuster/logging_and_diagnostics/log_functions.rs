@@ -175,7 +175,7 @@ pub fn log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(logger: &Lo
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
-    use crate::accountant::payment_adjuster::log_fns::{
+    use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
         info_log_for_disqualified_account, LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
         REFILL_RECOMMENDATION,
     };

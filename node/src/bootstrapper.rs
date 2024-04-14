@@ -97,7 +97,7 @@ pub struct CryptDEPair {
     pub main: &'static dyn CryptDE,
     // This has the public key with which this Node instructs exit Nodes to encrypt responses.
     // In production, it is unrelated to the main public key to prevent the exit Node from
-    // identifying the originating Node. In tests using --fake-public-key, the alias public key
+    // identifying the originating Node. In non_unit_tests using --fake-public-key, the alias public key
     // is the main public key reversed.
     pub alias: &'static dyn CryptDE,
 }
@@ -493,7 +493,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         multi_config: &MultiConfig,
         _: &mut StdStreams,
     ) -> Result<(), ConfiguratorError> {
-        // NOTE: The following line of code is not covered by unit tests
+        // NOTE: The following line of code is not covered by unit non_unit_tests
         fdlimit::raise_fd_limit();
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
@@ -512,7 +512,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         );
         self.config.node_descriptor = node_descriptor;
         // Before you remove local-descriptor reporting for non-Standard neighborhood modes, make
-        // sure you modify the multinode tests so that they can tell A) when a Node has started up,
+        // sure you modify the multinode non_unit_tests so that they can tell A) when a Node has started up,
         // and B) what its public key is.
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)

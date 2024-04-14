@@ -95,7 +95,7 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::QualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
@@ -140,13 +140,46 @@ pub mod ordinary_diagnostic_functions {
         );
     }
 
+    pub fn minimal_acceptable_balance_assigned_diagnostics(
+        weighted_account: &WeightedPayable,
+        disqualification_limit: u128,
+    ) {
+        diagnostics!(
+            weighted_account.qualified_account.bare_account.wallet,
+            "MINIMAL ACCEPTABLE BALANCE ASSIGNED",
+            "Used disqualification limit for given account {}",
+            disqualification_limit.separate_with_commas()
+        )
+    }
+
+    pub fn handle_last_account_diagnostics(
+        account: &WeightedPayable,
+        cw_service_fee_balance_minor: u128,
+        disqualification_limit_opt: Option<u128>,
+    ) {
+        diagnostics!(
+            account.qualified_account.bare_account.wallet,
+            "HANDLING LAST ACCOUNT",
+            "Remaining CW balance {} is {}",
+            cw_service_fee_balance_minor,
+            if let Some(dsq_limit) = disqualification_limit_opt {
+                format!(
+                    "larger than the disqualification limit {} which is therefore assigned instead",
+                    dsq_limit
+                )
+            } else {
+                "below the disqualification limit and assigned in full extend".to_string()
+            }
+        )
+    }
+
     pub fn exhausting_cw_balance_diagnostics(
         non_finalized_account_info: &AdjustedAccountBeforeFinalization,
         possible_extra_addition: u128,
     ) {
         diagnostics!(
             "EXHAUSTING CW ON PAYMENT",
-            "For account {} from proposed {} to the possible maximum of {}",
+            "Account {} from proposed {} to the possible maximum of {}",
             non_finalized_account_info.original_account.wallet,
             non_finalized_account_info.proposed_adjusted_balance_minor,
             non_finalized_account_info.proposed_adjusted_balance_minor + possible_extra_addition
@@ -211,7 +244,7 @@ pub mod ordinary_diagnostic_functions {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::diagnostics::PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS;
+    use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS;
 
     #[test]
     fn constants_are_correct() {

@@ -2,7 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
-use crate::accountant::payment_adjuster::diagnostics::ordinary_diagnostic_functions::{
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{

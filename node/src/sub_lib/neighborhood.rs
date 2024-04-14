@@ -175,7 +175,7 @@ impl Default for NodeDescriptor {
     }
 }
 
-//the public key's role as a separate arg is to enable the produced descriptor to be constant and reliable in tests
+//the public key's role as a separate arg is to enable the produced descriptor to be constant and reliable in non_unit_tests
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;

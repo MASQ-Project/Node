@@ -1,7 +1,7 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
-use crate::accountant::payment_adjuster::log_fns::{
+use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{

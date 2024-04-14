@@ -5470,7 +5470,7 @@ mod tests {
     }
 
     /*
-           For the next two tests, the database looks like this:
+           For the next two non_unit_tests, the database looks like this:
 
            +---A---+
            |       |

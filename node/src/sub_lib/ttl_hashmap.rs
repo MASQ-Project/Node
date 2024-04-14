@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn ttl_hashmap_get_preserves_otherwise_expired_entry() {
-        // Note: You may think that these delays are far too long for unit tests, and that you can
+        // Note: You may think that these delays are far too long for unit non_unit_tests, and that you can
         // reduce them proportionally and get faster test execution. Before you do, though, be sure the
         // reduced test runs reliably on the Mac. We were seeing granularities of 200ms (that is, if you
         // order a 5ms sleep, you get 200ms) in early March 2019.

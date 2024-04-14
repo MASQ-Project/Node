@@ -19,7 +19,7 @@ impl WeightedPayable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AdjustmentIterationResult {
     AllAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
     IterationWithSpecialHandling {
@@ -52,7 +52,7 @@ impl RecursionResults {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SpecialHandling {
     InsignificantAccountEliminated,
     OutweighedAccounts(Vec<AdjustedAccountBeforeFinalization>),

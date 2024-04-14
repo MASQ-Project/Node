@@ -4893,7 +4893,7 @@ pub mod exportable_test_parts {
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
                 // Will crash a test if our user-defined SQLite fns have been unreachable;
-                // We cannot rely on failures in the DAO tests, because Account's database connection
+                // We cannot rely on failures in the DAO non_unit_tests, because Account's database connection
                 // has to be set up specially first (we teach it about the extra functions) as we're
                 // creating the actor
 
