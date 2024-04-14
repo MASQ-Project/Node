@@ -552,6 +552,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use itertools::Either;
     use lazy_static::lazy_static;
+    use libc::RESOLVE_NO_XDEV;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use rand::rngs::mock;
@@ -910,10 +911,8 @@ mod tests {
             None,
         );
         let disqualification_gauge = DisqualificationGaugeMock::default()
-            // Requested for an outweighed account in order to give it the minimal possible balance
-            // that still will solve a supposed ban
             .determine_limit_result(disqualification_limit_2)
-            // Simple testing an unconfirmed account on disqualification
+            .determine_limit_result(disqualification_limit_1)
             .determine_limit_result(disqualification_limit_1)
             .determine_limit_params(&determine_limit_params_arc);
         subject.disqualification_arbiter =
@@ -964,7 +963,7 @@ mod tests {
         );
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
-            2799999999999999
+            2_300_000_000_000_000
         );
         assert!(result.is_empty());
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();
@@ -975,6 +974,11 @@ mod tests {
                     balance_2,
                     threshold_intercept_minor_2,
                     permanent_debt_allowed_minor_2
+                ),
+                (
+                    balance_1,
+                    threshold_intercept_minor_1,
+                    permanent_debt_allowed_minor_1
                 ),
                 (
                     balance_1,
@@ -1000,8 +1004,17 @@ mod tests {
             cw_service_fee_balance_minor,
             garbage_largest_exceeding_balance_recently_qualified,
         ));
+        let disqualification_gauge_mock = DisqualificationGaugeMock::default()
+            .determine_limit_result(0)
+            .determine_limit_result(0);
+        let garbage_disqualification_arbiter =
+            DisqualificationArbiter::new(Box::new(disqualification_gauge_mock));
         let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
+            .compute_unconfirmed_adjustments(
+                weighted_accounts,
+                &garbage_disqualification_arbiter,
+                cw_service_fee_balance_minor,
+            );
         // The results are sorted from the biggest weights down
         let proposed_adjusted_balance = unconfirmed_adjustments[0].proposed_adjusted_balance_minor;
         assert_eq!(

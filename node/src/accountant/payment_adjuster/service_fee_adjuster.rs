@@ -40,14 +40,13 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
     ) -> AdjustmentIterationResult {
-        let unconfirmed_adjustments = self
-            .adjustment_computer
-            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
-
-        match Self::handle_sufficiently_filled_accounts(
+        let unconfirmed_adjustments = self.adjustment_computer.compute_unconfirmed_adjustments(
+            weighted_accounts,
             disqualification_arbiter,
-            unconfirmed_adjustments,
-        ) {
+            cw_service_fee_balance_minor,
+        );
+
+        match Self::handle_sufficiently_filled_accounts(unconfirmed_adjustments) {
             Either::Left(without_gainers) => {
                 Self::disqualify_single_account(disqualification_arbiter, without_gainers, logger)
             }
@@ -83,7 +82,11 @@ impl ServiceFeeAdjusterReal {
                     &weighted_account,
                     disqualification_limit,
                 );
-                UnconfirmedAdjustment::new(weighted_account, disqualification_limit)
+                UnconfirmedAdjustment::new(
+                    weighted_account,
+                    disqualification_limit,
+                    disqualification_limit,
+                )
             })
             .collect();
 
@@ -117,13 +120,10 @@ impl ServiceFeeAdjusterReal {
     // are reconsidered to be give more bits from the fund of unallocated money, all down
     // to zero.
     fn handle_sufficiently_filled_accounts(
-        disqualification_arbiter: &DisqualificationArbiter,
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
-        let (sufficient_gainers, low_gainers) = Self::filter_and_process_sufficient_gainers(
-            disqualification_arbiter,
-            unconfirmed_adjustments,
-        );
+        let (sufficient_gainers, low_gainers) =
+            Self::filter_and_process_sufficient_gainers(unconfirmed_adjustments);
 
         if sufficient_gainers.is_empty() {
             Either::Left(low_gainers)
@@ -168,7 +168,6 @@ impl ServiceFeeAdjusterReal {
     }
 
     fn filter_and_process_sufficient_gainers(
-        disqualification_arbiter: &DisqualificationArbiter,
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> (
         Vec<AdjustedAccountBeforeFinalization>,
@@ -178,8 +177,7 @@ impl ServiceFeeAdjusterReal {
         let (sufficient_gainers, low_gainers) = unconfirmed_adjustments.into_iter().fold(
             init,
             |(mut sufficient_gainers, mut low_gainers), current| {
-                let disqualification_limit = disqualification_arbiter
-                    .calculate_disqualification_edge(&current.weighted_account.qualified_account);
+                let disqualification_limit = current.disqualification_limit_minor;
                 if current.proposed_adjusted_balance_minor >= disqualification_limit
                 //TODO is the operator tested??
                 {
@@ -224,6 +222,7 @@ impl AdjustmentComputer {
     pub fn compute_unconfirmed_adjustments(
         &self,
         weighted_accounts: Vec<WeightedPayable>,
+        disqualification_arbiter: &DisqualificationArbiter,
         unallocated_cw_service_fee_balance_minor: u128,
     ) -> Vec<UnconfirmedAdjustment> {
         let weights_total = weights_total(&weighted_accounts);
@@ -252,7 +251,14 @@ impl AdjustmentComputer {
                     proposed_adjusted_balance,
                 );
 
-                UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
+                let disqualification_limit = disqualification_arbiter
+                    .calculate_disqualification_edge(&weighted_account.qualified_account);
+
+                UnconfirmedAdjustment::new(
+                    weighted_account,
+                    proposed_adjusted_balance,
+                    disqualification_limit,
+                )
             })
             .collect()
     }
@@ -297,6 +303,7 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_1.proposed_adjusted_balance_minor = proposed_adjusted_balance_1;
+        account_1.disqualification_limit_minor = multiple_by_billion(1_800_000_000);
         let proposed_adjusted_balance_2 = multiple_by_billion(4_200_000_000);
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
         account_2
@@ -305,6 +312,7 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(5_000_000_000);
         account_2.proposed_adjusted_balance_minor = proposed_adjusted_balance_2;
+        account_2.disqualification_limit_minor = multiple_by_billion(4_200_000_000) - 1;
         let proposed_adjusted_balance_3 = multiple_by_billion(2_000_000_000);
         let mut account_3 = make_non_guaranteed_unconfirmed_adjustment(333);
         account_3
@@ -313,6 +321,7 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(3_000_000_000);
         account_3.proposed_adjusted_balance_minor = proposed_adjusted_balance_3;
+        account_3.disqualification_limit_minor = multiple_by_billion(2_000_000_000) + 1;
         let proposed_adjusted_balance_4 = multiple_by_billion(500_000_000);
         let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
         account_4
@@ -321,6 +330,7 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(1_500_000_000);
         account_4.proposed_adjusted_balance_minor = proposed_adjusted_balance_4;
+        account_4.disqualification_limit_minor = multiple_by_billion(500_000_000);
         let proposed_adjusted_balance_5 = multiple_by_billion(1_000_000_000);
         let mut account_5 = make_non_guaranteed_unconfirmed_adjustment(555);
         account_5
@@ -329,6 +339,7 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_5.proposed_adjusted_balance_minor = proposed_adjusted_balance_5;
+        account_5.disqualification_limit_minor = multiple_by_billion(1_000_000_000) + 1;
         let unconfirmed_accounts = vec![
             account_1.clone(),
             account_2.clone(),
@@ -336,20 +347,9 @@ mod tests {
             account_4.clone(),
             account_5.clone(),
         ];
-        let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(multiple_by_billion(1_800_000_000))
-            .determine_limit_result(multiple_by_billion(4_200_000_000) - 1)
-            .determine_limit_result(multiple_by_billion(2_000_000_000) + 1)
-            .determine_limit_result(multiple_by_billion(500_000_000))
-            .determine_limit_result(multiple_by_billion(1_000_000_000) + 1);
-        let disqualification_arbiter =
-            DisqualificationArbiter::new(Box::new(disqualification_gauge));
 
         let (sufficient_gainers, low_gainers) =
-            ServiceFeeAdjusterReal::filter_and_process_sufficient_gainers(
-                &disqualification_arbiter,
-                unconfirmed_accounts,
-            );
+            ServiceFeeAdjusterReal::filter_and_process_sufficient_gainers(unconfirmed_accounts);
 
         assert_eq!(low_gainers, vec![account_3, account_5]);
         let expected_adjusted_outweighed_accounts = vec![
@@ -389,8 +389,8 @@ mod tests {
             );
 
         let expected_result = vec![
-            UnconfirmedAdjustment::new(weighted_account_1, 123456789),
-            UnconfirmedAdjustment::new(weighted_account_2, 987654321),
+            UnconfirmedAdjustment::new(weighted_account_1, 123456789, 123456789),
+            UnconfirmedAdjustment::new(weighted_account_2, 987654321, 987654321),
         ];
         assert_eq!(result, expected_result)
     }

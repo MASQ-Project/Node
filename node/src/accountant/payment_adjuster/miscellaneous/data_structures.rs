@@ -74,13 +74,19 @@ impl AdjustedAccountBeforeFinalization {
 pub struct UnconfirmedAdjustment {
     pub weighted_account: WeightedPayable,
     pub proposed_adjusted_balance_minor: u128,
+    pub disqualification_limit_minor: u128,
 }
 
 impl UnconfirmedAdjustment {
-    pub fn new(weighted_account: WeightedPayable, proposed_adjusted_balance_minor: u128) -> Self {
+    pub fn new(
+        weighted_account: WeightedPayable,
+        proposed_adjusted_balance_minor: u128,
+        disqualification_limit_minor: u128,
+    ) -> Self {
         Self {
             weighted_account,
             proposed_adjusted_balance_minor,
+            disqualification_limit_minor,
         }
     }
 }

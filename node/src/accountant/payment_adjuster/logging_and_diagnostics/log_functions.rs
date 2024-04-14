@@ -131,7 +131,7 @@ pub fn info_log_for_disqualified_account(
         account
             .proposed_adjusted_balance_minor
             .separate_with_commas(),
-        account.disqualification_edge.separate_with_commas()
+        account.disqualification_limit_minor.separate_with_commas()
     )
 }
 
@@ -209,7 +209,7 @@ mod tests {
             wallet: &wallet,
             weight: 0,
             proposed_adjusted_balance_minor: 1_555_666_777,
-            disqualification_edge: 2_000_000_000,
+            disqualification_limit_minor: 2_000_000_000,
         };
 
         info_log_for_disqualified_account(&logger, &disqualified_account);
