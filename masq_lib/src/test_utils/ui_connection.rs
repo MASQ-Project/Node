@@ -9,10 +9,7 @@ use crate::utils::localhost;
 use std::net::{SocketAddr};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
-use http::request::Request;
-use http::request::Builder;
 use rand::random;
-use tungstenite::http::{Method, Version};
 use crate::test_utils::utils::make_rt;
 
 type MessageWriter = dyn SinkExt<Message, Error = io::Error> + Unpin;
