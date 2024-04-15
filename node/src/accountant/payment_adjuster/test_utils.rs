@@ -13,8 +13,8 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 };
 use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::test_utils::{make_analyzed_account, make_non_guaranteed_qualified_payable};
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
 use itertools::Either;
@@ -92,13 +92,13 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
 };
 
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
-    let qualified_payable = make_non_guaranteed_qualified_payable(n);
+    let analyzed_account = make_analyzed_account(n);
     let proposed_adjusted_balance_minor =
-        (qualified_payable.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
+        (analyzed_account.qualified_as.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
     let disqualification_limit = (3 * proposed_adjusted_balance_minor) / 4;
     let weight = (n as u128).pow(3);
     UnconfirmedAdjustment::new(
-        WeightedPayable::new(qualified_payable, weight),
+        WeightedPayable::new(analyzed_account, weight),
         proposed_adjusted_balance_minor,
         disqualification_limit,
     )
@@ -144,6 +144,7 @@ impl DisqualificationGauge for DisqualificationGaugeMock {
         threshold_intercept_wei: u128,
         permanent_debt_allowed_wei: u128,
     ) -> u128 {
+        todo!("make sure this params are used somewhere");
         self.determine_limit_params.lock().unwrap().push((
             account_balance_wei,
             threshold_intercept_wei,
@@ -218,4 +219,21 @@ pub fn make_qualified_payable_by_wallet(wallet_address_segment: &str) -> Qualifi
     let mut account = make_non_guaranteed_qualified_payable(num);
     account.bare_account.wallet = wallet;
     account
+}
+
+pub fn make_analyzed_account_by_wallet(wallet_address_segment: &str) -> AnalyzedPayableAccount {
+    let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
+    let wallet = make_wallet(wallet_address_segment);
+    let mut account = make_analyzed_account(num);
+    account.qualified_as.bare_account.wallet = wallet;
+    account
+}
+
+// Should stay test only!
+impl From<QualifiedPayableAccount> for AnalyzedPayableAccount {
+    fn from(qualified_account: QualifiedPayableAccount) -> Self {
+        let disqualification_limit =
+            DisqualificationArbiter::default().calculate_disqualification_edge(&qualified_account);
+        AnalyzedPayableAccount::new(qualified_account, disqualification_limit)
+    }
 }

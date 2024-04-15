@@ -5,16 +5,16 @@ use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
-    Adjustment, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+    Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 use crate::accountant::test_utils::try_making_guaranteed_qualified_payables;
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use rand;
 use rand::rngs::ThreadRng;
@@ -62,18 +62,22 @@ fn loading_test_with_randomized_params() {
             // doesn't interact with the potential error 'AllAccountsEliminated' whose occurrence
             // rate is interesting compared to how many times the initial check lets the adjustment
             // procedure go on
-            let initial_check_result = subject.search_for_indispensable_adjustment(
-                &scenario.qualified_payables,
-                &*scenario.agent,
-            );
+            let qualified_payables = scenario
+                .adjustment_analysis
+                .accounts
+                .iter()
+                .map(|account| account.qualified_as.clone())
+                .collect();
+            let initial_check_result =
+                subject.search_for_indispensable_adjustment(qualified_payables, &*scenario.agent);
             let allowed_scenario_opt = match initial_check_result {
-                Ok(adjustment_opt) => {
-                    match adjustment_opt {
-                        None => panic!(
-                            "Wrong test setup. This test is designed to generate scenarios \
-                    with balances always insufficient in some way!"
+                Ok(check_factual_output) => {
+                    match check_factual_output {
+                        Either::Left(_) => panic!(
+                            "Wrong test setup. This test is designed to generate scenarios with \
+                            balances always insufficient in some way!"
                         ),
-                        Some(_) => (),
+                        Either::Right(_) => (),
                     };
                     Some(scenario)
                 }
@@ -104,8 +108,8 @@ fn loading_test_with_randomized_params() {
         .into_iter()
         .map(|prepared_adjustment| {
             let account_infos =
-                preserve_account_infos(&prepared_adjustment.qualified_payables, now);
-            let required_adjustment = prepared_adjustment.adjustment.clone();
+                preserve_account_infos(&prepared_adjustment.adjustment_analysis.accounts, now);
+            let required_adjustment = prepared_adjustment.adjustment_analysis.adjustment.clone();
             let cw_service_fee_balance_minor =
                 prepared_adjustment.agent.service_fee_balance_minor();
 
@@ -152,13 +156,13 @@ fn try_making_single_valid_scenario(
     if payables_len != qualified_payables.len() {
         return None;
     }
+    let analyzed_accounts: Vec<AnalyzedPayableAccount> = todo!();
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, qualified_payables.len());
     Some(PreparedAdjustment::new(
-        qualified_payables,
         Box::new(agent),
         None,
-        adjustment,
+        AdjustmentAnalysis::new(adjustment, analyzed_accounts),
     ))
 }
 
@@ -296,16 +300,16 @@ struct FailedAdjustment {
 }
 
 fn preserve_account_infos(
-    accounts: &[QualifiedPayableAccount],
+    accounts: &[AnalyzedPayableAccount],
     now: SystemTime,
 ) -> Vec<AccountInfo> {
     accounts
         .iter()
         .map(|account| AccountInfo {
-            wallet: account.bare_account.wallet.clone(),
-            initially_requested_service_fee_minor: account.bare_account.balance_wei,
+            wallet: account.qualified_as.bare_account.wallet.clone(),
+            initially_requested_service_fee_minor: account.qualified_as.bare_account.balance_wei,
             debt_age_s: now
-                .duration_since(account.bare_account.last_paid_timestamp)
+                .duration_since(account.qualified_as.bare_account.last_paid_timestamp)
                 .unwrap()
                 .as_secs(),
         })

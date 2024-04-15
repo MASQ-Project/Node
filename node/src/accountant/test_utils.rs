@@ -13,7 +13,9 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster, PaymentAdjusterError};
+use crate::accountant::payment_adjuster::{
+    Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError,
+};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
@@ -29,8 +31,8 @@ use crate::accountant::scanners::{
     ReceivableScanner, ScanSchedulers, Scanner,
 };
 use crate::accountant::{
-    gwei_to_wei, Accountant, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
-    SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
+    gwei_to_wei, Accountant, AnalyzedPayableAccount, CreditorThresholds, QualifiedPayableAccount,
+    ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
@@ -52,6 +54,7 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
+use masq_lib::utils::convert_collection;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
 use std::cell::RefCell;
@@ -1421,8 +1424,9 @@ impl PayableThresholdsGaugeMock {
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params:
         Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
-    search_for_indispensable_adjustment_results:
-        RefCell<Vec<Result<Option<Adjustment>, PaymentAdjusterError>>>,
+    search_for_indispensable_adjustment_results: RefCell<
+        Vec<Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>>,
+    >,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     adjust_payments_results:
         RefCell<Vec<Result<OutboundPaymentsInstructions, PaymentAdjusterError>>>,
@@ -1431,13 +1435,14 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        qualified_payables: &[QualifiedPayableAccount],
+        qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Option<Adjustment>, PaymentAdjusterError> {
+    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
+    {
         self.search_for_indispensable_adjustment_params
             .lock()
             .unwrap()
-            .push((qualified_payables.to_vec(), agent.arbitrary_id_stamp()));
+            .push((qualified_payables, agent.arbitrary_id_stamp()));
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
             .remove(0)
@@ -1467,7 +1472,10 @@ impl PaymentAdjusterMock {
 
     pub fn search_for_indispensable_adjustment_result(
         self,
-        result: Result<Option<Adjustment>, PaymentAdjusterError>,
+        result: Result<
+            Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>,
+            PaymentAdjusterError,
+        >,
     ) -> Self {
         self.search_for_indispensable_adjustment_results
             .borrow_mut()
@@ -1696,12 +1704,28 @@ pub fn make_non_guaranteed_qualified_payable(n: u64) -> QualifiedPayableAccount 
     )
 }
 
+pub fn make_analyzed_account(n: u64) -> AnalyzedPayableAccount {
+    AnalyzedPayableAccount::new(make_non_guaranteed_qualified_payable(n), 123456789)
+}
+
 pub fn make_guaranteed_qualified_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
     try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+}
+
+pub fn make_guaranteed_analyzed_payables(
+    payables: Vec<PayableAccount>,
+    payment_thresholds: &PaymentThresholds,
+    now: SystemTime,
+) -> Vec<AnalyzedPayableAccount> {
+    convert_collection(make_guaranteed_qualified_payables(
+        payables,
+        payment_thresholds,
+        now,
+    ))
 }
 
 pub fn try_making_guaranteed_qualified_payables(

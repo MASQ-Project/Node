@@ -105,14 +105,16 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             &account_info
                 .weighted_account
-                .qualified_account
+                .analyzed_account
+                .qualified_as
                 .bare_account
                 .wallet,
             "OUTWEIGHED ACCOUNT FOUND",
             "Original balance: {}, proposed balance: {}",
             account_info
                 .weighted_account
-                .qualified_account
+                .analyzed_account
+                .qualified_as
                 .bare_account
                 .balance_wei
                 .separate_with_commas(),
@@ -130,7 +132,8 @@ pub mod ordinary_diagnostic_functions {
         diagnostics!(
             account_info
                 .weighted_account
-                .qualified_account
+                .analyzed_account
+                .qualified_as
                 .bare_account
                 .wallet,
             "ACCOUNT NOMINATED FOR DISQUALIFICATION FOR INSIGNIFICANCE AFTER ADJUSTMENT",
@@ -145,7 +148,11 @@ pub mod ordinary_diagnostic_functions {
         disqualification_limit: u128,
     ) {
         diagnostics!(
-            weighted_account.qualified_account.bare_account.wallet,
+            weighted_account
+                .analyzed_account
+                .qualified_as
+                .bare_account
+                .wallet,
             "MINIMAL ACCEPTABLE BALANCE ASSIGNED",
             "Used disqualification limit for given account {}",
             disqualification_limit.separate_with_commas()
@@ -158,7 +165,7 @@ pub mod ordinary_diagnostic_functions {
         disqualification_limit_opt: Option<u128>,
     ) {
         diagnostics!(
-            account.qualified_account.bare_account.wallet,
+            account.analyzed_account.qualified_as.bare_account.wallet,
             "HANDLING LAST ACCOUNT",
             "Remaining CW balance {} is {}",
             cw_service_fee_balance_minor,
@@ -199,11 +206,11 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn proposed_adjusted_balance_diagnostics(
-        account: &QualifiedPayableAccount,
+        account: &WeightedPayable,
         proposed_adjusted_balance: u128,
     ) {
         diagnostics!(
-            &account.bare_account.wallet,
+            account.wallet(),
             "PROPOSED ADJUSTED BALANCE",
             "{}",
             proposed_adjusted_balance.separate_with_commas()

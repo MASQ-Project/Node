@@ -129,16 +129,12 @@ pub struct DisqualificationSuspectedAccount<'account> {
     pub disqualification_limit_minor: u128,
 }
 
-impl<'unconfirmed_accounts> From<(&'unconfirmed_accounts UnconfirmedAdjustment)>
+impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
     for DisqualificationSuspectedAccount<'unconfirmed_accounts>
 {
     fn from(unconfirmed_account: &'unconfirmed_accounts UnconfirmedAdjustment) -> Self {
         DisqualificationSuspectedAccount {
-            wallet: &unconfirmed_account
-                .weighted_account
-                .qualified_account
-                .bare_account
-                .wallet,
+            wallet: unconfirmed_account.wallet(),
             weight: unconfirmed_account.weighted_account.weight,
             proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
             disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor,
@@ -215,17 +211,13 @@ mod tests {
         DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
         DisqualificationSuspectedAccount,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        UnconfirmedAdjustment, WeightedPayable,
-    };
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
-        DisqualificationGaugeMock,
     };
-    use crate::accountant::test_utils::{make_guaranteed_qualified_payables, make_payable_account};
-    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
+    use crate::accountant::test_utils::make_guaranteed_qualified_payables;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
@@ -465,7 +457,8 @@ mod tests {
         let accounts = vec![account_1, account_2, account_3, account_4];
         let qualified_payables =
             make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
-        let largest_exceeding_balance = find_largest_exceeding_balance(&qualified_payables);
+        let analyzed_accounts = convert_collection(qualified_payables);
+        let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
         let subject = make_initialized_subject(
             Some(now),
             Some(cw_service_fee_balance_minor),
@@ -473,7 +466,7 @@ mod tests {
             Some(largest_exceeding_balance),
             None,
         );
-        let weights_and_accounts = subject.calculate_weights_for_accounts(qualified_payables);
+        let weights_and_accounts = subject.calculate_weights(analyzed_accounts);
         let subject = DisqualificationArbiter::default();
         let unconfirmed_adjustments = AdjustmentComputer::default()
             .compute_unconfirmed_adjustments(

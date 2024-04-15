@@ -1,21 +1,30 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::sub_lib::wallet::Wallet;
 use web3::types::U256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WeightedPayable {
-    pub qualified_account: QualifiedPayableAccount,
+    pub analyzed_account: AnalyzedPayableAccount,
     pub weight: u128,
 }
 
 impl WeightedPayable {
-    pub fn new(qualified_account: QualifiedPayableAccount, weight: u128) -> Self {
+    pub fn new(analyzed_account: AnalyzedPayableAccount, weight: u128) -> Self {
         Self {
-            qualified_account,
+            analyzed_account,
             weight,
         }
+    }
+
+    pub fn wallet(&self) -> &Wallet {
+        &self.analyzed_account.qualified_as.bare_account.wallet
+    }
+
+    pub fn balance_minor(&self) -> u128 {
+        self.analyzed_account.qualified_as.bare_account.balance_wei
     }
 }
 
@@ -88,6 +97,19 @@ impl UnconfirmedAdjustment {
             proposed_adjusted_balance_minor,
             disqualification_limit_minor,
         }
+    }
+
+    pub fn wallet(&self) -> &Wallet {
+        &self
+            .weighted_account
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .wallet
+    }
+
+    pub fn balance_minor(&self) -> u128 {
+        todo!()
     }
 }
 

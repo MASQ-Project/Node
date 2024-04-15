@@ -6,11 +6,11 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::payment_adjuster::Adjustment;
+use crate::accountant::payment_adjuster::{Adjustment, AdjustmentAnalysis};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
-use crate::accountant::{QualifiedPayableAccount, ResponseSkeleton};
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount, ResponseSkeleton};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
@@ -39,24 +39,21 @@ pub trait SolvencySensitivePaymentInstructor {
 }
 
 pub struct PreparedAdjustment {
-    pub qualified_payables: Vec<QualifiedPayableAccount>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
-    pub adjustment: Adjustment,
+    pub adjustment_analysis: AdjustmentAnalysis,
 }
 
 impl PreparedAdjustment {
     pub fn new(
-        qualified_payables: Vec<QualifiedPayableAccount>,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
-        adjustment: Adjustment,
+        adjustment_analysis: AdjustmentAnalysis,
     ) -> Self {
         Self {
-            qualified_payables,
             agent,
             response_skeleton_opt,
-            adjustment,
+            adjustment_analysis,
         }
     }
 }
@@ -68,10 +65,9 @@ mod tests {
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {
             Self {
-                qualified_payables: self.qualified_payables.clone(),
                 agent: self.agent.dup(),
                 response_skeleton_opt: self.response_skeleton_opt,
-                adjustment: self.adjustment.clone(),
+                adjustment_analysis: self.adjustment_analysis.clone(),
             }
         }
     }

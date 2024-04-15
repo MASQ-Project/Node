@@ -77,7 +77,9 @@ impl ServiceFeeAdjusterReal {
             .into_iter()
             .map(|weighted_account| {
                 let disqualification_limit = disqualification_arbiter
-                    .calculate_disqualification_edge(&weighted_account.qualified_account);
+                    .calculate_disqualification_edge(
+                        &weighted_account.analyzed_account.qualified_as,
+                    );
                 minimal_acceptable_balance_assigned_diagnostics(
                     &weighted_account,
                     disqualification_limit,
@@ -149,14 +151,7 @@ impl ServiceFeeAdjusterReal {
 
         let remaining = unconfirmed_adjustments
             .into_iter()
-            .filter(|account_info| {
-                account_info
-                    .weighted_account
-                    .qualified_account
-                    .bare_account
-                    .wallet
-                    != disqualified_account_wallet
-            })
+            .filter(|account_info| account_info.wallet() != &disqualified_account_wallet)
             .collect();
 
         let remaining_reverted = convert_collection(remaining);
@@ -246,13 +241,12 @@ impl AdjustmentComputer {
                 let proposed_adjusted_balance =
                     compute_proposed_adjusted_balance(weighted_account.weight);
 
-                proposed_adjusted_balance_diagnostics(
-                    &weighted_account.qualified_account,
-                    proposed_adjusted_balance,
-                );
+                proposed_adjusted_balance_diagnostics(&weighted_account, proposed_adjusted_balance);
 
                 let disqualification_limit = disqualification_arbiter
-                    .calculate_disqualification_edge(&weighted_account.qualified_account);
+                    .calculate_disqualification_edge(
+                        &weighted_account.analyzed_account.qualified_as,
+                    );
 
                 UnconfirmedAdjustment::new(
                     weighted_account,
@@ -299,7 +293,8 @@ mod tests {
         let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
         account_1
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_1.proposed_adjusted_balance_minor = proposed_adjusted_balance_1;
@@ -308,7 +303,8 @@ mod tests {
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
         account_2
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .balance_wei = multiple_by_billion(5_000_000_000);
         account_2.proposed_adjusted_balance_minor = proposed_adjusted_balance_2;
@@ -317,7 +313,8 @@ mod tests {
         let mut account_3 = make_non_guaranteed_unconfirmed_adjustment(333);
         account_3
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .balance_wei = multiple_by_billion(3_000_000_000);
         account_3.proposed_adjusted_balance_minor = proposed_adjusted_balance_3;
@@ -326,7 +323,8 @@ mod tests {
         let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
         account_4
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .balance_wei = multiple_by_billion(1_500_000_000);
         account_4.proposed_adjusted_balance_minor = proposed_adjusted_balance_4;
@@ -335,7 +333,8 @@ mod tests {
         let mut account_5 = make_non_guaranteed_unconfirmed_adjustment(555);
         account_5
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_5.proposed_adjusted_balance_minor = proposed_adjusted_balance_5;
@@ -354,15 +353,27 @@ mod tests {
         assert_eq!(low_gainers, vec![account_3, account_5]);
         let expected_adjusted_outweighed_accounts = vec![
             AdjustedAccountBeforeFinalization {
-                original_account: account_1.weighted_account.qualified_account.bare_account,
+                original_account: account_1
+                    .weighted_account
+                    .analyzed_account
+                    .qualified_as
+                    .bare_account,
                 proposed_adjusted_balance_minor: multiple_by_billion(1_800_000_000),
             },
             AdjustedAccountBeforeFinalization {
-                original_account: account_2.weighted_account.qualified_account.bare_account,
+                original_account: account_2
+                    .weighted_account
+                    .analyzed_account
+                    .qualified_as
+                    .bare_account,
                 proposed_adjusted_balance_minor: multiple_by_billion(4_200_000_000) - 1,
             },
             AdjustedAccountBeforeFinalization {
-                original_account: account_4.weighted_account.qualified_account.bare_account,
+                original_account: account_4
+                    .weighted_account
+                    .analyzed_account
+                    .qualified_as
+                    .bare_account,
                 proposed_adjusted_balance_minor: multiple_by_billion(500_000_000),
             },
         ];
@@ -400,13 +411,15 @@ mod tests {
         let unconfirmed_account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
         let payable_account_1 = unconfirmed_account_1
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .clone();
         let unconfirmed_account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
         let payable_account_2 = unconfirmed_account_2
             .weighted_account
-            .qualified_account
+            .analyzed_account
+            .qualified_as
             .bare_account
             .clone();
         let accounts = vec![unconfirmed_account_1, unconfirmed_account_2];

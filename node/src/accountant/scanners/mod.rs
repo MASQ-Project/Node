@@ -261,21 +261,22 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
         match self
             .payment_adjuster
             .borrow()
-            .search_for_indispensable_adjustment(&unprotected, &*msg.agent)
+            .search_for_indispensable_adjustment(unprotected, &*msg.agent)
         {
-            Ok(adjustment_opt) => {
-                let either = match adjustment_opt {
-                    None => Either::Left(OutboundPaymentsInstructions::new(
-                        Either::Left(unprotected),
-                        msg.agent,
-                        msg.response_skeleton_opt,
-                    )),
-                    Some(adjustment) => {
-                        let prepared_adjustment = PreparedAdjustment::new(
-                            unprotected,
+            Ok(processed) => {
+                let either = match processed {
+                    Either::Left(verified_payables) => {
+                        Either::Left(OutboundPaymentsInstructions::new(
+                            Either::Left(verified_payables),
                             msg.agent,
                             msg.response_skeleton_opt,
-                            adjustment,
+                        ))
+                    }
+                    Either::Right(adjustment_analysis) => {
+                        let prepared_adjustment = PreparedAdjustment::new(
+                            msg.agent,
+                            msg.response_skeleton_opt,
+                            adjustment_analysis,
                         );
                         Either::Right(prepared_adjustment)
                     }

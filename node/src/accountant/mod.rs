@@ -150,6 +150,21 @@ impl QualifiedPayableAccount {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AnalyzedPayableAccount {
+    pub qualified_as: QualifiedPayableAccount,
+    pub disqualification_limit: u128,
+}
+
+impl AnalyzedPayableAccount {
+    pub fn new(qualified_as: QualifiedPayableAccount, disqualification_limit: u128) -> Self {
+        AnalyzedPayableAccount {
+            qualified_as,
+            disqualification_limit,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct CreditorThresholds {
     pub permanent_debt_allowed_wei: u128,
@@ -1051,7 +1066,9 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-    use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterError};
+    use crate::accountant::payment_adjuster::{
+        Adjustment, AdjustmentAnalysis, PaymentAdjusterError,
+    };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
@@ -1059,12 +1076,12 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_guaranteed_qualified_payables,
-        make_non_guaranteed_qualified_payable, make_payable_account,
-        make_unqualified_and_qualified_payables, BannedDaoFactoryMock, MessageIdGeneratorMock,
-        NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
-        PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
+        bc_from_earning_wallet, bc_from_wallets, make_analyzed_account,
+        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
+        make_payable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
+        MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1110,6 +1127,7 @@ mod tests {
     use masq_lib::ui_gateway::{
         MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
     };
+    use masq_lib::utils::convert_collection;
     use std::any::TypeId;
     use std::ops::{Add, Sub};
     use std::sync::Arc;
@@ -1453,11 +1471,19 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
+        let account_1 = make_payable_account(44_444);
+        let account_2 = make_payable_account(333_333);
+        let qualified_payables = vec![
+            QualifiedPayableAccount::new(account_1.clone(), 2345, CreditorThresholds::new(1111)),
+            QualifiedPayableAccount::new(account_2.clone(), 6789, CreditorThresholds::new(2222)),
+        ];
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_params(
                 &search_for_indispensable_adjustment_params_arc,
             )
-            .search_for_indispensable_adjustment_result(Ok(None));
+            .search_for_indispensable_adjustment_result(Ok(Either::Left(
+                qualified_payables.clone(),
+            )));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1465,15 +1491,10 @@ mod tests {
         subject.outbound_payments_instructions_sub_opt = Some(instructions_recipient);
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
-        let account_1 = make_payable_account(44_444);
-        let account_2 = make_payable_account(333_333);
         let system = System::new("test");
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
-        let qualified_payables = vec![
-            QualifiedPayableAccount::new(account_1.clone(), 2345, CreditorThresholds::new(1111)),
-            QualifiedPayableAccount::new(account_2.clone(), 6789, CreditorThresholds::new(2222)),
-        ];
+
         let msg = BlockchainAgentWithContextMessage {
             protected_qualified_payables: protect_qualified_payables_in_test(
                 qualified_payables.clone(),
@@ -1559,10 +1580,10 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
+        let protected_qualified_payables =
+            protect_qualified_payables_in_test(unadjusted_qualified_accounts.clone());
         let payable_payments_setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_qualified_payables_in_test(
-                unadjusted_qualified_accounts.clone(),
-            ),
+            protected_qualified_payables,
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1577,8 +1598,11 @@ mod tests {
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
+        let analyzed_accounts = convert_collection(unadjusted_qualified_accounts.clone());
+        let adjustment_analysis =
+            AdjustmentAnalysis::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
+            .search_for_indispensable_adjustment_result(Ok(Either::Right(adjustment_analysis)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(Ok(payments_instructions));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1598,12 +1622,12 @@ mod tests {
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
         let (actual_prepared_adjustment, captured_now) = adjust_payments_params.remove(0);
         assert_eq!(
-            actual_prepared_adjustment.adjustment,
+            actual_prepared_adjustment.adjustment_analysis.adjustment,
             Adjustment::ByServiceFee
         );
         assert_eq!(
-            actual_prepared_adjustment.qualified_payables,
-            unadjusted_qualified_accounts
+            actual_prepared_adjustment.adjustment_analysis.accounts,
+            analyzed_accounts
         );
         assert_eq!(
             actual_prepared_adjustment.agent.arbitrary_id_stamp(),
@@ -1736,7 +1760,10 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Some(Adjustment::ByServiceFee)))
+            .search_for_indispensable_adjustment_result(Ok(Either::Right(AdjustmentAnalysis::new(
+                Adjustment::ByServiceFee,
+                vec![make_analyzed_account(123)],
+            ))))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
 
         test_handling_payment_adjuster_error(test_name, payment_adjuster);
@@ -3437,6 +3464,11 @@ mod tests {
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
+        let qualified_payables = make_guaranteed_qualified_payables(
+            vec![account_1.clone(), account_2.clone()],
+            &DEFAULT_PAYMENT_THRESHOLDS,
+            now,
+        );
         let pending_payable_scan_interval = 200; // Should be slightly less than 1/5 of the time until shutting the system
         let payable_dao_for_payable_scanner = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
@@ -3539,7 +3571,9 @@ mod tests {
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let payment_adjuster = PaymentAdjusterMock::default()
-                    .search_for_indispensable_adjustment_result(Ok(None));
+                    .search_for_indispensable_adjustment_result(Ok(Either::Left(
+                        qualified_payables,
+                    )));
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)

@@ -8,11 +8,11 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AccountsEliminatedByTxFeeInfo, TransactionCountsWithin16bits, WeightedPayable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
-use crate::accountant::payment_adjuster::PaymentAdjusterError;
+use crate::accountant::payment_adjuster::{Adjustment, AdjustmentAnalysis, PaymentAdjusterError};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use ethereum_types::U256;
-use itertools::Either;
+use itertools::{Either, Product};
 use masq_lib::logger::Logger;
 
 pub struct PreparatoryAnalyzer {}
@@ -81,77 +81,97 @@ impl PreparatoryAnalyzer {
         cw_transaction_fee_balance_minor / U256::from(fee_requirement_per_tx_minor)
     }
 
-    pub fn check_need_of_adjustment_by_service_fee(
+    pub fn check_need_of_adjustment_by_service_fee<
+        MidProduct,
+        IncomingAccount,
+        AdjustmentNeededValue,
+    >(
         &self,
         disqualification_arbiter: &DisqualificationArbiter,
         accounts_eliminated_by_tx_fee_info_opt: Option<AccountsEliminatedByTxFeeInfo>,
-        payables: Either<&[QualifiedPayableAccount], &[WeightedPayable]>,
+        payables: Vec<IncomingAccount>,
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
-    ) -> Result<bool, PaymentAdjusterError> {
-        let qualified_payables = Self::comb_qualified_payables(payables);
+    ) -> Result<Either<Vec<IncomingAccount>, AdjustmentNeededValue>, PaymentAdjusterError>
+    where
+        IncomingAccount: DisqualificationAnalysableAccount<MidProduct>,
+        Vec<MidProduct>:
+            ReturnedFromServiceFeeCheck<AdjustmentNeededReturnValue = AdjustmentNeededValue>,
+    {
+        let required_service_fee_total =
+            Self::compute_total_of_service_fee_required::<IncomingAccount, MidProduct>(&payables);
 
-        let required_service_fee_sum: u128 =
-            sum_as(&qualified_payables, |qa| qa.bare_account.balance_wei);
-
-        if cw_service_fee_balance_minor >= required_service_fee_sum {
-            Ok(false)
+        if cw_service_fee_balance_minor >= required_service_fee_total {
+            Ok(Either::Left(payables))
         } else {
-            self.analyse_smallest_adjustment_possibility(
-                disqualification_arbiter,
-                accounts_eliminated_by_tx_fee_info_opt,
-                &qualified_payables,
-                cw_service_fee_balance_minor,
-            )?;
+            let result = self
+                .analyse_smallest_adjustment_possibility::<IncomingAccount, MidProduct>(
+                    disqualification_arbiter,
+                    accounts_eliminated_by_tx_fee_info_opt,
+                    required_service_fee_total,
+                    payables,
+                    cw_service_fee_balance_minor,
+                )?;
 
             log_adjustment_by_service_fee_is_required(
                 logger,
-                required_service_fee_sum,
+                required_service_fee_total,
                 cw_service_fee_balance_minor,
             );
-            Ok(true)
+
+            Ok(Either::Right(result.failing_check_output()))
         }
     }
 
-    fn comb_qualified_payables<'payables>(
-        payables: Either<&'payables [QualifiedPayableAccount], &'payables [WeightedPayable]>,
-    ) -> Vec<&'payables QualifiedPayableAccount> {
-        match payables {
-            Either::Left(accounts) => accounts.iter().collect(),
-            Either::Right(weighted_accounts) => weighted_accounts
-                .iter()
-                .map(|weighted_account| &weighted_account.qualified_account)
-                .collect(),
-        }
+    fn compute_total_of_service_fee_required<Account, Product>(payables: &[Account]) -> u128
+    where
+        Account: DisqualificationAnalysableAccount<Product>,
+    {
+        sum_as(payables, |account| account.balance_minor())
+    }
+
+    fn find_smallest_weight_and_prepare_accounts_to_proceed<Account, Product>(
+        accounts: Vec<Account>,
+        disqualification_arbiter: &DisqualificationArbiter,
+    ) -> (u128, Vec<Product>)
+    where
+        Account: DisqualificationAnalysableAccount<Product>,
+    {
+        todo!()
     }
 
     // We cannot do much in this area but stepping in if the cw balance is zero or nearly zero with
     // the assumption that the debt with the lowest disqualification limit in the set fits in the
     // available balance. If it doesn't, we won't want to bother the payment adjuster by its work,
     // so we'll abort and no payments will come out.
-    fn analyse_smallest_adjustment_possibility(
+    fn analyse_smallest_adjustment_possibility<Account, Product>(
         &self,
         disqualification_arbiter: &DisqualificationArbiter,
         accounts_eliminated_by_tx_fee_info_opt: Option<AccountsEliminatedByTxFeeInfo>,
-        qualified_payables: &[&QualifiedPayableAccount],
+        required_service_fee_total: u128,
+        accounts: Vec<Account>,
         cw_service_fee_balance_minor: u128,
-    ) -> Result<(), PaymentAdjusterError> {
-        let lowest_disqualification_limit =
-            Self::find_lowest_dsq_limit(qualified_payables, disqualification_arbiter);
+    ) -> Result<Vec<Product>, PaymentAdjusterError>
+    where
+        Account: DisqualificationAnalysableAccount<Product>,
+    {
+        let (lowest_disqualification_limit, prepared_accounts) =
+            Self::find_smallest_weight_and_prepare_accounts_to_proceed(
+                accounts,
+                disqualification_arbiter,
+            );
 
         if lowest_disqualification_limit <= cw_service_fee_balance_minor {
-            Ok(())
+            Ok(prepared_accounts)
         } else {
-            let total_amount_demanded_minor =
-                sum_as(qualified_payables, |qp| qp.bare_account.balance_wei);
             let (number_of_accounts, total_amount_demanded_minor) =
                 if let Some(info) = accounts_eliminated_by_tx_fee_info_opt {
                     (
-                        qualified_payables.len() + info.count,
-                        total_amount_demanded_minor + info.sum_of_balances,
+                        prepared_accounts.len() + info.count,
+                        required_service_fee_total + info.sum_of_balances,
                     )
                 } else {
-                    (qualified_payables.len(), total_amount_demanded_minor)
+                    (prepared_accounts.len(), required_service_fee_total)
                 };
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
@@ -174,14 +194,72 @@ impl PreparatoryAnalyzer {
     }
 }
 
+pub trait DisqualificationAnalysableAccount<Product> {
+    // fn process_findings(insufficiency_found: bool)->
+    fn analyse_limit(self, disqualification_arbiter: &DisqualificationArbiter) -> (Product, u128);
+    fn balance_minor(&self) -> u128;
+}
+
+impl DisqualificationAnalysableAccount<AnalyzedPayableAccount> for QualifiedPayableAccount {
+    fn analyse_limit(
+        self,
+        disqualification_arbiter: &DisqualificationArbiter,
+    ) -> (AnalyzedPayableAccount, u128) {
+        todo!()
+    }
+
+    fn balance_minor(&self) -> u128 {
+        self.bare_account.balance_wei
+    }
+}
+
+impl DisqualificationAnalysableAccount<WeightedPayable> for WeightedPayable {
+    fn analyse_limit(
+        self,
+        disqualification_arbiter: &DisqualificationArbiter,
+    ) -> (WeightedPayable, u128) {
+        todo!()
+    }
+
+    fn balance_minor(&self) -> u128 {
+        self.analyzed_account.qualified_as.bare_account.balance_wei
+    }
+}
+
+pub trait ReturnedFromServiceFeeCheck {
+    type AdjustmentNeededReturnValue;
+
+    fn failing_check_output(self) -> Self::AdjustmentNeededReturnValue;
+}
+
+impl ReturnedFromServiceFeeCheck for Vec<AnalyzedPayableAccount> {
+    type AdjustmentNeededReturnValue = AdjustmentAnalysis;
+
+    fn failing_check_output(self) -> Self::AdjustmentNeededReturnValue {
+        todo!()
+    }
+}
+
+impl ReturnedFromServiceFeeCheck for Vec<WeightedPayable> {
+    type AdjustmentNeededReturnValue = Vec<WeightedPayable>;
+
+    fn failing_check_output(self) -> Self::AdjustmentNeededReturnValue {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
-    use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
+    use crate::accountant::payment_adjuster::preparatory_analyser::{
+        DisqualificationAnalysableAccount, PreparatoryAnalyzer,
+    };
     use crate::accountant::payment_adjuster::test_utils::DisqualificationGaugeMock;
     use crate::accountant::payment_adjuster::PaymentAdjusterError;
     use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
     use crate::accountant::QualifiedPayableAccount;
+    use masq_lib::utils::convert_collection;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -217,21 +295,22 @@ mod tests {
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
         let disqualification_gauge =
             disqualification_gauge.determine_limit_params(&determine_limit_params_arc);
-        let accounts_in_expected_format = original_accounts
-            .iter()
-            .collect::<Vec<&QualifiedPayableAccount>>();
         let disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
-
+        let required_service_fee_total = sum_as(original_accounts.as_slice(), |account| {
+            account.balance_minor()
+        });
         let result = subject.analyse_smallest_adjustment_possibility(
             &disqualification_arbiter,
             None,
-            &accounts_in_expected_format,
+            required_service_fee_total,
+            original_accounts.clone().to_vec(),
             cw_service_fee_balance,
         );
 
-        assert_eq!(result, Ok(()));
+        let expected_analyzed_accounts = convert_collection(original_accounts.to_vec());
+        assert_eq!(result, Ok(expected_analyzed_accounts));
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();
         let account_1 = &original_accounts[0];
         let account_2 = &original_accounts[1];
@@ -300,9 +379,7 @@ mod tests {
         account_3.bare_account.balance_wei = 1_000_111_111;
         let cw_service_fee_balance = 1_000_000_100;
         let original_accounts = vec![account_1, account_2, account_3];
-        let accounts_in_expected_format = original_accounts
-            .iter()
-            .collect::<Vec<&QualifiedPayableAccount>>();
+        let required_fee_total = 2_000_000_000 + 1_000_050_000 + 1_000_111_111;
         let disqualification_gauge = DisqualificationGaugeMock::default()
             .determine_limit_result(1_500_000_000)
             .determine_limit_result(1_000_000_101)
@@ -314,7 +391,8 @@ mod tests {
         let result = subject.analyse_smallest_adjustment_possibility(
             &disqualification_arbiter,
             None,
-            &accounts_in_expected_format,
+            required_fee_total,
+            original_accounts,
             cw_service_fee_balance,
         );
 
@@ -323,7 +401,7 @@ mod tests {
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 3,
-                    total_amount_demanded_minor: 2_000_000_000 + 1_000_050_000 + 1_000_111_111,
+                    total_amount_demanded_minor: required_fee_total,
                     cw_service_fee_balance_minor: cw_service_fee_balance
                 }
             )

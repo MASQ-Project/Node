@@ -6,7 +6,7 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::o
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AccountsEliminatedByTxFeeInfo, AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable};
-use crate::accountant::QualifiedPayableAccount;
+use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use itertools::{Either, Itertools};
 
 pub fn zero_affordable_accounts_found(
@@ -32,7 +32,7 @@ pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
     })
 }
 
-pub fn dump_unaffordable_accounts_by_txn_fee(
+pub fn dump_unaffordable_accounts_by_transaction_fee(
     weighted_accounts_in_descending_order: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
 ) -> (Vec<WeightedPayable>, AccountsEliminatedByTxFeeInfo) {
@@ -43,7 +43,11 @@ pub fn dump_unaffordable_accounts_by_txn_fee(
     let elimination_info = {
         let count = to_be_dumped.len();
         let sum_of_balances = sum_as(&to_be_dumped, |account| {
-            account.qualified_account.bare_account.balance_wei
+            account
+                .analyzed_account
+                .qualified_as
+                .bare_account
+                .balance_wei
         });
         AccountsEliminatedByTxFeeInfo {
             count,
@@ -73,14 +77,15 @@ pub fn compute_mul_coefficient_preventing_fractional_numbers(
     u128::MAX / cw_service_fee_balance_minor
 }
 
-pub fn find_largest_exceeding_balance(qualified_accounts: &[QualifiedPayableAccount]) -> u128 {
+pub fn find_largest_exceeding_balance(qualified_accounts: &[AnalyzedPayableAccount]) -> u128 {
     let diffs = qualified_accounts
         .iter()
         .map(|account| {
             account
+                .qualified_as
                 .bare_account
                 .balance_wei
-                .checked_sub(account.payment_threshold_intercept_minor)
+                .checked_sub(account.qualified_as.payment_threshold_intercept_minor)
                 .expect("should be: balance > intercept!")
         })
         .collect::<Vec<u128>>();
@@ -208,7 +213,7 @@ pub fn drop_no_longer_needed_weights_away_from_accounts(
 ) -> Vec<PayableAccount> {
     weights_and_accounts
         .into_iter()
-        .map(|weighted_account| weighted_account.qualified_account.bare_account)
+        .map(|weighted_account| weighted_account.analyzed_account.qualified_as.bare_account)
         .collect()
 }
 
@@ -224,7 +229,7 @@ mod tests {
         ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable, make_payable_account,
+        make_analyzed_account, make_non_guaranteed_qualified_payable, make_payable_account,
     };
     use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::wallet::Wallet;
@@ -279,12 +284,12 @@ mod tests {
 
     #[test]
     fn find_largest_exceeding_balance_works() {
-        let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.bare_account.balance_wei = 5_000_000_000;
-        account_1.payment_threshold_intercept_minor = 2_000_000_000;
-        let mut account_2 = make_non_guaranteed_qualified_payable(222);
-        account_2.bare_account.balance_wei = 4_000_000_000;
-        account_2.payment_threshold_intercept_minor = 800_000_000;
+        let mut account_1 = make_analyzed_account(111);
+        account_1.qualified_as.bare_account.balance_wei = 5_000_000_000;
+        account_1.qualified_as.payment_threshold_intercept_minor = 2_000_000_000;
+        let mut account_2 = make_analyzed_account(222);
+        account_2.qualified_as.bare_account.balance_wei = 4_000_000_000;
+        account_2.qualified_as.payment_threshold_intercept_minor = 800_000_000;
         let qualified_accounts = &[account_1, account_2];
 
         let result = find_largest_exceeding_balance(qualified_accounts);

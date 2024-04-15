@@ -69,7 +69,11 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType {
         let check_sum: u128 = sum_as(&weighted_accounts, |weighted_account| {
-            weighted_account.qualified_account.bare_account.balance_wei
+            weighted_account
+                .analyzed_account
+                .qualified_as
+                .bare_account
+                .balance_wei
         });
 
         let unallocated_cw_balance = payment_adjuster
@@ -99,8 +103,10 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
-    use crate::accountant::test_utils::make_non_guaranteed_qualified_payable;
-    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
+    use crate::accountant::test_utils::{
+        make_analyzed_account, make_non_guaranteed_qualified_payable,
+    };
+    use crate::accountant::{AnalyzedPayableAccount, CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -121,11 +127,12 @@ mod tests {
     }
 
     fn make_weighed_payable(n: u64, initial_balance_minor: u128) -> WeightedPayable {
-        let mut payable = WeightedPayable {
-            qualified_account: make_non_guaranteed_qualified_payable(111),
-            weight: n as u128 * 1234,
-        };
-        payable.qualified_account.bare_account.balance_wei = initial_balance_minor;
+        let mut payable = WeightedPayable::new(make_analyzed_account(111), n as u128 * 1234);
+        payable
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = initial_balance_minor;
         payable
     }
 
@@ -145,8 +152,8 @@ mod tests {
         let now = SystemTime::now();
         let mut payment_adjuster =
             initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);
-        let initial_balance_minor_1 = payable_1.qualified_account.bare_account.balance_wei;
-        let initial_balance_minor_2 = payable_2.qualified_account.bare_account.balance_wei;
+        let initial_balance_minor_1 = payable_1.balance_minor();
+        let initial_balance_minor_2 = payable_2.balance_minor();
         let subject = ServiceFeeOnlyAdjustmentRunner {};
 
         let result = subject.adjust_accounts(
@@ -158,11 +165,11 @@ mod tests {
             result,
             vec![
                 AdjustedAccountBeforeFinalization {
-                    original_account: payable_1.qualified_account.bare_account,
+                    original_account: payable_1.analyzed_account.qualified_as.bare_account,
                     proposed_adjusted_balance_minor: expected_proposed_balance_1
                 },
                 AdjustedAccountBeforeFinalization {
-                    original_account: payable_2.qualified_account.bare_account,
+                    original_account: payable_2.analyzed_account.qualified_as.bare_account,
                     proposed_adjusted_balance_minor: expected_proposed_balance_2
                 }
             ]
@@ -174,8 +181,12 @@ mod tests {
         initial_balance_minor: u128,
     ) -> WeightedPayable {
         let mut account = make_weighed_payable(n, initial_balance_minor);
-        account.qualified_account.payment_threshold_intercept_minor = 3_000_000_000;
-        account.qualified_account.creditor_thresholds = CreditorThresholds::new(1_000_000_000);
+        account
+            .analyzed_account
+            .qualified_as
+            .payment_threshold_intercept_minor = 3_000_000_000;
+        account.analyzed_account.qualified_as.creditor_thresholds =
+            CreditorThresholds::new(1_000_000_000);
         account
     }
 
@@ -244,12 +255,12 @@ mod tests {
         );
         let subject = ServiceFeeOnlyAdjustmentRunner {};
         let weighted_account = |account: QualifiedPayableAccount| WeightedPayable {
-            qualified_account: account,
+            analyzed_account: AnalyzedPayableAccount::new(account, 5_000_000_000),
             weight: 4_000_000_000,
         };
-        let criteria_and_accounts = vec![weighted_account(account_1), weighted_account(account_2)];
+        let weighted_accounts = vec![weighted_account(account_1), weighted_account(account_2)];
 
-        let result = subject.adjust_accounts(&mut payment_adjuster, criteria_and_accounts);
+        let result = subject.adjust_accounts(&mut payment_adjuster, weighted_accounts);
 
         let returned_accounts = result
             .into_iter()
