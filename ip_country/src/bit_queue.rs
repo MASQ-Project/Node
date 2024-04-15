@@ -9,7 +9,7 @@ pub struct BitQueue {
 impl BitQueue {
 
     pub fn new () -> Self {
-        let mut byte_queue = VecDeque::from(vec![0, 0]);
+        let byte_queue = VecDeque::from(vec![0, 0]);
         Self {
             back_blank_bit_count: 8,
             byte_queue,
@@ -21,6 +21,7 @@ impl BitQueue {
         (self.byte_queue.len() * 8) - self.back_blank_bit_count - self.front_blank_bit_count
     }
 
+    #[allow(unused_assignments)]
     pub fn add_bits(&mut self, mut bit_data: u64, mut bit_count: usize) {
         if bit_count > 64 {
             panic! ("You can only add bits up to 64 at a time, not {}", bit_count)
@@ -39,6 +40,7 @@ impl BitQueue {
         }
     }
 
+    #[allow(unused_assignments)]
     pub fn take_bits(&mut self, mut bit_count: usize) -> Option<u64> {
         let original_bit_count = bit_count;
         if bit_count > 64 {
@@ -83,6 +85,7 @@ impl BitQueue {
         !(u64::MAX << count)
     }
 
+    #[allow(dead_code)]
     fn dump_queue(&self) -> String {
         let queue_str = self.byte_queue.iter()
             .map(|b| format!("{:08b}", *b))

@@ -437,6 +437,7 @@ mod tests {
     use crate::country_block_stream::{Country, IpRange};
     use super::*;
 
+    #[allow(unused)]
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
@@ -463,6 +464,7 @@ mod tests {
         ]
     }
 
+    #[allow(unused)]
     fn ipv6_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
@@ -630,7 +632,7 @@ mod tests {
         let mut serializer = CountryBlockSerializer::new();
         ipv4_country_blocks().into_iter().for_each (|country_block| serializer.add(country_block));
         let mut bit_queue = serializer.finish().0;
-        let mut bit_queue_len = bit_queue.len();
+        let bit_queue_len = bit_queue.len();
         let mut bit_data: Vec<u64> = vec![];
         while bit_queue.len() >= 64 {
             let data = bit_queue.take_bits(64).unwrap();
@@ -877,7 +879,7 @@ mod tests {
         let mut serializer = CountryBlockSerializer::new();
         ipv6_country_blocks().into_iter().for_each (|country_block| serializer.add(country_block));
         let mut bit_queue = serializer.finish().1;
-        let mut bit_queue_len = bit_queue.len();
+        let bit_queue_len = bit_queue.len();
         let mut bit_data: Vec<u64> = vec![];
         while bit_queue.len() >= 64 {
             let data = bit_queue.take_bits(64).unwrap();

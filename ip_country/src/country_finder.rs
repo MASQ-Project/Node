@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_find_ipv4_address_in_ZZ_block() {
+    fn does_not_find_ipv4_address_in_zz_block() {
 
         let result = country_finder(ipv4_country_data, ipv6_country_data, IpAddr::from_str("0.0.5.0").unwrap());
 
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_find_ipv6_address_in_ZZ_block() {
+    fn does_not_find_ipv6_address_in_zz_block() {
 
         let result = country_finder(ipv4_country_data, ipv6_country_data, IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap());
 
@@ -126,7 +126,20 @@ mod tests {
         let result = country_finder(
             crate::dbip_country::ipv4_country_data,
             crate::dbip_country::ipv6_country_data,
-            IpAddr::from_str("195.181.248.196").unwrap() // dig www.google.com A
+            IpAddr::from_str("77.75.77.222").unwrap() // dig www.seznam.cz A
+        ).unwrap();
+
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "CZ".to_string());
+        assert_eq!(result.name, "Czechia".to_string());
+    }
+
+    #[test]
+    fn real_test_ipv4_with_sk_isp() {
+        let result = country_finder(
+            crate::dbip_country::ipv4_country_data,
+            crate::dbip_country::ipv6_country_data,
+            IpAddr::from_str("213.81.185.100").unwrap() // dig www.zoznam.sk A
         ).unwrap();
 
         assert_eq!(result.free_world, true);

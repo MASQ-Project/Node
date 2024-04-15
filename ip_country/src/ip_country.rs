@@ -3,6 +3,7 @@ use crate::bit_queue::BitQueue;
 use crate::country_block_stream::CountryBlock;
 use crate::country_block_serde::CountryBlockSerializer;
 
+#[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
     stdin: &mut dyn io::Read,
@@ -54,7 +55,7 @@ pub fn ip_country(
     }
 }
 
-fn generate_rust_code(mut ipv4_bit_queue: BitQueue, ipv6_bit_queue: BitQueue, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn generate_rust_code(ipv4_bit_queue: BitQueue, ipv6_bit_queue: BitQueue, output: &mut dyn io::Write) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
     generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
     generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;

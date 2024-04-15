@@ -37,10 +37,10 @@ impl IpRange {
                     u32::from(*end) as u128,
                     u32::from(candidate) as u128
                 ),
-                IpAddr::V6(candidate) => false,
+                IpAddr::V6(_candidate) => false,
             },
             IpRange::V6(begin, end) => match ip_addr {
-                IpAddr::V4(candidate) => false,
+                IpAddr::V4(_candidate) => false,
                 IpAddr::V6(candidate) => Self::contains_inner(
                     u128::from(*begin),
                     u128::from(*end),
