@@ -179,7 +179,11 @@ mod tests {
 
         for val in vals {
             let node_record = make_node_record(val, true);
-            let fmt_result = format!("{} {} {}\n", node_record.metadata.node_addr_opt.unwrap().to_string(), node_record.metadata.node_location.unwrap().locale.to_string(), node_record.metadata.free_world.to_string());
+            let fmt_result =
+                format!("{} {} {}\n",
+                        node_record.metadata.node_addr_opt.unwrap().to_string(),
+                        node_record.metadata.node_location.unwrap().locale.to_string(),
+                        node_record.metadata.free_world.to_string());
             result_str += fmt_result.as_str();
         }
 
@@ -208,7 +212,11 @@ mod tests {
 
         for val in vals {
             let node_record = make_node_record(val, true);
-            let fmt_result = format!("{} {} {}\n", node_record.metadata.node_addr_opt.unwrap().to_string(), node_record.metadata.node_location.unwrap().locale.to_string(), node_record.metadata.free_world.to_string());
+            let fmt_result =
+                format!("{} {} {}\n",
+                        node_record.metadata.node_addr_opt.unwrap().to_string(),
+                        node_record.metadata.node_location.unwrap().locale.to_string(),
+                        node_record.metadata.free_world.to_string());
             result_str += fmt_result.as_str();
         }
 
