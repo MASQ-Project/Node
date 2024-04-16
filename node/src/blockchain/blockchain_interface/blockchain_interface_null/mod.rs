@@ -47,6 +47,10 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         todo!()
     }
 
+    fn get_transport(&self) -> Http {
+        todo!()
+    }
+
     fn retrieve_transactions(
         &self,
         _start_block: BlockNumber,

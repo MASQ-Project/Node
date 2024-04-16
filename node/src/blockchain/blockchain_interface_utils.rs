@@ -28,8 +28,9 @@ use web3::transports::{Batch, Http};
 use web3::types::{
     Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256,
 };
-use web3::{BatchTransport, Web3};
+use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
+use web3::api::Namespace;
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -174,6 +175,47 @@ pub fn sign_transaction(
     )
 }
 
+// TODO: GH-744
+pub fn sign_transaction_2(
+    chain: Chain,
+    batch_web3: Web3<Batch<Http>>,
+    recipient_wallet: Wallet,
+    consuming_wallet: Wallet,
+    amount: u128,
+) -> Box<dyn Future<Item = SignedTransaction, Error = PayableTransactionError>> {
+    let data = sign_transaction_data(amount, recipient_wallet);
+    let gas_limit = gas_limit(data, chain);
+    // let gas_price_in_wei = to_wei(gas_price_in_gwei);
+
+    let transaction_parameters = TransactionParameters {
+        nonce: None, // TODO: GH-744 Change this to None and let the BlockChain figure out the correct Nonce instead.
+        to: Some(chain.rec().contract),
+        gas: gas_limit,
+        gas_price: None, // TODO: GH-744 Talk about this.
+        value: ethereum_types::U256::zero(),
+        data: Bytes(data.to_vec()),
+        chain_id: Some(chain.rec().num_chain_id),
+    };
+
+    let key = match consuming_wallet.prepare_secp256k1_secret() {
+        Ok(secret) => secret,
+        Err(e) => return Box::new(err(PayableTransactionError::UnusableWallet(e.to_string()))),
+    };
+
+    // let signed_transaction = batch_web3.accounts().sign_transaction(transaction_parameters, &key).wait();
+    // let result = batch_web3.eth().transport().submit_batch().wait();
+    // eprintln!("signed_transaction: {:?}", signed_transaction);
+    panic!("STOP ");
+
+    // let sign_transaction = batch_web3.accounts().sign_transaction(transaction_parameters, &key);
+    //
+    // Box::new(
+    //     batch_web3.eth().transport().submit_batch().then(move || {
+    //         sign_transaction.map_err(|e|  PayableTransactionError::Signing(e.to_string()) ).then(|signed_transaction| signed_transaction )
+    //     }),
+    // )
+}
+
 pub fn sign_and_send_payment(
     chain: Chain,
     web3: Web3<Http>,
@@ -200,6 +242,33 @@ pub fn sign_and_send_payment(
     )
 }
 
+// TODO GH-744:
+pub fn sign_and_send_payment_2(
+    chain: Chain,
+    batch_web3: Web3<Batch<Http>>,
+    recipient_wallet: Wallet,
+    consuming_wallet: Wallet,
+    amount: u128,
+) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+    eprintln!("Before sign_transaction_2");
+    Box::new(
+        sign_transaction_2(
+            chain,
+            batch_web3.clone(),
+            recipient_wallet.clone(),
+            consuming_wallet.clone(),
+            amount,
+        )
+            .map_err(|e| { eprintln!("sign_transaction_2 - ERROR");  e  } )
+            .and_then(move |signed_tx| {
+                eprintln!("Before send_transaction_2");
+                // panic!("STOP HERE");
+                send_transaction_2(batch_web3, signed_tx.raw_transaction)
+            }),
+    )
+}
+
+
 pub fn send_transaction_not_working(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
     Box::new(
         batch_web3
@@ -222,6 +291,31 @@ pub fn send_transaction(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Fut
         let result = web3
             .eth()
             .send_raw_transaction(raw_transaction);
+
+    Box::new(
+        result
+            .then(move |result| {
+                eprintln!("Send_raw_transaction result: {:?}", result);
+                match result {
+                    Ok(result) => {
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
+                    }
+                }
+            })
+    )
+}
+
+// TODO: GH-744
+pub fn send_transaction_2(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+    // batch_web3.eth().send_raw_transaction(raw_transaction);
+    let result = batch_web3
+        .eth()
+        .send_raw_transaction(raw_transaction);
+
+    eprintln!("send_transaction_2 Before BOX.");
 
     Box::new(
         result
@@ -270,6 +364,34 @@ pub fn send_and_append_payment(
     )
 }
 
+
+// TODO: GH-744
+pub fn send_and_append_payment_2(
+    chain: Chain,
+    batch_web3: Web3<Batch<Http>>,
+    consuming_wallet: Wallet,
+    account: PayableAccount,
+) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static> {
+    Box::new(
+        sign_and_send_payment_2(
+            chain,
+            batch_web3,
+            account.wallet.clone(),
+            consuming_wallet,
+            account.balance_wei,
+        )
+            .map_err(|e| {
+                return e;
+            })
+            .and_then(move |new_hash| {
+                Ok(HashAndAmount {
+                    hash: new_hash,
+                    amount: account.balance_wei,
+                })
+            }),
+    )
+}
+
 // HashAndAmountResult
 pub fn send_and_append_multiple_payments(
     logger: Logger,
@@ -298,7 +420,7 @@ pub fn send_and_append_multiple_payments(
             pending_nonce,
             gas_price,
             payable,
-        );
+        ).wait();
         // TODO: GH-744: What if the nonce doesn't matches?
         pending_nonce = advance_used_nonce(pending_nonce);
         payable_que.push(payable_future)
@@ -481,8 +603,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, SystemTime};
+    use web3::api::Namespace;
     use web3::Error as Web3Error;
     use web3::Error::Unreachable;
+    use web3::types::{CallRequest, TransactionRequest};
+    use masq_lib::blockchains::chains::Chain::EthMainnet;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use crate::accountant::db_access_objects::utils::from_time_t;
@@ -492,6 +617,117 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
+
+    #[test]
+    fn tmp_test_web3_submit_batch() {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3_batch = subject.get_web3_batch();
+        let web3  = subject.get_web3();
+
+        web3_batch.eth().block_number();
+        web3_batch.eth().block_number();
+        web3_batch.eth().block_number();
+        web3_batch.eth().block_number();
+
+        let result =  web3_batch.eth().transport().submit_batch().wait().expect("TODO: panic message");
+        eprintln!("result {:?}", result);
+    }
+
+    #[test]
+    fn tmp_send_transactions_works() {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, EthMainnet);
+        let web3_batch = subject.get_web3_batch();
+        let web = subject.get_web3();
+
+        let receiving_wallet = make_wallet("paying_wallet");
+        let paying_wallet = make_paying_wallet(b"consuming_wallet");
+        let amount: u128 = 1;
+        let gas: U256 = 1.into();
+        let gas_price: U256 = 1.into();
+        let nonce: U256 = 1.into();
+
+        let data = sign_transaction_data(amount, receiving_wallet);
+        let transaction_parameters = TransactionParameters {
+            nonce: None,
+            to: Some(EthMainnet.rec().contract),
+            gas: gas,
+            gas_price: None,
+            value: ethereum_types::U256::zero(),
+            data: Bytes(data.to_vec()),
+            chain_id: Some(EthMainnet.rec().num_chain_id),
+        };
+        let key = paying_wallet.prepare_secp256k1_secret().unwrap();
+        let test = web3_batch.accounts().sign_transaction(transaction_parameters, &key);
+
+        // eprintln!("Sign transaction result: {:?}", test);
+
+
+
+        //
+        // let test= sign_and_send_payment_2(
+        //     EthMainnet,
+        //     web3_batch.clone(),
+        //     receiving_wallet,
+        //     paying_wallet,
+        //     amount,
+        // ).wait();
+
+        // let payable_account = make_payable_account(2);
+        // let test = send_and_append_payment_2(
+        //     EthMainnet,
+        //     web3_batch.clone(),
+        //     paying_wallet,
+        //     payable_account,
+        // ).wait();
+
+
+
+        // eprintln!("Test result: {:?}", test);
+
+
+
+        // web3_batch.eth().send_raw_transaction(Default::default());
+
+        // web3_batch.eth().send_transaction(TransactionRequest {
+        //     from: paying_wallet.address(),
+        //     to: Some(receiving_wallet.address()),
+        //     gas: Some(gas),
+        //     gas_price: Some(gas_price),
+        //     value: Some(amount),
+        //     data: None,
+        //     nonce: Some(nonce),
+        //     condition: None,
+        // });
+
+        // web3_batch.eth().block_number();
+        // web3_batch.eth().block_number();
+        // web3_batch.eth().block_number();
+
+        let result =  web3_batch.eth().transport().submit_batch().wait().expect("TODO: panic message");
+        eprintln!("result {:?}", result);
+        eprintln!("Test result: {:?}", test.wait());
+    }
+
+    #[test]
+    fn tmp_new_payment_test() {
+
+
+
+    }
+
+
 
     #[test]
     fn send_transaction_works() {

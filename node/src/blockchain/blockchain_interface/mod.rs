@@ -34,6 +34,7 @@ pub trait BlockchainInterface {
     fn get_contract(&self) -> Contract<Http>;
     fn get_web3(&self) -> Web3<Http>;
     fn get_web3_batch(&self) -> Web3<Batch<Http>>;
+    fn get_transport(&self) -> Http;
 
     fn retrieve_transactions(
         &self,

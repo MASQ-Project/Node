@@ -118,6 +118,10 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         Web3::new(Batch::new(transport))
     }
 
+    fn get_transport(&self) -> Http {
+        self.transport.clone()
+    }
+
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,

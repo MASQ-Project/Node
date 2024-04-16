@@ -121,6 +121,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         todo!()
     }
 
+    fn get_transport(&self) -> Http {
+        todo!()
+    }
+
     // TODO: GH-744 Unsure if we need this...
     // fn get_chain(&self) -> Chain {
     //     self.get_chain_results.borrow_mut().remove(0)
