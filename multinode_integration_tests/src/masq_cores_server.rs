@@ -30,7 +30,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-// TODO: Cover this with non_unit_tests and put it in the production tree.
+// TODO: Cover this with tests and put it in the production tree.
 pub struct DiscriminatorCluster {
     discriminators: Vec<Discriminator>,
 }

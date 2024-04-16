@@ -208,7 +208,7 @@ impl PartialEq for NodeRecord {
 }
 
 impl NeighborhoodDatabase {
-    // These methods are intended for use only in non_unit_tests. Do not use them in production code.
+    // These methods are intended for use only in tests. Do not use them in production code.
     pub fn add_arbitrary_half_neighbor(
         &mut self,
         node_key: &PublicKey,

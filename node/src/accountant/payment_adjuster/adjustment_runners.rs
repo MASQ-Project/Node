@@ -69,11 +69,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType {
         let check_sum: u128 = sum_as(&weighted_accounts, |weighted_account| {
-            weighted_account
-                .analyzed_account
-                .qualified_as
-                .bare_account
-                .balance_wei
+            weighted_account.balance_minor()
         });
 
         let unallocated_cw_balance = payment_adjuster
@@ -82,11 +78,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
         if check_sum <= unallocated_cw_balance {
             // Fast return after a direct conversion into the expected type
-            let disqualification_arbiter = &payment_adjuster.disqualification_arbiter;
-            return ServiceFeeAdjusterReal::assign_accounts_their_minimal_acceptable_balance(
-                weighted_accounts,
-                disqualification_arbiter,
-            );
+            todo!()
         }
 
         payment_adjuster.propose_possible_adjustment_recursively(weighted_accounts)

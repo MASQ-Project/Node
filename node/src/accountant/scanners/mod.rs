@@ -964,7 +964,7 @@ impl ReceivableScanner {
 pub enum BeginScanError {
     NothingToProcess,
     ScanAlreadyRunning(SystemTime),
-    CalledFromNullScanner, // Exclusive for non_unit_tests
+    CalledFromNullScanner, // Exclusive for tests
 }
 
 impl BeginScanError {

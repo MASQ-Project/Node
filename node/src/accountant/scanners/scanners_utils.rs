@@ -659,7 +659,7 @@ mod tests {
                 },
                 payment_threshold_intercept_minor: 10_000_000_001_152_000_u128,
                 creditor_thresholds: CreditorThresholds {
-                    permanent_debt_allowed_wei: 333_333,
+                    permanent_debt_allowed_minor: 333_333,
                 },
             },
             QualifiedPayableAccount {
@@ -671,7 +671,7 @@ mod tests {
                 },
                 payment_threshold_intercept_minor: 999_978_993_055_555_580,
                 creditor_thresholds: CreditorThresholds {
-                    permanent_debt_allowed_wei: 10_000_000,
+                    permanent_debt_allowed_minor: 10_000_000,
                 },
             },
         ];

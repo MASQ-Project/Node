@@ -1,6 +1,8 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
+use crate::accountant::payment_adjuster::preparatory_analyser::BalanceProvidingAccount;
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::sub_lib::wallet::Wallet;
 use web3::types::U256;
@@ -82,34 +84,30 @@ impl AdjustedAccountBeforeFinalization {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UnconfirmedAdjustment {
     pub weighted_account: WeightedPayable,
-    pub proposed_adjusted_balance_minor: u128,
-    pub disqualification_limit_minor: u128,
+    pub proposed_adjusted_balance_minor: u128
 }
 
 impl UnconfirmedAdjustment {
     pub fn new(
         weighted_account: WeightedPayable,
-        proposed_adjusted_balance_minor: u128,
-        disqualification_limit_minor: u128,
+        proposed_adjusted_balance_minor: u128
     ) -> Self {
         Self {
             weighted_account,
-            proposed_adjusted_balance_minor,
-            disqualification_limit_minor,
+            proposed_adjusted_balance_minor
         }
     }
 
     pub fn wallet(&self) -> &Wallet {
-        &self
-            .weighted_account
-            .analyzed_account
-            .qualified_as
-            .bare_account
-            .wallet
+        &self.weighted_account.wallet()
     }
 
     pub fn balance_minor(&self) -> u128 {
-        todo!()
+        self.weighted_account.balance_minor()
+    }
+
+    pub fn disqualification_limit_minor(&self)->u128{
+        self.weighted_account.analyzed_account.disqualification_limit_minor
     }
 }
 
@@ -127,16 +125,47 @@ impl TransactionCountsWithin16bits {
     }
 }
 
-pub struct AccountsEliminatedByTxFeeInfo {
-    pub count: usize,
-    pub sum_of_balances: u128,
+#[derive(Debug)]
+pub enum ServiceFeeCheckErrorContext {
+    TransactionFeeLimitationInspectionResult {
+        limitation_opt: Option<TransactionFeeLimitation>,
+    },
+    TransactionFeeAccountsDumpPerformed {
+        original_tx_count: usize,
+        original_sum_of_service_fee_balances: u128,
+    },
+}
+
+impl ServiceFeeCheckErrorContext {
+    pub fn new_dump_context(analyzed_accounts: &[WeightedPayable]) -> Self {
+        let original_tx_count = analyzed_accounts.len();
+        let original_sum_of_service_fee_balances =
+            sum_as(analyzed_accounts, |account| account.balance_minor());
+        Self::TransactionFeeAccountsDumpPerformed {
+            original_tx_count,
+            original_sum_of_service_fee_balances,
+        }
+    }
+
+    pub fn new_detection_context(limitation_opt: Option<TransactionFeeLimitation>) -> Self {
+        Self::TransactionFeeLimitationInspectionResult { limitation_opt }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TransactionFeeLimitation {
+    pub affordable_tx_count: u16,
+    pub actual_balance: U256,
+    pub required_balance: U256,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsWithin16bits,
+        AdjustedAccountBeforeFinalization, RecursionResults, ServiceFeeCheckErrorContext,
+        TransactionCountsWithin16bits, TransactionFeeLimitation,
     };
+    use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::make_payable_account;
     use ethereum_types::U256;
 
@@ -179,7 +208,7 @@ mod tests {
         let corrections_from_u16_max = [-3_i8, -1, 0, 1, 10];
         let result = corrections_from_u16_max
             .into_iter()
-            .map(|correction| plus_minus_correction_of_u16_max(correction))
+            .map(plus_minus_correction_for_u16_max)
             .map(U256::from)
             .map(|max_possible_tx_count| {
                 let detected_tx_counts =
@@ -199,7 +228,7 @@ mod tests {
         let corrections_from_u16_max = [-9_i8, -1, 0, 1, 5];
         let result = corrections_from_u16_max
             .into_iter()
-            .map(|correction| plus_minus_correction_of_u16_max(correction))
+            .map(plus_minus_correction_for_u16_max)
             .map(|required_tx_count_usize| {
                 let detected_tx_counts =
                     TransactionCountsWithin16bits::new(U256::from(123), required_tx_count_usize);
@@ -213,11 +242,41 @@ mod tests {
         )
     }
 
-    fn plus_minus_correction_of_u16_max(correction: i8) -> usize {
+    fn plus_minus_correction_for_u16_max(correction: i8) -> usize {
         if correction < 0 {
             (u16::MAX - correction.abs() as u16) as usize
         } else {
             u16::MAX as usize + correction as usize
+        }
+    }
+
+    #[test]
+    fn construction_of_error_context_for_accounts_dump_works() {
+        let mut account_1 = make_weighed_account(123);
+        account_1
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = 1234567;
+        let mut account_2 = make_weighed_account(345);
+        account_2
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = 999888777;
+        let weighted_accounts = vec![account_1, account_2];
+
+        let dump_performed = ServiceFeeCheckErrorContext::new_dump_context(&weighted_accounts);
+
+        match dump_performed {
+            ServiceFeeCheckErrorContext::TransactionFeeAccountsDumpPerformed {
+                original_tx_count,
+                original_sum_of_service_fee_balances,
+            } => {
+                assert_eq!(original_tx_count, 2);
+                assert_eq!(original_sum_of_service_fee_balances, 1234567 + 999888777)
+            }
+            x => panic!("We expected version for accounts dump but got: {:?}", x),
         }
     }
 }

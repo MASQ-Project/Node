@@ -92,15 +92,15 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
 };
 
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
-    let analyzed_account = make_analyzed_account(n);
+    let qualified_account = make_non_guaranteed_qualified_payable(n);
     let proposed_adjusted_balance_minor =
-        (analyzed_account.qualified_as.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
-    let disqualification_limit = (3 * proposed_adjusted_balance_minor) / 4;
+        (qualified_account.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
+    let disqualification_limit_minor = (3 * proposed_adjusted_balance_minor) / 4;
+    let analyzed_account = AnalyzedPayableAccount::new(qualified_account, disqualification_limit_minor);
     let weight = (n as u128).pow(3);
     UnconfirmedAdjustment::new(
         WeightedPayable::new(analyzed_account, weight),
         proposed_adjusted_balance_minor,
-        disqualification_limit,
     )
 }
 
@@ -144,7 +144,6 @@ impl DisqualificationGauge for DisqualificationGaugeMock {
         threshold_intercept_wei: u128,
         permanent_debt_allowed_wei: u128,
     ) -> u128 {
-        todo!("make sure this params are used somewhere");
         self.determine_limit_params.lock().unwrap().push((
             account_balance_wei,
             threshold_intercept_wei,
@@ -212,21 +211,16 @@ impl ServiceFeeAdjusterMock {
 pub fn multiple_by_billion(num: u128) -> u128 {
     num * 10_u128.pow(9)
 }
-
-pub fn make_qualified_payable_by_wallet(wallet_address_segment: &str) -> QualifiedPayableAccount {
-    let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
-    let wallet = make_wallet(wallet_address_segment);
-    let mut account = make_non_guaranteed_qualified_payable(num);
-    account.bare_account.wallet = wallet;
-    account
-}
-
 pub fn make_analyzed_account_by_wallet(wallet_address_segment: &str) -> AnalyzedPayableAccount {
     let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
     let wallet = make_wallet(wallet_address_segment);
     let mut account = make_analyzed_account(num);
     account.qualified_as.bare_account.wallet = wallet;
     account
+}
+
+pub fn make_weighed_account(n: u64) -> WeightedPayable {
+    WeightedPayable::new(make_analyzed_account(n), 123456789)
 }
 
 // Should stay test only!

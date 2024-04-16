@@ -13,6 +13,14 @@ impl From<QualifiedPayableAccount> for PayableAccount {
     }
 }
 
+// After transaction fee adjustment while no need to go off with the other fee, and so we want to
+// drop the weights etc.
+impl From<WeightedPayable> for PayableAccount {
+    fn from(weighted_account: WeightedPayable) -> Self {
+        todo!()
+    }
+}
+
 impl From<AdjustedAccountBeforeFinalization> for PayableAccount {
     fn from(non_finalized_adjustment: AdjustedAccountBeforeFinalization) -> Self {
         let mut account = non_finalized_adjustment.original_account;
@@ -49,11 +57,7 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
 // they requested
 impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighted_account: WeightedPayable) -> Self {
-        let proposed_adjusted_balance_minor = weighted_account
-            .analyzed_account
-            .qualified_as
-            .bare_account
-            .balance_wei;
+        let proposed_adjusted_balance_minor = weighted_account.balance_minor();
         let original_account = weighted_account.analyzed_account.qualified_as.bare_account;
 
         AdjustedAccountBeforeFinalization::new(original_account, proposed_adjusted_balance_minor)
@@ -113,7 +117,7 @@ mod tests {
         original_payable_account.balance_wei = 200_000_000;
         let weighted_account = prepare_weighted_account(original_payable_account.clone());
         let unconfirmed_adjustment =
-            UnconfirmedAdjustment::new(weighted_account, 111_222_333, 100_000_000);
+            UnconfirmedAdjustment::new(weighted_account, 111_222_333);
 
         let result = AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment);
 

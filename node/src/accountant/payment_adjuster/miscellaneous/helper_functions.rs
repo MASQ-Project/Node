@@ -5,7 +5,7 @@ use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AccountsEliminatedByTxFeeInfo, AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable};
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use itertools::{Either, Itertools};
 
@@ -35,40 +35,21 @@ pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
 pub fn dump_unaffordable_accounts_by_transaction_fee(
     weighted_accounts_in_descending_order: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
-) -> (Vec<WeightedPayable>, AccountsEliminatedByTxFeeInfo) {
-    let to_be_dumped = weighted_accounts_in_descending_order
-        .iter()
-        .skip(affordable_transaction_count as usize)
-        .collect::<Vec<_>>();
-    let elimination_info = {
-        let count = to_be_dumped.len();
-        let sum_of_balances = sum_as(&to_be_dumped, |account| {
-            account
-                .analyzed_account
-                .qualified_as
-                .bare_account
-                .balance_wei
-        });
-        AccountsEliminatedByTxFeeInfo {
-            count,
-            sum_of_balances,
-        }
-    };
-
+) -> Vec<WeightedPayable> {
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "Keeping {} out of {} accounts. Dumping these accounts: {:?}",
         affordable_transaction_count,
         weighted_accounts_in_descending_order.len(),
-        to_be_dumped
+        weighted_accounts_in_descending_order
+            .iter()
+            .skip(affordable_transaction_count as usize)
     );
 
-    let kept_accounts = weighted_accounts_in_descending_order
+    weighted_accounts_in_descending_order
         .into_iter()
         .take(affordable_transaction_count as usize)
-        .collect();
-
-    (kept_accounts, elimination_info)
+        .collect()
 }
 
 pub fn compute_mul_coefficient_preventing_fractional_numbers(
@@ -205,15 +186,6 @@ pub fn sort_in_descendant_order_by_weights(
 ) -> Vec<WeightedPayable> {
     unsorted
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
-        .collect()
-}
-
-pub fn drop_no_longer_needed_weights_away_from_accounts(
-    weights_and_accounts: Vec<WeightedPayable>,
-) -> Vec<PayableAccount> {
-    weights_and_accounts
-        .into_iter()
-        .map(|weighted_account| weighted_account.analyzed_account.qualified_as.bare_account)
         .collect()
 }
 

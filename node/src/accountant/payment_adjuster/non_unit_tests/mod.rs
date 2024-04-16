@@ -321,7 +321,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
     number_of_requested_scenarios: usize,
     overall_output_collector: TestOverallOutputCollector,
 ) {
-    let file_dir = ensure_node_home_directory_exists("payment_adjuster", "non_unit_tests");
+    let file_dir = ensure_node_home_directory_exists("payment_adjuster", "tests");
     let mut file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
     introduction(&mut file);
     let test_overall_output_collector =

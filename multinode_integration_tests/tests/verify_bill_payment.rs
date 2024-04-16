@@ -566,7 +566,7 @@ struct TestInputsOutputsConfig {
     ui_ports_opt: Option<Ports>,
     // Gets ganache default 100 ETH if None.
     // Uses an arg where the private key of the wallet and the amount in
-    // wei must be specified (in these non_unit_tests the key is hardcoded and
+    // wei must be specified (in these tests the key is hardcoded and
     // corresponds to the path m/44'/60'/0'/0/0/1 that belongs to
     // the consuming Node).
     // Specify number of wei this account should possess at its initialisation

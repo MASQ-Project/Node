@@ -81,5 +81,5 @@ impl DbEncryptionLayer {
         Bip39::encrypt_bytes(&decrypted_value, new_password).expect("Encryption failed")
     }
 
-    // These methods were extracted from SecureConfigLayer and are covered by the non_unit_tests there.
+    // These methods were extracted from SecureConfigLayer and are covered by the tests there.
 }

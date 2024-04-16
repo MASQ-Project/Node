@@ -7,7 +7,7 @@ export PATH="$PATH:$HOME/.cargo/bin"
 
 export RUST_BACKTRACE=full
 
-# Docker-beside-Docker: Running these non_unit_tests requires building and starting Docker containers that refer to an
+# Docker-beside-Docker: Running these tests requires building and starting Docker containers that refer to an
 # existing executable on the host system. If you're not running in a Docker container, the executable you want
 # will be in your own filesystem, and these scripts can find everything they need without assistance.  But if you
 # _are_ running in a Docker container, the containers you start will be your siblings, not your children, and the

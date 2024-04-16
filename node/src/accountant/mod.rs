@@ -153,27 +153,27 @@ impl QualifiedPayableAccount {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AnalyzedPayableAccount {
     pub qualified_as: QualifiedPayableAccount,
-    pub disqualification_limit: u128,
+    pub disqualification_limit_minor: u128,
 }
 
 impl AnalyzedPayableAccount {
-    pub fn new(qualified_as: QualifiedPayableAccount, disqualification_limit: u128) -> Self {
+    pub fn new(qualified_as: QualifiedPayableAccount, disqualification_limit_minor: u128) -> Self {
         AnalyzedPayableAccount {
             qualified_as,
-            disqualification_limit,
+            disqualification_limit_minor,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct CreditorThresholds {
-    pub permanent_debt_allowed_wei: u128,
+    pub permanent_debt_allowed_minor: u128,
 }
 
 impl CreditorThresholds {
     pub fn new(permanent_debt_allowed_wei: u128) -> Self {
         Self {
-            permanent_debt_allowed_wei,
+            permanent_debt_allowed_minor: permanent_debt_allowed_wei,
         }
     }
 }
@@ -4927,7 +4927,7 @@ pub mod exportable_test_parts {
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(|accountant: &mut Accountant| {
                 // Will crash a test if our user-defined SQLite fns have been unreachable;
-                // We cannot rely on failures in the DAO non_unit_tests, because Account's database connection
+                // We cannot rely on failures in the DAO tests, because Account's database connection
                 // has to be set up specially first (we teach it about the extra functions) as we're
                 // creating the actor
 

@@ -48,7 +48,7 @@ trait NamedType {
     fn type_name(&self) -> &'static str;
 }
 
-trait GossipHandler: NamedType + Send /* Send because lazily-written non_unit_tests require it */ {
+trait GossipHandler: NamedType + Send /* Send because lazily-written tests require it */ {
     fn qualifies(
         &self,
         database: &NeighborhoodDatabase,
@@ -1221,7 +1221,7 @@ impl RejectHandler {
     }
 }
 
-pub trait GossipAcceptor: Send /* Send because lazily-written non_unit_tests require it */ {
+pub trait GossipAcceptor: Send /* Send because lazily-written tests require it */ {
     fn handle(
         &self,
         database: &mut NeighborhoodDatabase,
@@ -1358,7 +1358,7 @@ mod tests {
         Standard,
         OriginateOnly,
         // GossipAcceptor doesn't care about ConsumeOnly; that's routing, not Gossip
-        // ZeroHop is decentralized and should never appear in GossipAcceptor non_unit_tests
+        // ZeroHop is decentralized and should never appear in GossipAcceptor tests
     }
 
     fn make_default_neighborhood_metadata() -> NeighborhoodMetadata {

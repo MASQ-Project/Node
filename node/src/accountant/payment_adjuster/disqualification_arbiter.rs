@@ -36,7 +36,7 @@ impl DisqualificationArbiter {
         let intercept = qualified_payable.payment_threshold_intercept_minor;
         let permanent_debt_allowed = qualified_payable
             .creditor_thresholds
-            .permanent_debt_allowed_wei;
+            .permanent_debt_allowed_minor;
 
         self.disqualification_gauge
             .determine_limit(balance, intercept, permanent_debt_allowed)
@@ -81,7 +81,7 @@ impl DisqualificationArbiter {
         unconfirmed_adjustments
             .iter()
             .flat_map(|adjustment_info| {
-                let disqualification_limit = adjustment_info.disqualification_limit_minor;
+                let disqualification_limit = adjustment_info.disqualification_limit_minor();
                 let proposed_adjusted_balance = adjustment_info.proposed_adjusted_balance_minor;
 
                 if proposed_adjusted_balance < disqualification_limit {
@@ -137,7 +137,7 @@ impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
             wallet: unconfirmed_account.wallet(),
             weight: unconfirmed_account.weighted_account.weight,
             proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
-            disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor,
+            disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor(),
         }
     }
 }
@@ -375,7 +375,7 @@ mod tests {
     fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit() {
         let mut account = make_non_guaranteed_unconfirmed_adjustment(444);
         account.proposed_adjusted_balance_minor = 1_000_000_000;
-        account.disqualification_limit_minor = 1_000_000_000;
+        account.weighted_account.analyzed_account.disqualification_limit_minor = 1_000_000_000;
         let accounts = vec![account];
 
         let result =
@@ -459,19 +459,18 @@ mod tests {
             make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
         let analyzed_accounts = convert_collection(qualified_payables);
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
-        let subject = make_initialized_subject(
+        let payment_adjuster = make_initialized_subject(
             Some(now),
             Some(cw_service_fee_balance_minor),
             None,
             Some(largest_exceeding_balance),
             None,
         );
-        let weights_and_accounts = subject.calculate_weights(analyzed_accounts);
+        let weights_and_accounts = payment_adjuster.calculate_weights(analyzed_accounts);
         let subject = DisqualificationArbiter::default();
         let unconfirmed_adjustments = AdjustmentComputer::default()
             .compute_unconfirmed_adjustments(
                 weights_and_accounts,
-                &subject,
                 cw_service_fee_balance_minor,
             );
 

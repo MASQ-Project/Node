@@ -59,7 +59,7 @@ impl Default for PaymentThresholds {
     }
 }
 
-//this code is used in non_unit_tests in Accountant
+//this code is used in tests in Accountant
 impl PaymentThresholds {
     pub fn maturity_and_grace(&self, now: i64) -> i64 {
         now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
