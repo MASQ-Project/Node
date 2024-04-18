@@ -96,7 +96,8 @@ pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustme
     let proposed_adjusted_balance_minor =
         (qualified_account.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
     let disqualification_limit_minor = (3 * proposed_adjusted_balance_minor) / 4;
-    let analyzed_account = AnalyzedPayableAccount::new(qualified_account, disqualification_limit_minor);
+    let analyzed_account =
+        AnalyzedPayableAccount::new(qualified_account, disqualification_limit_minor);
     let weight = (n as u128).pow(3);
     UnconfirmedAdjustment::new(
         WeightedPayable::new(analyzed_account, weight),

@@ -34,7 +34,7 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
     LowGainingAccountEliminated, SomeAccountsProcessed,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, ServiceFeeCheckErrorContext, TransactionFeeLimitation, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, TransactionFeeLimitation, TransactionFeePastActionsContext, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
@@ -104,13 +104,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             Err(e) => return Err(e),
         };
 
-        let service_fee_check_error_context =
-            ServiceFeeCheckErrorContext::new_detection_context(transaction_fee_limitation_opt);
+        let transaction_fee_past_actions_context =
+            TransactionFeePastActionsContext::check_done_context(transaction_fee_limitation_opt);
         let service_fee_balance_minor = agent.service_fee_balance_minor();
         let service_fee_check_outcome = match self.analyzer
-            .check_need_of_adjustment_by_service_fee::<AnalyzedPayableAccount, QualifiedPayableAccount, AdjustmentAnalysis>(
+            .check_need_of_adjustment_by_service_fee::<QualifiedPayableAccount, AnalyzedPayableAccount>(
                 &self.disqualification_arbiter,
-                service_fee_check_error_context,
+                transaction_fee_past_actions_context,
                 qualified_payables,
                 service_fee_balance_minor,
                 &self.logger,
@@ -120,9 +120,18 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         };
 
         match (transaction_fee_limitation_opt, service_fee_check_outcome) {
-            (None, Either::Left(unlimited_payables)) => todo!(),
-            (None, Either::Right(adjustment_analysis)) => todo!(),
-            (Some(transaction_fee_limitation), _) => todo!(),
+            (None, Either::Left(non_analyzed_payables)) => Ok(Either::Left(non_analyzed_payables)),
+            (Some(limitation), Either::Left(non_analyzed_payables)) => {
+                // use this here
+                // let prepared_accounts=
+                //     Self::prepare_accounts_with_disqualification_limits(
+                //         payables,
+                //         disqualification_arbiter,
+                //     );
+                todo!()
+            }
+            (None, Either::Right(checked_payables)) => todo!(),
+            (Some(limitation), Either::Right(checked_payables)) => todo!(),
         }
     }
 
@@ -256,8 +265,9 @@ impl PaymentAdjusterReal {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        let service_fee_error_context =
-            ServiceFeeCheckErrorContext::new_dump_context(&weighted_accounts_in_descending_order);
+        let service_fee_error_context = TransactionFeePastActionsContext::accounts_dumped_context(
+            &weighted_accounts_in_descending_order,
+        );
 
         let weighted_accounts_affordable_by_transaction_fee =
             dump_unaffordable_accounts_by_transaction_fee(
@@ -274,7 +284,7 @@ impl PaymentAdjusterReal {
             cw_service_fee_balance,
             &self.logger,
         ) {
-            Ok(answer) => answer,
+            Ok(outcome) => outcome,
             Err(e) => {
                 log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
                 return Err(e);
@@ -282,18 +292,18 @@ impl PaymentAdjusterReal {
         };
 
         match check_outcome {
-            Either::Left(weighted_accounts_needing_adjustment) => {
+            Either::Left(weighted_accounts) => {
+                let accounts_not_needing_adjustment = convert_collection(weighted_accounts);
+                Ok(Either::Right(accounts_not_needing_adjustment))
+            }
+
+            Either::Right(weighted_accounts_needing_adjustment) => {
                 diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
 
                 let adjustment_result_before_verification = self
                     .propose_possible_adjustment_recursively(weighted_accounts_needing_adjustment);
+
                 Ok(Either::Left(adjustment_result_before_verification))
-            }
-            Either::Right(weighted_accounts) => {
-                let accounts_not_needing_adjustment =
-                //TODO you should use from impl
-                        convert_collection(weighted_accounts);
-                Ok(Either::Right(accounts_not_needing_adjustment))
             }
         }
     }
@@ -535,8 +545,7 @@ mod tests {
         LowGainingAccountEliminated, SomeAccountsProcessed,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, AdjustmentIterationResult, DecidedAccounts,
-        ServiceFeeCheckErrorContext, TransactionFeeLimitation, UnconfirmedAdjustment,
+        AdjustmentIterationResult, TransactionFeeLimitation, TransactionFeePastActionsContext,
         WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
@@ -863,9 +872,9 @@ mod tests {
                     total_amount_demanded_minor: 7_000_000_000,
                     cw_service_fee_balance_minor: 100_000_000,
                     appendix_opt: Some(TransactionFeeLimitation {
-                        affordable_tx_count: 3,
-                        actual_balance: U256::from(3_000_000_000_u64),
-                        required_balance: U256::from(5_000_000_000_u64),
+                        count_limit: 3,
+                        available_balance: 3_000_000_000,
+                        sum_of_transaction_fee_balances: 5_000_000_000,
                     }),
                 },
                 "Both transaction fee and service fee balances are not high enough. Number of \
@@ -1036,10 +1045,7 @@ mod tests {
             garbage_largest_exceeding_balance_recently_qualified,
         ));
         let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(
-                weighted_accounts,
-                cw_service_fee_balance_minor,
-            );
+            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
         // The results are sorted from the biggest weights down
         let proposed_adjusted_balance = unconfirmed_adjustments[0].proposed_adjusted_balance_minor;
         assert_eq!(
@@ -1100,10 +1106,9 @@ mod tests {
         let agent_id_stamp = ArbitraryIdStamp::new();
         let service_fee_balance_in_minor_units = balance_2;
         let disqualification_arbiter = &subject.disqualification_arbiter;
-        let service_fee_error_context =
-            ServiceFeeCheckErrorContext::TransactionFeeLimitationInspectionResult {
-                limitation_opt: None,
-            };
+        let service_fee_error_context = TransactionFeePastActionsContext::TransactionFeeCheckDone {
+            limitation_opt: None,
+        };
         let analysis_result = subject.analyzer.check_need_of_adjustment_by_service_fee(
             disqualification_arbiter,
             service_fee_error_context,
@@ -1117,10 +1122,7 @@ mod tests {
         // with the smallest balance is outplayed by the other one gaining some kind of extra
         // significance
         let analyzed_accounts = match analysis_result {
-            Ok(Either::Right(adjustment_analysis)) => {
-                assert_eq!(adjustment_analysis.adjustment, Adjustment::ByServiceFee);
-                adjustment_analysis.accounts
-            }
+            Ok(Either::Right(analyzed_accounts)) => analyzed_accounts,
             x => panic!(
                 "We expected to be let it for an adjustments with AnalyzedAccounts but got: {:?}",
                 x

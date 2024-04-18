@@ -40,10 +40,9 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
     ) -> AdjustmentIterationResult {
-        let unconfirmed_adjustments = self.adjustment_computer.compute_unconfirmed_adjustments(
-            weighted_accounts,
-            cw_service_fee_balance_minor,
-        );
+        let unconfirmed_adjustments = self
+            .adjustment_computer
+            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
 
         match Self::handle_sufficiently_filled_accounts(unconfirmed_adjustments) {
             Either::Left(without_gainers) => {
@@ -242,10 +241,7 @@ impl AdjustmentComputer {
 
                 proposed_adjusted_balance_diagnostics(&weighted_account, proposed_adjusted_balance);
 
-                UnconfirmedAdjustment::new(
-                    weighted_account,
-                    proposed_adjusted_balance,
-                )
+                UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
             })
             .collect()
     }
@@ -291,7 +287,10 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_1.proposed_adjusted_balance_minor = proposed_adjusted_balance_1;
-        account_1.weighted_account.analyzed_account.disqualification_limit_minor = multiple_by_billion(1_800_000_000);
+        account_1
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = multiple_by_billion(1_800_000_000);
         let proposed_adjusted_balance_2 = multiple_by_billion(4_200_000_000);
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
         account_2
@@ -301,7 +300,10 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(5_000_000_000);
         account_2.proposed_adjusted_balance_minor = proposed_adjusted_balance_2;
-        account_2.weighted_account.analyzed_account.disqualification_limit_minor = multiple_by_billion(4_200_000_000) - 1;
+        account_2
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = multiple_by_billion(4_200_000_000) - 1;
         let proposed_adjusted_balance_3 = multiple_by_billion(2_000_000_000);
         let mut account_3 = make_non_guaranteed_unconfirmed_adjustment(333);
         account_3
@@ -311,7 +313,10 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(3_000_000_000);
         account_3.proposed_adjusted_balance_minor = proposed_adjusted_balance_3;
-        account_3.weighted_account.analyzed_account.disqualification_limit_minor = multiple_by_billion(2_000_000_000) + 1;
+        account_3
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = multiple_by_billion(2_000_000_000) + 1;
         let proposed_adjusted_balance_4 = multiple_by_billion(500_000_000);
         let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
         account_4
@@ -321,7 +326,10 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(1_500_000_000);
         account_4.proposed_adjusted_balance_minor = proposed_adjusted_balance_4;
-        account_4.weighted_account.analyzed_account.disqualification_limit_minor = multiple_by_billion(500_000_000);
+        account_4
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = multiple_by_billion(500_000_000);
         let proposed_adjusted_balance_5 = multiple_by_billion(1_000_000_000);
         let mut account_5 = make_non_guaranteed_unconfirmed_adjustment(555);
         account_5
@@ -331,7 +339,10 @@ mod tests {
             .bare_account
             .balance_wei = multiple_by_billion(2_000_000_000);
         account_5.proposed_adjusted_balance_minor = proposed_adjusted_balance_5;
-        account_5.weighted_account.analyzed_account.disqualification_limit_minor = multiple_by_billion(1_000_000_000) + 1;
+        account_5
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = multiple_by_billion(1_000_000_000) + 1;
         let unconfirmed_accounts = vec![
             account_1.clone(),
             account_2.clone(),

@@ -84,17 +84,14 @@ impl AdjustedAccountBeforeFinalization {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UnconfirmedAdjustment {
     pub weighted_account: WeightedPayable,
-    pub proposed_adjusted_balance_minor: u128
+    pub proposed_adjusted_balance_minor: u128,
 }
 
 impl UnconfirmedAdjustment {
-    pub fn new(
-        weighted_account: WeightedPayable,
-        proposed_adjusted_balance_minor: u128
-    ) -> Self {
+    pub fn new(weighted_account: WeightedPayable, proposed_adjusted_balance_minor: u128) -> Self {
         Self {
             weighted_account,
-            proposed_adjusted_balance_minor
+            proposed_adjusted_balance_minor,
         }
     }
 
@@ -106,19 +103,21 @@ impl UnconfirmedAdjustment {
         self.weighted_account.balance_minor()
     }
 
-    pub fn disqualification_limit_minor(&self)->u128{
-        self.weighted_account.analyzed_account.disqualification_limit_minor
+    pub fn disqualification_limit_minor(&self) -> u128 {
+        self.weighted_account
+            .analyzed_account
+            .disqualification_limit_minor
     }
 }
 
-pub struct TransactionCountsWithin16bits {
+pub struct TransactionCountsBy16bits {
     pub affordable: u16,
     pub required: u16,
 }
 
-impl TransactionCountsWithin16bits {
+impl TransactionCountsBy16bits {
     pub fn new(max_possible_tx_count: U256, number_of_accounts: usize) -> Self {
-        TransactionCountsWithin16bits {
+        TransactionCountsBy16bits {
             affordable: u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
             required: u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
         }
@@ -126,44 +125,46 @@ impl TransactionCountsWithin16bits {
 }
 
 #[derive(Debug)]
-pub enum ServiceFeeCheckErrorContext {
-    TransactionFeeLimitationInspectionResult {
+pub enum TransactionFeePastActionsContext {
+    TransactionFeeCheckDone {
         limitation_opt: Option<TransactionFeeLimitation>,
     },
-    TransactionFeeAccountsDumpPerformed {
-        original_tx_count: usize,
-        original_sum_of_service_fee_balances: u128,
+    TransactionFeeAccountsDumped {
+        past_txs_count: usize,
+        past_sum_of_service_fee_balances: u128,
     },
-}
-
-impl ServiceFeeCheckErrorContext {
-    pub fn new_dump_context(analyzed_accounts: &[WeightedPayable]) -> Self {
-        let original_tx_count = analyzed_accounts.len();
-        let original_sum_of_service_fee_balances =
-            sum_as(analyzed_accounts, |account| account.balance_minor());
-        Self::TransactionFeeAccountsDumpPerformed {
-            original_tx_count,
-            original_sum_of_service_fee_balances,
-        }
-    }
-
-    pub fn new_detection_context(limitation_opt: Option<TransactionFeeLimitation>) -> Self {
-        Self::TransactionFeeLimitationInspectionResult { limitation_opt }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct TransactionFeeLimitation {
-    pub affordable_tx_count: u16,
-    pub actual_balance: U256,
-    pub required_balance: U256,
+    pub count_limit: u16,
+    pub available_balance: u128,
+    pub sum_of_transaction_fee_balances: u128,
+}
+
+impl TransactionFeePastActionsContext {
+    pub fn accounts_dumped_context(whole_set_of_analyzed_accounts: &[WeightedPayable]) -> Self {
+        let past_txs_count = whole_set_of_analyzed_accounts.len();
+        let past_sum_of_service_fee_balances: u128 =
+            sum_as(whole_set_of_analyzed_accounts, |account| {
+                account.balance_minor()
+            });
+        Self::TransactionFeeAccountsDumped {
+            past_txs_count,
+            past_sum_of_service_fee_balances,
+        }
+    }
+
+    pub fn check_done_context(limitation_opt: Option<TransactionFeeLimitation>) -> Self {
+        Self::TransactionFeeCheckDone { limitation_opt }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, RecursionResults, ServiceFeeCheckErrorContext,
-        TransactionCountsWithin16bits, TransactionFeeLimitation,
+        AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsBy16bits,
+        TransactionFeePastActionsContext,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::make_payable_account;
@@ -211,8 +212,7 @@ mod tests {
             .map(plus_minus_correction_for_u16_max)
             .map(U256::from)
             .map(|max_possible_tx_count| {
-                let detected_tx_counts =
-                    TransactionCountsWithin16bits::new(max_possible_tx_count, 123);
+                let detected_tx_counts = TransactionCountsBy16bits::new(max_possible_tx_count, 123);
                 detected_tx_counts.affordable
             })
             .collect::<Vec<_>>();
@@ -231,7 +231,7 @@ mod tests {
             .map(plus_minus_correction_for_u16_max)
             .map(|required_tx_count_usize| {
                 let detected_tx_counts =
-                    TransactionCountsWithin16bits::new(U256::from(123), required_tx_count_usize);
+                    TransactionCountsBy16bits::new(U256::from(123), required_tx_count_usize);
                 detected_tx_counts.required
             })
             .collect::<Vec<_>>();
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn construction_of_error_context_for_accounts_dump_works() {
+    fn construction_of_error_context_with_accounts_dumped_works() {
         let mut account_1 = make_weighed_account(123);
         account_1
             .analyzed_account
@@ -266,15 +266,16 @@ mod tests {
             .balance_wei = 999888777;
         let weighted_accounts = vec![account_1, account_2];
 
-        let dump_performed = ServiceFeeCheckErrorContext::new_dump_context(&weighted_accounts);
+        let dump_performed =
+            TransactionFeePastActionsContext::accounts_dumped_context(&weighted_accounts);
 
         match dump_performed {
-            ServiceFeeCheckErrorContext::TransactionFeeAccountsDumpPerformed {
-                original_tx_count,
-                original_sum_of_service_fee_balances,
+            TransactionFeePastActionsContext::TransactionFeeAccountsDumped {
+                past_txs_count: txs_count,
+                past_sum_of_service_fee_balances: sum_of_transaction_fee_balances,
             } => {
-                assert_eq!(original_tx_count, 2);
-                assert_eq!(original_sum_of_service_fee_balances, 1234567 + 999888777)
+                assert_eq!(txs_count, 2);
+                assert_eq!(sum_of_transaction_fee_balances, 1234567 + 999888777)
             }
             x => panic!("We expected version for accounts dump but got: {:?}", x),
         }

@@ -116,8 +116,7 @@ mod tests {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
         let weighted_account = prepare_weighted_account(original_payable_account.clone());
-        let unconfirmed_adjustment =
-            UnconfirmedAdjustment::new(weighted_account, 111_222_333);
+        let unconfirmed_adjustment = UnconfirmedAdjustment::new(weighted_account, 111_222_333);
 
         let result = AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment);
 

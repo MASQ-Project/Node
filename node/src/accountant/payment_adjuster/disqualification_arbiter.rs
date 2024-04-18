@@ -375,7 +375,10 @@ mod tests {
     fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit() {
         let mut account = make_non_guaranteed_unconfirmed_adjustment(444);
         account.proposed_adjusted_balance_minor = 1_000_000_000;
-        account.weighted_account.analyzed_account.disqualification_limit_minor = 1_000_000_000;
+        account
+            .weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = 1_000_000_000;
         let accounts = vec![account];
 
         let result =
@@ -469,10 +472,7 @@ mod tests {
         let weights_and_accounts = payment_adjuster.calculate_weights(analyzed_accounts);
         let subject = DisqualificationArbiter::default();
         let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(
-                weights_and_accounts,
-                cw_service_fee_balance_minor,
-            );
+            .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
 
         let result = subject
             .find_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, &logger);
