@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -30,7 +31,7 @@ use web3::types::{
 };
 use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
-use web3::api::Namespace;
+use web3::api::{Accounts, Namespace};
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -138,41 +139,40 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     .expect("Internal error");
     return gas_limit;
 }
-// Result<SignedTransaction, PayableTransactionError>
 pub fn sign_transaction(
     chain: Chain,
-    web3: Web3<Http>,
+    web3_batch: Web3<Batch<Http>>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
     gas_price_in_gwei: u64,
-) -> Box<dyn Future<Item = SignedTransaction, Error = PayableTransactionError>> {
+) -> SignedTransaction {
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
     let gas_price_in_wei = to_wei(gas_price_in_gwei);
-
+    // If you flip gas_price or nonce to None this function will start making RPC calls (Do it at your own risk).
     let transaction_parameters = TransactionParameters {
-        nonce: Some(nonce), // TODO: GH-744 Change this to None and let the BlockChain figure out the correct Nonce instead.
+        nonce: Some(nonce),
         to: Some(chain.rec().contract),
         gas: gas_limit,
-        gas_price: Some(gas_price_in_wei), // TODO: GH-744 Talk about this.
+        gas_price: Some(gas_price_in_wei),
         value: ethereum_types::U256::zero(),
         data: Bytes(data.to_vec()),
         chain_id: Some(chain.rec().num_chain_id),
     };
+    let key = consuming_wallet.prepare_secp256k1_secret().expect("Consuming wallet doesnt contain a secret key"); // TODO: GH-744: need a test for this
+    // This wait call doesnt actually make any RPC call and signing is done locally.
+    let sign_transaction_result = web3_batch
+        .accounts()
+        .sign_transaction(transaction_parameters, &key).wait();
 
-    let key = match consuming_wallet.prepare_secp256k1_secret() {
-        Ok(secret) => secret,
-        Err(e) => return Box::new(err(PayableTransactionError::UnusableWallet(e.to_string()))),
-    };
-
-    Box::new(
-        web3
-            .accounts()
-            .sign_transaction(transaction_parameters, &key)
-            .map_err(|e| PayableTransactionError::Signing(e.to_string())),
-    )
+    match sign_transaction_result {
+        Ok(signed_transaction) => { signed_transaction }
+        Err(error) => {
+            panic!("Signing should be done locally: {:?}", error); // TODO: GH-744: need a test for this
+        }
+    }
 }
 
 // TODO: GH-744
@@ -216,30 +216,26 @@ pub fn sign_transaction_2(
     // )
 }
 
-pub fn sign_and_send_payment(
+pub fn handle_new_transaction(
     chain: Chain,
-    web3: Web3<Http>,
+    web3_batch: Web3<Batch<Http>>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
     gas_price: u64,
-) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
-    Box::new(
-        sign_transaction(
-            chain,
-            web3.clone(),
-            recipient_wallet.clone(),
-            consuming_wallet.clone(),
-            amount,
-            nonce,
-            gas_price,
-        )
-        .map_err(|e| e)
-        .and_then(move |signed_tx| {
-            send_transaction(web3, signed_tx.raw_transaction)
-        }),
-    )
+) -> H256 {
+    let signed_tx = sign_transaction(
+        chain,
+        web3_batch.clone(),
+        recipient_wallet.clone(),
+        consuming_wallet.clone(),
+        amount,
+        nonce,
+        gas_price,
+    );
+    append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
+    signed_tx.transaction_hash
 }
 
 // TODO GH-744:
@@ -287,25 +283,9 @@ pub fn send_transaction_not_working(batch_web3: Web3<Batch<Http>>, raw_transacti
     )
 }
 
-pub fn send_transaction(web3: Web3<Http>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
-        let result = web3
-            .eth()
-            .send_raw_transaction(raw_transaction);
-
-    Box::new(
-        result
-            .then(move |result| {
-                eprintln!("Send_raw_transaction result: {:?}", result);
-                match result {
-                    Ok(result) => {
-                        Ok(result)
-                    }
-                    Err(e) => {
-                        Err(PayableTransactionError::Sending { msg: e.to_string(), hashes: vec![] })
-                    }
-                }
-            })
-    )
+pub fn append_signed_transaction_to_batch(web3_batch: Web3<Batch<Http>>, raw_transaction: Bytes) {
+    // This function only prepares a raw transaction for a batch call and doesn't actually send it right here.
+    web3_batch.eth().send_raw_transaction(raw_transaction);
 }
 
 // TODO: GH-744
@@ -336,32 +316,25 @@ pub fn send_transaction_2(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes)
 // TODO: GH-744 Rename and refactor this function after merging with Master
 pub fn send_and_append_payment(
     chain: Chain,
-    web3: Web3<Http>,
+    web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price: u64,
     account: PayableAccount,
-) -> Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static> {
-    Box::new(
-        sign_and_send_payment(
-            chain,
-            web3,
-            account.wallet.clone(),
-            consuming_wallet,
-            account.balance_wei,
-            nonce,
-            gas_price,
-        )
-        .map_err(|e| {
-            return e;
-        })
-        .and_then(move |new_hash| {
-            Ok(HashAndAmount {
-                hash: new_hash,
-                amount: account.balance_wei,
-            })
-        }),
-    )
+) -> HashAndAmount {
+    let hash= handle_new_transaction(
+        chain,
+        web3_batch,
+        account.wallet.clone(),
+        consuming_wallet,
+        account.balance_wei,
+        nonce,
+        gas_price,
+    );
+    HashAndAmount {
+        hash,
+        amount: account.balance_wei,
+    }
 }
 
 
@@ -392,18 +365,16 @@ pub fn send_and_append_payment_2(
     )
 }
 
-// HashAndAmountResult
 pub fn send_and_append_multiple_payments(
     logger: Logger,
     chain: Chain,
-    web3: Web3<Http>,
+    web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price: u64,
     mut pending_nonce: U256,
     accounts: Vec<PayableAccount>,
-) -> FuturesOrdered<Box<dyn Future<Item = HashAndAmount, Error = PayableTransactionError> + 'static>>
-{
-    let mut payable_que = FuturesOrdered::new();
+) -> Vec<HashAndAmount> {
+    let mut hash_and_amount_list = vec![];
     accounts.into_iter().for_each(|payable| {
         debug!(
             logger,
@@ -413,35 +384,31 @@ pub fn send_and_append_multiple_payments(
             pending_nonce
         );
 
-        let payable_future = send_and_append_payment(
+        let hash_and_amount= send_and_append_payment(
             chain,
-            web3.clone(),
+            web3_batch.clone(),
             consuming_wallet.clone(),
             pending_nonce,
             gas_price,
             payable,
-        ).wait();
-        // TODO: GH-744: What if the nonce doesn't matches?
-        pending_nonce = advance_used_nonce(pending_nonce);
-        payable_que.push(payable_future)
-    });
+        );
 
-    payable_que
+        pending_nonce = advance_used_nonce(pending_nonce);
+        hash_and_amount_list.push(hash_and_amount);
+    });
+    hash_and_amount_list
 }
 
-// pub fn send_payables_within_batch<T: BatchTransport + 'static>(
 pub fn send_payables_within_batch(
     logger: Logger,
     chain: Chain,
-    web3: Web3<Http>,
-    batch_web3: Web3<Batch<Http>>,
+    web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price: u64,
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
-) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
-{
+) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static> {
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -451,93 +418,47 @@ pub fn send_payables_within_batch(
             gas_price
         );
 
-    // let hashes_and_paid_amounts = match send_and_append_multiple_payments(
-    //     logger,
-    //     chain,
-    //     batch_web3.clone(),
-    //     &consuming_wallet,
-    //     gas_price,
-    //     pending_nonce,
-    //     &accounts,
-    // ) {
-    //     Ok(hashes_and_paid_amounts) => hashes_and_paid_amounts,
-    //     Err(e) => {
-    //         return Box::new(err(e));
-    //     }
-    // };
-
-    // let timestamp = SystemTime::now();
-    //
-    // let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-    // let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-    //
-    // new_fingerprints_recipient
-    //     .try_send(PendingPayableFingerprintSeeds {
-    //         batch_wide_timestamp: timestamp,
-    //         hashes_and_balances: hashes_and_paid_amounts,
-    //     })
-    //     .expect("Accountant is dead");
-    //
-    // info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
-
-
-    return Box::new(
-        send_and_append_multiple_payments(
-            logger.clone(),
-            chain,
-            web3,
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            accounts.clone(),
-        )
-        .collect()
-        // .map_err(|e| {
-        //     todo!("send_and_append_multiple_payments -- map_err");
-        //     // return err(e);
-        // })
-        // TODO: GH-744: Need to fix errors -- The current version of futures, doesnt give us enough util to catch errors here.
-        // The thinking is we could return here to fix this after falling behind is completed.
-        .and_then(move |hashes_and_paid_amounts| {
-            eprintln!(
-                "Recived hashes_and_paid_amounts: {:?}",
-                hashes_and_paid_amounts
-            );
-            let timestamp = SystemTime::now();
-            let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-            let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-
-            new_fingerprints_recipient
-                .try_send(PendingPayableFingerprintSeeds {
-                    batch_wide_timestamp: timestamp,
-                    hashes_and_balances: hashes_and_paid_amounts,
-                })
-                .expect("Accountant is dead");
-
-            info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
-
-            batch_web3
-                .transport()
-                .submit_batch()
-                .map_err(|e| {
-                    // todo!("send_payables_within_batch - We are hitting the correct place");
-                    eprintln!("send_payables_within_batch - We are hitting the Error case");
-                    error_with_hashes(e, hashes_and_paid_amounts_error)
-                })
-                .and_then(move |batch_response| {
-                    eprintln!("send_payables_within_batch - We are hitting the Ok Case");
-                    Ok(merged_output_data(
-                        batch_response,
-                        hashes_and_paid_amounts_ok,
-                        accounts,
-                    ))
-                })
-        }),
+    let hashes_and_paid_amounts = send_and_append_multiple_payments(
+        logger.clone(),
+        chain,
+        web3_batch,
+        consuming_wallet,
+        gas_price,
+        pending_nonce,
+        accounts.clone(),
     );
 
-    // return Box::new(err(PayableTransactionError::GasPriceQueryFailed(
-    //     "test Error".to_string(),
-    // )));
+    let timestamp = SystemTime::now();
+    let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
+    let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
+
+    new_fingerprints_recipient
+        .try_send(PendingPayableFingerprintSeeds {
+            batch_wide_timestamp: timestamp,
+            hashes_and_balances: hashes_and_paid_amounts,
+        })
+        .expect("Accountant is dead");
+
+    info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
+
+    return Box::new(
+        web3_batch
+            .transport()
+            .submit_batch()
+            .map_err(|e| {
+                // todo!("send_payables_within_batch - We are hitting the correct place");
+                eprintln!("send_payables_within_batch - We are hitting the Error case");
+                error_with_hashes(e, hashes_and_paid_amounts_error)
+            })
+            .and_then(move |batch_response| {
+                eprintln!("send_payables_within_batch - We are hitting the Ok Case");
+                Ok(merged_output_data(
+                    batch_response,
+                    hashes_and_paid_amounts_ok,
+                    accounts,
+                ))
+            })
+    )
 }
 
 pub fn request_block_number(
@@ -760,7 +681,7 @@ mod tests {
             gas_price,
         ).wait().unwrap();
 
-        let result = send_transaction(subject.get_web3(), signed_transaction.raw_transaction).wait();
+        let result = append_signed_transaction_to_batch(subject.get_web3(), signed_transaction.raw_transaction).wait();
 
         assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
     }
@@ -796,7 +717,7 @@ mod tests {
             gas_price,
         ).wait().unwrap();
 
-        let result = send_transaction(subject.get_web3(), signed_transaction.raw_transaction).wait();
+        let result = append_signed_transaction_to_batch(subject.get_web3(), signed_transaction.raw_transaction).wait();
 
         assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
     }
@@ -822,7 +743,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = sign_and_send_payment(
+        let result = handle_new_transaction(
             chain,
             subject.get_web3(),
             account.wallet,
@@ -856,7 +777,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
 
-        let result = sign_and_send_payment(
+        let result = handle_new_transaction(
             chain,
             subject.get_web3(),
             account.wallet,

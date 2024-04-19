@@ -681,11 +681,10 @@ impl BlockchainBridge {
             None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
         };
 
-        let new_fingerprints_recipient = self.new_fingerprints_recipient().clone();
+        let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
         let batch_web3 = self.blockchain_interface.get_web3_batch();
-        let web3 = self.blockchain_interface.get_web3();
         let consuming_wallet_clone = consuming_wallet.clone();
 
         // todo!("Are we hitting this");
@@ -698,22 +697,21 @@ impl BlockchainBridge {
                     send_payables_within_batch(
                         logger,
                         chain,
-                        web3,
                         batch_web3,
                         consuming_wallet_clone,
                         gas_price,
                         pending_nonce,
-                        new_fingerprints_recipient.clone(),
+                        new_fingerprints_recipient,
                         msg.affordable_accounts,
                     )
                 }),
         );
     }
 
-    fn new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
+    fn new_fingerprints_recipient(&self) -> Recipient<PendingPayableFingerprintSeeds> {
         self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt
-            .as_ref()
+            .clone()
             .expect("Accountant unbound")
     }
 
