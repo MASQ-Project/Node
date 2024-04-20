@@ -29,12 +29,12 @@ use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
 };
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
-    accounts_before_and_after_debug, log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
+    accounts_before_and_after_debug,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
     LowGainingAccountEliminated, SomeAccountsProcessed,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, TransactionFeeLimitation, TransactionFeePastActionsContext, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, AdjustmentPossibilityErrorBuilder, RecursionResults, TransactionFeeLimitation, TransactionFeePastCheckContext, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
@@ -59,12 +59,15 @@ use thousands::Separable;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
 
+pub type AdjustmentAnalysisResult =
+    Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>;
+
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>;
+    ) -> AdjustmentAnalysisResult;
 
     fn adjust_payments(
         &mut self,
@@ -89,50 +92,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
-    {
-        let number_of_counts = qualified_payables.len();
-
-        let transaction_fee_limitation_opt = match self
-            .analyzer
-            .determine_transaction_count_limit_by_transaction_fee(
-                agent,
-                number_of_counts,
-                &self.logger,
-            ) {
-            Ok(detected_limitation_opt) => detected_limitation_opt,
-            Err(e) => return Err(e),
-        };
-
-        let transaction_fee_past_actions_context =
-            TransactionFeePastActionsContext::check_done_context(transaction_fee_limitation_opt);
-        let service_fee_balance_minor = agent.service_fee_balance_minor();
-        let service_fee_check_outcome = match self.analyzer
-            .check_need_of_adjustment_by_service_fee::<QualifiedPayableAccount, AnalyzedPayableAccount>(
-                &self.disqualification_arbiter,
-                transaction_fee_past_actions_context,
-                qualified_payables,
-                service_fee_balance_minor,
-                &self.logger,
-            ){
-          Ok(check_outcome) => check_outcome,
-          Err(e) => todo!()
-        };
-
-        match (transaction_fee_limitation_opt, service_fee_check_outcome) {
-            (None, Either::Left(non_analyzed_payables)) => Ok(Either::Left(non_analyzed_payables)),
-            (Some(limitation), Either::Left(non_analyzed_payables)) => {
-                // use this here
-                // let prepared_accounts=
-                //     Self::prepare_accounts_with_disqualification_limits(
-                //         payables,
-                //         disqualification_arbiter,
-                //     );
-                todo!()
-            }
-            (None, Either::Right(checked_payables)) => todo!(),
-            (Some(limitation), Either::Right(checked_payables)) => todo!(),
-        }
+    ) -> AdjustmentAnalysisResult {
+        self.analyzer.analyze_accounts(
+            agent,
+            &self.disqualification_arbiter,
+            qualified_payables,
+            &self.logger,
+        )
     }
 
     fn adjust_payments(
@@ -188,6 +154,29 @@ impl PaymentAdjusterReal {
             logger: Logger::new("PaymentAdjuster"),
         }
     }
+
+    //TODO delete me
+    // fn evaluate_checks(&self, results: PreparatoryAnalysisResults) -> AdjustmentAnalysisResult {
+    //     match (
+    //         results.transaction_fee_limitation_opt,
+    //         results.accounts_after_service_fee_check,
+    //     ) {
+    //         (None, Either::Left(payables_skipping_service_fee_analysis)) => {
+    //             Ok(Either::Left(payables_skipping_service_fee_analysis))
+    //         }
+    //         (None, Either::Right(analyzed_payables)) => Ok(Either::Right(AdjustmentAnalysis::new(
+    //             Adjustment::ByServiceFee,
+    //             analyzed_payables,
+    //         ))),
+    //         (Some(limitation), Either::Left(payables_skipping_service_fee_analysis)) => {
+    //             Ok(Either::Right(self.work_skipped_accounts_into_analysis(
+    //                 limitation,
+    //                 payables_skipping_service_fee_analysis,
+    //             )))
+    //         }
+    //         (Some(limitation), Either::Right(analyzed_accounts)) => Ok(Either::Right(todo!())),
+    //     }
+    // }
 
     fn initialize_inner(
         &mut self,
@@ -265,9 +254,8 @@ impl PaymentAdjusterReal {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        let service_fee_error_context = TransactionFeePastActionsContext::accounts_dumped_context(
-            &weighted_accounts_in_descending_order,
-        );
+        let error_builder = AdjustmentPossibilityErrorBuilder::default()
+            .accounts_dumped_context(&weighted_accounts_in_descending_order);
 
         let weighted_accounts_affordable_by_transaction_fee =
             dump_unaffordable_accounts_by_transaction_fee(
@@ -275,37 +263,46 @@ impl PaymentAdjusterReal {
                 already_known_affordable_transaction_count,
             );
 
-        let cw_service_fee_balance = self.inner.original_cw_service_fee_balance_minor();
+        let cw_service_fee_balance_minor = self.inner.original_cw_service_fee_balance_minor();
 
-        let check_outcome = match self.analyzer.check_need_of_adjustment_by_service_fee(
-            &self.disqualification_arbiter,
-            service_fee_error_context,
-            weighted_accounts_affordable_by_transaction_fee,
-            cw_service_fee_balance,
+        if self.analyzer.recheck_if_service_fee_adjustment_is_needed(
+            &weighted_accounts_affordable_by_transaction_fee,
+            cw_service_fee_balance_minor,
+            error_builder,
             &self.logger,
-        ) {
-            Ok(outcome) => outcome,
-            Err(e) => {
-                log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
-                return Err(e);
-            }
-        };
-
-        match check_outcome {
-            Either::Left(weighted_accounts) => {
-                let accounts_not_needing_adjustment = convert_collection(weighted_accounts);
-                Ok(Either::Right(accounts_not_needing_adjustment))
-            }
-
-            Either::Right(weighted_accounts_needing_adjustment) => {
-                diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
-
-                let adjustment_result_before_verification = self
-                    .propose_possible_adjustment_recursively(weighted_accounts_needing_adjustment);
-
-                Ok(Either::Left(adjustment_result_before_verification))
-            }
+        )? {
+            todo!()
+        } else {
+            todo!()
         }
+
+        // match self.analyzer.check_adjustment_possibility(
+        //     transaction_fee_past_context,
+        //     weighted_accounts_affordable_by_transaction_fee,
+        //     cw_service_fee_balance_minor,
+        // ) {
+        //     Ok(outcome) => outcome,
+        //     Err(e) => {
+        //         log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
+        //         return Err(e);
+        //     }
+        // };
+        // todo!("terrible");
+        // match check_outcome {
+        //     Either::Left(weighted_accounts) => {
+        //         let accounts_not_needing_adjustment = convert_collection(weighted_accounts);
+        //         Ok(Either::Right(accounts_not_needing_adjustment))
+        //     }
+        //
+        //     Either::Right(weighted_accounts_needing_adjustment) => {
+        //         diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
+        //
+        //         let adjustment_result_before_verification = self
+        //             .propose_possible_adjustment_recursively(weighted_accounts_needing_adjustment);
+        //
+        //         Ok(Either::Left(adjustment_result_before_verification))
+        //     }
+        // }
     }
 
     fn propose_possible_adjustment_recursively(
@@ -484,9 +481,9 @@ pub enum PaymentAdjusterError {
     },
     NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
         number_of_accounts: usize,
-        total_amount_demanded_minor: u128,
+        total_service_fee_required_minor: u128,
         cw_service_fee_balance_minor: u128,
-        appendix_opt: Option<TransactionFeeLimitation>,
+        transaction_fee_appendix_opt: Option<TransactionFeeLimitation>,
     },
     AllAccountsEliminated,
 }
@@ -509,9 +506,9 @@ impl Display for PaymentAdjusterError {
             ),
             PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts,
-                total_amount_demanded_minor,
+                total_service_fee_required_minor: total_amount_demanded_minor,
                 cw_service_fee_balance_minor,
-                appendix_opt,
+                transaction_fee_appendix_opt: appendix_opt,
             } => write!(
                 f,
                 "Found a smaller service fee balance than it does for a single payment. \
@@ -545,7 +542,7 @@ mod tests {
         LowGainingAccountEliminated, SomeAccountsProcessed,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustmentIterationResult, TransactionFeeLimitation, TransactionFeePastActionsContext,
+        AdjustmentIterationResult, TransactionFeeLimitation, TransactionFeePastCheckContext,
         WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
@@ -812,9 +809,9 @@ mod tests {
             Err(
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 3,
-                    total_amount_demanded_minor: 920_000_000_000,
+                    total_service_fee_required_minor: 920_000_000_000,
                     cw_service_fee_balance_minor,
-                    appendix_opt: None,
+                    transaction_fee_appendix_opt: None,
                 }
             )
         );
@@ -858,9 +855,9 @@ mod tests {
             (
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 5,
-                    total_amount_demanded_minor: 6_000_000_000,
+                    total_service_fee_required_minor: 6_000_000_000,
                     cw_service_fee_balance_minor: 333_000_000,
-                    appendix_opt: None,
+                    transaction_fee_appendix_opt: None,
                 },
                 "Found a smaller service fee balance than it does for a single payment. \
                 Number of canceled payments: 5. Total amount required: 6,000,000,000 wei,
@@ -869,12 +866,12 @@ mod tests {
             (
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 5,
-                    total_amount_demanded_minor: 7_000_000_000,
+                    total_service_fee_required_minor: 7_000_000_000,
                     cw_service_fee_balance_minor: 100_000_000,
-                    appendix_opt: Some(TransactionFeeLimitation {
+                    transaction_fee_appendix_opt: Some(TransactionFeeLimitation {
                         count_limit: 3,
-                        available_balance: 3_000_000_000,
-                        sum_of_transaction_fee_balances: 5_000_000_000,
+                        cw_transaction_fee_balance_minor: 3_000_000_000,
+                        per_transaction_required_fee_minor: 5_000_000_000,
                     }),
                 },
                 "Both transaction fee and service fee balances are not high enough. Number of \
@@ -1104,16 +1101,16 @@ mod tests {
         subject.calculators.push(Box::new(calculator_mock));
         subject.logger = Logger::new(test_name);
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let service_fee_balance_in_minor_units = balance_2;
+        let cw_service_fee_balance_minor = balance_2;
         let disqualification_arbiter = &subject.disqualification_arbiter;
-        let service_fee_error_context = TransactionFeePastActionsContext::TransactionFeeCheckDone {
-            limitation_opt: None,
-        };
-        let analysis_result = subject.analyzer.check_need_of_adjustment_by_service_fee(
+        let agent_for_analysis = BlockchainAgentMock::default()
+            .service_fee_balance_minor_result(cw_service_fee_balance_minor)
+            .transaction_fee_balance_minor_result(U256::MAX)
+            .estimated_transaction_fee_per_transaction_minor_result(12356);
+        let analysis_result = subject.analyzer.analyze_accounts(
+            &agent_for_analysis,
             disqualification_arbiter,
-            service_fee_error_context,
             qualified_payables,
-            service_fee_balance_in_minor_units,
             &subject.logger,
         );
         // If concluded at the entry into the PaymentAdjuster that it has no point going off
@@ -1121,8 +1118,8 @@ mod tests {
         // However, it can only assess the balance (that early - in the real world) and accounts
         // with the smallest balance is outplayed by the other one gaining some kind of extra
         // significance
-        let analyzed_accounts = match analysis_result {
-            Ok(Either::Right(analyzed_accounts)) => analyzed_accounts,
+        let adjustment_analysis = match analysis_result {
+            Ok(Either::Right(analysis)) => analysis,
             x => panic!(
                 "We expected to be let it for an adjustments with AnalyzedAccounts but got: {:?}",
                 x
@@ -1131,16 +1128,13 @@ mod tests {
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(cw_service_fee_balance_minor);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
             agent,
             response_skeleton_opt: None,
-            adjustment_analysis: AdjustmentAnalysis::new(
-                Adjustment::ByServiceFee,
-                analyzed_accounts,
-            ),
+            adjustment_analysis,
         };
 
         let result = subject.adjust_payments(adjustment_setup, now);
@@ -1734,9 +1728,9 @@ mod tests {
             err,
             PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts: 3,
-                total_amount_demanded_minor: balance_1 + balance_2 + balance_3,
+                total_service_fee_required_minor: balance_1 + balance_2 + balance_3,
                 cw_service_fee_balance_minor: service_fee_balance_in_minor_units,
-                appendix_opt: None,
+                transaction_fee_appendix_opt: None,
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(

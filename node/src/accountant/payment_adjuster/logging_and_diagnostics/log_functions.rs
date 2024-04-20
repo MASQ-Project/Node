@@ -142,8 +142,8 @@ pub fn log_adjustment_by_service_fee_is_required(
 ) {
     warning!(
         logger,
-        "Total of {} wei in MASQ was ordered while the consuming wallet held only {} wei of \
-        the MASQ token. Adjustment in their count or the amounts is required.",
+        "Total of {} wei in MASQ was ordered while the consuming wallet held only {} wei of MASQ \
+        token. Adjustment of the count or amounts is required.",
         payables_sum.separate_with_commas(),
         cw_service_fee_balance.separate_with_commas()
     );

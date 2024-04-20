@@ -79,6 +79,12 @@ fn find_largest_u128(slice: &[u128]) -> u128 {
         .fold(0, |largest_so_far, num| largest_so_far.max(*num))
 }
 
+pub fn find_smallest_u128(slice: &[u128]) -> u128 {
+    slice
+        .iter()
+        .fold(u128::MAX, |smallest_so_far, num| smallest_so_far.min(*num))
+}
+
 pub fn exhaust_cw_balance_entirely(
     approved_accounts: Vec<AdjustedAccountBeforeFinalization>,
     original_cw_service_fee_balance_minor: u128,
@@ -197,8 +203,8 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_balance_entirely,
-        find_largest_exceeding_balance, find_largest_u128, zero_affordable_accounts_found,
-        ConsumingWalletExhaustingStatus,
+        find_largest_exceeding_balance, find_largest_u128, find_smallest_u128,
+        zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::test_utils::{
         make_analyzed_account, make_non_guaranteed_qualified_payable, make_payable_account,
@@ -252,6 +258,20 @@ mod tests {
         let result = find_largest_u128(&[45, 2, 456565, 0, 2, 456565, 456564]);
 
         assert_eq!(result, 456565)
+    }
+
+    #[test]
+    fn find_smallest_u128_begins_with_u128_max() {
+        let result = find_smallest_u128(&[]);
+
+        assert_eq!(result, u128::MAX)
+    }
+
+    #[test]
+    fn find_smallest_u128_works() {
+        let result = find_smallest_u128(&[45, 1112, 456565, 3, 7, 456565, 456564]);
+
+        assert_eq!(result, 3)
     }
 
     #[test]

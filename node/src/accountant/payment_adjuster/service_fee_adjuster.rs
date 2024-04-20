@@ -61,39 +61,6 @@ impl Default for ServiceFeeAdjusterReal {
 }
 
 impl ServiceFeeAdjusterReal {
-    pub fn assign_accounts_their_minimal_acceptable_balance<InputAccount, OutputAccounts>(
-        accounts: Vec<InputAccount>,
-        disqualification_arbiter: &DisqualificationArbiter,
-    ) -> Vec<OutputAccounts>
-    where
-        WeightedPayable: From<InputAccount>,
-        OutputAccounts: From<UnconfirmedAdjustment>,
-    {
-        // In some cases taking advantage of that Rust std library implements also From<T> for T
-        todo!()
-        // let weighted_accounts: Vec<WeightedPayable> = convert_collection(accounts);
-        //
-        // let unconfirmed_accounts = weighted_accounts
-        //     .into_iter()
-        //     .map(|weighted_account| {
-        //         let disqualification_limit = disqualification_arbiter
-        //             .calculate_disqualification_edge(
-        //                 &weighted_account.analyzed_account.qualified_as,
-        //             );
-        //         minimal_acceptable_balance_assigned_diagnostics(
-        //             &weighted_account,
-        //             disqualification_limit,
-        //         );
-        //         UnconfirmedAdjustment::new(
-        //             weighted_account,
-        //             disqualification_limit,
-        //         )
-        //     })
-        //     .collect();
-        //
-        // convert_collection(unconfirmed_accounts)
-    }
-
     fn new() -> Self {
         Self {
             adjustment_computer: Default::default(),
@@ -382,67 +349,5 @@ mod tests {
             },
         ];
         assert_eq!(sufficient_gainers, expected_adjusted_outweighed_accounts)
-    }
-
-    #[test]
-    fn assign_accounts_their_minimal_acceptable_balance_works_for_unconfirmed_accounts() {
-        let unconfirmed_account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
-        let weighted_account_1 = unconfirmed_account_1.weighted_account.clone();
-        let unconfirmed_account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
-        let weighted_account_2 = unconfirmed_account_2.weighted_account.clone();
-        let accounts = vec![unconfirmed_account_1, unconfirmed_account_2];
-        let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(123456789)
-            .determine_limit_result(987654321);
-        let disqualification_arbiter =
-            DisqualificationArbiter::new(Box::new(disqualification_gauge));
-
-        let result: Vec<UnconfirmedAdjustment> =
-            ServiceFeeAdjusterReal::assign_accounts_their_minimal_acceptable_balance(
-                accounts,
-                &disqualification_arbiter,
-            );
-
-        let expected_result = vec![
-            UnconfirmedAdjustment::new(weighted_account_1, 123456789),
-            UnconfirmedAdjustment::new(weighted_account_2, 987654321),
-        ];
-        assert_eq!(result, expected_result)
-    }
-
-    #[test]
-    fn assign_accounts_their_minimal_acceptable_balance_works_for_non_finalized_accounts() {
-        let unconfirmed_account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
-        let payable_account_1 = unconfirmed_account_1
-            .weighted_account
-            .analyzed_account
-            .qualified_as
-            .bare_account
-            .clone();
-        let unconfirmed_account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
-        let payable_account_2 = unconfirmed_account_2
-            .weighted_account
-            .analyzed_account
-            .qualified_as
-            .bare_account
-            .clone();
-        let accounts = vec![unconfirmed_account_1, unconfirmed_account_2];
-        let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(1111111)
-            .determine_limit_result(2222222);
-        let disqualification_arbiter =
-            DisqualificationArbiter::new(Box::new(disqualification_gauge));
-
-        let result: Vec<AdjustedAccountBeforeFinalization> =
-            ServiceFeeAdjusterReal::assign_accounts_their_minimal_acceptable_balance(
-                accounts,
-                &disqualification_arbiter,
-            );
-
-        let expected_result = vec![
-            AdjustedAccountBeforeFinalization::new(payable_account_1, 1111111),
-            AdjustedAccountBeforeFinalization::new(payable_account_2, 2222222),
-        ];
-        assert_eq!(result, expected_result)
     }
 }

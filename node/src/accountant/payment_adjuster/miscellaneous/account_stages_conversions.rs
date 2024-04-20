@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
 };
+use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::DisqualificationLimitProvidingAccount;
 use crate::accountant::QualifiedPayableAccount;
 
 // If passing along without PA just to BlockchainBridge
@@ -13,11 +14,11 @@ impl From<QualifiedPayableAccount> for PayableAccount {
     }
 }
 
-// After transaction fee adjustment while no need to go off with the other fee, and so we want to
-// drop the weights etc.
+// After transaction fee adjustment while no need to go off with the other fee, and so we keep
+// the original balance, drop the weights etc.
 impl From<WeightedPayable> for PayableAccount {
     fn from(weighted_account: WeightedPayable) -> Self {
-        todo!()
+        weighted_account.analyzed_account.qualified_as.bare_account
     }
 }
 
@@ -57,10 +58,9 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
 // they requested
 impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighted_account: WeightedPayable) -> Self {
-        let proposed_adjusted_balance_minor = weighted_account.balance_minor();
+        let limited_adjusted_balance = weighted_account.disqualification_limit();
         let original_account = weighted_account.analyzed_account.qualified_as.bare_account;
-
-        AdjustedAccountBeforeFinalization::new(original_account, proposed_adjusted_balance_minor)
+        AdjustedAccountBeforeFinalization::new(original_account, limited_adjusted_balance)
     }
 }
 
@@ -98,11 +98,24 @@ mod tests {
         analyzed_account.qualified_as.bare_account = payable_account;
         WeightedPayable::new(analyzed_account, garbage_weight)
     }
+
     #[test]
-    fn conversion_between_weighted_payable_and_non_finalized_account_is_implemented() {
-        let mut original_payable_account = make_payable_account(123);
-        original_payable_account.balance_wei = 200_000_000;
+    fn conversation_between_weighted_payable_and_standard_payable_account() {
+        let original_payable_account = make_payable_account(345);
         let weighted_account = prepare_weighted_account(original_payable_account.clone());
+
+        let result = PayableAccount::from(weighted_account);
+
+        assert_eq!(result, original_payable_account)
+    }
+
+    #[test]
+    fn conversion_between_weighted_payable_and_non_finalized_account() {
+        let original_payable_account = make_payable_account(123);
+        let mut weighted_account = prepare_weighted_account(original_payable_account.clone());
+        weighted_account
+            .analyzed_account
+            .disqualification_limit_minor = 200_000_000;
 
         let result = AdjustedAccountBeforeFinalization::from(weighted_account);
 
@@ -112,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn conversion_between_unconfirmed_adjustment_and_non_finalized_account_is_implemented() {
+    fn conversion_between_unconfirmed_adjustment_and_non_finalized_account() {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
         let weighted_account = prepare_weighted_account(original_payable_account.clone());
