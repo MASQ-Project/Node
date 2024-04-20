@@ -135,27 +135,14 @@ pub struct AdjustmentPossibilityErrorBuilder {
 }
 
 impl AdjustmentPossibilityErrorBuilder {
-    pub fn accounts_dumped_context(
-        mut self,
-        whole_set_of_analyzed_accounts: &[WeightedPayable],
-    ) -> Self {
-        let past_txs_count = whole_set_of_analyzed_accounts.len();
-        let past_sum_of_service_fee_balances: u128 =
-            sum_as(whole_set_of_analyzed_accounts, |account| {
-                account.balance_minor()
-            });
-        self.context_opt.replace(
-            TransactionFeePastCheckContext::TransactionFeeAccountsDumped {
-                past_txs_count,
-                past_sum_of_service_fee_balances,
-            },
-        );
-        self
-    }
-
-    pub fn check_done_context(mut self, limitation_opt: Option<TransactionFeeLimitation>) -> Self {
-        self.context_opt
-            .replace(TransactionFeePastCheckContext::TransactionFeeCheckDone { limitation_opt });
+    pub fn context(mut self, context: TransactionFeePastCheckContext) -> Self {
+        if let Some(old) = self.context_opt.replace(context) {
+            panic!(
+                "Context must be supplied only once. Was {:?} and {:?} is being set",
+                old,
+                self.context_opt.expect("just put in there")
+            )
+        }
         self
     }
 
@@ -171,6 +158,18 @@ impl AdjustmentPossibilityErrorBuilder {
         self
     }
 
+    pub fn build(self) -> PaymentAdjusterError {
+        let cw_service_fee_balance_minor = self.cw_service_fee_balance_minor;
+        let (number_of_accounts, total_service_fee_required_minor, transaction_fee_appendix_opt) =
+            self.derive_params();
+        PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+            number_of_accounts,
+            total_service_fee_required_minor,
+            cw_service_fee_balance_minor,
+            transaction_fee_appendix_opt,
+        }
+    }
+
     fn derive_params(self) -> (usize, u128, Option<TransactionFeeLimitation>) {
         match self.context_opt.expectv("Tx fee past check context") {
             TransactionFeePastCheckContext::TransactionFeeCheckDone { limitation_opt } => (
@@ -184,18 +183,6 @@ impl AdjustmentPossibilityErrorBuilder {
             } => (past_txs_count, past_sum_of_service_fee_balances, None),
         }
     }
-
-    pub fn build(self) -> PaymentAdjusterError {
-        let cw_service_fee_balance_minor = self.cw_service_fee_balance_minor;
-        let (number_of_accounts, total_service_fee_required_minor, transaction_fee_appendix_opt) =
-            self.derive_params();
-        PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-            number_of_accounts,
-            total_service_fee_required_minor,
-            cw_service_fee_balance_minor,
-            transaction_fee_appendix_opt,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +194,25 @@ pub enum TransactionFeePastCheckContext {
         past_txs_count: usize,
         past_sum_of_service_fee_balances: u128,
     },
+}
+
+impl TransactionFeePastCheckContext {
+    pub fn accounts_dumped(whole_set_of_analyzed_accounts: &[WeightedPayable]) -> Self {
+        let past_txs_count = whole_set_of_analyzed_accounts.len();
+        let past_sum_of_service_fee_balances: u128 =
+            sum_as(whole_set_of_analyzed_accounts, |account| {
+                account.balance_minor()
+            });
+
+        TransactionFeePastCheckContext::TransactionFeeAccountsDumped {
+            past_txs_count,
+            past_sum_of_service_fee_balances,
+        }
+    }
+
+    pub fn initial_check_done(limitation_opt: Option<TransactionFeeLimitation>) -> Self {
+        TransactionFeePastCheckContext::TransactionFeeCheckDone { limitation_opt }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -234,7 +240,7 @@ impl TransactionFeeLimitation {
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, AdjustmentPossibilityErrorBuilder, RecursionResults,
-        TransactionCountsBy16bits, TransactionFeePastCheckContext,
+        TransactionCountsBy16bits, TransactionFeeLimitation, TransactionFeePastCheckContext,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::make_payable_account;
@@ -321,6 +327,28 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Context must be supplied only once. Was TransactionFeeCheckDone { \
+    limitation_opt: None } and TransactionFeeCheckDone { limitation_opt: Some(TransactionFeeLimitation \
+    { count_limit: 11, cw_transaction_fee_balance_minor: 22, per_transaction_required_fee_minor: 3 }) } \
+    is being set"
+    )]
+    fn context_can_be_called_just_once() {
+        let mut subject = AdjustmentPossibilityErrorBuilder::default();
+        subject.context_opt = Some(TransactionFeePastCheckContext::TransactionFeeCheckDone {
+            limitation_opt: None,
+        });
+
+        let _ = subject.context(TransactionFeePastCheckContext::TransactionFeeCheckDone {
+            limitation_opt: Some(TransactionFeeLimitation {
+                count_limit: 11,
+                cw_transaction_fee_balance_minor: 22,
+                per_transaction_required_fee_minor: 3,
+            }),
+        });
+    }
+
+    #[test]
     fn construction_of_error_context_with_accounts_dumped_works() {
         let mut account_1 = make_weighed_account(123);
         account_1
@@ -336,10 +364,9 @@ mod tests {
             .balance_wei = 999888777;
         let weighted_accounts = vec![account_1, account_2];
 
-        let builder = AdjustmentPossibilityErrorBuilder::default()
-            .accounts_dumped_context(&weighted_accounts);
+        let context = TransactionFeePastCheckContext::accounts_dumped(&weighted_accounts);
 
-        match builder.context_opt.unwrap() {
+        match context {
             TransactionFeePastCheckContext::TransactionFeeAccountsDumped {
                 past_txs_count: txs_count,
                 past_sum_of_service_fee_balances: sum_of_transaction_fee_balances,

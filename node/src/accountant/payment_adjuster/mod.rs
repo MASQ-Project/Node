@@ -254,8 +254,9 @@ impl PaymentAdjusterReal {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        let error_builder = AdjustmentPossibilityErrorBuilder::default()
-            .accounts_dumped_context(&weighted_accounts_in_descending_order);
+        let error_builder = AdjustmentPossibilityErrorBuilder::default().context(
+            TransactionFeePastCheckContext::accounts_dumped(&weighted_accounts_in_descending_order),
+        );
 
         let weighted_accounts_affordable_by_transaction_fee =
             dump_unaffordable_accounts_by_transaction_fee(
@@ -271,38 +272,20 @@ impl PaymentAdjusterReal {
             error_builder,
             &self.logger,
         )? {
-            todo!()
-        } else {
-            todo!()
-        }
+            diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
 
-        // match self.analyzer.check_adjustment_possibility(
-        //     transaction_fee_past_context,
-        //     weighted_accounts_affordable_by_transaction_fee,
-        //     cw_service_fee_balance_minor,
-        // ) {
-        //     Ok(outcome) => outcome,
-        //     Err(e) => {
-        //         log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(&self.logger);
-        //         return Err(e);
-        //     }
-        // };
-        // todo!("terrible");
-        // match check_outcome {
-        //     Either::Left(weighted_accounts) => {
-        //         let accounts_not_needing_adjustment = convert_collection(weighted_accounts);
-        //         Ok(Either::Right(accounts_not_needing_adjustment))
-        //     }
-        //
-        //     Either::Right(weighted_accounts_needing_adjustment) => {
-        //         diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
-        //
-        //         let adjustment_result_before_verification = self
-        //             .propose_possible_adjustment_recursively(weighted_accounts_needing_adjustment);
-        //
-        //         Ok(Either::Left(adjustment_result_before_verification))
-        //     }
-        // }
+            let adjustment_result_before_verification = self
+                .propose_possible_adjustment_recursively(
+                    weighted_accounts_affordable_by_transaction_fee,
+                );
+
+            Ok(Either::Left(adjustment_result_before_verification))
+        } else {
+            let accounts_not_needing_adjustment =
+                convert_collection(weighted_accounts_affordable_by_transaction_fee);
+
+            Ok(Either::Right(accounts_not_needing_adjustment))
+        }
     }
 
     fn propose_possible_adjustment_recursively(
@@ -531,26 +514,15 @@ impl Display for PaymentAdjusterError {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::adjustment_runners::TransactionAndServiceFeeAdjustmentRunner;
-    use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
-    use crate::accountant::payment_adjuster::disqualification_arbiter::{
-        DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
-    };
-    use crate::accountant::payment_adjuster::inner::{
-        PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
-    };
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
-        LowGainingAccountEliminated, SomeAccountsProcessed,
-    };
+    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
+    use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
+    use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::SomeAccountsProcessed;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustmentIterationResult, TransactionFeeLimitation, TransactionFeePastCheckContext,
-        WeightedPayable,
+        AdjustmentIterationResult, TransactionFeeLimitation, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        find_largest_exceeding_balance, weights_total,
-    };
-    use crate::accountant::payment_adjuster::service_fee_adjuster::{
-        AdjustmentComputer, ServiceFeeAdjusterReal,
-    };
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
+    use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_analyzed_account_by_wallet, make_extreme_payables, make_initialized_subject,
         multiple_by_billion, CriterionCalculatorMock, DisqualificationGaugeMock,
@@ -565,8 +537,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::test_utils::{
         make_analyzed_account, make_guaranteed_analyzed_payables,
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account,
+        make_guaranteed_qualified_payables, make_payable_account,
     };
     use crate::accountant::{
         gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
@@ -575,14 +546,10 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use itertools::Either;
-    use lazy_static::lazy_static;
-    use libc::RESOLVE_NO_XDEV;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::convert_collection;
-    use rand::rngs::mock;
     use std::collections::HashMap;
-    use std::iter::zip;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
@@ -738,9 +705,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Transaction fee amount 16,499,999,000,000,000 wei from your wallet \
-            will not cover anticipated fees to send 3 transactions. Maximum is 2. The payments \
-            count needs to be adjusted."
+            "WARN: {test_name}: Your transaction fee balance 16,499,999,000,000,000 wei is not \
+            going to cover the anticipated fees to send 3 transactions. Maximum is set to 2. \
+            Adjustment will be performed."
         ));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
@@ -780,7 +747,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,\
         000,001 wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of \
-        the MASQ token. Adjustment in their count or the amounts is required."));
+        MASQ token. Adjustment of their count or balances is required."));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
             delinquency bans. In order to consume services without limitations, you will need to \
@@ -1733,11 +1700,22 @@ mod tests {
                 transaction_fee_appendix_opt: None,
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Passed successfully adjustment by transaction fee, however, that \
-            was not enough regarding the other fee. Now, a critical shortage of MASQ balance has \
-            been noticed. Operation will abort."
-        ));
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!(
+                "WARN: {test_name}: Total of 411,000,000,000,000,000,000 wei in MASQ was \
+            ordered while the consuming wallet held only 70,999,999,999,999,999,999 wei of MASQ \
+            token. Adjustment of their count or balances is required."
+            ),
+            &format!(
+                "INFO: {test_name}: Please be aware that abandoning your debts is going to \
+            result in delinquency bans. In order to consume services without limitations, you \
+            will need to place more funds into your consuming wallet.",
+            ),
+            &format!(
+                "ERROR: {test_name}: {}",
+                LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY
+            ),
+        ]);
     }
 
     struct TestConfigForServiceFeeBalances {
@@ -1927,7 +1905,7 @@ mod tests {
         let input_matrix: InputMatrixConfigurator =
             |(nominal_account_1, nominal_account_2, now)| {
                 vec![
-                    // First stage: BalanceAndAgeCalculator
+                    // First test case: BalanceAndAgeCalculator
                     {
                         let mut account_1 = nominal_account_1;
                         account_1.bare_account.balance_wei += 123_456_789;
@@ -1964,8 +1942,7 @@ mod tests {
         input_matrix_configurator: InputMatrixConfigurator,
         nominal_weight: u128,
     ) {
-        let defaulted_payment_adjuster = PaymentAdjusterReal::default();
-        let calculators_count = defaulted_payment_adjuster.calculators.len();
+        let calculators_count = PaymentAdjusterReal::default().calculators.len();
         let now = SystemTime::now();
         let cw_service_fee_balance_minor = gwei_to_wei::<u128, u64>(1_000_000);
         let (template_accounts, template_computed_weight) =
@@ -1982,14 +1959,12 @@ mod tests {
         assert_eq!(
             input_matrix.len(),
             calculators_count,
-            "If you've recently added in a new \
-        calculator, you should add a single test case for it this test. See the input matrix, \
-        it is the place where you should use the two accounts you can clone. Make sure you \
-        modify only those parameters processed by your new calculator "
+            "If you've recently added in a new calculator, you should add in its new test case to \
+            this test. See the input matrix, it is the place where you should use the two accounts \
+            you can clone. Make sure you modify only those parameters processed by your new calculator "
         );
         test_accounts_from_input_matrix(
             input_matrix,
-            defaulted_payment_adjuster,
             now,
             cw_service_fee_balance_minor,
             template_computed_weight,
@@ -2072,9 +2047,8 @@ mod tests {
         let service_fee_adjuster_mock = ServiceFeeAdjusterMock::default()
             // We use this container to intercept those values we are after
             .perform_adjustment_by_service_fee_params(&perform_adjustment_by_service_fee_params_arc)
-            // This is just a sentinel for an actual result.
-            // We care only for the params
-            // TODO check this carefully...ugly
+            // This is just a sentinel that allows us to shorten the adjustment execution.
+            // We care only for the params captured inside the container from above
             .perform_adjustment_by_service_fee_result(AdjustmentIterationResult {
                 decided_accounts: SomeAccountsProcessed(vec![]),
                 remaining_undecided_accounts: vec![],
@@ -2115,7 +2089,6 @@ mod tests {
 
     fn test_accounts_from_input_matrix(
         input_matrix: Vec<[(QualifiedPayableAccount, u128); 2]>,
-        defaulted_payment_adjuster: PaymentAdjusterReal,
         now: SystemTime,
         cw_service_fee_balance_minor: u128,
         template_computed_weight: TemplateComputedWeight,
@@ -2135,27 +2108,24 @@ mod tests {
                     .map(prepare_args_expected_weights_for_comparison)
                     .collect::<Vec<_>>()
             })
-            .zip(defaulted_payment_adjuster.calculators.into_iter())
-            .for_each(
-                |(qualified_payments_and_expected_computed_weights, calculator)| {
-                    let (qualified_payments, expected_computed_weights): (Vec<_>, Vec<_>) =
-                        qualified_payments_and_expected_computed_weights
-                            .into_iter()
-                            .unzip();
+            .for_each(|qualified_payments_and_expected_computed_weights| {
+                let (qualified_payments, expected_computed_weights): (Vec<_>, Vec<_>) =
+                    qualified_payments_and_expected_computed_weights
+                        .into_iter()
+                        .unzip();
 
-                    let weighted_accounts = exercise_production_code_to_get_weighted_accounts(
-                        qualified_payments,
-                        now,
-                        cw_service_fee_balance_minor,
-                    );
+                let weighted_accounts = exercise_production_code_to_get_weighted_accounts(
+                    qualified_payments,
+                    now,
+                    cw_service_fee_balance_minor,
+                );
 
-                    assert_results(
-                        weighted_accounts,
-                        expected_computed_weights,
-                        template_computed_weight,
-                    )
-                },
-            );
+                assert_results(
+                    weighted_accounts,
+                    expected_computed_weights,
+                    template_computed_weight,
+                )
+            });
     }
 
     fn make_comparison_hashmap(

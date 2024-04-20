@@ -139,27 +139,6 @@ pub mod ordinary_diagnostic_functions {
         )
     }
 
-    pub fn handle_last_account_diagnostics(
-        account: &WeightedPayable,
-        cw_service_fee_balance_minor: u128,
-        disqualification_limit_opt: Option<u128>,
-    ) {
-        diagnostics!(
-            account.wallet(),
-            "HANDLING LAST ACCOUNT",
-            "Remaining CW balance {} is {}",
-            cw_service_fee_balance_minor,
-            if let Some(dsq_limit) = disqualification_limit_opt {
-                format!(
-                    "larger than the disqualification limit {} which is therefore assigned instead",
-                    dsq_limit
-                )
-            } else {
-                "below the disqualification limit and assigned in full extend".to_string()
-            }
-        )
-    }
-
     pub fn exhausting_cw_balance_diagnostics(
         non_finalized_account_info: &AdjustedAccountBeforeFinalization,
         possible_extra_addition: u128,

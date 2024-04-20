@@ -5,9 +5,9 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, WeightedPayable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
-use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
 use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterReal};
 use itertools::Either;
+use masq_lib::utils::convert_collection;
 
 // TODO review this comment
 // There are only two runners. They perform adjustment either by both the transaction and service
@@ -78,7 +78,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
 
         if check_sum <= unallocated_cw_balance {
             // Fast return after a direct conversion into the expected type
-            todo!()
+            return convert_collection(weighted_accounts);
         }
 
         payment_adjuster.propose_possible_adjustment_recursively(weighted_accounts)
@@ -93,7 +93,9 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
+    use crate::accountant::payment_adjuster::test_utils::{
+        make_initialized_subject, multiple_by_billion,
+    };
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
         make_analyzed_account, make_non_guaranteed_qualified_payable,
@@ -129,6 +131,7 @@ mod tests {
     }
 
     fn test_surplus_incurred_after_disqualification_in_previous_iteration(
+        subject: ServiceFeeOnlyAdjustmentRunner,
         payable_1: WeightedPayable,
         payable_2: WeightedPayable,
         cw_service_fee_balance_minor: u128,
@@ -146,7 +149,6 @@ mod tests {
             initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);
         let initial_balance_minor_1 = payable_1.balance_minor();
         let initial_balance_minor_2 = payable_2.balance_minor();
-        let subject = ServiceFeeOnlyAdjustmentRunner {};
 
         let result = subject.adjust_accounts(
             &mut payment_adjuster,
@@ -183,14 +185,18 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_cw_balance_equals_requested_money_after_dsq_in_previous_iteration() {
+    fn means_equal_requested_money_after_dsq_in_previous_iteration_to_return_capped_accounts() {
+        let subject = ServiceFeeOnlyAdjustmentRunner {};
         let cw_service_fee_balance_minor = 10_000_000_000;
-        let payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
-        let payable_2 = weighted_payable_setup_for_surplus_test(222, 5_000_000_000);
-        let expected_proposed_balance_1 = 3_000_000_000;
-        let expected_proposed_balance_2 = 3_000_000_000;
+        let mut payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
+        payable_1.analyzed_account.disqualification_limit_minor = 3_444_333_444;
+        let mut payable_2 = weighted_payable_setup_for_surplus_test(222, 5_000_000_000);
+        payable_2.analyzed_account.disqualification_limit_minor = 3_555_333_555;
+        let expected_proposed_balance_1 = 3_444_333_444;
+        let expected_proposed_balance_2 = 3_555_333_555;
 
         test_surplus_incurred_after_disqualification_in_previous_iteration(
+            subject,
             payable_1,
             payable_2,
             cw_service_fee_balance_minor,
@@ -200,15 +206,19 @@ mod tests {
     }
 
     #[test]
-    fn service_fee_only_runner_handles_means_bigger_requested_money_after_dsq_in_previous_iteration(
+    fn means_become_bigger_than_requested_after_dsq_in_previous_iteration_to_return_capped_accounts(
     ) {
+        let subject = ServiceFeeOnlyAdjustmentRunner {};
         let cw_service_fee_balance_minor = 10_000_000_000;
-        let payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
-        let payable_2 = weighted_payable_setup_for_surplus_test(222, 4_999_999_999);
-        let expected_proposed_balance_1 = 3_000_000_000;
-        let expected_proposed_balance_2 = 2_999_999_999;
+        let mut payable_1 = weighted_payable_setup_for_surplus_test(111, 5_000_000_000);
+        payable_1.analyzed_account.disqualification_limit_minor = 3_444_333_444;
+        let mut payable_2 = weighted_payable_setup_for_surplus_test(222, 4_999_999_999);
+        payable_2.analyzed_account.disqualification_limit_minor = 3_555_333_555;
+        let expected_proposed_balance_1 = 3_444_333_444;
+        let expected_proposed_balance_2 = 3_555_333_555;
 
         test_surplus_incurred_after_disqualification_in_previous_iteration(
+            subject,
             payable_1,
             payable_2,
             cw_service_fee_balance_minor,
@@ -219,15 +229,9 @@ mod tests {
 
     #[test]
     fn adjust_accounts_for_service_fee_only_runner_is_not_supposed_to_care_about_transaction_fee() {
-        let mut payment_thresholds = PaymentThresholds::default();
-        payment_thresholds.maturity_threshold_sec = 100;
-        payment_thresholds.threshold_interval_sec = 1000;
-        payment_thresholds.permanent_debt_allowed_gwei = 1;
         let balance = 5_000_000_000;
         let mut account = make_non_guaranteed_qualified_payable(111);
-        account.bare_account.balance_wei = 5_000_000_000;
-        account.payment_threshold_intercept_minor = 4_000_000_000;
-        account.creditor_thresholds = CreditorThresholds::new(1_000_000_000);
+        account.bare_account.balance_wei = balance;
         let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");
         let mut account_1 = account.clone();
@@ -237,7 +241,7 @@ mod tests {
         let adjustment = Adjustment::TransactionFeeInPriority {
             affordable_transaction_count: 1,
         };
-        let service_fee_balance_minor = (5 * balance) / 3;
+        let service_fee_balance_minor = (10 * balance) / 8;
         let mut payment_adjuster = PaymentAdjusterReal::new();
         payment_adjuster.initialize_inner(
             service_fee_balance_minor,
@@ -247,7 +251,7 @@ mod tests {
         );
         let subject = ServiceFeeOnlyAdjustmentRunner {};
         let weighted_account = |account: QualifiedPayableAccount| WeightedPayable {
-            analyzed_account: AnalyzedPayableAccount::new(account, 5_000_000_000),
+            analyzed_account: AnalyzedPayableAccount::new(account, 3_000_000_000),
             weight: 4_000_000_000,
         };
         let weighted_accounts = vec![weighted_account(account_1), weighted_account(account_2)];

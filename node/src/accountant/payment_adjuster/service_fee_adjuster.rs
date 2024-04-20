@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     WeightedPayable,
 };
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::
-ordinary_diagnostic_functions::{minimal_acceptable_balance_assigned_diagnostics, outweighed_accounts_diagnostics, proposed_adjusted_balance_diagnostics};
+ordinary_diagnostic_functions::{outweighed_accounts_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     compute_mul_coefficient_preventing_fractional_numbers, weights_total,
 };
@@ -44,12 +44,15 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
             .adjustment_computer
             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
 
-        match Self::handle_sufficiently_filled_accounts(unconfirmed_adjustments) {
-            Either::Left(without_gainers) => {
-                //TODO arbiter, what about it here?
-                Self::disqualify_single_account(disqualification_arbiter, without_gainers, logger)
-            }
-            Either::Right(with_gainers) => with_gainers,
+        let checked_accounts = Self::handle_sufficiently_filled_accounts(unconfirmed_adjustments);
+
+        match checked_accounts {
+            Either::Left(without_sufficient_gainers) => Self::disqualify_single_account(
+                disqualification_arbiter,
+                without_sufficient_gainers,
+                logger,
+            ),
+            Either::Right(with_sufficient_gainers) => with_sufficient_gainers,
         }
     }
 }
@@ -153,26 +156,13 @@ impl ServiceFeeAdjusterReal {
             },
         );
 
-        // let outweighed_adjusted = if outweighed.is_empty() {
-        //     vec![]
-        // } else {
-        //     Self::assign_accounts_their_minimal_acceptable_balance(
-        //         outweighed,
-        //         disqualification_arbiter,
-        //     )
-        // };
-
-        let outweighed_adjusted = if sufficient_gainers.is_empty() {
+        let decided_accounts = if sufficient_gainers.is_empty() {
             vec![]
         } else {
-            // Self::assign_accounts_their_minimal_acceptable_balance(
-            //     outweighed,
-            //     disqualification_arbiter,
-            // )
             convert_collection(sufficient_gainers)
         };
-        //TODO Maybe consider to return the two return types just right from the fold
-        (outweighed_adjusted, low_gainers)
+
+        (decided_accounts, low_gainers)
     }
 }
 

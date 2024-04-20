@@ -5,6 +5,7 @@ pub mod accounts_abstraction;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     log_adjustment_by_service_fee_is_required, log_insufficient_transaction_fee_balance,
+    log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustmentPossibilityErrorBuilder, TransactionCountsBy16bits, TransactionFeeLimitation,
@@ -21,7 +22,7 @@ use crate::accountant::payment_adjuster::{Adjustment, AdjustmentAnalysis, Paymen
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use ethereum_types::U256;
-use itertools::{Either, Product};
+use itertools::Either;
 use masq_lib::logger::Logger;
 
 pub struct PreparatoryAnalyzer {}
@@ -67,22 +68,25 @@ impl PreparatoryAnalyzer {
                 disqualification_arbiter,
             );
             if is_service_fee_adjustment_needed {
-                let error_builder = AdjustmentPossibilityErrorBuilder::default()
-                    .check_done_context(transaction_fee_limitation_opt);
-                // TODO rewrite me as ?
-                match Self::check_adjustment_possibility(
+                let error_builder = AdjustmentPossibilityErrorBuilder::default().context(
+                    TransactionFeePastCheckContext::initial_check_done(
+                        transaction_fee_limitation_opt,
+                    ),
+                );
+
+                Self::check_adjustment_possibility(
                     &prepared_accounts,
                     cw_service_fee_balance_minor,
                     error_builder,
-                ) {
-                    Err(e) => todo!(),
-                    _ => (),
-                }
+                )?
             };
             let adjustment = match transaction_fee_limitation_opt {
                 None => Adjustment::ByServiceFee,
-                Some(limit) => {
-                    todo!()
+                Some(limitation) => {
+                    let affordable_transaction_count = limitation.count_limit;
+                    Adjustment::TransactionFeeInPriority {
+                        affordable_transaction_count,
+                    }
                 }
             };
             Ok(Either::Right(AdjustmentAnalysis::new(
@@ -104,14 +108,15 @@ impl PreparatoryAnalyzer {
             cw_service_fee_balance_minor,
             logger,
         ) {
-            //TODO change to ?
-            match Self::check_adjustment_possibility(
+            if let Err(e) = Self::check_adjustment_possibility(
                 weighted_accounts,
                 cw_service_fee_balance_minor,
                 error_builder,
             ) {
-                Ok(_) => Ok(true),
-                Err(e) => todo!(),
+                log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(logger);
+                Err(e)
+            } else {
+                Ok(true)
             }
         } else {
             Ok(false)
@@ -234,12 +239,15 @@ impl PreparatoryAnalyzer {
     {
         let service_fee_totally_required_minor =
             Self::compute_total_of_service_fee_required(qualified_payables);
-        log_adjustment_by_service_fee_is_required(
-            logger,
-            service_fee_totally_required_minor,
-            cw_service_fee_balance_minor,
-        );
-        service_fee_totally_required_minor > cw_service_fee_balance_minor
+        (service_fee_totally_required_minor > cw_service_fee_balance_minor)
+            .then(|| {
+                log_adjustment_by_service_fee_is_required(
+                    logger,
+                    service_fee_totally_required_minor,
+                    cw_service_fee_balance_minor,
+                )
+            })
+            .is_some()
     }
 
     fn find_lowest_disqualification_limit<Account>(accounts: &[Account]) -> u128
@@ -337,7 +345,7 @@ mod tests {
         assert_eq!(&determine_limit_params[0..2], expected_params);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet \
-            held only {} wei of MASQ token. Adjustment of the count or amounts is required.",
+            held only {} wei of MASQ token. Adjustment of their count or balances is required.",
             total_amount_required.separate_with_commas(),
             cw_service_fee_balance.separate_with_commas()
         ));
@@ -421,8 +429,9 @@ mod tests {
             cw_transaction_fee_balance_minor: 200_000_000,
             per_transaction_required_fee_minor: 300_000_000,
         };
-        let error_builder = AdjustmentPossibilityErrorBuilder::default()
-            .check_done_context(Some(transaction_fee_limitation));
+        let error_builder = AdjustmentPossibilityErrorBuilder::default().context(
+            TransactionFeePastCheckContext::initial_check_done(Some(transaction_fee_limitation)),
+        );
         let expected_error_preparer =
             |total_amount_demanded_in_accounts_in_place, cw_service_fee_balance_minor| {
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
@@ -441,7 +450,8 @@ mod tests {
 
     #[test]
     fn not_enough_for_even_the_least_demanding_account_error_right_after_negative_tx_fee_check() {
-        let error_builder = AdjustmentPossibilityErrorBuilder::default().check_done_context(None);
+        let error_builder = AdjustmentPossibilityErrorBuilder::default()
+            .context(TransactionFeePastCheckContext::initial_check_done(None));
         let expected_error_preparer =
             |total_amount_demanded_in_accounts_in_place, cw_service_fee_balance_minor| {
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
@@ -468,8 +478,8 @@ mod tests {
         ];
         let initial_sum = sum_as(&accounts, |account| account.balance_minor());
         let initial_count = accounts.len();
-        let error_builder =
-            AdjustmentPossibilityErrorBuilder::default().accounts_dumped_context(&accounts);
+        let error_builder = AdjustmentPossibilityErrorBuilder::default()
+            .context(TransactionFeePastCheckContext::accounts_dumped(&accounts));
         let expected_error_preparer = |_, cw_service_fee_balance_minor| {
             PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts: initial_count,
@@ -510,21 +520,25 @@ mod tests {
         let logger = Logger::new(test_name);
         let subject = PreparatoryAnalyzer::new();
 
-        [(0, false),(1, false),(2, true)].iter().for_each(|(subtrahend_from_cw_balance, expected_result)| {
-            let service_fee_balance = cw_service_fee_balance_minor - subtrahend_from_cw_balance;
-            let result = subject.recheck_if_service_fee_adjustment_is_needed(
-                &accounts,
-                service_fee_balance,
-                error_builder.clone(),
-                &logger
-            ).unwrap();
-            assert_eq!(result, *expected_result);
-            TestLogHandler::new().exists_log_containing(&format!(
-                "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet \
-            held only {}",
-                service_fee_totally_required_minor.separate_with_commas(), service_fee_balance.separate_with_commas()
-            ));
-        })
+        [(0, false), (1, false), (2, true)].iter().for_each(
+            |(subtrahend_from_cw_balance, expected_result)| {
+                let service_fee_balance = cw_service_fee_balance_minor - subtrahend_from_cw_balance;
+                let result = subject
+                    .recheck_if_service_fee_adjustment_is_needed(
+                        &accounts,
+                        service_fee_balance,
+                        error_builder.clone(),
+                        &logger,
+                    )
+                    .unwrap();
+                assert_eq!(result, *expected_result);
+            },
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet held \
+            only {}", service_fee_totally_required_minor.separate_with_commas(),
+            (cw_service_fee_balance_minor - 2).separate_with_commas()
+        ));
     }
 
     fn double_mock_results_queue(mock: DisqualificationGaugeMock) -> DisqualificationGaugeMock {

@@ -16,9 +16,10 @@ use web3::types::U256;
 const REFILL_RECOMMENDATION: &str = "\
 Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
 consume services without limitations, you will need to place more funds into your consuming wallet.";
-const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
-Passed successfully adjustment by transaction fee, however, that was not enough regarding the other \
-fee. Now, a critical shortage of MASQ balance has been noticed. Operation will abort.";
+pub const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
+Passed successfully adjustment by transaction fee, then rechecked the service fee balance to be \
+applied on the adjusted set, but discovered a shortage of MASQ not to suffice even for a single \
+transaction. Operation is aborting.";
 
 const BLANK_SPACE: &str = "";
 
@@ -143,7 +144,7 @@ pub fn log_adjustment_by_service_fee_is_required(
     warning!(
         logger,
         "Total of {} wei in MASQ was ordered while the consuming wallet held only {} wei of MASQ \
-        token. Adjustment of the count or amounts is required.",
+        token. Adjustment of their count or balances is required.",
         payables_sum.separate_with_commas(),
         cw_service_fee_balance.separate_with_commas()
     );
@@ -158,9 +159,8 @@ pub fn log_insufficient_transaction_fee_balance(
 ) {
     warning!(
         logger,
-        "Transaction fee amount {} wei from your wallet will not cover anticipated \
-        fees to send {} transactions. Maximum is {}. The payments count needs to be \
-        adjusted.",
+        "Your transaction fee balance {} wei is not going to cover the anticipated fees to send {} \
+        transactions. Maximum is set to {}. Adjustment will be performed.",
         transaction_fee_minor.separate_with_commas(),
         required_transactions_count,
         limiting_count
@@ -193,9 +193,9 @@ mod tests {
         );
         assert_eq!(
             LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
-            "Passed successfully adjustment by transaction fee, however, that was not enough \
-            regarding the other fee. Now, a critical shortage of MASQ balance has been noticed. \
-            Operation will abort."
+            "Passed successfully adjustment by transaction fee, then rechecked the service fee \
+            balance to be applied on the adjusted set, but discovered a shortage of \
+            MASQ not to suffice even for a single transaction. Operation is aborting."
         )
     }
 
@@ -215,10 +215,10 @@ mod tests {
         info_log_for_disqualified_account(&logger, &disqualified_account);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Shortage of MASQ \
-        in your consuming wallet will impact payable 0x0000000000000000000000000000000000616161, \
-        ruled out from this round of payments. The proposed adjustment 1,555,666,777 wei was \
-        below the disqualification limit 2,000,000,000 wei",
+            "INFO: {}: Shortage of MASQ in your consuming wallet will impact payable \
+            0x0000000000000000000000000000000000616161, ruled out from this round of payments. \
+            The proposed adjustment 1,555,666,777 wei was below the disqualification limit \
+            2,000,000,000 wei",
             test_name
         ));
     }

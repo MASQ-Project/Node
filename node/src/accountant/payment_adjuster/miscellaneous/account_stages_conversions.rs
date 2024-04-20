@@ -1,6 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::minimal_acceptable_balance_assigned_diagnostics;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
 };
@@ -59,6 +60,10 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
 impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighted_account: WeightedPayable) -> Self {
         let limited_adjusted_balance = weighted_account.disqualification_limit();
+        minimal_acceptable_balance_assigned_diagnostics(
+            &weighted_account,
+            limited_adjusted_balance,
+        );
         let original_account = weighted_account.analyzed_account.qualified_as.bare_account;
         AdjustedAccountBeforeFinalization::new(original_account, limited_adjusted_balance)
     }
