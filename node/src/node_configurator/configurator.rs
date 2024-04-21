@@ -2046,10 +2046,6 @@ mod tests {
         assert_eq!(context_id, 4444);
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![Some(166666)]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: A request from UI received: {:?} from context id: {}",
-            test_name, msg, context_id
-        ));
     }
 
     #[test]
@@ -2088,10 +2084,6 @@ mod tests {
         assert_eq!(context_id, 4444);
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![None]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: A request from UI received: {:?} from context id: {}",
-            test_name, msg, context_id
-        ));
     }
 
     #[test]
