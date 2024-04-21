@@ -16,6 +16,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::{Either, Itertools};
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+use masq_lib::utils::convert_collection;
 use rand;
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
@@ -37,8 +38,8 @@ fn loading_test_with_randomized_params() {
     // that it can live up to its original purpose and the vast majority of the attempted adjustments
     // end up with reasonable results. That said, a smaller amount of these attempts are expected
     // to be vain because of some chance always be there that with a given combination of payables
-    // the algorithm will go step by step eliminating completely all accounts. There's hardly
-    // a way for the adjustment procedure as it proceeds now to anticipate if this is going to happen.
+    // the algorithm will go step by step eliminating completely all accounts. There's hardly a way
+    // for the adjustment procedure as it proceeds now to anticipate if this is going to happen.
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
@@ -115,7 +116,7 @@ fn loading_test_with_randomized_params() {
 
             let payment_adjuster_result = subject.adjust_payments(prepared_adjustment, now);
 
-            prepare_single_scenario_result(
+            administrate_single_scenario_result(
                 payment_adjuster_result,
                 account_infos,
                 required_adjustment,
@@ -156,9 +157,9 @@ fn try_making_single_valid_scenario(
     if payables_len != qualified_payables.len() {
         return None;
     }
-    let analyzed_accounts: Vec<AnalyzedPayableAccount> = todo!();
+    let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
     let agent = make_agent(cw_service_fee_balance);
-    let adjustment = make_adjustment(gn, qualified_payables.len());
+    let adjustment = make_adjustment(gn, analyzed_accounts.len());
     Some(PreparedAdjustment::new(
         Box::new(agent),
         None,
@@ -226,7 +227,7 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
     }
 }
 
-fn prepare_single_scenario_result(
+fn administrate_single_scenario_result(
     payment_adjuster_result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
     account_infos: Vec<AccountInfo>,
     required_adjustment: Adjustment,
@@ -398,8 +399,12 @@ fn write_brief_test_summary_into_file(
          Requested:............................. {}\n\
          Actually evaluated:.................... {}\n\n\
          Successful:............................ {}\n\
-         Successes with no accounts eliminated:. {}\n\
-         Fulfillment distribution (service fee adjustment only):\n\
+         Successes with no accounts eliminated:. {}\n\n\
+         Transaction fee / mixed adjustments:... {}\n\
+         Bills fulfillment distribution:\n\
+         {}\n\n\
+         Plain service fee adjustments:......... {}\n\
+         Bills fulfillment distribution:\n\
          {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
@@ -410,7 +415,16 @@ fn write_brief_test_summary_into_file(
         overall_output_collector.oks,
         overall_output_collector.with_no_accounts_eliminated,
         overall_output_collector
-            .fulfillment_distribution
+            .fulfillment_distribution_for_transaction_fee_adjustments
+            .total_scenarios(),
+        overall_output_collector
+            .fulfillment_distribution_for_transaction_fee_adjustments
+            .render_in_two_lines(),
+        overall_output_collector
+            .fulfillment_distribution_for_service_fee_adjustments
+            .total_scenarios(),
+        overall_output_collector
+            .fulfillment_distribution_for_service_fee_adjustments
             .render_in_two_lines(),
         overall_output_collector.scenarios_denied_before_adjustment_started,
         overall_output_collector.all_accounts_eliminated,
@@ -429,9 +443,18 @@ fn do_final_processing_of_single_scenario(
             if positive.were_no_accounts_eliminated {
                 test_overall_output.with_no_accounts_eliminated += 1
             }
-            if Adjustment::ByServiceFee == positive.common.required_adjustment {
+            if matches!(
+                positive.common.required_adjustment,
+                Adjustment::TransactionFeeInPriority { .. }
+            ) {
                 test_overall_output
-                    .fulfillment_distribution
+                    .fulfillment_distribution_for_transaction_fee_adjustments
+                    .collected_fulfillment_percentages
+                    .push(positive.portion_of_cw_cumulatively_used_percents)
+            }
+            if positive.common.required_adjustment == Adjustment::ByServiceFee {
+                test_overall_output
+                    .fulfillment_distribution_for_service_fee_adjustments
                     .collected_fulfillment_percentages
                     .push(positive.portion_of_cw_cumulatively_used_percents)
             }
@@ -488,7 +511,7 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
             file,
             account.initial_balance,
             account.debt_age_s,
-            account.bill_coverage_in_percentage_opt,
+            account.bills_coverage_in_percentage_opt,
         )
     })
 }
@@ -582,7 +605,7 @@ fn prepare_interpretable_account_resolution(
     let adjusted_account_idx_opt = resulted_affordable_accounts
         .iter()
         .position(|account| account.wallet == account_info.wallet);
-    let bill_coverage_in_percentage_opt = match adjusted_account_idx_opt {
+    let bills_coverage_in_percentage_opt = match adjusted_account_idx_opt {
         Some(idx) => {
             let adjusted_account = resulted_affordable_accounts.remove(idx);
             let bill_coverage_in_percentage = u8::try_from(
@@ -597,7 +620,7 @@ fn prepare_interpretable_account_resolution(
     InterpretableAdjustmentResult {
         initial_balance: account_info.initially_requested_service_fee_minor,
         debt_age_s: account_info.debt_age_s,
-        bill_coverage_in_percentage_opt,
+        bills_coverage_in_percentage_opt,
     }
 }
 
@@ -609,12 +632,12 @@ fn sort_interpretable_adjustments(
         Vec<InterpretableAdjustmentResult>,
     ) = interpretable_adjustments
         .into_iter()
-        .partition(|adjustment| adjustment.bill_coverage_in_percentage_opt.is_some());
+        .partition(|adjustment| adjustment.bills_coverage_in_percentage_opt.is_some());
     let were_no_accounts_eliminated = eliminated.is_empty();
     let finished_sorted = finished.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(
-            &result_b.bill_coverage_in_percentage_opt.unwrap(),
-            &result_a.bill_coverage_in_percentage_opt.unwrap(),
+            &result_b.bills_coverage_in_percentage_opt.unwrap(),
+            &result_a.bills_coverage_in_percentage_opt.unwrap(),
         )
     });
     let eliminated_sorted = eliminated.into_iter().sorted_by(|result_a, result_b| {
@@ -649,7 +672,8 @@ struct TestOverallOutputCollector {
     // ____________________________________
     oks: usize,
     with_no_accounts_eliminated: usize,
-    fulfillment_distribution: PercentageFulfillmentDistribution,
+    fulfillment_distribution_for_transaction_fee_adjustments: PercentageFulfillmentDistribution,
+    fulfillment_distribution_for_service_fee_adjustments: PercentageFulfillmentDistribution,
     // Errors
     all_accounts_eliminated: usize,
     insufficient_service_fee_balance: usize,
@@ -725,6 +749,10 @@ impl PercentageFulfillmentDistribution {
             ranges_populated.from_90_to_100
         )
     }
+
+    fn total_scenarios(&self) -> usize {
+        self.collected_fulfillment_percentages.len()
+    }
 }
 
 struct CommonScenarioInfo {
@@ -736,7 +764,7 @@ struct InterpretableAdjustmentResult {
     initial_balance: u128,
     debt_age_s: u64,
     // Account was eliminated from payment if None
-    bill_coverage_in_percentage_opt: Option<u8>,
+    bills_coverage_in_percentage_opt: Option<u8>,
 }
 
 struct AccountInfo {

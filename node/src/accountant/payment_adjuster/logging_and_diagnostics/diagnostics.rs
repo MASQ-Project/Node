@@ -3,7 +3,7 @@
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = true;
+const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 58;
 

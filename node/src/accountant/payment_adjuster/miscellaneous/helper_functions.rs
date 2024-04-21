@@ -299,7 +299,7 @@ mod tests {
         let mut account_2 = make_weighed_account(456);
         account_2.weight = 999_999_999;
         let mut account_3 = make_weighed_account(789);
-        account_2.weight = 999_999_999;
+        account_3.weight = 999_999_999;
         let mut account_4 = make_weighed_account(1011);
         account_4.weight = 1_000_000_001;
         let affordable_transaction_count = 2;

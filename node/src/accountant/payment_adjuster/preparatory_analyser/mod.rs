@@ -409,7 +409,6 @@ mod tests {
         let cw_service_fee_balance = 1_000_000_100;
         let original_accounts = vec![account_1, account_2, account_3];
         let service_fee_total_of_the_known_set = 2_000_000_000 + 1_000_050_000 + 1_000_111_111;
-        let subject = PreparatoryAnalyzer {};
 
         let result = PreparatoryAnalyzer::check_adjustment_possibility(
             &original_accounts,
