@@ -155,29 +155,6 @@ impl PaymentAdjusterReal {
         }
     }
 
-    //TODO delete me
-    // fn evaluate_checks(&self, results: PreparatoryAnalysisResults) -> AdjustmentAnalysisResult {
-    //     match (
-    //         results.transaction_fee_limitation_opt,
-    //         results.accounts_after_service_fee_check,
-    //     ) {
-    //         (None, Either::Left(payables_skipping_service_fee_analysis)) => {
-    //             Ok(Either::Left(payables_skipping_service_fee_analysis))
-    //         }
-    //         (None, Either::Right(analyzed_payables)) => Ok(Either::Right(AdjustmentAnalysis::new(
-    //             Adjustment::ByServiceFee,
-    //             analyzed_payables,
-    //         ))),
-    //         (Some(limitation), Either::Left(payables_skipping_service_fee_analysis)) => {
-    //             Ok(Either::Right(self.work_skipped_accounts_into_analysis(
-    //                 limitation,
-    //                 payables_skipping_service_fee_analysis,
-    //             )))
-    //         }
-    //         (Some(limitation), Either::Right(analyzed_accounts)) => Ok(Either::Right(todo!())),
-    //     }
-    // }
-
     fn initialize_inner(
         &mut self,
         cw_service_fee_balance: u128,
@@ -480,27 +457,39 @@ impl Display for PaymentAdjusterError {
                 cw_transaction_fee_balance_minor,
             } => write!(
                 f,
-                "Found a smaller transaction fee balance than it does for a single payment. \
-                Number of canceled payments: {}. Transaction fee by single account: {} wei. \
-                Consuming wallet balance: {} wei",
+                "Found transaction fee balance that is not enough for a single payment. Number of \
+                canceled payments: {}. Transaction fee per payment: {} wei, while in wallet: {} wei",
                 number_of_accounts,
                 per_transaction_requirement_minor.separate_with_commas(),
                 cw_transaction_fee_balance_minor.separate_with_commas()
             ),
             PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                 number_of_accounts,
-                total_service_fee_required_minor: total_amount_demanded_minor,
+                total_service_fee_required_minor,
                 cw_service_fee_balance_minor,
-                transaction_fee_appendix_opt: appendix_opt,
-            } => write!(
+                transaction_fee_appendix_opt,
+            } => match transaction_fee_appendix_opt{
+                None => write!(
                 f,
-                "Found a smaller service fee balance than it does for a single payment. \
-                Number of canceled payments: {}. Total amount demanded: {} wei. Consuming \
-                wallet balance: {} wei",
-                number_of_accounts.separate_with_commas(),
-                total_amount_demanded_minor.separate_with_commas(),
+                "Found service fee balance that is not enough for a single payment. Number of \
+                canceled payments: {}. Total amount required: {} wei, while in wallet: {} wei",
+                number_of_accounts,
+                total_service_fee_required_minor.separate_with_commas(),
+                cw_service_fee_balance_minor.separate_with_commas()),
+                Some(limitation) => write!(
+                f,
+                "Both transaction fee and service fee balances are not enough. Number of payments \
+                considered: {}. Current transaction fee balance can cover {} payments only. Transaction \
+                fee per payment: {} wei, while in wallet: {} wei. Neither does the service fee balance \
+                allow a single payment. Total amount required: {} wei, while in wallet: {} wei",
+                number_of_accounts,
+                limitation.count_limit,
+                limitation.per_transaction_required_fee_minor.separate_with_commas(),
+                limitation.cw_transaction_fee_balance_minor.separate_with_commas(),
+                total_service_fee_required_minor.separate_with_commas(),
                 cw_service_fee_balance_minor.separate_with_commas()
-            ),
+                    )
+                },
             PaymentAdjusterError::AllAccountsEliminated => write!(
                 f,
                 "The adjustment algorithm had to eliminate each payable from the recently urged \
@@ -826,9 +815,9 @@ mod tests {
                     cw_service_fee_balance_minor: 333_000_000,
                     transaction_fee_appendix_opt: None,
                 },
-                "Found a smaller service fee balance than it does for a single payment. \
-                Number of canceled payments: 5. Total amount required: 6,000,000,000 wei,
-                while in wallet: 333,000,000 wei",
+                "Found service fee balance that is not enough for a single payment. Number of \
+                canceled payments: 5. Total amount required: 6,000,000,000 wei, while in wallet: \
+                333,000,000 wei",
             ),
             (
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
@@ -841,11 +830,11 @@ mod tests {
                         per_transaction_required_fee_minor: 5_000_000_000,
                     }),
                 },
-                "Both transaction fee and service fee balances are not high enough. Number of \
-                payments considered: 5. Current transaction fee balance allows maximally 3 payments
-                for 5,000,000,000 wei required against the actual 3,000,000,000 wei. However, the
-                service fee balance does not allow even a single payment. Total amount required:
-                7,000,000,000 wei, while in wallet: 100,000,000 wei",
+                "Both transaction fee and service fee balances are not enough. Number of payments \
+                considered: 5. Current transaction fee balance can cover 3 payments only. \
+                Transaction fee per payment: 5,000,000,000 wei, while in wallet: 3,000,000,000 \
+                wei. Neither does the service fee balance allow a single payment. Total amount \
+                required: 7,000,000,000 wei, while in wallet: 100,000,000 wei",
             ),
             (
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
@@ -853,9 +842,9 @@ mod tests {
                     per_transaction_requirement_minor: 70_000_000_000_000,
                     cw_transaction_fee_balance_minor: U256::from(90_000),
                 },
-                "Found a smaller transaction fee balance than it does for a single \
-                payment. Number of canceled payments: 4. Transaction fee required \
-                140,000,000,000,000 wei, while in wallet: 90,000 wei",
+                "Found transaction fee balance that is not enough for a single payment. Number of \
+                canceled payments: 4. Transaction fee per payment: 70,000,000,000,000 wei, while in \
+                wallet: 90,000 wei",
             ),
             (
                 PaymentAdjusterError::AllAccountsEliminated,
