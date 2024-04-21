@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     WeightedPayable,
 };
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::
-ordinary_diagnostic_functions::{outweighed_accounts_diagnostics, proposed_adjusted_balance_diagnostics};
+ordinary_diagnostic_functions::{sufficient_gainer_found_diagnostics, proposed_adjusted_balance_diagnostics};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     compute_mul_coefficient_preventing_fractional_numbers, weights_total,
 };
@@ -145,7 +145,7 @@ impl ServiceFeeAdjusterReal {
                 if current.proposed_adjusted_balance_minor >= disqualification_limit
                 //TODO is the operator tested??
                 {
-                    outweighed_accounts_diagnostics(&current);
+                    sufficient_gainer_found_diagnostics(&current, disqualification_limit);
                     let mut adjusted = current;
                     adjusted.proposed_adjusted_balance_minor = disqualification_limit;
                     sufficient_gainers.push(adjusted)

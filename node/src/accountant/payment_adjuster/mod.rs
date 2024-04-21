@@ -127,6 +127,8 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         self.complete_debug_info_if_enabled(sketched_debug_info_opt, &affordable_accounts);
 
+        self.reset_inner();
+
         Ok(OutboundPaymentsInstructions::new(
             Either::Right(affordable_accounts),
             agent,
@@ -150,7 +152,7 @@ impl PaymentAdjusterReal {
             disqualification_arbiter: DisqualificationArbiter::default(),
             service_fee_adjuster: Box::new(ServiceFeeAdjusterReal::default()),
             calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
-            inner: Box::new(PaymentAdjusterInnerNull {}),
+            inner: Box::new(PaymentAdjusterInnerNull::default()),
             logger: Logger::new("PaymentAdjuster"),
         }
     }
@@ -177,6 +179,10 @@ impl PaymentAdjusterReal {
         );
 
         self.inner = Box::new(inner);
+    }
+
+    fn reset_inner(&mut self) {
+        self.inner = Box::new(PaymentAdjusterInnerNull::default())
     }
 
     fn run_adjustment(
@@ -538,6 +544,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::convert_collection;
     use std::collections::HashMap;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use std::{usize, vec};
@@ -858,7 +865,7 @@ mod tests {
     #[test]
     fn tinier_but_larger_in_weight_account_is_prioritized_and_gains_up_to_its_disqualification_limit(
     ) {
-        let cw_service_fee_balance_minor = multiple_by_billion(3_600_000);
+        let cw_service_fee_balance_minor = multiple_by_billion(4_200_000);
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
         let mut account_1 = make_analyzed_account_by_wallet("abc");
         let balance_1 = multiple_by_billion(3_000_000);
@@ -867,8 +874,8 @@ mod tests {
         account_1.disqualification_limit_minor = disqualification_limit_1;
         let mut account_2 = make_analyzed_account_by_wallet("def");
         let wallet_2 = account_2.qualified_as.bare_account.wallet.clone();
-        let balance_2 = multiple_by_billion(1_000_000);
-        let disqualification_limit_2 = multiple_by_billion(800_000);
+        let balance_2 = multiple_by_billion(2_500_000);
+        let disqualification_limit_2 = multiple_by_billion(1_800_000);
         account_2.qualified_as.bare_account.balance_wei = balance_2;
         account_2.disqualification_limit_minor = disqualification_limit_2;
         let largest_exceeding_balance = (balance_1
@@ -903,21 +910,20 @@ mod tests {
             .unwrap();
 
         // Let's have an example to explain why this test is important.
-        // First, the mock must be renewed; the available cw balance updated to the original value.
-        prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
+        prove_that_proposed_adjusted_balance_could_have_exceeded_the_original_value(
             subject,
             cw_service_fee_balance_minor,
             weighted_payables.clone(),
             wallet_2,
             balance_2,
-            2.3,
+            disqualification_limit_2,
         );
         // So the assertion above showed the concern true.
         let first_returned_account = result.remove(0);
         // Outweighed accounts always take the first places
         assert_eq!(
             &first_returned_account.original_account,
-            &weighted_payables[0]
+            &weighted_payables[1]
                 .analyzed_account
                 .qualified_as
                 .bare_account
@@ -929,7 +935,7 @@ mod tests {
         let second_returned_account = result.remove(0);
         assert_eq!(
             &second_returned_account.original_account,
-            &weighted_payables[1]
+            &weighted_payables[0]
                 .analyzed_account
                 .qualified_as
                 .bare_account
@@ -941,13 +947,13 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    fn prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
+    fn prove_that_proposed_adjusted_balance_could_have_exceeded_the_original_value(
         mut subject: PaymentAdjusterReal,
         cw_service_fee_balance_minor: u128,
         weighted_accounts: Vec<WeightedPayable>,
         wallet_of_expected_outweighed: Wallet,
         original_balance_of_outweighed_account: u128,
-        outweighed_by_multiple_of: f64,
+        disqualification_limit_of_outweighed_account: u128,
     ) {
         let garbage_largest_exceeding_balance_recently_qualified = 123456789;
         subject.inner = Box::new(PaymentAdjusterInnerReal::new(
@@ -959,23 +965,27 @@ mod tests {
         let unconfirmed_adjustments = AdjustmentComputer::default()
             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
         // The results are sorted from the biggest weights down
-        let proposed_adjusted_balance = unconfirmed_adjustments[0].proposed_adjusted_balance_minor;
         assert_eq!(
-            unconfirmed_adjustments[0].wallet(),
+            unconfirmed_adjustments[1].wallet(),
             &wallet_of_expected_outweighed
         );
         // The weight of this account grew progressively due to the additional criterion added
         // in to the sum. Consequences would've been that redistribution of the adjusted balances
         // would've attributed this account with a larger amount to pay than it would've
-        // contained before the test started. To prevent that, we secure a rule that an account can
-        // never demand more than 100% of itself, ever
+        // contained before the test started. To prevent that, we used to secure a rule that
+        // an account could never demand more than 100% of itself.
+        //
+        // Later it was changed to other
+        // policy. so called "outweighed" account gains automatically a balance equal to its
+        // disqualification limit, also a prominent front position in the resulting set of
+        // the accounts to pay out. Additionally, due to its favorable position, it can be given
+        // a bit more from the remains still languishing in the consuming wallet.
+        let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
         assert!(
-            proposed_adjusted_balance
-                > (outweighed_by_multiple_of * original_balance_of_outweighed_account as f64)
-                    as u128,
-            "we expected the proposed balance clearly bigger than the original which is {} \
-            but it was {}",
-            original_balance_of_outweighed_account.separate_with_commas(),
+            proposed_adjusted_balance > (disqualification_limit_of_outweighed_account * 11 / 10),
+            "we expected the proposed balance at least 1.1 times bigger than the original balance \
+            which is {} but it was {}",
+            disqualification_limit_of_outweighed_account.separate_with_commas(),
             proposed_adjusted_balance.separate_with_commas()
         );
     }
@@ -1028,11 +1038,14 @@ mod tests {
             qualified_payables,
             &subject.logger,
         );
-        // If concluded at the entry into the PaymentAdjuster that it has no point going off
-        // because away the least demanding account cannot be satisfied we would get an error here.
-        // However, it can only assess the balance (that early - in the real world) and accounts
-        // with the smallest balance is outplayed by the other one gaining some kind of extra
-        // significance
+        // If the initial analysis at the entry into the PaymentAdjuster concludes there is no point
+        // going off because even the least demanding account could not be satisfied, and we would
+        // get an error here.
+        // However, it can only assess the lowest disqualification limit of an account in that set.
+        // Probably not as usual, but this particular account can be later outplayed by another one
+        // that is equipped with some extra significance while its disqualification limit does not
+        // fit inder the consuming wallet balance anymore. A late error, possibly two different, is
+        // born.
         let adjustment_analysis = match analysis_result {
             Ok(Either::Right(analysis)) => analysis,
             x => panic!(
@@ -1067,9 +1080,9 @@ mod tests {
     #[test]
     fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them()
     {
-        // Tests that a condition to short-circuit through is integrated for situations when
+        // Tests a condition to short-circuit through is integrated into for situations when
         // a disqualification frees means for other accounts and there is suddenly more to give
-        // than how much the remaining accounts demand
+        // than how much the remaining accounts require us to pay
         init_test_logging();
         let test_name = "account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them";
         let now = SystemTime::now();
@@ -1320,6 +1333,7 @@ mod tests {
             expected_adjusted_balance_1.separate_with_commas()
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        test_inner_was_reset_to_null(subject)
     }
 
     #[test]
@@ -1387,6 +1401,7 @@ mod tests {
 |0x0000000000000000000000000000000000646566 300,000,000,000,000,000"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        test_inner_was_reset_to_null(subject)
     }
 
     #[test]
@@ -1453,6 +1468,7 @@ mod tests {
         assert_eq!(result.affordable_accounts, expected_accounts);
         assert_eq!(result.response_skeleton_opt, response_skeleton_opt);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        test_inner_was_reset_to_null(subject)
     }
 
     #[test]
@@ -1522,6 +1538,7 @@ mod tests {
             The proposed adjustment 189,999,999,999,999,944 wei was below the disqualification \
             limit 300,000,000,000,000,000 wei"
         ));
+        test_inner_was_reset_to_null(subject)
     }
 
     #[test]
@@ -1593,6 +1610,7 @@ mod tests {
 |0x0000000000000000000000000000000000676869 250,000,000,000,000,000,000"
         );
         TestLogHandler::new().exists_log_containing(&log_msg.replace("|", ""));
+        test_inner_was_reset_to_null(subject)
     }
 
     #[test]
@@ -1799,6 +1817,19 @@ mod tests {
             );
 
         Box::new(blockchain_agent)
+    }
+
+    fn test_inner_was_reset_to_null(subject: PaymentAdjusterReal) {
+        let err = catch_unwind(AssertUnwindSafe(|| {
+            subject.inner.original_cw_service_fee_balance_minor()
+        }))
+        .unwrap_err();
+        let panic_msg = err.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Broken code: Broken code: Called the null implementation of \
+        the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+        )
     }
 
     // The following tests together prove the use of correct calculators in the production code

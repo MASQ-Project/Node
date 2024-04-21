@@ -63,6 +63,7 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
     }
 }
 
+#[derive(Default)]
 pub struct PaymentAdjusterInnerNull {}
 
 impl PaymentAdjusterInnerNull {
@@ -145,7 +146,7 @@ mod tests {
         expected = "Broken code: Called the null implementation of the now() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_now() {
-        let subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.now();
     }
@@ -156,7 +157,7 @@ mod tests {
     method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_largest_exceeding_balance_recently_qualified() {
-        let subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.largest_exceeding_balance_recently_qualified();
     }
@@ -166,7 +167,7 @@ mod tests {
         expected = "Broken code: Called the null implementation of the transaction_fee_count_limit_opt() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_transaction_fee_count_limit_opt() {
-        let subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.transaction_fee_count_limit_opt();
     }
@@ -176,7 +177,7 @@ mod tests {
         expected = "Broken code: Called the null implementation of the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_original_cw_service_fee_balance_minor() {
-        let subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.original_cw_service_fee_balance_minor();
     }
@@ -186,7 +187,7 @@ mod tests {
         expected = "Broken code: Called the null implementation of the unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_unallocated_cw_balance() {
-        let subject = PaymentAdjusterInnerNull {};
+        let subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.unallocated_cw_service_fee_balance_minor();
     }
@@ -196,7 +197,7 @@ mod tests {
         expected = "Broken code: Called the null implementation of the subtract_from_unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
     )]
     fn inner_null_calling_subtract_from_unallocated_cw_service_fee_balance_minor() {
-        let mut subject = PaymentAdjusterInnerNull {};
+        let mut subject = PaymentAdjusterInnerNull::default();
 
         let _ = subject.subtract_from_unallocated_cw_service_fee_balance_minor(123);
     }

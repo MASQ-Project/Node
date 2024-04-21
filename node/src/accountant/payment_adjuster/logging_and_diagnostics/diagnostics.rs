@@ -101,12 +101,15 @@ pub mod ordinary_diagnostic_functions {
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
-    pub fn outweighed_accounts_diagnostics(account_info: &UnconfirmedAdjustment) {
+    pub fn sufficient_gainer_found_diagnostics(
+        account_info: &UnconfirmedAdjustment,
+        disqualification_limit: u128,
+    ) {
         diagnostics!(
             &account_info.wallet(),
-            "OUTWEIGHED ACCOUNT FOUND",
-            "Original balance: {}, proposed balance: {}",
-            account_info.balance_minor().separate_with_commas(),
+            "SUFFICIENTLY GAINING ACCOUNT FOUND",
+            "Disqualification limit: {}, proposed balance: {}",
+            disqualification_limit.separate_with_commas(),
             account_info
                 .proposed_adjusted_balance_minor
                 .separate_with_commas()
