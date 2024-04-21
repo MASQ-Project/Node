@@ -1152,7 +1152,7 @@ mod tests {
                 "--real-user",
                 "123:456:/home/booga",
                 "--chain",
-                "polygon-mumbai",
+                "polygon-amoy",
             ]))
             .unwrap();
 

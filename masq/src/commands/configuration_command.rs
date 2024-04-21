@@ -413,7 +413,7 @@ mod tests {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
-            chain_name: "mumbai".to_string(),
+            chain_name: "amoy".to_string(),
             gas_price: 2345,
             max_block_count_opt: Some(100_000),
             neighborhood_mode: "zero-hop".to_string(),
@@ -470,7 +470,7 @@ mod tests {
                 "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            mumbai\n\
+|Chain:                            amoy\n\
 |Clandestine port:                 1234\n\
 |Consuming wallet private key:     [?]\n\
 |Current schema version:           schema version\n\

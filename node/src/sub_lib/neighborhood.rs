@@ -716,12 +716,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_mumbai() {
-        let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
+    fn parse_works_for_amoy() {
+        let descriptor = "masq://polygon-amoy:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
-        assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
+        assert_eq!(result, (Chain::PolyAmoy, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -748,7 +748,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -847,7 +847,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]

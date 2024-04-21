@@ -861,7 +861,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
             match self
                 .persistent_configuration
-                .set_start_block(msg.new_start_block)
+                .set_start_block(Some(msg.new_start_block))
             {
                 Ok(()) => debug!(logger, "Start block updated to {}", msg.new_start_block),
                 Err(e) => panic!(
@@ -1245,7 +1245,7 @@ mod tests {
         assert_eq!(receivable_scanner.common.initiated_at_opt.is_some(), false);
         receivable_scanner
             .persistent_configuration
-            .set_start_block(136890)
+            .set_start_block(Some(136890))
             .unwrap();
         let set_params = set_params_arc.lock().unwrap();
         assert_eq!(
@@ -3061,7 +3061,7 @@ mod tests {
 
         assert_eq!(message_opt, None);
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![4321]);
+        assert_eq!(*set_start_block_params, vec![Some(4321)]);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: No newly received payments were detected during the scanning process."
         ));
