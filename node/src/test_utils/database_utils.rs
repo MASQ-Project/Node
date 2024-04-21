@@ -40,27 +40,6 @@ pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connecti
     conn
 }
 
-pub fn bring_db_9_back_to_life_and_return_connection(db_path: &Path) -> Connection {
-    match remove_file(db_path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        Err(e) => panic!("Unexpected but serious error: {}", e),
-        _ => (),
-    }
-    let file_path = current_dir()
-        .unwrap()
-        .join("src")
-        .join("test_utils")
-        .join("database_version_9_sql.txt");
-    let mut file = File::open(file_path).unwrap();
-    let mut buffer = String::new();
-    file.read_to_string(&mut buffer).unwrap();
-    let conn = Connection::open(&db_path).unwrap();
-    buffer.lines().for_each(|stm| {
-        conn.execute(stm, []).unwrap();
-    });
-    conn
-}
-
 #[derive(Default)]
 pub struct DbMigratorMock {
     logger: Option<Logger>,

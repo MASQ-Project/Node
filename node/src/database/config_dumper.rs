@@ -353,8 +353,7 @@ mod tests {
         );
         assert_value("neighborhoodMode", "zero-hop", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert!(map.contains_key("startBlock"));
-        assert_none("startBlock", &map);
+        assert_null("startBlock", &map);
         assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
@@ -500,8 +499,7 @@ mod tests {
         assert_value("pastNeighbors", "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert!(map.contains_key("startBlock"));
-        assert_none("startBlock", &map);
+        assert_null("startBlock", &map);
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
@@ -614,8 +612,7 @@ mod tests {
         );
         assert_value("neighborhoodMode", "standard", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert!(map.contains_key("startBlock"));
-        assert_none("startBlock", &map);
+        assert_null("startBlock", &map);
         assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
@@ -670,8 +667,14 @@ mod tests {
         assert_eq!(actual_value, expected_value);
     }
 
-    fn assert_none(key: &str, map: &Map<String, Value>) {
-        assert!(!map.get(key).is_none());
+    fn assert_null(key: &str, map: &Map<String, Value>) {
+        assert!(map.contains_key(key));
+        match map
+            .get(key)
+            .unwrap_or_else(|| panic!("record for {} is missing", key))
+        {
+            value => assert!(value.is_null()),
+        }
     }
 
     fn assert_encrypted_value(
