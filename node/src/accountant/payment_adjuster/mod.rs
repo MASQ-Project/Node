@@ -38,7 +38,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{Adjust
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
-    sort_in_descendant_order_by_weights, sum_as, zero_affordable_accounts_found,
+    sum_as, zero_affordable_accounts_found,
 };
 use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
 use crate::accountant::payment_adjuster::service_fee_adjuster::{
@@ -183,9 +183,9 @@ impl PaymentAdjusterReal {
         &mut self,
         analyzed_accounts: Vec<AnalyzedPayableAccount>,
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
-        let weighted_accounts_sorted = self.calculate_weights(analyzed_accounts);
+        let weighted_accounts = self.calculate_weights(analyzed_accounts);
         let processed_accounts = self.propose_adjustments_recursively(
-            weighted_accounts_sorted,
+            weighted_accounts,
             TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
@@ -225,19 +225,19 @@ impl PaymentAdjusterReal {
 
     fn begin_with_adjustment_by_transaction_fee(
         &mut self,
-        weighted_accounts_in_descending_order: Vec<WeightedPayable>,
+        weighted_accounts: Vec<WeightedPayable>,
         already_known_affordable_transaction_count: u16,
     ) -> Result<
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
         let error_builder = AdjustmentPossibilityErrorBuilder::default().context(
-            TransactionFeePastCheckContext::accounts_dumped(&weighted_accounts_in_descending_order),
+            TransactionFeePastCheckContext::accounts_dumped(&weighted_accounts),
         );
 
         let weighted_accounts_affordable_by_transaction_fee =
             dump_unaffordable_accounts_by_transaction_fee(
-                weighted_accounts_in_descending_order,
+                weighted_accounts,
                 already_known_affordable_transaction_count,
             );
 
@@ -333,32 +333,31 @@ impl PaymentAdjusterReal {
         criteria_calculators: &[Box<dyn CriterionCalculator>],
         qualified_accounts: Vec<AnalyzedPayableAccount>,
     ) -> Vec<WeightedPayable> {
-        let weighted_accounts = qualified_accounts.into_iter().map(|payable| {
-            let weight =
-                criteria_calculators
-                    .iter()
-                    .fold(0_u128, |weight, criterion_calculator| {
-                        let new_criterion = criterion_calculator
-                            .calculate(&payable.qualified_as, self.inner.as_ref());
+        qualified_accounts
+            .into_iter()
+            .map(|payable| {
+                let weight =
+                    criteria_calculators
+                        .iter()
+                        .fold(0_u128, |weight, criterion_calculator| {
+                            let new_criterion = criterion_calculator
+                                .calculate(&payable.qualified_as, self.inner.as_ref());
 
-                        let summed_up = weight + new_criterion;
+                            let summed_up = weight + new_criterion;
 
-                        calculated_criterion_and_weight_diagnostics(
-                            &payable.qualified_as.bare_account.wallet,
-                            criterion_calculator.as_ref(),
-                            new_criterion,
-                            summed_up,
-                        );
+                            calculated_criterion_and_weight_diagnostics(
+                                &payable.qualified_as.bare_account.wallet,
+                                criterion_calculator.as_ref(),
+                                new_criterion,
+                                summed_up,
+                            );
 
-                        summed_up
-                    });
+                            summed_up
+                        });
 
-            WeightedPayable::new(payable, weight)
-        });
-
-        //TODO take this and move it before the tx fee cut-off; then go and tide up
-        //the awkward variables referring to the descending order for no good reason
-        sort_in_descendant_order_by_weights(weighted_accounts)
+                WeightedPayable::new(payable, weight)
+            })
+            .collect()
     }
 
     fn adjust_remaining_unallocated_cw_balance_down(
@@ -857,46 +856,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_criteria_returns_accounts_sorted_by_criteria_in_descending_order() {
-        let calculator = CriterionCalculatorMock::default()
-            .calculate_result(1_000_000_002)
-            .calculate_result(1_000_000_001)
-            .calculate_result(1_000_000_003);
-        let subject = make_initialized_subject(None, None, Some(calculator), Some(12345678), None);
-        let make_account = |n: u64| {
-            let account = make_analyzed_account(n);
-            let wallet = account.qualified_as.bare_account.wallet.clone();
-            (wallet, account)
-        };
-        let (wallet_1, payable_1) = make_account(111);
-        let (wallet_2, payable_2) = make_account(222);
-        let (wallet_3, payable_3) = make_account(333);
-
-        let criteria_and_accounts =
-            subject.calculate_weights(vec![payable_1, payable_2, payable_3]);
-
-        let mut previous_weight = u128::MAX;
-        let accounts_alone = criteria_and_accounts
-            .into_iter()
-            .map(|weighted_account| {
-                assert!(
-                    previous_weight > weighted_account.weight,
-                    "Previous criteria {} wasn't larger than {} but should've been",
-                    previous_weight,
-                    weighted_account.weight
-                );
-                previous_weight = weighted_account.weight;
-                weighted_account
-                    .analyzed_account
-                    .qualified_as
-                    .bare_account
-                    .wallet
-            })
-            .collect::<Vec<Wallet>>();
-        assert_eq!(accounts_alone, vec![wallet_3, wallet_1, wallet_2])
-    }
-
-    #[test]
     fn tinier_but_larger_in_weight_account_is_prioritized_and_gains_up_to_its_disqualification_limit(
     ) {
         let cw_service_fee_balance_minor = multiple_by_billion(3_600_000);
@@ -929,14 +888,14 @@ mod tests {
             .determine_limit_params(&determine_limit_params_arc);
         subject.disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
-        let weighted_payables_in_descending_order = vec![
-            WeightedPayable::new(account_2, multiple_by_billion(3_999_900)),
+        let weighted_payables = vec![
             WeightedPayable::new(account_1, multiple_by_billion(2_000_100)),
+            WeightedPayable::new(account_2, multiple_by_billion(3_999_900)),
         ];
 
         let mut result = subject
             .propose_adjustments_recursively(
-                weighted_payables_in_descending_order.clone(),
+                weighted_payables.clone(),
                 TransactionAndServiceFeeAdjustmentRunner {},
             )
             .unwrap()
@@ -948,7 +907,7 @@ mod tests {
         prove_that_proposed_adjusted_balance_would_exceed_the_original_value(
             subject,
             cw_service_fee_balance_minor,
-            weighted_payables_in_descending_order.clone(),
+            weighted_payables.clone(),
             wallet_2,
             balance_2,
             2.3,
@@ -958,7 +917,7 @@ mod tests {
         // Outweighed accounts always take the first places
         assert_eq!(
             &first_returned_account.original_account,
-            &weighted_payables_in_descending_order[0]
+            &weighted_payables[0]
                 .analyzed_account
                 .qualified_as
                 .bare_account
@@ -970,7 +929,7 @@ mod tests {
         let second_returned_account = result.remove(0);
         assert_eq!(
             &second_returned_account.original_account,
-            &weighted_payables_in_descending_order[1]
+            &weighted_payables[1]
                 .analyzed_account
                 .qualified_as
                 .bare_account

@@ -33,22 +33,31 @@ pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
 }
 
 pub fn dump_unaffordable_accounts_by_transaction_fee(
-    weighted_accounts_in_descending_order: Vec<WeightedPayable>,
+    weighted_accounts: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
 ) -> Vec<WeightedPayable> {
+    let sorted_accounts = sort_in_descendant_order_by_weights(weighted_accounts);
+
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
         "Keeping {} out of {} accounts. Dumping these accounts: {:?}",
         affordable_transaction_count,
-        weighted_accounts_in_descending_order.len(),
-        weighted_accounts_in_descending_order
+        sorted_accounts.len(),
+        sorted_accounts
             .iter()
             .skip(affordable_transaction_count as usize)
     );
 
-    weighted_accounts_in_descending_order
+    sorted_accounts
         .into_iter()
         .take(affordable_transaction_count as usize)
+        .collect()
+}
+
+fn sort_in_descendant_order_by_weights(unsorted: Vec<WeightedPayable>) -> Vec<WeightedPayable> {
+    unsorted
+        .into_iter()
+        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
         .collect()
 }
 
@@ -186,15 +195,6 @@ impl ConsumingWalletExhaustingStatus {
         self
     }
 }
-
-pub fn sort_in_descendant_order_by_weights(
-    unsorted: impl Iterator<Item = WeightedPayable>,
-) -> Vec<WeightedPayable> {
-    unsorted
-        .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -202,10 +202,12 @@ mod tests {
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        compute_mul_coefficient_preventing_fractional_numbers, exhaust_cw_balance_entirely,
+        compute_mul_coefficient_preventing_fractional_numbers,
+        dump_unaffordable_accounts_by_transaction_fee, exhaust_cw_balance_entirely,
         find_largest_exceeding_balance, find_largest_u128, find_smallest_u128,
         zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
     };
+    use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::{
         make_analyzed_account, make_non_guaranteed_qualified_payable, make_payable_account,
     };
@@ -213,6 +215,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
+    use std::result;
     use std::time::SystemTime;
 
     #[test]
@@ -287,6 +290,27 @@ mod tests {
         let result = find_largest_exceeding_balance(qualified_accounts);
 
         assert_eq!(result, 4_000_000_000 - 800_000_000)
+    }
+
+    #[test]
+    fn dump_unaffordable_accounts_by_transaction_fee_works() {
+        let mut account_1 = make_weighed_account(123);
+        account_1.weight = 1_000_000_000;
+        let mut account_2 = make_weighed_account(456);
+        account_2.weight = 999_999_999;
+        let mut account_3 = make_weighed_account(789);
+        account_2.weight = 999_999_999;
+        let mut account_4 = make_weighed_account(1011);
+        account_4.weight = 1_000_000_001;
+        let affordable_transaction_count = 2;
+
+        let result = dump_unaffordable_accounts_by_transaction_fee(
+            vec![account_1.clone(), account_2, account_3, account_4.clone()],
+            affordable_transaction_count,
+        );
+
+        let expected_result = vec![account_4, account_1];
+        assert_eq!(result, expected_result)
     }
 
     #[test]

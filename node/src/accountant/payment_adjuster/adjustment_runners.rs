@@ -24,7 +24,7 @@ pub trait AdjustmentRunner {
     fn adjust_accounts(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        weighted_accounts_in_descending_order: Vec<WeightedPayable>,
+        weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType;
 }
 
@@ -39,21 +39,18 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
     fn adjust_accounts(
         &self,
         payment_adjuster: &mut PaymentAdjusterReal,
-        weighted_accounts_in_descending_order: Vec<WeightedPayable>,
+        weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType {
         match payment_adjuster.inner.transaction_fee_count_limit_opt() {
             Some(limit) => {
-                return payment_adjuster.begin_with_adjustment_by_transaction_fee(
-                    weighted_accounts_in_descending_order,
-                    limit,
-                )
+                return payment_adjuster
+                    .begin_with_adjustment_by_transaction_fee(weighted_accounts, limit)
             }
             None => (),
         };
 
         Ok(Either::Left(
-            payment_adjuster
-                .propose_possible_adjustment_recursively(weighted_accounts_in_descending_order),
+            payment_adjuster.propose_possible_adjustment_recursively(weighted_accounts),
         ))
     }
 }
