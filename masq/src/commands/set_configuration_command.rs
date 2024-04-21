@@ -7,6 +7,7 @@ use masq_lib::shared_schema::gas_price_arg;
 use masq_lib::shared_schema::min_hops_arg;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
+use std::num::IntErrorKind;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -40,7 +41,11 @@ fn validate_start_block(start_block: String) -> Result<(), String> {
     } else {
         match start_block.parse::<u64>() {
             Ok(_) => Ok(()),
-            _ => Err(start_block),
+            Err(e) if e.kind() == &IntErrorKind::PosOverflow => Err(
+                format!("Unable to parse '{}' into a starting block number or provide 'none' or 'latest' for the latest block number: digits exceed {}.",
+                        start_block, u64::MAX),
+            ),
+            Err(e) => Err(format!("Unable to parse '{}' into a starting block number or provide 'none' or 'latest' for the latest block number: {}.", start_block, e))
         }
     }
 }
@@ -127,11 +132,27 @@ mod tests {
     }
 
     #[test]
+    fn validate_start_block_catches_invalid_values() {
+        assert_eq!(validate_start_block("abc".to_string()), Err("Unable to parse 'abc' into a starting block number or provide 'none' or 'latest' for the latest block number: invalid digit found in string.".to_string()));
+        assert_eq!(validate_start_block("918446744073709551615".to_string()), Err("Unable to parse '918446744073709551615' into a starting block number or provide 'none' or 'latest' for the latest block number: digits exceed 18446744073709551615.".to_string()));
+        assert_eq!(validate_start_block("123,456,789".to_string()), Err("Unable to parse '123,456,789' into a starting block number or provide 'none' or 'latest' for the latest block number: invalid digit found in string.".to_string()));
+        assert_eq!(validate_start_block("123'456'789".to_string()), Err("Unable to parse '123'456'789' into a starting block number or provide 'none' or 'latest' for the latest block number: invalid digit found in string.".to_string()));
+    }
+    #[test]
     fn validate_start_block_works() {
-        assert!(validate_start_block("abc".to_string()).is_err());
-        assert!(validate_start_block("1566".to_string()).is_ok());
-        assert!(validate_start_block("latest".to_string()).is_ok());
-        assert!(validate_start_block("none".to_string()).is_ok());
+        assert_eq!(
+            validate_start_block("18446744073709551615".to_string()),
+            Ok(())
+        );
+        assert_eq!(validate_start_block("1566".to_string()), Ok(()));
+        assert_eq!(validate_start_block("none".to_string()), Ok(()));
+        assert_eq!(validate_start_block("None".to_string()), Ok(()));
+        assert_eq!(validate_start_block("NONE".to_string()), Ok(()));
+        assert_eq!(validate_start_block("nOnE".to_string()), Ok(()));
+        assert_eq!(validate_start_block("latest".to_string()), Ok(()));
+        assert_eq!(validate_start_block("LATEST".to_string()), Ok(()));
+        assert_eq!(validate_start_block("LaTeST".to_string()), Ok(()));
+        assert_eq!(validate_start_block("lATEst".to_string()), Ok(()));
     }
 
     #[test]
