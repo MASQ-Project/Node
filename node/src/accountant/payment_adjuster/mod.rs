@@ -93,12 +93,11 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
     ) -> AdjustmentAnalysisResult {
-        self.analyzer.analyze_accounts(
-            agent,
-            &self.disqualification_arbiter,
-            qualified_payables,
-            &self.logger,
-        )
+        let disqualification_arbiter = &self.disqualification_arbiter;
+        let logger = &self.logger;
+
+        self.analyzer
+            .analyze_accounts(agent, disqualification_arbiter, qualified_payables, logger)
     }
 
     fn adjust_payments(
