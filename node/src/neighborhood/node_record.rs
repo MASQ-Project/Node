@@ -942,6 +942,8 @@ mod tests {
             signed_data: PlainData::new(&[1, 2, 3, 4]),
             signature: CryptData::new(&[]),
             node_addr_opt: None,
+            free_world_bit: false,
+            country_code: "".to_string()
         };
 
         let result = NodeRecordInner_0v1::try_from(corrupt_gnr);

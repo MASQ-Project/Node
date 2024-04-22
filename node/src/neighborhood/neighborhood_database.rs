@@ -59,7 +59,7 @@ impl NeighborhoodDatabase {
             neighborhood_mode.routes_data(),
             0,
             cryptde,
-            get_node_location(None)
+            if let Some(node_addr) = neighborhood_mode.node_addr_opt() { get_node_location(Some(node_addr.ip_addr)) } else { get_node_location(None) },
         );
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
             node_record

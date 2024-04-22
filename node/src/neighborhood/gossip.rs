@@ -20,12 +20,15 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
+use crate::neighborhood::node_location::get_node_location;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
     pub signed_data: PlainData,
     pub signature: CryptData,
     pub node_addr_opt: Option<NodeAddr>,
+    pub free_world_bit: bool,
+    pub country_code: String,
 }
 
 impl Debug for GossipNodeRecord {
@@ -54,21 +57,33 @@ impl From<(NodeRecordInner_0v1, Option<NodeAddr>, &dyn CryptDE)> for GossipNodeR
         let (inner, node_addr_opt, cryptde) = triple;
         let signed_data =
             PlainData::from(serde_cbor::to_vec(&inner).expect("Serialization failed"));
+        let node_location = match &node_addr_opt {
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr)).expect("expected Node Location"),
+            None => get_node_location(None).expect("expected Node Location")
+        };
         let signature = cryptde.sign(&signed_data).expect("Signing failed");
         GossipNodeRecord {
             signed_data,
             signature,
             node_addr_opt,
+            free_world_bit: node_location.free_world,
+            country_code: node_location.country
         }
     }
 }
 
 impl From<AccessibleGossipRecord> for GossipNodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
+        let node_location = match &agr.node_addr_opt {
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr)).expect("expected Node Location"),
+            None => get_node_location(None).expect("expected Node Location")
+        };
         GossipNodeRecord {
             signed_data: agr.signed_gossip,
             signature: agr.signature,
             node_addr_opt: agr.node_addr_opt,
+            free_world_bit: node_location.free_world,
+            country_code: node_location.country,
         }
     }
 }
@@ -79,6 +94,8 @@ impl From<NodeRecord> for GossipNodeRecord {
             signed_data: node_record.signed_gossip,
             signature: node_record.signature,
             node_addr_opt: node_record.metadata.node_addr_opt,
+            free_world_bit: node_record.metadata.free_world,
+            country_code: node_record.metadata.node_location.expect("expected Metadata").country,
         }
     }
 }
@@ -133,6 +150,16 @@ impl GossipNodeRecord {
             human_readable,
             "\n\tnode_addr_opt: {:?},",
             self.node_addr_opt
+        );
+        let _ = write!(
+            human_readable,
+            "\n\tfree_world_bit: {:?},",
+            self.free_world_bit
+        );
+        let _ = write!(
+            human_readable,
+            "\n\tcountry_code: {:?},",
+            self.country_code
         );
         let _ = write!(
             human_readable,
@@ -666,6 +693,8 @@ Length: 24 (0x18) bytes
             signed_data: PlainData::new(&[1, 2, 3, 4]),
             signature: CryptData::new(&[4, 3, 2, 1]),
             node_addr_opt: None,
+            free_world_bit: false,
+            country_code: "".to_string()
         };
 
         let result = format!("{:?}", gnr);
