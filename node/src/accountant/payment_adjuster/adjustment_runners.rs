@@ -9,15 +9,6 @@ use crate::accountant::payment_adjuster::{PaymentAdjusterError, PaymentAdjusterR
 use itertools::Either;
 use masq_lib::utils::convert_collection;
 
-// TODO review this comment
-// There are only two runners. They perform adjustment either by both the transaction and service
-// fee, or exclusively by the transaction fee. The idea is that the adjustment by the transaction
-// fee may ever appear in the initial iteration of the recursion. In any of the other iterations,
-// if it proceeded, this feature would be staying around useless. Therefor the runner with more
-// features is used only at the beginning. Its benefit is that it also allows to short-circuit
-// through the computation of the account weights, because it can detect that dropped accounts due
-// to the transaction fee scarcity lowered demand for the service fee and this adjustment is not
-// needed. For the things just described, each runner gives back a different result type.
 pub trait AdjustmentRunner {
     type ReturnType;
 

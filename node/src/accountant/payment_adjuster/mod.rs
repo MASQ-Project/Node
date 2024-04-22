@@ -1548,11 +1548,6 @@ mod tests {
     }
 
     #[test]
-    fn reminder() {
-        todo!("change gainers for losing and thriving competitors")
-    }
-
-    #[test]
     fn service_fee_as_well_as_transaction_fee_limits_the_payments_count() {
         init_test_logging();
         let test_name = "service_fee_as_well_as_transaction_fee_limits_the_payments_count";

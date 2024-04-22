@@ -100,13 +100,13 @@ pub mod ordinary_diagnostic_functions {
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
-    pub fn sufficient_gainer_found_diagnostics(
+    pub fn thriving_competitor_found_diagnostics(
         account_info: &UnconfirmedAdjustment,
         disqualification_limit: u128,
     ) {
         diagnostics!(
             &account_info.wallet(),
-            "SUFFICIENTLY GAINING ACCOUNT FOUND",
+            "THRIVING COMPETITOR FOUND",
             "Disqualification limit: {}, proposed balance: {}",
             disqualification_limit.separate_with_commas(),
             account_info
