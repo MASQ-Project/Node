@@ -91,14 +91,13 @@ mod tests {
         AdjustedAccountBeforeFinalization, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::test_utils::{
-        make_initialized_subject, multiple_by_billion,
+        make_initialized_subject,
     };
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
         make_analyzed_account, make_non_guaranteed_qualified_payable,
     };
     use crate::accountant::{AnalyzedPayableAccount, CreditorThresholds, QualifiedPayableAccount};
-    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use std::time::SystemTime;
@@ -144,8 +143,6 @@ mod tests {
         let now = SystemTime::now();
         let mut payment_adjuster =
             initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);
-        let initial_balance_minor_1 = payable_1.balance_minor();
-        let initial_balance_minor_2 = payable_2.balance_minor();
 
         let result = subject.adjust_accounts(
             &mut payment_adjuster,

@@ -36,7 +36,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::multiple_by_billion;
     use crate::accountant::test_utils::{
-        make_analyzed_account, make_non_guaranteed_qualified_payable,
+        make_analyzed_account,
     };
     use std::time::SystemTime;
 

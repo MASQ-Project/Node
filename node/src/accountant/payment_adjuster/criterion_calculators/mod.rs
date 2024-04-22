@@ -3,7 +3,7 @@
 pub mod balance_and_age_calculator;
 
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
-use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::accountant::{QualifiedPayableAccount};
 
 // Caution: always remember to use checked math operations in the criteria formulas!
 pub trait CriterionCalculator {

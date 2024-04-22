@@ -6,11 +6,11 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::payment_adjuster::{Adjustment, AdjustmentAnalysis};
+use crate::accountant::payment_adjuster::{AdjustmentAnalysis};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
-use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount, ResponseSkeleton};
+use crate::accountant::{ResponseSkeleton};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;

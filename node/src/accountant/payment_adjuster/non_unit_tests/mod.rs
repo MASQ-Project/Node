@@ -10,7 +10,7 @@ use crate::accountant::payment_adjuster::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 use crate::accountant::test_utils::try_making_guaranteed_qualified_payables;
-use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::accountant::{AnalyzedPayableAccount};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;

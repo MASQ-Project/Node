@@ -23,7 +23,7 @@ use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalcula
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::calculated_criterion_and_weight_diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::{collection_diagnostics, diagnostics};
 use crate::accountant::payment_adjuster::disqualification_arbiter::{
-    DisqualificationArbiter, DisqualificationGauge,
+    DisqualificationArbiter,
 };
 use crate::accountant::payment_adjuster::inner::{
     PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
@@ -530,7 +530,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::test_utils::{
-        make_analyzed_account, make_guaranteed_analyzed_payables,
+        make_guaranteed_analyzed_payables,
         make_guaranteed_qualified_payables, make_payable_account,
     };
     use crate::accountant::{
@@ -1243,6 +1243,7 @@ mod tests {
 
     #[test]
     fn count_of_qualified_accounts_before_equals_the_one_of_payments_after() {
+        todo!("add param assertions for the calculator mock");
         // In other words, adjustment by service fee with no account eliminated
         init_test_logging();
         let test_name = "count_of_qualified_accounts_before_equals_the_one_of_payments_after";

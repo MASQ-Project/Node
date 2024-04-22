@@ -5,8 +5,8 @@ use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable};
-use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeightedPayable};
+use crate::accountant::{AnalyzedPayableAccount};
 use itertools::{Either, Itertools};
 
 pub fn zero_affordable_accounts_found(
@@ -199,7 +199,7 @@ impl ConsumingWalletExhaustingStatus {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
+        AdjustedAccountBeforeFinalization
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_mul_coefficient_preventing_fractional_numbers,
@@ -209,13 +209,11 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::{
-        make_analyzed_account, make_non_guaranteed_qualified_payable, make_payable_account,
+        make_analyzed_account, make_payable_account,
     };
-    use crate::accountant::{CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
-    use std::result;
     use std::time::SystemTime;
 
     #[test]

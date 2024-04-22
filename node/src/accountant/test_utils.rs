@@ -14,7 +14,7 @@ use crate::accountant::db_access_objects::receivable_dao::{
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError,
+    AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{

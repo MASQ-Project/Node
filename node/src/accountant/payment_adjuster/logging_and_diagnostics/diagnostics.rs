@@ -97,7 +97,6 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
-    use crate::accountant::QualifiedPayableAccount;
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
 
