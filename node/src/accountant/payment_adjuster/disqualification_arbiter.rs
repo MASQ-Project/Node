@@ -50,29 +50,25 @@ impl DisqualificationArbiter {
         let disqualification_suspected_accounts =
             Self::list_accounts_nominated_for_disqualification(unconfirmed_adjustments);
 
-        if !disqualification_suspected_accounts.is_empty() {
-            let account_to_disqualify =
-                Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
+        let account_to_disqualify =
+            Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
 
-            let wallet = account_to_disqualify.wallet.clone();
+        let wallet = account_to_disqualify.wallet.clone();
 
-            try_finding_an_account_to_disqualify_diagnostics(
-                &disqualification_suspected_accounts,
-                &wallet,
-            );
+        try_finding_an_account_to_disqualify_diagnostics(
+            &disqualification_suspected_accounts,
+            &wallet,
+        );
 
-            debug!(
-                logger,
-                "Found accounts {:?} applying for disqualification",
-                disqualification_suspected_accounts,
-            );
+        debug!(
+            logger,
+            "Found accounts {:?} applying for disqualification",
+            disqualification_suspected_accounts,
+        );
 
-            info_log_for_disqualified_account(logger, account_to_disqualify);
+        info_log_for_disqualified_account(logger, account_to_disqualify);
 
-            wallet
-        } else {
-            todo!()
-        }
+        wallet
     }
 
     fn list_accounts_nominated_for_disqualification(

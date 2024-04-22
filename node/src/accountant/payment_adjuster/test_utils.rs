@@ -107,16 +107,17 @@ pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustme
 
 #[derive(Default)]
 pub struct CriterionCalculatorMock {
+    calculate_params: Arc<Mutex<Vec<QualifiedPayableAccount>>>,
     calculate_results: RefCell<Vec<u128>>,
 }
 
 impl CriterionCalculator for CriterionCalculatorMock {
     fn calculate(
         &self,
-        _account: &QualifiedPayableAccount,
+        account: &QualifiedPayableAccount,
         _context: &dyn PaymentAdjusterInner,
     ) -> u128 {
-        // TODO consider using params assertions
+        self.calculate_params.lock().unwrap().push(account.clone());
         self.calculate_results.borrow_mut().remove(0)
     }
 
@@ -126,6 +127,10 @@ impl CriterionCalculator for CriterionCalculatorMock {
 }
 
 impl CriterionCalculatorMock {
+    pub fn calculate_params(mut self, params: &Arc<Mutex<Vec<QualifiedPayableAccount>>>) -> Self {
+        self.calculate_params = params.clone();
+        self
+    }
     pub fn calculate_result(self, result: u128) -> Self {
         self.calculate_results.borrow_mut().push(result);
         self
@@ -175,7 +180,7 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
     fn perform_adjustment_by_service_fee(
         &self,
         weighted_accounts: Vec<WeightedPayable>,
-        disqualification_arbiter: &DisqualificationArbiter,
+        _disqualification_arbiter: &DisqualificationArbiter,
         unallocated_cw_service_fee_balance_minor: u128,
         _logger: &Logger,
     ) -> AdjustmentIterationResult {

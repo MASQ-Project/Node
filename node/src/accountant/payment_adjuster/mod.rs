@@ -530,8 +530,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::test_utils::{
-        make_guaranteed_analyzed_payables,
-        make_guaranteed_qualified_payables, make_payable_account,
+        make_guaranteed_analyzed_payables, make_guaranteed_qualified_payables, make_payable_account,
     };
     use crate::accountant::{
         gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
@@ -1078,9 +1077,10 @@ mod tests {
     #[test]
     fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them()
     {
-        // Tests a condition to short-circuit through is integrated into for situations when
-        // a disqualification frees means for other accounts and there is suddenly more to give
-        // than how much the remaining accounts require us to pay
+        // We test that a condition to short-circuit through is integrated in for a situation where
+        // a performed disqualification frees means that will become available for other accounts,
+        // and it happens that the remaining accounts require together less than what is left to
+        // give out.
         init_test_logging();
         let test_name = "account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them";
         let now = SystemTime::now();
@@ -1243,9 +1243,9 @@ mod tests {
 
     #[test]
     fn count_of_qualified_accounts_before_equals_the_one_of_payments_after() {
-        todo!("add param assertions for the calculator mock");
         // In other words, adjustment by service fee with no account eliminated
         init_test_logging();
+        let calculate_params_arc = Arc::new(Mutex::new(vec![]));
         let test_name = "count_of_qualified_accounts_before_equals_the_one_of_payments_after";
         let now = SystemTime::now();
         let balance_1 = multiple_by_billion(5_444_444_444);
@@ -1265,6 +1265,7 @@ mod tests {
         let analyzed_payables = convert_collection(qualified_payables);
         let mut subject = PaymentAdjusterReal::new();
         let calculator_mock = CriterionCalculatorMock::default()
+            .calculate_params(&calculate_params_arc)
             .calculate_result(multiple_by_billion(4_500_000_000))
             .calculate_result(multiple_by_billion(4_200_000_000))
             .calculate_result(multiple_by_billion(3_800_000_000));
@@ -1293,15 +1294,15 @@ mod tests {
         let expected_criteria_computation_output = {
             let account_1_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_1,
-                ..qualified_account_1.bare_account
+                ..qualified_account_1.bare_account.clone()
             };
             let account_2_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_2,
-                ..qualified_account_2.bare_account
+                ..qualified_account_2.bare_account.clone()
             };
             let account_3_adjusted = PayableAccount {
                 balance_wei: expected_adjusted_balance_3,
-                ..qualified_account_3.bare_account
+                ..qualified_account_3.bare_account.clone()
             };
             vec![account_1_adjusted, account_2_adjusted, account_3_adjusted]
         };
@@ -1311,6 +1312,15 @@ mod tests {
         );
         assert_eq!(result.response_skeleton_opt, None);
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        let calculate_params = calculate_params_arc.lock().unwrap();
+        assert_eq!(
+            *calculate_params,
+            vec![
+                qualified_account_1,
+                qualified_account_2,
+                qualified_account_3
+            ]
+        );
         let log_msg = format!(
             "DEBUG: {test_name}: \n\
 |Payable Account                            Balance Wei
@@ -1907,15 +1917,9 @@ mod tests {
         common_weight: u128,
     }
 
-    struct SingleAccountInput {
-        account: QualifiedPayableAccount,
-        assertion_value: AssertionValue,
-    }
-
-    //TODO implement this in
-    struct AssertionValue {
-        wallet_to_match_result_with: Wallet,
-        expected_computed_weight: u128,
+    struct ExpectedWeightWithWallet {
+        wallet: Wallet,
+        weight: u128,
     }
 
     fn test_calculators_reactivity(
@@ -2074,10 +2078,14 @@ mod tests {
         template_computed_weight: TemplateComputedWeight,
     ) {
         fn prepare_args_expected_weights_for_comparison(
-            (qualified_payable, expected_computed_payable): (QualifiedPayableAccount, u128),
-        ) -> (QualifiedPayableAccount, (Wallet, u128)) {
+            (qualified_payable, expected_computed_weight): (QualifiedPayableAccount, u128),
+        ) -> (QualifiedPayableAccount, ExpectedWeightWithWallet) {
             let wallet = qualified_payable.bare_account.wallet.clone();
-            (qualified_payable, (wallet, expected_computed_payable))
+            let expected_weight = ExpectedWeightWithWallet {
+                wallet,
+                weight: expected_computed_weight,
+            };
+            (qualified_payable, expected_weight)
         }
 
         input_matrix
@@ -2119,18 +2127,17 @@ mod tests {
 
     fn assert_results(
         weighted_accounts: Vec<WeightedPayable>,
-        expected_computed_weights: Vec<(Wallet, u128)>,
+        expected_computed_weights: Vec<ExpectedWeightWithWallet>,
         template_computed_weight: TemplateComputedWeight,
     ) {
         let weighted_accounts_as_hash_map = make_comparison_hashmap(weighted_accounts);
         expected_computed_weights.into_iter().fold(
             0,
-            |previous_account_actual_weight, (account_wallet, expected_computed_weight)| {
+            |previous_account_actual_weight, expected_account_weight| {
+                let wallet = expected_account_weight.wallet;
                 let actual_account = weighted_accounts_as_hash_map
-                    .get(&account_wallet)
-                    .unwrap_or_else(|| {
-                        panic!("Account for wallet {:?} disappeared", account_wallet)
-                    });
+                    .get(&wallet)
+                    .unwrap_or_else(|| panic!("Account for wallet {:?} disappeared", wallet));
                 assert_ne!(
                     actual_account.weight, template_computed_weight.common_weight,
                     "Weight is exactly the same as that one from the template. The inputs \
@@ -2139,10 +2146,10 @@ mod tests {
                 );
                 assert_eq!(
                     actual_account.weight,
-                    expected_computed_weight,
+                    expected_account_weight.weight,
                     "Computed weight {} differs from what was expected {}",
                     actual_account.weight.separate_with_commas(),
-                    expected_computed_weight.separate_with_commas()
+                    expected_account_weight.weight.separate_with_commas()
                 );
                 assert_ne!(
                     actual_account.weight, previous_account_actual_weight,

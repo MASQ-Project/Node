@@ -15,8 +15,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     find_smallest_u128, sum_as,
 };
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::{
-    BalanceProvidingAccount,
-    DisqualificationLimitProvidingAccount,
+    BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AdjustmentAnalysis, PaymentAdjusterError};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;

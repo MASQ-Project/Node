@@ -524,14 +524,6 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
-#[macro_export]
-macro_rules! arbitrary_id_stamp_in_trait {
-    () => {
-        #[cfg(test)]
-        $crate::arbitrary_id_stamp_in_trait_internal___!();
-    };
-}
-
 #[cfg(test)]
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
@@ -1017,6 +1009,14 @@ pub mod unshared_test_utils {
             pub fn null() -> Self {
                 ArbitraryIdStamp { id_opt: None }
             }
+        }
+
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait {
+            () => {
+                #[cfg(test)]
+                $crate::arbitrary_id_stamp_in_trait_internal___!();
+            };
         }
 
         // To be added together with other methods in your trait

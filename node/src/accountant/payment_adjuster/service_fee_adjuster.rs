@@ -224,9 +224,7 @@ impl AdjustmentComputer {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization,
-    };
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
     use crate::accountant::payment_adjuster::test_utils::{
         make_non_guaranteed_unconfirmed_adjustment, multiple_by_billion,

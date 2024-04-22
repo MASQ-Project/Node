@@ -71,7 +71,6 @@ impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::AnalyzedPayableAccount;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
@@ -79,6 +78,7 @@ mod tests {
     use crate::accountant::test_utils::{
         make_non_guaranteed_qualified_payable, make_payable_account,
     };
+    use crate::accountant::AnalyzedPayableAccount;
 
     #[test]
     fn conversion_between_non_finalized_account_and_payable_account_is_implemented() {

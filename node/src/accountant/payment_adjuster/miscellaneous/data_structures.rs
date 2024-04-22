@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::PaymentAdjusterError;
-use crate::accountant::{AnalyzedPayableAccount};
+use crate::accountant::AnalyzedPayableAccount;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::ExpectValue;
 use web3::types::U256;

@@ -198,9 +198,7 @@ impl ConsumingWalletExhaustingStatus {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization
-    };
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_mul_coefficient_preventing_fractional_numbers,
         dump_unaffordable_accounts_by_transaction_fee, exhaust_cw_balance_entirely,
@@ -208,9 +206,7 @@ mod tests {
         zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
-    use crate::accountant::test_utils::{
-        make_analyzed_account, make_payable_account,
-    };
+    use crate::accountant::test_utils::{make_analyzed_account, make_payable_account};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};

@@ -90,9 +90,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::test_utils::{
-        make_initialized_subject,
-    };
+    use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
         make_analyzed_account, make_non_guaranteed_qualified_payable,
