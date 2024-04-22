@@ -314,7 +314,7 @@ pub fn send_transaction_2(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes)
 }
 
 // TODO: GH-744 Rename and refactor this function after merging with Master
-pub fn send_and_append_payment(
+pub fn sign_and_append_payment(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
@@ -365,7 +365,7 @@ pub fn send_and_append_payment_2(
     )
 }
 
-pub fn send_and_append_multiple_payments(
+pub fn sign_and_append_multiple_payments(
     logger: Logger,
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
@@ -384,7 +384,7 @@ pub fn send_and_append_multiple_payments(
             pending_nonce
         );
 
-        let hash_and_amount= send_and_append_payment(
+        let hash_and_amount= sign_and_append_payment(
             chain,
             web3_batch.clone(),
             consuming_wallet.clone(),
@@ -418,10 +418,10 @@ pub fn send_payables_within_batch(
             gas_price
         );
 
-    let hashes_and_paid_amounts = send_and_append_multiple_payments(
+    let hashes_and_paid_amounts = sign_and_append_multiple_payments(
         logger.clone(),
         chain,
-        web3_batch,
+        web3_batch.clone(),
         consuming_wallet,
         gas_price,
         pending_nonce,
@@ -446,12 +446,9 @@ pub fn send_payables_within_batch(
             .transport()
             .submit_batch()
             .map_err(|e| {
-                // todo!("send_payables_within_batch - We are hitting the correct place");
-                eprintln!("send_payables_within_batch - We are hitting the Error case");
                 error_with_hashes(e, hashes_and_paid_amounts_error)
             })
             .and_then(move |batch_response| {
-                eprintln!("send_payables_within_batch - We are hitting the Ok Case");
                 Ok(merged_output_data(
                     batch_response,
                     hashes_and_paid_amounts_ok,
@@ -549,7 +546,7 @@ mod tests {
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let web3_batch = subject.get_web3_batch();
-        let web3  = subject.get_web3();
+        // let web3  = subject.get_web3();
 
         web3_batch.eth().block_number();
         web3_batch.eth().block_number();
@@ -651,156 +648,85 @@ mod tests {
 
 
     #[test]
-    fn send_transaction_works() {
+    fn append_signed_transaction_to_batch_works() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
             .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
+            .end_batch()
             .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-
+        ).unwrap();
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
         let pending_nonce = 1;
         let chain= TEST_DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
-
+        let web3_batch = subject.get_web3_batch();
         let signed_transaction = sign_transaction(
             chain,
-            subject.get_web3(),
+            web3_batch.clone(),
             account.wallet,
             consuming_wallet,
             account.balance_wei,
             pending_nonce.into(),
             gas_price,
-        ).wait().unwrap();
+        );
 
-        let result = append_signed_transaction_to_batch(subject.get_web3(), signed_transaction.raw_transaction).wait();
+        append_signed_transaction_to_batch(web3_batch.clone(), signed_transaction.raw_transaction);
 
-        assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
-    }
-
-    #[test]
-    fn send_transaction_throws_decode_error() {
-        let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("Trash".to_string(),7 )
-            .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let pending_nonce = 1;
-        let chain= TEST_DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-
-        let signed_transaction = sign_transaction(
-            chain,
-            subject.get_web3(),
-            account.wallet,
-            consuming_wallet,
-            account.balance_wei,
-            pending_nonce.into(),
-            gas_price,
-        ).wait().unwrap();
-
-        let result = append_signed_transaction_to_batch(subject.get_web3(), signed_transaction.raw_transaction).wait();
-
-        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+        let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
+        let result = batch_result.pop().unwrap().unwrap();
+        assert_eq!(result, Value::String("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string()));
     }
 
     #[test]
     fn handle_new_transaction_works() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
+            .begin_batch()
+            .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
+            .end_batch()
             .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-
+        ).unwrap();
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
         let pending_nonce = 1;
         let chain= DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
-
+        let web3_batch = subject.get_web3_batch();
         let result = handle_new_transaction(
             chain,
-            subject.get_web3(),
+            web3_batch.clone(),
             account.wallet,
             consuming_wallet,
-            account.balance_wei ,
+            account.balance_wei,
             pending_nonce.into(),
             gas_price,
-        ).wait();
+        );
 
-        assert_eq!(result, Ok(H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap()));
-    }
+        let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
 
-    #[test]
-    fn handle_new_transaction_throws_decode_error() {
-        let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("Trash".to_string(),7 )
-            .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let pending_nonce = 1;
-        let chain= DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-
-        let result = handle_new_transaction(
-            chain,
-            subject.get_web3(),
-            account.wallet,
-            consuming_wallet,
-            account.balance_wei ,
-            pending_nonce.into(),
-            gas_price,
-        ).wait();
-
-        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+        assert_eq!(result, H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap());
+        assert_eq!(batch_result.pop().unwrap().unwrap(), Value::String("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string()));
     }
 
     #[test]
     fn sign_and_append_payment_works() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),7 )
-            .start();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
+        ).unwrap();
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let pending_nonce = 1;
@@ -810,155 +736,52 @@ mod tests {
         let account = make_payable_account(1);
         let amount = account.balance_wei;
 
-        let result = send_and_append_payment(
+        let result = sign_and_append_payment(
             chain,
-            subject.get_web3(),
+            subject.get_web3_batch(),
             consuming_wallet,
             pending_nonce.into(),
             gas_price,
             account,
-        ).wait();
+        );
 
         let expected_hash_and_amount = HashAndAmount {
-            hash: H256::from_str("8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c").unwrap(),
+            hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(),
             amount,
         };
-        assert_eq!(result, Ok(expected_hash_and_amount));
-    }
-
-
-
-    #[test]
-    fn sign_and_append_payment_throws_decode_error_2() {
-        let blockchain_urls = "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026";
-        let (event_loop_handle, transport) = Http::new(blockchain_urls).unwrap();
-
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, Chain::EthMainnet);
-        let pending_nonce = 1;
-        let chain = Chain::EthMainnet;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-
-        let result = send_and_append_payment(
-            chain,
-            subject.get_web3(),
-            consuming_wallet,
-            pending_nonce.into(),
-            gas_price,
-            account,
-        ).wait();
-
-        // thread::sleep(Duration::from_millis(1000));
-
-        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
-    }
-
-    #[test]
-    fn sign_and_append_payment_throws_decode_error() {
-        let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("Trash".to_string(),1 )
-            .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let pending_nonce = 1;
-        let chain = DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-
-        let result = send_and_append_payment(
-            chain,
-            subject.get_web3(),
-            consuming_wallet,
-            pending_nonce.into(),
-            gas_price,
-            account,
-        ).wait();
-
-        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+        assert_eq!(result, expected_hash_and_amount);
     }
 
     #[test]
     fn send_and_append_multiple_payments_works() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
-            .response("0x3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5".to_string(),7 )
-            .start();
         let logger = Logger::new("send_and_append_multiple_payments_works");
         let blockchain_web3 = make_blockchain_interface(Some(port));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
-        let web3 = blockchain_web3.get_web3();
+        let web3_batch = blockchain_web3.get_web3_batch();
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
         let accounts = vec![account_1, account_2];
 
-        let result = send_and_append_multiple_payments(
+        let result = sign_and_append_multiple_payments(
             logger,
             chain,
-            web3,
+            web3_batch,
             consuming_wallet,
             gas_price,
             pending_nonce.into(),
             accounts,
-        ).collect().wait();
+        );
 
-        // TODO: GH-744: Assert on the sending
-        assert_eq!(result, Ok(vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]));
-    }
-
-    #[test]
-    fn send_and_append_multiple_payments_sending_error() {
-        let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xDEADBEEF".to_string(),0 )
-            // .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b1".to_string(),7 )
-            .response("0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),7 )
-            .start();
-        let logger = Logger::new("send_and_append_multiple_payments_works");
-        let blockchain_web3 = make_blockchain_interface(Some(port));
-        let chain= DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let pending_nonce = 1;
-        let web3 = blockchain_web3.get_web3();
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
-        let accounts = vec![account_1, account_2];
-
-        let result = send_and_append_multiple_payments(
-            logger,
-            chain,
-            web3,
-            consuming_wallet,
-            gas_price,
-            pending_nonce.into(),
-            accounts,
-        ).map(|result| {
-            eprintln!("Test result: {:?}", result);
-            return result;
-        }).collect().wait();
-
-
-
-        // ).collect().wait();
-
-        assert_eq!(result, Err(Sending { msg: "Decoder error: Error(\"invalid length 8, expected a 0x-prefixed hex string with length of 64\", line: 0, column: 0)".to_string(), hashes: vec![] }));
+        assert_eq!(result, vec![HashAndAmount { hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(), amount: 1000000000 }, HashAndAmount { hash: H256::from_str("3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5").unwrap(), amount: 2000000000 }]);
     }
 
     #[test]
     fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
+        todo!("GH-744: Come back to this, May need to test this with hardhat");
         //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         // let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1021,7 +844,6 @@ mod tests {
         let result = send_payables_within_batch(
             logger,
             TEST_DEFAULT_CHAIN,
-            Web3::new(transport.clone()),
             Web3::new(Batch::new(transport)),
             consuming_wallet,
             gas_price,
@@ -1241,96 +1063,96 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
-        // TODO: GH-744 After we merge in master rename this test to: send_payables_within_batch_does_not_send_a_message_to_accountant_if_consuming_wallet_is_badly_prepared
-
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        // let transport = TestTransport::default();
-
-        let incomplete_consuming_wallet =
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        let system = System::new("test");
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let recipient = accountant.start().recipient();
-        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("blah123"),
-            9000,
-            None,
-        );
-        let gas_price = 123;
-        let nonce = U256::from(1);
-
-        let result = send_payables_within_batch(
-            Logger::new("test"),
-            TEST_DEFAULT_CHAIN,
-            Web3::new(transport.clone()),
-            Web3::new(Batch::new(transport)),
-            incomplete_consuming_wallet,
-            gas_price,
-            nonce,
-            recipient,
-            vec![account],
-        )
-        .wait();
-
-        System::current().stop();
-        system.run();
-        assert_eq!(
-            result,
-            Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        );
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 0)
+        todo!("Should we delete this test? Hopefully we are testing send_payables_within_batch elsewhere ");
+        // // TODO: GH-744 After we merge in master rename this test to: send_payables_within_batch_does_not_send_a_message_to_accountant_if_consuming_wallet_is_badly_prepared
+        //
+        // let port = find_free_port();
+        // let (event_loop_handle, transport) = Http::with_max_parallel(
+        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+        //     REQUESTS_IN_PARALLEL,
+        // )
+        // .unwrap();
+        // // let transport = TestTransport::default();
+        //
+        // let incomplete_consuming_wallet =
+        //     Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        // let system = System::new("test");
+        // let (accountant, _, accountant_recording_arc) = make_recorder();
+        // let recipient = accountant.start().recipient();
+        // let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+        //     make_wallet("blah123"),
+        //     9000,
+        //     None,
+        // );
+        // let gas_price = 123;
+        // let nonce = U256::from(1);
+        //
+        // let result = send_payables_within_batch(
+        //     Logger::new("test"),
+        //     TEST_DEFAULT_CHAIN,
+        //     Web3::new(Batch::new(transport)),
+        //     incomplete_consuming_wallet,
+        //     gas_price,
+        //     nonce,
+        //     recipient,
+        //     vec![account],
+        // )
+        // .wait();
+        //
+        // System::current().stop();
+        // system.run();
+        // assert_eq!(
+        //     result,
+        //     Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
+        // );
+        // let accountant_recording = accountant_recording_arc.lock().unwrap();
+        // assert_eq!(accountant_recording.len(), 0)
     }
 
     #[test]
     fn send_payables_within_batch_fails_on_sending() {
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let recipient_wallet = make_wallet("blah123");
-        let unimportant_recipient = Recorder::new().start().recipient();
-        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            recipient_wallet.clone(),
-            5000,
-            None,
-        );
-        let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let gas_price = 123;
-        let nonce = U256::from(1);
-
-        let result = send_payables_within_batch(
-            Logger::new("test"),
-            TEST_DEFAULT_CHAIN,
-            Web3::new(transport.clone()),
-            Web3::new(Batch::new(transport)),
-            consuming_wallet,
-            gas_price,
-            nonce,
-            unimportant_recipient,
-            vec![account],
-        )
-        .wait();
-
-        assert_eq!(
-            result,
-            Ok(vec![Failed(RpcPayableFailure {
-                rpc_error: Unreachable,
-                recipient_wallet,
-                hash: H256::from_str(
-                    "424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac"
-                )
-                .unwrap()
-            })])
-        );
+        todo!("Should we delete this test? Hopefully we are testing send_payables_within_batch elsewhere ");
+        // let port = find_free_port();
+        // let (event_loop_handle, transport) = Http::with_max_parallel(
+        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+        //     REQUESTS_IN_PARALLEL,
+        // )
+        // .unwrap();
+        // let consuming_wallet_secret_raw_bytes = b"okay-wallet";
+        // let recipient_wallet = make_wallet("blah123");
+        // let unimportant_recipient = Recorder::new().start().recipient();
+        // let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+        //     recipient_wallet.clone(),
+        //     5000,
+        //     None,
+        // );
+        // let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
+        // let gas_price = 123;
+        // let nonce = U256::from(1);
+        //
+        // let result = send_payables_within_batch(
+        //     Logger::new("test"),
+        //     TEST_DEFAULT_CHAIN,
+        //     Web3::new(Batch::new(transport)),
+        //     consuming_wallet,
+        //     gas_price,
+        //     nonce,
+        //     unimportant_recipient,
+        //     vec![account],
+        // )
+        // .wait();
+        //
+        // assert_eq!(
+        //     result,
+        //     Ok(vec![Failed(RpcPayableFailure {
+        //         rpc_error: Unreachable,
+        //         recipient_wallet,
+        //         hash: H256::from_str(
+        //             "424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac"
+        //         )
+        //         .unwrap()
+        //     })])
+        // );
     }
 
     #[test]
@@ -1391,38 +1213,27 @@ mod tests {
     }
 
     #[test]
-    fn sign_transaction_fails_on_signing_itself() {
-        todo!("GH-744: Signing will only fail if we make an RPC call.")
-        // DO this after we remove gas_price & nonce (This will be done last, just before we merged master in)
-        // let transport = TestTransport::default();
-        // let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        // // let mut subject = BlockchainInterfaceWeb3::new(
-        // //     transport,
-        // //     make_fake_event_loop_handle(),
-        // //     Chain::PolyMumbai,
-        // // );
-        // let recipient_wallet = make_wallet("unlucky man");
-        // let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        // let gas_price = 123;
-        // let nonce = U256::from(1);
-        //
-        // let result = sign_transaction(
-        //     Chain::PolyMumbai,
-        //     Web3::new(Batch::new(transport)),
-        //     recipient_wallet,
-        //     consuming_wallet,
-        //     444444,
-        //     nonce,
-        //     gas_price,
-        // )
-        // .wait();
+    #[should_panic(expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x000000000000000000006261645f77616c6c6574).\")")]
+    fn sign_transaction_panics_on_signing_itself() {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let recipient_wallet = make_wallet("unlucky man");
+        let consuming_wallet = make_wallet("bad_wallet");
+        let gas_price = 123;
+        let nonce = U256::from(1);
 
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::Signing(
-        //         "Signing error: secp: malformed or out-of-range secret key".to_string()
-        //     ))
-        // );
+        let result = sign_transaction(
+            Chain::PolyMumbai,
+            Web3::new(Batch::new(transport)),
+            recipient_wallet,
+            consuming_wallet,
+            444444,
+            nonce,
+            gas_price,
+        );
     }
 
     #[test]
@@ -1496,14 +1307,13 @@ mod tests {
 
         let result = sign_transaction(
             chain,
-            Web3::new(transport),
+            Web3::new(Batch::new(transport)),
             recipient_wallet,
             consuming_wallet,
             amount,
             nonce,
             gas_price_in_gwei,
-        )
-        .wait();
+        );
 
         let signed_transaction = web3
             .accounts()
@@ -1511,7 +1321,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result, Ok(signed_transaction));
+        assert_eq!(result, signed_transaction);
     }
 
     #[test]
@@ -1534,22 +1344,23 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = send_and_append_payment(
+        let result = sign_and_append_payment(
             TEST_DEFAULT_CHAIN,
-            Web3::new(transport),
+            Web3::new(Batch::new(transport)),
             incomplete_consuming_wallet,
             nonce,
             gas_price,
             account,
-        )
-        .wait();
+        );
+
 
         System::current().stop();
         system.run();
-        assert_eq!(
-            result,
-            Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        );
+        todo!("Come back to this");
+        // assert_eq!(
+        //     result,
+        //     Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
+        // );
     }
 
     #[test]
@@ -1571,24 +1382,25 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
 
-        let result = send_and_append_payment(
+        let result = sign_and_append_payment(
             TEST_DEFAULT_CHAIN,
-            Web3::new(transport),
+            Web3::new(Batch::new(transport)),
             consuming_wallet,
             nonce,
             gas_price,
             account,
-        )
-        .wait()
-        .unwrap();
+        );
 
         System::current().stop();
         system.run();
-        let expected_hash =
-            H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
-                .unwrap();
-        assert_eq!(result.hash, expected_hash);
-        assert_eq!(result.amount, 9000);
+
+        todo!("Come back to this");
+
+        // let expected_hash =
+        //     H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
+        //         .unwrap();
+        // assert_eq!(result.hash, expected_hash);
+        // assert_eq!(result.amount, 9000);
     }
 
     //with a real confirmation through a transaction sent with this data to the network
@@ -1715,15 +1527,13 @@ mod tests {
 
         let signed_transaction = sign_transaction(
             chain,
-            Web3::new(transport),
+            Web3::new(Batch::new(transport)),
             payable_account.wallet,
             consuming_wallet,
             payable_account.balance_wei,
             nonce_correct_type,
             gas_price,
-        )
-        .wait()
-        .unwrap();
+        );
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
         assert_eq!(byte_set_to_compare.as_slice(), template)

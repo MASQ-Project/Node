@@ -663,11 +663,8 @@ impl BlockchainBridge {
         &self,
         msg: OutboundPaymentsInstructions, // agent: Box<dyn BlockchainAgent>,
                                            // affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
-        // todo!("GH-744: process_payments - come back to this");
-        // let msg_clone = msg.clone();
-
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
+        // TODO: GH-744: Need to make sure this is being tested well.
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => (consuming_wallet, gas_price),
@@ -684,20 +681,18 @@ impl BlockchainBridge {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
-        let batch_web3 = self.blockchain_interface.get_web3_batch();
+        let web3_batch = self.blockchain_interface.get_web3_batch();
         let consuming_wallet_clone = consuming_wallet.clone();
 
-        // todo!("Are we hitting this");
         return Box::new(
             self.blockchain_interface
                 .get_transaction_count(consuming_wallet)
                 .map_err(|e| PayableTransactionError::TransactionID(e))
                 .and_then(move |pending_nonce| {
-                    eprintln!("Recived pending_nonce: {:?}", pending_nonce);
                     send_payables_within_batch(
                         logger,
                         chain,
-                        batch_web3,
+                        web3_batch,
                         consuming_wallet_clone,
                         gas_price,
                         pending_nonce,
