@@ -25,6 +25,8 @@ pub struct NodeRecordInner_0v1 {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
+    pub free_world_bit: bool,
+    pub country_code: String,
 }
 
 impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
