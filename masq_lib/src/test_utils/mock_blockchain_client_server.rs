@@ -71,6 +71,18 @@ impl MBCSBuilder {
         self.store_response_string(body)
     }
 
+    pub fn err_response<R>(self, code: i64, message: R, id: u64) -> Self
+        where
+            R: Serialize,
+    {
+        let message = serde_json::to_string(&message).unwrap();
+        let body = format!(
+            r#"{{"jsonrpc": "2.0", "error": {{ "code": {}, "message": {} }}, "id": {}}}"#,
+            code, message, id
+        );
+        self.store_response_string(body)
+    }
+
     pub fn error<D>(self, code: u64, message: &str, data: Option<D>) -> Self
         where
             D: Serialize,

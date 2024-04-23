@@ -644,25 +644,9 @@ impl BlockchainBridge {
         }
     }
 
-    //
-    // fn process_payments(
-    //     &self,
-    //     agent: Box<dyn BlockchainAgent>,
-    //     affordable_accounts: Vec<PayableAccount>,
-    // ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-    //     let new_fingerprints_recipient = self.new_fingerprints_recipient();
-    //
-    //     self.blockchain_interface.send_batch_of_payables(
-    //         agent,
-    //         new_fingerprints_recipient,
-    //         &affordable_accounts,
-    //     )
-    // }
-
     fn process_payments(
         &self,
-        msg: OutboundPaymentsInstructions, // agent: Box<dyn BlockchainAgent>,
-                                           // affordable_accounts: Vec<PayableAccount>,
+        msg: OutboundPaymentsInstructions,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
         // TODO: GH-744: Need to make sure this is being tested well.
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
