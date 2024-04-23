@@ -6,6 +6,7 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 
 use crate::accountant::gwei_to_wei;
+use masq_lib::percentage::Percentage;
 use web3::types::U256;
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,10 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
 
     fn agreed_fee_per_computation_unit(&self) -> u64 {
         self.gas_price_gwei
+    }
+
+    fn agreed_transaction_fee_margin(&self) -> Percentage {
+        todo!()
     }
 
     fn consuming_wallet(&self) -> &Wallet {

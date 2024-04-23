@@ -28,6 +28,7 @@ use serde_json::Value;
 use std::fmt::Debug;
 use std::iter::once;
 use std::rc::Rc;
+use lazy_static::lazy_static;
 use thousands::Separable;
 use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle};
@@ -36,6 +37,7 @@ use web3::types::{
     H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
+use masq_lib::percentage::Percentage;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
 use crate::sub_lib::blockchain_interface_web3::transaction_data_web3;
@@ -66,6 +68,11 @@ const TRANSACTION_LITERAL: H256 = H256([
 ]);
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
+
+lazy_static! {
+    // TODO In the future, we'll replace this by a dynamical value of the user's choice.
+    pub static ref TRANSACTION_FEE_MARGIN: Percentage = Percentage::new(15);
+}
 
 pub struct BlockchainInterfaceWeb3<T>
 where

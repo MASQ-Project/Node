@@ -796,7 +796,11 @@ impl PendingPayableScanner {
                      records due to {:?}", serialize_hashes(&fingerprints), e
                 )
             } else {
-                self.add_to_the_total_of_paid_payable(&fingerprints, serialize_hashes, logger);
+                self.add_percent_to_the_total_of_paid_payable(
+                    &fingerprints,
+                    serialize_hashes,
+                    logger,
+                );
                 let rowids = fingerprints
                     .iter()
                     .map(|fingerprint| fingerprint.rowid)
@@ -815,7 +819,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn add_to_the_total_of_paid_payable(
+    fn add_percent_to_the_total_of_paid_payable(
         &mut self,
         fingerprints: &[PendingPayableFingerprint],
         serialize_hashes: fn(&[PendingPayableFingerprint]) -> String,

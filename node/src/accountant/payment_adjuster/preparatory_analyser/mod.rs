@@ -23,6 +23,7 @@ use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use ethereum_types::U256;
 use itertools::Either;
 use masq_lib::logger::Logger;
+use masq_lib::percentage::Percentage;
 
 pub struct PreparatoryAnalyzer {}
 
@@ -43,10 +44,12 @@ impl PreparatoryAnalyzer {
         let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
         let per_transaction_requirement_minor =
             agent.estimated_transaction_fee_per_transaction_minor();
+        let agreed_transaction_fee_margin = agent.agreed_transaction_fee_margin();
 
         let transaction_fee_limitation_opt = self
             .determine_transaction_count_limit_by_transaction_fee(
                 cw_transaction_fee_balance_minor,
+                agreed_transaction_fee_margin,
                 per_transaction_requirement_minor,
                 number_of_counts,
                 logger,
@@ -125,6 +128,7 @@ impl PreparatoryAnalyzer {
     fn determine_transaction_count_limit_by_transaction_fee(
         &self,
         cw_transaction_fee_balance_minor: U256,
+        agreed_transaction_fee_margin: Percentage,
         per_transaction_requirement_minor: u128,
         number_of_qualified_accounts: usize,
         logger: &Logger,
@@ -132,13 +136,14 @@ impl PreparatoryAnalyzer {
         let verified_tx_counts = Self::transaction_counts_verification(
             cw_transaction_fee_balance_minor,
             per_transaction_requirement_minor,
+            agreed_transaction_fee_margin,
             number_of_qualified_accounts,
         );
 
-        let max_tx_count_we_can_afford_u16 = verified_tx_counts.affordable;
-        let required_tx_count_u16 = verified_tx_counts.required;
+        let max_tx_count_we_can_afford: u16 = verified_tx_counts.affordable;
+        let required_tx_count_with_margin: u16 = verified_tx_counts.required;
 
-        if max_tx_count_we_can_afford_u16 == 0 {
+        if max_tx_count_we_can_afford == 0 {
             Err(
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts: number_of_qualified_accounts,
@@ -146,17 +151,17 @@ impl PreparatoryAnalyzer {
                     cw_transaction_fee_balance_minor,
                 },
             )
-        } else if max_tx_count_we_can_afford_u16 >= required_tx_count_u16 {
+        } else if max_tx_count_we_can_afford >= required_tx_count_with_margin {
             Ok(None)
         } else {
             log_insufficient_transaction_fee_balance(
                 logger,
-                required_tx_count_u16,
+                required_tx_count_with_margin,
                 cw_transaction_fee_balance_minor,
-                max_tx_count_we_can_afford_u16,
+                max_tx_count_we_can_afford,
             );
             let transaction_fee_limitation_opt = TransactionFeeLimitation::new(
-                max_tx_count_we_can_afford_u16,
+                max_tx_count_we_can_afford,
                 cw_transaction_fee_balance_minor.as_u128(),
                 per_transaction_requirement_minor,
             );
@@ -167,10 +172,13 @@ impl PreparatoryAnalyzer {
     fn transaction_counts_verification(
         cw_transaction_fee_balance_minor: U256,
         txn_fee_required_per_txn_minor: u128,
+        txn_fee_margin: Percentage,
         number_of_qualified_accounts: usize,
     ) -> TransactionCountsBy16bits {
-        let max_possible_tx_count_u256 =
-            cw_transaction_fee_balance_minor / U256::from(txn_fee_required_per_txn_minor);
+        let txn_fee_required_per_txn_minor_with_margin =
+            txn_fee_margin.add_percent_to(txn_fee_required_per_txn_minor);
+        let max_possible_tx_count_u256 = cw_transaction_fee_balance_minor
+            / U256::from(txn_fee_required_per_txn_minor_with_margin);
 
         TransactionCountsBy16bits::new(max_possible_tx_count_u256, number_of_qualified_accounts)
     }
@@ -283,6 +291,7 @@ mod tests {
         make_analyzed_account, make_non_guaranteed_qualified_payable,
     };
     use crate::accountant::QualifiedPayableAccount;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
     use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -307,6 +316,7 @@ mod tests {
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
         let blockchain_agent = BlockchainAgentMock::default()
+            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(123456)
             .service_fee_balance_minor_result(cw_service_fee_balance);

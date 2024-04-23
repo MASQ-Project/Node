@@ -534,6 +534,7 @@ mod tests {
     use crate::accountant::{
         gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
     };
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -636,7 +637,11 @@ mod tests {
                 agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts: 6,
                 estimated_transaction_fee_units_per_transaction: 53_000,
-                cw_transaction_fee_balance_major: (100 * 6 * 53_000) + 1,
+                cw_transaction_fee_balance_major: {
+                    let base_value = 100 * 6 * 53_000;
+                    let exact_equality = TRANSACTION_FEE_MARGIN.add_percent_to(base_value);
+                    exact_equality + 1
+                },
             }),
         );
         // transaction fee balance == payments
@@ -646,7 +651,10 @@ mod tests {
                 agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts: 6,
                 estimated_transaction_fee_units_per_transaction: 53_000,
-                cw_transaction_fee_balance_major: 100 * 6 * 53_000,
+                cw_transaction_fee_balance_major: {
+                    let base_value = 100 * 6 * 53_000;
+                    TRANSACTION_FEE_MARGIN.add_percent_to(base_value)
+                },
             }),
         );
 
@@ -1025,6 +1033,7 @@ mod tests {
         let cw_service_fee_balance_minor = balance_2;
         let disqualification_arbiter = &subject.disqualification_arbiter;
         let agent_for_analysis = BlockchainAgentMock::default()
+            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(12356);
@@ -1815,6 +1824,7 @@ mod tests {
         );
 
         let blockchain_agent = BlockchainAgentMock::default()
+            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
             .transaction_fee_balance_minor_result(cw_transaction_fee_minor)
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .estimated_transaction_fee_per_transaction_minor_result(

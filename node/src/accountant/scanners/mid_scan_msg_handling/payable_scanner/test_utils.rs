@@ -7,6 +7,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use ethereum_types::U256;
+use masq_lib::percentage::Percentage;
 use std::cell::RefCell;
 
 #[derive(Default)]
@@ -15,6 +16,7 @@ pub struct BlockchainAgentMock {
     transaction_fee_balance_minor_results: RefCell<Vec<U256>>,
     service_fee_balance_minor_results: RefCell<Vec<u128>>,
     agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
+    agreed_transaction_fee_margin: RefCell<Vec<Percentage>>,
     consuming_wallet_result_opt: Option<Wallet>,
     pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
@@ -43,6 +45,10 @@ impl BlockchainAgent for BlockchainAgentMock {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()
             .remove(0)
+    }
+
+    fn agreed_transaction_fee_margin(&self) -> Percentage {
+        self.agreed_transaction_fee_margin.borrow_mut().remove(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -86,6 +92,11 @@ impl BlockchainAgentMock {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn agreed_transaction_fee_margin_result(self, result: Percentage) -> Self {
+        self.agreed_transaction_fee_margin.borrow_mut().push(result);
         self
     }
 
