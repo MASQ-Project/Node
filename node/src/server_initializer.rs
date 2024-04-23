@@ -94,7 +94,7 @@ impl Default for ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
