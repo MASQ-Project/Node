@@ -2077,7 +2077,6 @@ mod tests {
         .collect_vec();
 
         let expected_config_file_data = "https://www.mainnet.com";
-        //let dirs_wrapper = Box::new(DirsWrapperReal {});
         let dirs_wrapper = DirsWrapperMock {
             data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
             home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
