@@ -6,6 +6,7 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 
 use crate::accountant::gwei_to_wei;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
 use masq_lib::percentage::Percentage;
 use web3::types::U256;
 
@@ -13,6 +14,7 @@ use web3::types::U256;
 pub struct BlockchainAgentWeb3 {
     gas_price_gwei: u64,
     gas_limit_const_part: u64,
+    agreed_transaction_fee_margin: Percentage,
     maximum_added_gas_margin: u64,
     consuming_wallet: Wallet,
     consuming_wallet_balances: ConsumingWalletBalances,
@@ -41,7 +43,7 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     }
 
     fn agreed_transaction_fee_margin(&self) -> Percentage {
-        todo!()
+        self.agreed_transaction_fee_margin
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -65,11 +67,14 @@ impl BlockchainAgentWeb3 {
         consuming_wallet_balances: ConsumingWalletBalances,
         pending_transaction_id: U256,
     ) -> Self {
+        let agreed_transaction_fee_margin = *TRANSACTION_FEE_MARGIN;
+        let maximum_added_gas_margin = WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         Self {
             gas_price_gwei,
             gas_limit_const_part,
+            agreed_transaction_fee_margin,
             consuming_wallet,
-            maximum_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+            maximum_added_gas_margin,
             consuming_wallet_balances,
             pending_transaction_id,
         }

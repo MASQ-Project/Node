@@ -34,7 +34,8 @@ impl BlockchainAgent for BlockchainAgentNull {
     }
 
     fn agreed_transaction_fee_margin(&self) -> Percentage {
-        todo!()
+        self.log_function_call("agreed_transaction_fee_margin()");
+        Percentage::new(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -84,6 +85,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::sub_lib::wallet::Wallet;
     use masq_lib::logger::Logger;
+    use masq_lib::percentage::Percentage;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
 
@@ -171,6 +173,19 @@ mod tests {
 
         assert_eq!(result, 0);
         assert_error_log(test_name, "agreed_fee_per_computation_unit")
+    }
+
+    #[test]
+    fn null_agent_agreed_transaction_fee_margin() {
+        init_test_logging();
+        let test_name = "null_agent_agreed_transaction_fee_margin";
+        let mut subject = BlockchainAgentNull::new();
+        subject.logger = Logger::new(test_name);
+
+        let result = subject.agreed_transaction_fee_margin();
+
+        assert_eq!(result, Percentage::new(0));
+        assert_error_log(test_name, "agreed_transaction_fee_margin")
     }
 
     #[test]

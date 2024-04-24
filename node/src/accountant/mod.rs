@@ -1737,20 +1737,20 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Insolvency detected, followed by considering a payment adjustment, \
-            however, giving no satisfactory solution. Please note that your disponible means are \
-            not able to cover even an reasonable portion out of any payable among those recently \
-            qualified for an imminent payment. You are kindly requested to add funds into your \
-            consuming wallet in order to stay free of delinquency bans that your creditors may \
-            apply against you. Failure reason: Found a smaller transaction fee balance than it does \
-            for a single payment. Number of canceled payments: 1. Transaction fee by single account: \
-            3,300,000 wei. Consuming wallet balance: 123,000,000,000 wei."
+            "WARN: {test_name}: Insolvency detected led to an analysis of feasibility for making \
+            payments adjustment, however, giving no satisfactory solution. Please be advised that \
+            your balances can cover neither reasonable portion of any of those payables recently \
+            qualified for an imminent payment. You must add more funds into your consuming wallet \
+            in order to stay off delinquency bans that your creditors may apply against you \
+            otherwise. Details: Found transaction fee balance that is not enough for a single \
+            payment. Number of canceled payments: 1. Transaction fee per payment: 3,300,000 wei, \
+            while in wallet: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. \
-            If matured payables stay untreated long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay \
+            untreated long, your creditors may impose a ban on you"
         ));
     }
 
@@ -1770,15 +1770,16 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please add funds \
-        into your consuming wallet in order to avoid bans from your creditors. Failure reason: The adjustment \
-        algorithm had to eliminate each payable from the recently urged payment due to lack of resources"
+            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please \
+        add funds into your consuming wallet in order to avoid bans from your creditors. Details: \
+        The adjustment algorithm had to eliminate each payable from the recently urged payment due \
+        to lack of resources"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated long, your \
-            creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
+            long, your creditors may impose a ban on you"
         ));
     }
 
@@ -1815,8 +1816,8 @@ mod tests {
         // Test didn't blow up while the subject was unbound to other actors
         // therefore we didn't attempt to send the NodeUiMessage
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated long, \
-            your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
+            long, your creditors may impose a ban on you"
         ));
     }
 

@@ -6,6 +6,7 @@ use num::CheckedSub;
 use num::{CheckedDiv, CheckedMul, Integer};
 use std::any::type_name;
 use std::fmt::Debug;
+use std::ops::Div;
 use std::ops::Mul;
 
 // It's designed for a storage of values from 0 to 100, after which it can be used to compute
@@ -35,12 +36,11 @@ impl Percentage {
             return zero;
         }
 
-        let a = N::from(self.per_cent)
-            .checked_mul(&num)
-            .unwrap_or_else(|| panic!(
-                "Overflow when using 'Percentage' for num {:?} of type {}, trying to compute {} per \
-                cent of it.", num, type_name::<N>(),self.per_cent
-            ));
+        let a = match N::from(self.per_cent).checked_mul(&num) {
+            Some(num) => num,
+            None => return self.handle_upper_overflow(num),
+        };
+
         if a < N::from(10) {
             return N::from(0);
         }
@@ -112,6 +112,13 @@ impl Percentage {
         } else {
             unreachable!("Check to prevent numbers with fewer than two digits failed")
         }
+    }
+
+    fn handle_upper_overflow<N>(&self, num: N) -> N
+    where
+        N: From<u8> + Div<Output = N> + Mul<Output = N>,
+    {
+        num / From::from(100) * N::from(self.per_cent)
     }
 }
 
@@ -224,12 +231,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Overflow when using 'Percentage' for num 18446744073709551615 of type u64, \
-        trying to compute 2 per cent of it"
-    )]
-    fn hits_upper_overflow() {
-        let _: u64 = Percentage::new(2).of(u64::MAX);
+    fn preventing_early_upper_overflow() {
+        let quite_large_value = u64::MAX / 60;
+        // The standard algorythm begins by a multiplication with this 61, which would cause
+        // an overflow, so for such large numbers like this one we switch the order of operations.
+        // We're gonna devide it by 100 first and multiple after it. (However, we'd lose some
+        // precision in smaller numbers that same way). Why that much effort? I don't want to see
+        // an overflow happen where most people would't anticipate it: when going for a percentage
+        // from their number, implaying a request to receive another number, but always smaller
+        // than that passed in.
+        let result = Percentage::new(61).of(quite_large_value);
+
+        let expected_result = (quite_large_value / 100) * 61;
+        assert_eq!(result, expected_result);
     }
 
     #[test]

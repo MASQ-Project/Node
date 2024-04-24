@@ -626,7 +626,8 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
+        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_FEE_MARGIN,
+        TRANSACTION_LITERAL,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
@@ -671,6 +672,7 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use indoc::indoc;
+    use masq_lib::percentage::Percentage;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -712,6 +714,7 @@ mod tests {
         assert_eq!(CONTRACT_ABI, contract_abi_expected);
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
+        assert_eq!(*TRANSACTION_FEE_MARGIN, Percentage::new(15));
     }
 
     #[test]
@@ -1068,6 +1071,7 @@ mod tests {
             transaction_fee_balance
         );
         assert_eq!(result.service_fee_balance_minor(), masq_balance.as_u128());
+        assert_eq!(result.agreed_transaction_fee_margin(), Percentage::new(15));
         assert_eq!(result.agreed_fee_per_computation_unit(), 50);
         assert_eq!(
             result.estimated_transaction_fee_per_transaction_minor(),

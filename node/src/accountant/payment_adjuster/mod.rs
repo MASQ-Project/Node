@@ -56,6 +56,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::SystemTime;
 use thousands::Separable;
+use variant_count::VariantCount;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
 
@@ -436,7 +437,7 @@ impl AdjustmentAnalysis {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, VariantCount)]
 pub enum PaymentAdjusterError {
     NotEnoughTransactionFeeBalanceForSingleTx {
         number_of_accounts: usize,
@@ -450,6 +451,22 @@ pub enum PaymentAdjusterError {
         transaction_fee_appendix_opt: Option<TransactionFeeLimitation>,
     },
     AllAccountsEliminated,
+}
+
+impl PaymentAdjusterError {
+    pub fn insolvency_detected(&self) -> bool {
+        match self {
+            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => true,
+            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+                ..
+            } => true,
+            PaymentAdjusterError::AllAccountsEliminated => true,
+            // So far, we don't have to worry much, but adding an error that doesn't mean at the same
+            // time that the insolvency is a thing might be just a matter of time. Then, it's important
+            // to check for those consequences (Hint: It is anticipated to affect the wording
+            // of error announcements back nearer the Accountant's own area)
+        }
+    }
 }
 
 impl Display for PaymentAdjusterError {
@@ -819,7 +836,7 @@ mod tests {
 
     #[test]
     fn payment_adjuster_error_implements_display() {
-        vec![
+        let inputs = vec![
             (
                 PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
                     number_of_accounts: 5,
@@ -863,9 +880,37 @@ mod tests {
                 "The adjustment algorithm had to eliminate each payable from the recently urged \
                 payment due to lack of resources.",
             ),
-        ]
-        .into_iter()
-        .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg))
+        ];
+        let inputs_count = inputs.len();
+        inputs
+            .into_iter()
+            .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg));
+        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT + 1)
+    }
+
+    #[test]
+    fn we_can_say_if_error_occurred_after_insolvency_was_detected() {
+        let inputs = vec![
+            PaymentAdjusterError::AllAccountsEliminated,
+            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+                number_of_accounts: 0,
+                total_service_fee_required_minor: 0,
+                cw_service_fee_balance_minor: 0,
+                transaction_fee_appendix_opt: None,
+            },
+            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                number_of_accounts: 0,
+                per_transaction_requirement_minor: 0,
+                cw_transaction_fee_balance_minor: Default::default(),
+            },
+        ];
+        let inputs_count = inputs.len();
+        let results = inputs
+            .into_iter()
+            .map(|err| err.insolvency_detected())
+            .collect::<Vec<_>>();
+        assert_eq!(results, vec![true, true, true]);
+        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT)
     }
 
     #[test]

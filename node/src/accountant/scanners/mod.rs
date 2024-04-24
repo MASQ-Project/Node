@@ -285,16 +285,20 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                 Some(either)
             }
             Err(e) => {
-                warning!(
+                if e.insolvency_detected() {
+                    warning!(
                     logger,
-                    "Insolvency detected, followed by considering a payment adjustment, however, \
-                    giving no satisfactory solution. Please note that your disponible means are not \
-                    able to cover even an reasonable portion out of any payable among those \
-                    recently qualified for an imminent payment. You are kindly requested to add \
-                    funds into your consuming wallet in order to stay free of delinquency bans \
-                    that your creditors may apply against you. Failure reason: {}.",
+                    "Insolvency detected led to an analysis of feasibility for making payments \
+                    adjustment, however, giving no satisfactory solution. Please be advised that \
+                    your balances can cover neither reasonable portion of any of those payables \
+                    recently qualified for an imminent payment. You must add more funds into your \
+                    consuming wallet in order to stay off delinquency bans that your creditors may \
+                    apply against you otherwise. Details: {}.",
                     e
-                );
+                )
+                } else {
+                    unimplemented!("This situation is not possible yet, but may be in the future")
+                }
                 None
             }
         }
@@ -315,9 +319,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             Err(e) => {
                 warning!(
                     logger,
-                    "Payment adjustment has not produced any executable payments. Please \
-                    add funds into your consuming wallet in order to avoid bans from your creditors. \
-                    Failure reason: {}",
+                    "Payment adjustment has not produced any executable payments. Please add funds \
+                    into your consuming wallet in order to avoid bans from your creditors. Details: {}",
                     e
                 );
                 None
