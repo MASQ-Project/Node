@@ -376,7 +376,6 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -1075,14 +1074,16 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file(
-    ) {
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = home_dir().expect("expectexd home dir");
-        let data_dir = &home_dir.join("masqhome");
-        let _create_data_dir = create_dir_all(data_dir);
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+        );
+        let data_dir = home_dir.join("masqhome");
+        let _dir = create_dir_all(&data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
@@ -1105,16 +1106,30 @@ mod tests {
             .param("--config-file", "~\\masqhome\\config.toml")
             .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.to_path_buf()))
-            .data_dir_result(Some(data_dir.to_path_buf()));
+        let dir_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&home_dir))),
+        };
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
-            data_dir.to_string_lossy().to_string()
+            current_dir()
+                .unwrap()
+                .join(&data_dir)
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(data_dir)
+                .join(PathBuf::from("config.toml"))
+                .to_string_lossy()
+                .to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {
@@ -1123,13 +1138,6 @@ mod tests {
                 "9999:9999:booga"
             );
         }
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            data_dir
-                .join(PathBuf::from("config.toml"))
-                .to_string_lossy()
-                .to_string()
-        );
         assert_eq!(
             value_m!(multiconfig, "blockchain-service-url", String).unwrap(),
             "https://www.mainnet1.com"

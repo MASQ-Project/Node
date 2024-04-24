@@ -1226,7 +1226,6 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyAmoy;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -1239,6 +1238,7 @@ mod tests {
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
+    use std::env::current_dir;
     use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::net::IpAddr;
@@ -2046,21 +2046,16 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_setup_tilde_in_config_file_path() {
+    fn get_modified_setup_handles_tilde_in_config_file_and_data_directory_path() {
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "get_modified_setup_tilde_in_data_directory",
+            "get_modified_setup_handles_tilde_in_config_file_and_data_directory_path",
         );
         let data_dir = base_dir.join("data_dir");
-        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
-        let mut config_file = File::create(
-            home_dir()
-                .expect("expect home dir")
-                .join("masqhome")
-                .join("config.toml"),
-        )
-        .unwrap();
+        std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
+        let config_file_path = base_dir.join("masqhome").join("config.toml");
+        let mut config_file = File::create(&config_file_path).unwrap();
         config_file
             .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
             .unwrap();
@@ -2082,12 +2077,11 @@ mod tests {
         .collect_vec();
 
         let expected_config_file_data = "https://www.mainnet.com";
-        let dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .data_dir_result(Some(data_dir))
-                .home_dir_result(Some(base_dir)),
-        );
-        let subject = SetupReporterReal::new(dirs_wrapper);
+        let dirs_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
+        };
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
         let result = subject
             .get_modified_setup(existing_setup, incoming_setup)
