@@ -435,6 +435,7 @@ pub fn send_payables_within_batch(
     let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
     let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
 
+    // TODO: We are sending hashes_and_paid_amounts to the Accountant even if the payments fail.
     new_fingerprints_recipient
         .try_send(PendingPayableFingerprintSeeds {
             batch_wide_timestamp: timestamp,
@@ -784,44 +785,11 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
-        todo!("GH-744: Come back to this, May need to test this with hardhat");
-        //exercising also the layer of web3 functions, but the transport layer is mocked
+    fn transmission_log_just_works() {
         init_test_logging();
-        // let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
-        //we compute the hashes ourselves during the batch preparation and so we don't care about
-        //the same ones coming back with the response; we use the returned OKs as indicators of success only.
-        //Any eventual rpc errors brought back are processed as well...
-        let expected_batch_responses = vec![
-            Ok(json!("...unnecessarily important hash...")),
-            Err(web3::Error::Rpc(Error {
-                code: ErrorCode::ServerError(114),
-                message: "server being busy".to_string(),
-                data: None,
-            })),
-            Ok(json!("...unnecessarily important hash...")),
-        ];
-
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("Trash".to_string(),7 )
-            .start();
-
-        // let transport = TestTransport::default()
-        //     .send_batch_params(&send_batch_params_arc)
-        //     .send_batch_result(expected_batch_responses);
-
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let actor_addr = accountant.start();
-        let fingerprint_recipient = recipient!(actor_addr, PendingPayableFingerprintSeeds);
-        let logger = Logger::new("sending_batch_payments");
+        let test_name  = "transmission_log_just_works";
         let gas_price = 120;
+        let logger = Logger::new(test_name);
         let amount_1 = gwei_to_wei(900_000_000_u64);
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w123"),
@@ -840,162 +808,13 @@ mod tests {
             amount_3,
             None,
         );
-        let pending_nonce = U256::from(6);
         let accounts_to_process = vec![account_1, account_2, account_3];
-        let consuming_wallet = make_paying_wallet(b"gdasgsa");
-        let test_timestamp_before = SystemTime::now();
 
-        let result = send_payables_within_batch(
-            logger,
-            TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            fingerprint_recipient,
-            accounts_to_process.to_vec(),
-        )
-        .wait()
-        .unwrap();
+        info!(logger, "{}", transmission_log(TEST_DEFAULT_CHAIN, &accounts_to_process, gas_price));
 
-        let test_timestamp_after = SystemTime::now();
-        let system = System::new("can transfer tokens test");
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-
-        // TODO: GH-744: Come back to this
-        //     let send_batch_params = send_batch_params_arc.lock().unwrap();
-        //     assert_eq!(
-        //     *send_batch_params,
-        //     vec![vec![
-        //         (
-        //             1,
-        //             Call::MethodCall(MethodCall {
-        //                 jsonrpc: Some(V2),
-        //                 method: "eth_sendRawTransaction".to_string(),
-        //                 params: Params::Array(vec![Value::String("0xf8a906851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        //     00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa060b9f375c06f56\
-        //     41951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c031172ac6873037d90dcca36a1fbf2e67960ff".to_string())]),
-        //                 id: Id::Num(1)
-        //             })
-        //         ),
-        //         (
-        //             2,
-        //             Call::MethodCall(MethodCall {
-        //                 jsonrpc: Some(V2),
-        //                 method: "eth_sendRawTransaction".to_string(),
-        //                 params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dae894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        //     000000000000000000000000000000000000000000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00e61352bb2ac9b\
-        //     32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915ecfbaa58268010e00d32c18a49a9fc3b9bd20a".to_string())]),
-        //                 id: Id::Num(1)
-        //             })
-        //         ),
-        //         (
-        //             3,
-        //             Call::MethodCall(MethodCall {
-        //                 jsonrpc: Some(V2),
-        //                 method: "eth_sendRawTransaction".to_string(),
-        //                 params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        //     0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02d300cc8ba7b63\
-        //     b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23fbe8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9".to_string())]),
-        //                 id: Id::Num(1)
-        //             })
-        //         )
-        //     ]]
-        // );
-        let check_expected_successful_request = |expected_hash: H256, idx: usize| {
-            let pending_payable = match &result[idx]{
-            Correct(pp) => pp,
-            Failed(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
-                "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
-                rpc_error, hash, recipient
-            ),
-        };
-            let hash = pending_payable.hash;
-            assert_eq!(hash, expected_hash)
-        };
-        //first successful request
-        let expected_hash_1 =
-            H256::from_str("26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1")
-                .unwrap();
-        check_expected_successful_request(expected_hash_1, 0);
-        //failing request
-        let pending_payable_fallible_2 = &result[1];
-        let (rpc_error, recipient_2, hash_2) = match pending_payable_fallible_2 {
-            Correct(pp) => panic!(
-                "we expected failing pending payable but got a good one: {:?}",
-                pp
-            ),
-            Failed(RpcPayableFailure {
-                rpc_error,
-                recipient_wallet: recipient,
-                hash,
-            }) => (rpc_error, recipient, hash),
-        };
-        assert_eq!(
-            rpc_error,
-            &web3::Error::Rpc(Error {
-                code: ErrorCode::ServerError(114),
-                message: "server being busy".to_string(),
-                data: None
-            })
-        );
-        let expected_hash_2 =
-            H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
-                .unwrap();
-        assert_eq!(hash_2, &expected_hash_2);
-        assert_eq!(recipient_2, &make_wallet("w555"));
-        //second_succeeding_request
-        let expected_hash_3 =
-            H256::from_str("a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44")
-                .unwrap();
-        check_expected_successful_request(expected_hash_3, 2);
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 1);
-        let initiate_fingerprints_msg =
-            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        let actual_common_timestamp = initiate_fingerprints_msg.batch_wide_timestamp;
-        assert!(
-            test_timestamp_before <= actual_common_timestamp
-                && actual_common_timestamp <= test_timestamp_after
-        );
-        let hash_and_amount_1 = HashAndAmount {
-            hash: expected_hash_1,
-            amount: gwei_to_wei(900_000_000_u64),
-        };
-        let hash_and_amount_2 = HashAndAmount {
-            hash: expected_hash_2,
-            amount: 123_456_789_u128,
-        };
-        let hash_and_amount_3 = HashAndAmount {
-            hash: expected_hash_3,
-            amount: gwei_to_wei(33_355_666_u64),
-        };
-        assert_eq!(
-            initiate_fingerprints_msg,
-            &PendingPayableFingerprintSeeds {
-                batch_wide_timestamp: actual_common_timestamp,
-                hashes_and_balances: vec![hash_and_amount_1, hash_and_amount_2, hash_and_amount_3]
-            }
-        );
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: sending_batch_payments: \
-        Common attributes of payables to be transacted: sender wallet: 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725, contract: \
-          0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
         log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payable future of 900,000,000,000,000,000 wei \
-        to 0x0000000000000000000000000000000077313233 with nonce 6",
-        );
-        log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payable future of 123,456,789 wei \
-        to 0x0000000000000000000000000000000077353535 with nonce 7",
-        );
-        log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payable future of 33,355,666,000,000,000 wei \
-        to 0x0000000000000000000000000000000077393837 with nonce 8",
-        );
-        log_handler.exists_log_containing(
-            "INFO: sending_batch_payments: Paying to creditors...\n\
+            "INFO: transmission_log_just_works: Paying to creditors...\n\
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 gwei\n\
@@ -1066,97 +885,46 @@ mod tests {
     }
 
     #[test]
-    fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
-        todo!("Should we delete this test? Hopefully we are testing send_payables_within_batch elsewhere ");
-        // // TODO: GH-744 After we merge in master rename this test to: send_payables_within_batch_does_not_send_a_message_to_accountant_if_consuming_wallet_is_badly_prepared
-        //
-        // let port = find_free_port();
-        // let (event_loop_handle, transport) = Http::with_max_parallel(
-        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-        //     REQUESTS_IN_PARALLEL,
-        // )
-        // .unwrap();
-        // // let transport = TestTransport::default();
-        //
-        // let incomplete_consuming_wallet =
-        //     Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        // let system = System::new("test");
-        // let (accountant, _, accountant_recording_arc) = make_recorder();
-        // let recipient = accountant.start().recipient();
-        // let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-        //     make_wallet("blah123"),
-        //     9000,
-        //     None,
-        // );
-        // let gas_price = 123;
-        // let nonce = U256::from(1);
-        //
-        // let result = send_payables_within_batch(
-        //     Logger::new("test"),
-        //     TEST_DEFAULT_CHAIN,
-        //     Web3::new(Batch::new(transport)),
-        //     incomplete_consuming_wallet,
-        //     gas_price,
-        //     nonce,
-        //     recipient,
-        //     vec![account],
-        // )
-        // .wait();
-        //
-        // System::current().stop();
-        // system.run();
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        // );
-        // let accountant_recording = accountant_recording_arc.lock().unwrap();
-        // assert_eq!(accountant_recording.len(), 0)
-    }
+    fn send_payables_within_batch_fails_on_submit_batch_call() {
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let consuming_wallet_secret_raw_bytes = b"okay-wallet";
+        let recipient_wallet = make_wallet("blah123");
+        let unimportant_recipient = Recorder::new().start().recipient();
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+            recipient_wallet.clone(),
+            5000,
+            None,
+        );
+        let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
+        let gas_price = 123;
+        let nonce = U256::from(1);
 
-    #[test]
-    fn send_payables_within_batch_fails_on_sending() {
-        todo!("Should we delete this test? Hopefully we are testing send_payables_within_batch elsewhere ");
-        // let port = find_free_port();
-        // let (event_loop_handle, transport) = Http::with_max_parallel(
-        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-        //     REQUESTS_IN_PARALLEL,
-        // )
-        // .unwrap();
-        // let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        // let recipient_wallet = make_wallet("blah123");
-        // let unimportant_recipient = Recorder::new().start().recipient();
-        // let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-        //     recipient_wallet.clone(),
-        //     5000,
-        //     None,
-        // );
-        // let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        // let gas_price = 123;
-        // let nonce = U256::from(1);
-        //
-        // let result = send_payables_within_batch(
-        //     Logger::new("test"),
-        //     TEST_DEFAULT_CHAIN,
-        //     Web3::new(Batch::new(transport)),
-        //     consuming_wallet,
-        //     gas_price,
-        //     nonce,
-        //     unimportant_recipient,
-        //     vec![account],
-        // )
-        // .wait();
-        //
-        // assert_eq!(
-        //     result,
-        //     Ok(vec![Failed(RpcPayableFailure {
-        //         rpc_error: Unreachable,
-        //         recipient_wallet,
-        //         hash: H256::from_str(
-        //             "424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac"
-        //         )
-        //         .unwrap()
-        //     })])
-        // );
+        let result = send_payables_within_batch(
+            Logger::new("test"),
+            TEST_DEFAULT_CHAIN,
+            Web3::new(Batch::new(transport)),
+            consuming_wallet,
+            gas_price,
+            nonce,
+            unimportant_recipient,
+            vec![account],
+        )
+        .wait();
+
+        assert_eq!(
+            result,
+            Err(
+                Sending {
+                    msg: "Transport error: Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string(),
+                    hashes: vec![H256::from_str("424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac").unwrap()]
+                }
+            )
+        );
     }
 
     #[test]
@@ -1325,7 +1093,7 @@ mod tests {
     #[test]
     fn send_payables_within_batch_all_payments_fail() {
         init_test_logging();
-        let test_name = "send_payables_within_batch_works";
+        let test_name = "send_payables_within_batch_all_payments_fail";
         let port = find_free_port();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -1364,8 +1132,6 @@ mod tests {
             accounts.clone(),
         ).wait();
 
-        eprintln!("result: {:?}", result);
-
         System::current().stop();
         system.run();
         let tlh = TestLogHandler::new();
@@ -1376,12 +1142,6 @@ mod tests {
         assert_eq!(recording_result.len(), 1);
         assert!(timestamp_before <= message.batch_wide_timestamp);
         assert!(timestamp_after >= message.batch_wide_timestamp);
-
-
-        // TODO: GH-744: Accountant should receive a different message instead of a successful one. When payments fail.
-        // TODO: GH-744: Accountant should receive a different message instead of a successful one. When payments fail.
-
-
         assert_eq!(message.hashes_and_balances, vec![
             HashAndAmount{
                 hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
@@ -1421,45 +1181,90 @@ mod tests {
         tlh.exists_log_containing(&format!("INFO: {test_name}: {}", transmission_log(chain, &accounts, gas_price)));
     }
 
-
-
-
     #[test]
-    fn signing_error_ends_iteration_over_accounts_after_detecting_first_error_which_is_then_propagated_all_way_up_and_out() {
-        // TODO: GH-744: This test can be remove once we fix FuturesOrdered - Allowing other payments to continue.
-        // DO this after we remove gas_price & nonce (This will be done last, just before we merged master in)
-        // send_payables_within_batch has changed a lot!
-        // let transport = TestTransport::default();
-        // let mut subject = BlockchainInterfaceWeb3::new(
-        //     transport,
-        //     make_fake_event_loop_handle(),
-        //     Chain::PolyMumbai,
-        // );
-        // let recipient = Recorder::new().start().recipient();
-        // let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
-        // let nonce = U256::from(123);
-        // let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
+    fn send_payables_within_batch_one_payment_works_the_other_fails() {
+        init_test_logging();
+        let test_name = "send_payables_within_batch_one_payment_works_the_other_fails";
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(),7 )
+            .err_response(429, "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(), 7)
+            .end_batch()
+            .start();
+        let blockchain_interface_web3 =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3_batch = blockchain_interface_web3.get_web3_batch();
+        let (accountant, _, accountant_recording) = make_recorder();
+        let logger = Logger::new(test_name);
+        let chain = DEFAULT_CHAIN;
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let gas_price = 1u64;
+        let pending_nonce: U256 = 1.into();
+        let new_fingerprints_recipient= accountant.start().recipient();
+        let accounts_1 = make_payable_account(1);
+        let accounts_2 = make_payable_account(2);
+        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
+        let system = System::new(test_name);
+        let timestamp_before = SystemTime::now();
 
-        // let result = send_payables_within_batch(
-        //     Logger::new("test"),
-        //     Chain::PolyMumbai,
-        //     Web3::new(Batch::new(transport)),
-        //     consuming_wallet,
-        //     111,
-        //     nonce,
-        //     recipient,
-        //     accounts.to_vec(),
-        // )
-        // .wait();
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::Signing(
-        //         "Signing error: secp: malformed or out-of-range \
-        //     secret key"
-        //             .to_string()
-        //     ))
-        // )
+        let result = send_payables_within_batch(
+            logger,
+            chain,
+            web3_batch,
+            consuming_wallet.clone(),
+            gas_price.clone(),
+            pending_nonce,
+            new_fingerprints_recipient,
+            accounts.clone(),
+        ).wait();
+
+        System::current().stop();
+        system.run();
+        let tlh = TestLogHandler::new();
+        let timestamp_after = SystemTime::now();
+        let recording_result = accountant_recording.lock().unwrap();
+        let processed_payments = result.unwrap();
+        let message = recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        assert_eq!(recording_result.len(), 1);
+        assert!(timestamp_before <= message.batch_wide_timestamp);
+        assert!(timestamp_after >= message.batch_wide_timestamp);
+        assert_eq!(message.hashes_and_balances, vec![
+            HashAndAmount{
+                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                amount: accounts_1.balance_wei
+            },
+            HashAndAmount{
+                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+                amount: accounts_2.balance_wei
+            },
+        ]);
+        assert_eq!(processed_payments[0], ProcessedPayableFallible::Correct(PendingPayable {
+            recipient_wallet: accounts_1.wallet,
+            hash:  H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap()
+        }));
+        assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure{
+            rpc_error: Rpc(Error {
+                code: ServerError(429),
+                message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                data: None,
+            }),
+            recipient_wallet: accounts_2.wallet,
+            hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+        }));
+        tlh.exists_log_containing(
+            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+                     consuming_wallet,
+                     chain.rec().contract,
+                     chain.rec().num_chain_id,
+                     gas_price
+            )
+        );
+        tlh.exists_log_containing(&format!("INFO: {test_name}: {}", transmission_log(chain, &accounts, gas_price)));
     }
 
     #[test]
@@ -1512,45 +1317,6 @@ mod tests {
     }
 
     #[test]
-    fn sign_and_append_payment_fails_on_badly_prepared_consuming_wallet_without_secret() {
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        // let transport = TestTransport::default();
-        let incomplete_consuming_wallet =
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        let system = System::new("test");
-        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("blah123"),
-            9000,
-            None,
-        );
-        let gas_price = 123;
-        let nonce = U256::from(1);
-
-        let result = sign_and_append_payment(
-            TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
-            incomplete_consuming_wallet,
-            nonce,
-            gas_price,
-            account,
-        );
-
-
-        System::current().stop();
-        system.run();
-        todo!("Come back to this");
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        // );
-    }
-
-    #[test]
     fn sign_and_append_payment_just_works() {
         let port = find_free_port();
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -1558,7 +1324,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        // let transport = TestTransport::default();
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let system = System::new("test");
         let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1581,13 +1346,11 @@ mod tests {
         System::current().stop();
         system.run();
 
-        todo!("Come back to this");
-
-        // let expected_hash =
-        //     H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
-        //         .unwrap();
-        // assert_eq!(result.hash, expected_hash);
-        // assert_eq!(result.amount, 9000);
+        let expected_hash =
+            H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
+                .unwrap();
+        assert_eq!(result.hash, expected_hash);
+        assert_eq!(result.amount, 9000);
     }
 
     //with a real confirmation through a transaction sent with this data to the network
@@ -1703,7 +1466,9 @@ mod tests {
         let nonce_correct_type = U256::from(nonce);
         let gas_price = match chain {
             Chain::EthMainnet => TEST_GAS_PRICE_ETH,
+            Chain::EthRopsten => TEST_GAS_PRICE_ETH,
             Chain::PolyMainnet => TEST_GAS_PRICE_POLYGON,
+            Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
