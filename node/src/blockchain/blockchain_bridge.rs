@@ -741,7 +741,7 @@ mod tests {
     use crate::accountant::scanners::test_utils::{
         make_empty_payments_and_start_block, protect_payables_in_test,
     };
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
@@ -773,7 +773,7 @@ mod tests {
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
-    use ethereum_types::U64;
+    use ethereum_types::{U256, U64};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -784,10 +784,14 @@ mod tests {
     use std::any::TypeId;
     use std::net::Ipv4Addr;
     use std::path::Path;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{BlockNumber, TransactionReceipt, H160};
     use web3::Web3;
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::blockchain::blockchain_interface_utils::transmission_log;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1517,6 +1521,58 @@ mod tests {
         //         BlockchainError::QueryFailed("What the hack...??".to_string())
         //     ))
         // );
+    }
+
+    #[test]
+    fn process_payments_works() {
+        let test_name = "process_payments_works";
+        let port = find_free_port();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x01".to_string(),1 )
+            .begin_batch()
+            .response("rpc_result".to_string(),7 )
+            .response("rpc_result_2".to_string(),7 )
+            .end_batch()
+            .start();
+        let blockchain_interface_web3 =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let gas_price = 1u64;
+        let accounts_1 = make_payable_account(1);
+        let accounts_2 = make_payable_account(2);
+        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
+        let system = System::new(test_name);
+        let msg = OutboundPaymentsInstructions::new(accounts, None);
+        let persistent_config = configure_default_persistent_config(ZERO)
+            .gas_price_result(Ok(gas_price));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_web3),
+            Box::new(persistent_config),
+            false,
+            Some(consuming_wallet)
+        );
+        let (accountant, _, accountant_recording) = make_recorder();
+        subject.pending_payable_confirmation.new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+
+        let result = subject.process_payments(msg).wait();
+
+        System::current().stop();
+        system.run();
+        let processed_payments = result.unwrap();
+        assert_eq!(processed_payments[0], ProcessedPayableFallible::Correct(PendingPayable {
+            recipient_wallet: accounts_1.wallet,
+            hash:  H256::from_str("24685f7c502c49e56ea572378f719aa88f8b5a521e21a9842a91607152ba8ff1").unwrap()
+        }));
+        assert_eq!(processed_payments[1], ProcessedPayableFallible::Correct(PendingPayable {
+            recipient_wallet: accounts_2.wallet,
+            hash:  H256::from_str("914a946a9876b2d6e1f114e260b062d5e3d9821433f2118a17bb81a4d7946831").unwrap()
+        }));
+        let recording = accountant_recording.lock().unwrap();
+        assert_eq!(recording.len(), 1);
     }
 
     #[test]

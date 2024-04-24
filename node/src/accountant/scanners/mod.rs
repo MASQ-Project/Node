@@ -276,7 +276,6 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                 let unprotected = self.expose_payables(protected);
                 Ok(Either::Left(OutboundPaymentsInstructions::new(
                     unprotected,
-                    msg.agent,
                     msg.response_skeleton_opt,
                 )))
             }
