@@ -2046,11 +2046,11 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_setup_tilde_in_config_file_path() {
+    fn get_modified_setup_handles_tilde_in_config_file_and_data_directory_path() {
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "get_modified_setup_tilde_in_config_file_path",
+            "get_modified_setup_handles_tilde_in_config_file_and_data_directory_path",
         );
         let data_dir = base_dir.join("data_dir");
         std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
@@ -2077,7 +2077,6 @@ mod tests {
         .collect_vec();
 
         let expected_config_file_data = "https://www.mainnet.com";
-        //let dirs_wrapper = Box::new(DirsWrapperReal {});
         let dirs_wrapper = DirsWrapperMock {
             data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
             home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
