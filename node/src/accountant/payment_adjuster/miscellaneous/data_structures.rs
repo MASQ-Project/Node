@@ -97,7 +97,7 @@ impl UnconfirmedAdjustment {
     }
 
     pub fn wallet(&self) -> &Wallet {
-        &self.weighted_account.wallet()
+        self.weighted_account.wallet()
     }
 
     pub fn balance_minor(&self) -> u128 {

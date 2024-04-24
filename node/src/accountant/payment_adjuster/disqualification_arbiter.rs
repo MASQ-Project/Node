@@ -191,11 +191,7 @@ impl DisqualificationGaugeReal {
         let second_condition = considered_forgiven
             >= Self::SECOND_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
 
-        if first_condition && second_condition {
-            true
-        } else {
-            false
-        }
+        first_condition && second_condition
     }
 }
 

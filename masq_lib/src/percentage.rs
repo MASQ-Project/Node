@@ -14,7 +14,7 @@ use std::ops::Mul;
 // digit in order to diminish the effect of a precision loss genuinly implied by this kind of math
 // operations done on integers.
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Percentage {
     per_cent: u8,
 }

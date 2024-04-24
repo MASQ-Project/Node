@@ -251,6 +251,18 @@ pub struct MessageScheduler<M: Message> {
     pub delay: Duration,
 }
 
+// Yes, this refers to code from the test tree, but we pull a trick by letting the guts vanish in
+// the release mode, therefore we can use this outer macro without bad effects, and we also don't
+// have to add the #[cfg(test)] marks above the invocation itself, but also the related 'use'
+// clause.
+#[macro_export]
+macro_rules! arbitrary_id_stamp_in_trait {
+    () => {
+        #[cfg(test)]
+        $crate::arbitrary_id_stamp_in_trait_internal___!();
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

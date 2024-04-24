@@ -192,7 +192,7 @@ impl PreparatoryAnalyzer {
         AnalyzableAccounts: DisqualificationLimitProvidingAccount + BalanceProvidingAccount,
     {
         let lowest_disqualification_limit =
-            Self::find_lowest_disqualification_limit(&prepared_accounts);
+            Self::find_lowest_disqualification_limit(prepared_accounts);
 
         // We cannot do much in this area but stepping in if the cw balance is zero or nearly
         // zero with the assumption that the debt with the lowest disqualification limit in

@@ -962,7 +962,6 @@ pub mod unshared_test_utils {
 
     pub mod arbitrary_id_stamp {
         use super::*;
-        use crate::arbitrary_id_stamp_in_trait;
 
         //The issues we are to solve might look as follows:
 
@@ -1011,16 +1010,8 @@ pub mod unshared_test_utils {
             }
         }
 
-        #[macro_export]
-        macro_rules! arbitrary_id_stamp_in_trait {
-            () => {
-                #[cfg(test)]
-                $crate::arbitrary_id_stamp_in_trait_internal___!();
-            };
-        }
-
         // To be added together with other methods in your trait
-        // DO NOT USE ME DIRECTLY, USE arbitrary_id_stamp_in_trait INSTEAD!
+        // DO NOT USE ME DIRECTLY, INSTEAD: arbitrary_id_stamp_in_trait!
         #[macro_export]
         macro_rules! arbitrary_id_stamp_in_trait_internal___ {
             () => {
