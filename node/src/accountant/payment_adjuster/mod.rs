@@ -724,8 +724,8 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Your transaction fee balance 16,499,999,000,000,000 wei is not \
-            going to cover the anticipated fees to send 3 transactions. Maximum is set to 2. \
-            Adjustment will be performed."
+            going to cover the anticipated fees to send 3 transactions, with 6,325,000,000,000,000 \
+            wei required per one. Maximum count is set to 2. Adjustment must be performed."
         ));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
@@ -826,7 +826,8 @@ mod tests {
             Err(
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts,
-                    per_transaction_requirement_minor: 55_000 * gwei_to_wei::<u128, u64>(100),
+                    per_transaction_requirement_minor: TRANSACTION_FEE_MARGIN
+                        .add_percent_to(55_000 * gwei_to_wei::<u128, u64>(100)),
                     cw_transaction_fee_balance_minor: U256::from(54_000)
                         * gwei_to_wei::<U256, u64>(100)
                 }

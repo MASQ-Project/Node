@@ -153,16 +153,19 @@ pub fn log_adjustment_by_service_fee_is_required(
 
 pub fn log_insufficient_transaction_fee_balance(
     logger: &Logger,
-    required_transactions_count: u16,
+    cw_required_transactions_count: u16,
+    txn_fee_required_per_txn_minor: u128,
     transaction_fee_minor: U256,
     limiting_count: u16,
 ) {
     warning!(
         logger,
         "Your transaction fee balance {} wei is not going to cover the anticipated fees to send {} \
-        transactions. Maximum is set to {}. Adjustment will be performed.",
+        transactions, with {} wei required per one. Maximum count is set to {}. Adjustment must be \
+        performed.",
         transaction_fee_minor.separate_with_commas(),
-        required_transactions_count,
+        cw_required_transactions_count,
+        txn_fee_required_per_txn_minor.separate_with_commas(),
         limiting_count
     );
     info!(logger, "{}", REFILL_RECOMMENDATION)

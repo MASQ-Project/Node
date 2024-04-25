@@ -6,6 +6,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::ToMessageBody;
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+use masq_lib::percentage::Percentage;
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
@@ -30,7 +31,9 @@ use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
 use node_lib::sub_lib::accountant::PaymentThresholds;
-use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
+use node_lib::sub_lib::blockchain_interface_web3::{
+    compute_gas_limit, transaction_data_web3, web3_gas_limit_const_part,
+};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rusqlite::ToSql;
@@ -169,9 +172,31 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     let owed_to_serv_node_3_minor =
         gwei_to_wei::<u128, _>(payment_thresholds.debt_threshold_gwei + 60_000_000);
     // Assuming all Nodes rely on the same set of payment thresholds
-    let cons_node_initial_service_fee_balance_minor = (owed_to_serv_node_2_minor
-        + owed_to_serv_node_3_minor)
-        - gwei_to_wei::<u128, u64>(40_000_000);
+    let cons_node_initial_service_fee_balance_minor = (owed_to_serv_node_1_minor
+        + owed_to_serv_node_2_minor)
+        - gwei_to_wei::<u128, u64>(2_345_678);
+    let agreed_transaction_fee_unit_price_major = 60;
+    let transaction_fee_needed_to_pay_for_one_payment_major = {
+        // We will need less but this should be accurate enough
+        let txn_data_with_maximized_cost = [0xff; 68];
+        let gas_limit_dev_chain = {
+            let const_part = web3_gas_limit_const_part(Chain::Dev);
+            u64::try_from(compute_gas_limit(
+                const_part,
+                txn_data_with_maximized_cost.as_slice(),
+            ))
+            .unwrap()
+        };
+        let transaction_fee_margin = Percentage::new(15);
+        transaction_fee_margin
+            .add_percent_to(gas_limit_dev_chain * agreed_transaction_fee_unit_price_major)
+    };
+    eprintln!(
+        "Computed transaction fee: {}",
+        transaction_fee_needed_to_pay_for_one_payment_major
+    );
+    let cons_node_transaction_fee_balance_minor =
+        2 * gwei_to_wei::<u128, u64>(transaction_fee_needed_to_pay_for_one_payment_major);
     let test_global_config = TestInputsOutputsConfig {
         ui_ports_opt: Some(Ports {
             consuming_node: consuming_node_ui_port,
@@ -179,9 +204,10 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
             serving_node_2: serving_node_2_ui_port,
             serving_node_3: serving_node_3_ui_port,
         }),
-        // Should be enough only for two payments therefore the least significant one will
-        // need to go away
-        cons_node_initial_transaction_fee_balance_minor_opt: Some(gwei_to_wei::<_, u64>(8_000_000)),
+        // Should be enough only for two payments therefore the least significant one will fall out
+        cons_node_initial_transaction_fee_balance_minor_opt: Some(
+            cons_node_transaction_fee_balance_minor + 1,
+        ),
         cons_node_initial_service_fee_balance_minor,
         debts_config: Either::Right(FullySpecifiedSimulatedDebts {
             // This account will be the least significant and be eliminated for the reasons
@@ -190,7 +216,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
                 balance_minor: owed_to_serv_node_1_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 1000,
             },
-            // This account has the middle amount in the balance but
+            // This account has the middle amount in the balance, but
             // it is stressed by the age, which will cause this one will
             // evaluate with the highest significance
             owed_to_serving_node_2: AccountedDebt {
@@ -206,15 +232,20 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
             },
         }),
         payment_thresholds_all_nodes: payment_thresholds,
-        cons_node_transaction_fee_agreed_unit_price_opt: Some(60),
-        exp_final_cons_node_transaction_fee_balance_minor: 2_601_680_000_000_000,
-        exp_final_cons_node_service_fee_balance_minor: 0, // Because the algorithm is designed to
-        // exhaust the wallet till the last drop
-        exp_final_service_fee_balance_serv_node_1_minor: 0, // This account had to be dropped so received no money
-        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor, // This account was granted with
-        // the full size as the higher age had this effect
-        exp_final_service_fee_balance_serv_node_3_minor: owed_to_serv_node_3_minor
-            - gwei_to_wei::<u128, u64>(40_000_000),
+        cons_node_transaction_fee_agreed_unit_price_opt: Some(
+            agreed_transaction_fee_unit_price_major,
+        ),
+        // It seems like the ganache server sucked up quite less than those 55_000 units of gas??
+        exp_final_cons_node_transaction_fee_balance_minor: 2_828_352_000_000_001,
+        // Because the algorithm is designed to exhaust the wallet till the last drop
+        exp_final_cons_node_service_fee_balance_minor: 0,
+        // This account was granted with the full size as the lowest balance make it weight
+        // the most
+        exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
+        exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor
+            - gwei_to_wei::<u128, u64>(2_345_678),
+        // This account had to be dropped so received no money
+        exp_final_service_fee_balance_serv_node_3_minor: 0,
     };
 
     let process_scan_request_to_node =
@@ -280,36 +311,6 @@ fn make_init_config(chain: Chain) -> DbInitializationConfig {
     ))
 }
 
-fn assert_balances(
-    wallet: &Wallet,
-    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
-    expected_eth_balance: u128,
-    expected_token_balance: u128,
-) {
-    let eth_balance = blockchain_interface
-        .lower_interface()
-        .get_transaction_fee_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
-    assert_eq!(
-        eth_balance,
-        web3::types::U256::from(expected_eth_balance),
-        "Actual EthBalance {} doesn't much with expected {}",
-        eth_balance,
-        expected_eth_balance
-    );
-    let token_balance = blockchain_interface
-        .lower_interface()
-        .get_service_fee_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
-    assert_eq!(
-        token_balance,
-        web3::types::U256::from(expected_token_balance),
-        "Actual TokenBalance {} doesn't match with expected {}",
-        token_balance,
-        expected_token_balance
-    );
-}
-
 fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Address {
     let data = "608060405234801561001057600080fd5b5060038054600160a060020a031916331790819055604051600160a060020a0391909116906000907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908290a3610080336b01866de34549d620d8000000640100000000610b9461008582021704565b610156565b600160a060020a038216151561009a57600080fd5b6002546100b490826401000000006109a461013d82021704565b600255600160a060020a0382166000908152602081905260409020546100e790826401000000006109a461013d82021704565b600160a060020a0383166000818152602081815260408083209490945583518581529351929391927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9281900390910190a35050565b60008282018381101561014f57600080fd5b9392505050565b610c6a806101656000396000f3006080604052600436106100fb5763ffffffff7c010000000000000000000000000000000000000000000000000000000060003504166306fdde038114610100578063095ea7b31461018a57806318160ddd146101c257806323b872dd146101e95780632ff2e9dc14610213578063313ce56714610228578063395093511461025357806342966c681461027757806370a0823114610291578063715018a6146102b257806379cc6790146102c75780638da5cb5b146102eb5780638f32d59b1461031c57806395d89b4114610331578063a457c2d714610346578063a9059cbb1461036a578063dd62ed3e1461038e578063f2fde38b146103b5575b600080fd5b34801561010c57600080fd5b506101156103d6565b6040805160208082528351818301528351919283929083019185019080838360005b8381101561014f578181015183820152602001610137565b50505050905090810190601f16801561017c5780820380516001836020036101000a031916815260200191505b509250505060405180910390f35b34801561019657600080fd5b506101ae600160a060020a0360043516602435610436565b604080519115158252519081900360200190f35b3480156101ce57600080fd5b506101d7610516565b60408051918252519081900360200190f35b3480156101f557600080fd5b506101ae600160a060020a036004358116906024351660443561051c565b34801561021f57600080fd5b506101d76105b9565b34801561023457600080fd5b5061023d6105c9565b6040805160ff9092168252519081900360200190f35b34801561025f57600080fd5b506101ae600160a060020a03600435166024356105ce565b34801561028357600080fd5b5061028f60043561067e565b005b34801561029d57600080fd5b506101d7600160a060020a036004351661068b565b3480156102be57600080fd5b5061028f6106a6565b3480156102d357600080fd5b5061028f600160a060020a0360043516602435610710565b3480156102f757600080fd5b5061030061071e565b60408051600160a060020a039092168252519081900360200190f35b34801561032857600080fd5b506101ae61072d565b34801561033d57600080fd5b5061011561073e565b34801561035257600080fd5b506101ae600160a060020a0360043516602435610775565b34801561037657600080fd5b506101ae600160a060020a03600435166024356107c0565b34801561039a57600080fd5b506101d7600160a060020a03600435811690602435166107d6565b3480156103c157600080fd5b5061028f600160a060020a0360043516610801565b606060405190810160405280602481526020017f486f7420746865206e657720746f6b656e20796f75277265206c6f6f6b696e6781526020017f20666f720000000000000000000000000000000000000000000000000000000081525081565b600081158061044c575061044a33846107d6565b155b151561050557604080517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152604160248201527f55736520696e637265617365417070726f76616c206f7220646563726561736560448201527f417070726f76616c20746f2070726576656e7420646f75626c652d7370656e6460648201527f2e00000000000000000000000000000000000000000000000000000000000000608482015290519081900360a40190fd5b61050f838361081d565b9392505050565b60025490565b600160a060020a038316600090815260016020908152604080832033845290915281205482111561054c57600080fd5b600160a060020a0384166000908152600160209081526040808320338452909152902054610580908363ffffffff61089b16565b600160a060020a03851660009081526001602090815260408083203384529091529020556105af8484846108b2565b5060019392505050565b6b01866de34549d620d800000081565b601281565b6000600160a060020a03831615156105e557600080fd5b336000908152600160209081526040808320600160a060020a0387168452909152902054610619908363ffffffff6109a416565b336000818152600160209081526040808320600160a060020a0389168085529083529281902085905580519485525191937f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925929081900390910190a350600192915050565b61068833826109b6565b50565b600160a060020a031660009081526020819052604090205490565b6106ae61072d565b15156106b957600080fd5b600354604051600091600160a060020a0316907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908390a36003805473ffffffffffffffffffffffffffffffffffffffff19169055565b61071a8282610a84565b5050565b600354600160a060020a031690565b600354600160a060020a0316331490565b60408051808201909152600381527f484f540000000000000000000000000000000000000000000000000000000000602082015281565b6000600160a060020a038316151561078c57600080fd5b336000908152600160209081526040808320600160a060020a0387168452909152902054610619908363ffffffff61089b16565b60006107cd3384846108b2565b50600192915050565b600160a060020a03918216600090815260016020908152604080832093909416825291909152205490565b61080961072d565b151561081457600080fd5b61068881610b16565b6000600160a060020a038316151561083457600080fd5b336000818152600160209081526040808320600160a060020a03881680855290835292819020869055805186815290519293927f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925929181900390910190a350600192915050565b600080838311156108ab57600080fd5b5050900390565b600160a060020a0383166000908152602081905260409020548111156108d757600080fd5b600160a060020a03821615156108ec57600080fd5b600160a060020a038316600090815260208190526040902054610915908263ffffffff61089b16565b600160a060020a03808516600090815260208190526040808220939093559084168152205461094a908263ffffffff6109a416565b600160a060020a038084166000818152602081815260409182902094909455805185815290519193928716927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef92918290030190a3505050565b60008282018381101561050f57600080fd5b600160a060020a03821615156109cb57600080fd5b600160a060020a0382166000908152602081905260409020548111156109f057600080fd5b600254610a03908263ffffffff61089b16565b600255600160a060020a038216600090815260208190526040902054610a2f908263ffffffff61089b16565b600160a060020a038316600081815260208181526040808320949094558351858152935191937fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef929081900390910190a35050565b600160a060020a0382166000908152600160209081526040808320338452909152902054811115610ab457600080fd5b600160a060020a0382166000908152600160209081526040808320338452909152902054610ae8908263ffffffff61089b16565b600160a060020a038316600090815260016020908152604080832033845290915290205561071a82826109b6565b600160a060020a0381161515610b2b57600080fd5b600354604051600160a060020a038084169216907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e090600090a36003805473ffffffffffffffffffffffffffffffffffffffff1916600160a060020a0392909216919091179055565b600160a060020a0382161515610ba957600080fd5b600254610bbc908263ffffffff6109a416565b600255600160a060020a038216600090815260208190526040902054610be8908263ffffffff6109a416565b600160a060020a0383166000818152602081815260408083209490945583518581529351929391927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9281900390910190a350505600a165627a7a72305820d4ad56dfe541fec48c3ecb02cebad565a998dfca7774c0c4f4b1f4a8e2363a590029".from_hex::<Vec<u8>>().unwrap();
     let gas_price = 50_000_000_000_u64;
@@ -370,7 +371,7 @@ fn transfer_service_fee_amount_to_address(
         .wait()
     {
         Ok(tx_hash) => eprintln!(
-            "Transaction {:?} of {} wei of MASQ was sent from wallet {:?} to {:?}",
+            "Transaction {:?} of {} wei of MASQ was sent from wallet {} to {}",
             tx_hash, amount_minor, from_wallet, to_wallet
         ),
         Err(e) => panic!("Transaction for token transfer failed {:?}", e),
@@ -420,14 +421,11 @@ fn transfer_transaction_fee_amount_to_address(
     {
         Ok(was_successful) => {
             if was_successful {
-                eprintln!(
-                    "Account {:?} unlocked for a single transaction",
-                    from_wallet.address()
-                )
+                eprintln!("Account {} unlocked for a single transaction", from_wallet)
             } else {
                 panic!(
-                    "Couldn't unlock account {:?} for the purpose of signing the next transaction",
-                    from_wallet.address()
+                    "Couldn't unlock account {} for the purpose of signing the next transaction",
+                    from_wallet
                 )
             }
         }
@@ -445,6 +443,38 @@ fn transfer_transaction_fee_amount_to_address(
         ),
         Err(e) => panic!("Transaction for token transfer failed {:?}", e),
     }
+}
+
+fn assert_balances(
+    wallet: &Wallet,
+    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
+    expected_eth_balance: u128,
+    expected_token_balance: u128,
+) {
+    let eth_balance = blockchain_interface
+        .lower_interface()
+        .get_transaction_fee_balance(&wallet)
+        .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
+    assert_eq!(
+        eth_balance,
+        web3::types::U256::from(expected_eth_balance),
+        "Actual EthBalance {} doesn't much with expected {} for {}",
+        eth_balance,
+        expected_eth_balance,
+        wallet
+    );
+    let token_balance = blockchain_interface
+        .lower_interface()
+        .get_service_fee_balance(&wallet)
+        .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
+    assert_eq!(
+        token_balance,
+        web3::types::U256::from(expected_token_balance),
+        "Actual TokenBalance {} doesn't match with expected {} for {}",
+        token_balance,
+        expected_token_balance,
+        wallet
+    );
 }
 
 fn make_node_wallet(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
@@ -701,6 +731,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         derivation_path(0, 1),
         global_config.port(NodeByRole::ConsNode),
     );
+    eprintln!(
+        "Consuming node wallet established: {}\n",
+        consuming_node_wallet
+    );
     let initial_transaction_fee_balance = global_config
         .cons_node_initial_transaction_fee_balance_minor_opt
         .unwrap_or(1_000_000_000_000_000_000);
@@ -736,6 +770,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         derivation_path(0, 2),
         global_config.port(NodeByRole::ServNode1),
     );
+    eprintln!(
+        "First serving node wallet established: {}\n",
+        serving_node_1_wallet
+    );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
@@ -744,6 +782,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         derivation_path(0, 3),
         global_config.port(NodeByRole::ServNode2),
     );
+    eprintln!(
+        "Second serving node wallet established: {}\n",
+        serving_node_2_wallet
+    );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
@@ -751,6 +793,10 @@ fn test_body<StimulateConsumingNodePayments, StartServingNodesAndLetThemPerformR
         None,
         derivation_path(0, 4),
         global_config.port(NodeByRole::ServNode3),
+    );
+    eprintln!(
+        "Third serving node wallet established: {}\n",
+        serving_node_3_wallet
     );
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);

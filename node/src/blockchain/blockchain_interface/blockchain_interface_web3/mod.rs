@@ -40,7 +40,7 @@ use web3::{BatchTransport, Error, Web3};
 use masq_lib::percentage::Percentage;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
-use crate::sub_lib::blockchain_interface_web3::transaction_data_web3;
+use crate::sub_lib::blockchain_interface_web3::{compute_gas_limit, transaction_data_web3, web3_gas_limit_const_part};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -349,7 +349,7 @@ where
             Rc::clone(&web3_batch),
             contract,
         ));
-        let gas_limit_const_part = Self::web3_gas_limit_const_part(chain);
+        let gas_limit_const_part = web3_gas_limit_const_part(chain);
 
         Self {
             logger: Logger::new("BlockchainInterface"),
@@ -514,7 +514,7 @@ where
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let data = transaction_data_web3(recipient, amount);
-        let gas_limit = self.compute_gas_limit(data.as_slice());
+        let gas_limit = compute_gas_limit(self.gas_limit_const_part, data.as_slice());
         let gas_price = gwei_to_wei::<U256, _>(gas_price);
         let transaction_parameters = TransactionParameters {
             nonce: Some(nonce),
@@ -564,20 +564,6 @@ where
             )
         });
         introduction.chain(body).collect()
-    }
-
-    fn compute_gas_limit(&self, data: &[u8]) -> U256 {
-        ethereum_types::U256::try_from(data.iter().fold(self.gas_limit_const_part, |acc, v| {
-            acc + if v == &0u8 { 4 } else { 68 }
-        }))
-        .expect("Internal error")
-    }
-
-    fn web3_gas_limit_const_part(chain: Chain) -> u64 {
-        match chain {
-            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
-        }
     }
 
     fn extract_transactions_from_logs(&self, logs: Vec<Log>) -> Vec<BlockchainTransaction> {
@@ -671,6 +657,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RpcPayablesFailure,
     };
+    use crate::sub_lib::blockchain_interface_web3::web3_gas_limit_const_part;
     use indoc::indoc;
     use masq_lib::percentage::Percentage;
     use std::str::FromStr;
@@ -1573,28 +1560,6 @@ mod tests {
     }
 
     #[test]
-    fn web3_gas_limit_const_part_returns_reasonable_values() {
-        type Subject = BlockchainInterfaceWeb3<Http>;
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::EthMainnet),
-            55_000
-        );
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::EthRopsten),
-            55_000
-        );
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::PolyMainnet),
-            70_000
-        );
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::PolyMumbai),
-            70_000
-        );
-        assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
-    }
-
-    #[test]
     fn gas_limit_for_polygon_mainnet_lies_within_limits_for_raw_transaction() {
         test_gas_limit_is_between_limits(Chain::PolyMainnet);
     }
@@ -1609,8 +1574,7 @@ mod tests {
         let transport = TestTransport::default();
         let mut subject =
             BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
-        let not_under_this_value =
-            BlockchainInterfaceWeb3::<Http>::web3_gas_limit_const_part(chain);
+        let not_under_this_value = web3_gas_limit_const_part(chain);
         let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()

@@ -133,37 +133,40 @@ impl PreparatoryAnalyzer {
         number_of_qualified_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<TransactionFeeLimitation>, PaymentAdjusterError> {
+        let txn_fee_required_per_txn_minor_with_margin =
+            agreed_transaction_fee_margin.add_percent_to(per_transaction_requirement_minor);
+
         let verified_tx_counts = Self::transaction_counts_verification(
             cw_transaction_fee_balance_minor,
-            per_transaction_requirement_minor,
-            agreed_transaction_fee_margin,
+            txn_fee_required_per_txn_minor_with_margin,
             number_of_qualified_accounts,
         );
 
         let max_tx_count_we_can_afford: u16 = verified_tx_counts.affordable;
-        let required_tx_count_with_margin: u16 = verified_tx_counts.required;
+        let required_tx_count: u16 = verified_tx_counts.required;
 
         if max_tx_count_we_can_afford == 0 {
             Err(
                 PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
                     number_of_accounts: number_of_qualified_accounts,
-                    per_transaction_requirement_minor,
+                    per_transaction_requirement_minor: txn_fee_required_per_txn_minor_with_margin,
                     cw_transaction_fee_balance_minor,
                 },
             )
-        } else if max_tx_count_we_can_afford >= required_tx_count_with_margin {
+        } else if max_tx_count_we_can_afford >= required_tx_count {
             Ok(None)
         } else {
             log_insufficient_transaction_fee_balance(
                 logger,
-                required_tx_count_with_margin,
+                required_tx_count,
+                txn_fee_required_per_txn_minor_with_margin,
                 cw_transaction_fee_balance_minor,
                 max_tx_count_we_can_afford,
             );
             let transaction_fee_limitation_opt = TransactionFeeLimitation::new(
                 max_tx_count_we_can_afford,
                 cw_transaction_fee_balance_minor.as_u128(),
-                per_transaction_requirement_minor,
+                txn_fee_required_per_txn_minor_with_margin,
             );
             Ok(Some(transaction_fee_limitation_opt))
         }
@@ -172,13 +175,10 @@ impl PreparatoryAnalyzer {
     fn transaction_counts_verification(
         cw_transaction_fee_balance_minor: U256,
         txn_fee_required_per_txn_minor: u128,
-        txn_fee_margin: Percentage,
         number_of_qualified_accounts: usize,
     ) -> TransactionCountsBy16bits {
-        let txn_fee_required_per_txn_minor_with_margin =
-            txn_fee_margin.add_percent_to(txn_fee_required_per_txn_minor);
-        let max_possible_tx_count_u256 = cw_transaction_fee_balance_minor
-            / U256::from(txn_fee_required_per_txn_minor_with_margin);
+        let max_possible_tx_count_u256 =
+            cw_transaction_fee_balance_minor / U256::from(txn_fee_required_per_txn_minor);
 
         TransactionCountsBy16bits::new(max_possible_tx_count_u256, number_of_qualified_accounts)
     }
