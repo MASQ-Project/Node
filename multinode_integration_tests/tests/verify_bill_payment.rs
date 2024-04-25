@@ -239,8 +239,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         exp_final_cons_node_transaction_fee_balance_minor: 2_828_352_000_000_001,
         // Because the algorithm is designed to exhaust the wallet till the last drop
         exp_final_cons_node_service_fee_balance_minor: 0,
-        // This account was granted with the full size as the lowest balance make it weight
-        // the most
+        // This account was granted with the full size as the lowest balance make it weight the most
         exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
         exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor
             - gwei_to_wei::<u128, u64>(2_345_678),
