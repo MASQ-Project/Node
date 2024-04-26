@@ -3,7 +3,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    to_wei, BlockchainInterfaceWeb3, HashAndAmount, ProcessedPayableFallible, RpcPayableFailure,
+    to_wei, BlockchainInterfaceWeb3, HashAndAmount,
     REQUESTS_IN_PARALLEL, TRANSFER_METHOD_ID,
 };
 
@@ -32,6 +32,7 @@ use web3::types::{
 use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 use web3::api::{Accounts, Namespace};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -534,10 +535,10 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use crate::accountant::db_access_objects::utils::from_time_t;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
+    use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::test_utils::http_test_server::TestServer;
 

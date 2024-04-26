@@ -373,19 +373,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ProcessedPayableFallible {
-    Correct(PendingPayable),
-    Failed(RpcPayableFailure),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct RpcPayableFailure {
-    pub rpc_error: Web3Error,
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
 pub type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 pub type HashesAndAmounts = Vec<(H256, u128)>;
 

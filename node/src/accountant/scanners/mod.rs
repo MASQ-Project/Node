@@ -1158,9 +1158,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-    use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RpcPayablesFailure,
-    };
+    use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1394,7 +1392,7 @@ mod tests {
         let failure_payable_hash_2 = make_tx_hash(0xde);
         let failure_payable_rowid_2 = 126;
         let failure_payable_wallet_2 = make_wallet("hihihi");
-        let failure_payable_2 = RpcPayablesFailure {
+        let failure_payable_2 = RpcPayableFailure {
             rpc_error: Error::InvalidResponse(
                 "Learn how to write before you send your garbage!".to_string(),
             ),
@@ -1429,9 +1427,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
-                Ok(correct_pending_payable_1),
-                Err(failure_payable_2),
-                Ok(correct_pending_payable_3),
+                ProcessedPayableFallible::Correct(correct_pending_payable_1),
+                ProcessedPayableFallible::Failed(failure_payable_2),
+                ProcessedPayableFallible::Correct(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -1676,7 +1674,10 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Ok(payment_1), Ok(payment_2)]),
+            payment_procedure_result: Ok(vec![
+                ProcessedPayableFallible::Correct(payment_1),
+                ProcessedPayableFallible::Correct(payment_2),
+            ]),
             response_skeleton_opt: None,
         };
 
@@ -1699,7 +1700,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![Ok(payable_1), Ok(payable_2)]),
+            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(payable_1), ProcessedPayableFallible::Correct(payable_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1949,18 +1950,21 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Err(RpcPayablesFailure {
+        let failed_payment_1 = RpcPayableFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
-        });
-        let failed_payment_2 = Err(RpcPayablesFailure {
+        };
+        let failed_payment_2 = RpcPayableFailure {
             rpc_error: Error::Internal,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,
-        });
+        };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![failed_payment_1, failed_payment_2]),
+            payment_procedure_result: Ok(vec![
+                ProcessedPayableFallible::Failed(failed_payment_1),
+                ProcessedPayableFallible::Failed(failed_payment_2),
+            ]),
             response_skeleton_opt: None,
         };
 
