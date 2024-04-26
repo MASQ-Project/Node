@@ -76,7 +76,7 @@ pub trait PaymentAdjuster {
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError>;
 
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }
 
 pub struct PaymentAdjusterReal {
@@ -136,7 +136,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         ))
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl Default for PaymentAdjusterReal {

@@ -512,7 +512,7 @@ There are following three connection stages:
 
 1. NotConnected: No external neighbor is connected to us.
 2. ConnectedToNeighbor: External node(s) are connected to us.
-3. ThreeHopsRouteFound: You can relay data over the network.
+3. RouteFound: You can relay data over the network.
 
 The Node can only be on one of these connection stages during any moment of the Node's lifetime.
 

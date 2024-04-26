@@ -26,7 +26,7 @@ pub fn compute_gas_limit(gas_limit_const_part: u64, data: &[u8]) -> U256 {
 pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
     match chain {
         Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+        Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
     }
 }
 
@@ -56,7 +56,7 @@ mod tests {
         assert_eq!(web3_gas_limit_const_part(Chain::EthMainnet), 55_000);
         assert_eq!(web3_gas_limit_const_part(Chain::EthRopsten), 55_000);
         assert_eq!(web3_gas_limit_const_part(Chain::PolyMainnet), 70_000);
-        assert_eq!(web3_gas_limit_const_part(Chain::PolyMumbai), 70_000);
+        assert_eq!(web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
         assert_eq!(web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 }

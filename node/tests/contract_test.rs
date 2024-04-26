@@ -14,9 +14,7 @@ fn assert_contract_existence(
     chain: &Chain,
     expected_token_name: &str,
     expected_decimals: u32,
-) -> Result<(), ()> {
-    eprintln!("Starting a new attempt with: '{}'", blockchain_service_url);
-
+) -> Result<(), String> {
     let min_abi_json = r#"[{
         "constant": true,
         "inputs": [],
@@ -54,8 +52,7 @@ fn assert_contract_existence(
     {
         Ok(tn) => tn,
         Err(e) => {
-            eprintln!("Token name query failed due to: {:?}", e);
-            return Err(());
+            return Err(format!("Token name query failed due to: {:?}", e));
         }
     };
     let decimals: u32 = match contract
@@ -64,8 +61,7 @@ fn assert_contract_existence(
     {
         Ok(dec) => dec,
         Err(e) => {
-            eprintln!("Decimals query failed due to: {:?}", e);
-            return Err(());
+            return Err(format!("Decimals query failed due to: {:?}", e));
         }
     };
 
@@ -90,28 +86,32 @@ fn create_contract_interface(transport: Http, chain: &Chain, min_abi_json: &str)
 
 fn assert_contract<'a, F>(blockchain_urls: Vec<&'static str>, chain: &'a Chain, test_performer: F)
 where
-    F: FnOnce(&'static str, &'a Chain) -> Result<(), ()> + Copy,
+    F: FnOnce(&'static str, &'a Chain) -> Result<(), String> + Copy,
 {
-    if !blockchain_urls
-        .iter()
-        .fold(false, |acc, url| match (acc, test_performer(url, chain)) {
-            (true, _) => true,
-            (false, Ok(_)) => true,
-            (false, Err(_)) => false,
-        })
-    {
-        panic!("Test failed on all blockchain services")
+    for blockchain_url in blockchain_urls {
+        eprintln!("Starting a new attempt with: '{}'", blockchain_url);
+        match test_performer(blockchain_url, chain) {
+            Ok(()) => {
+                eprintln!("Attempt Successful!");
+                return;
+            }
+            Err(e) => {
+                eprintln!("Attempt Failed: {:?}", e);
+            }
+        }
     }
+
+    panic!("Test failed on all blockchain services");
 }
 
 #[test]
-fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
+fn masq_erc20_contract_exists_on_polygon_amoy_integration() {
     let blockchain_urls = vec![
-        "https://matic-mumbai.chainstacklabs.com",
-        "https://rpc-mumbai.maticvigil.com",
-        "https://matic-testnet-archive-rpc.bwarelabs.com",
+        "https://rpc-amoy.polygon.technology",
+        "https://rpc.ankr.com/polygon_amoy",
+        "https://80002.rpc.thirdweb.com",
     ];
-    let chain = Chain::PolyMumbai;
+    let chain = Chain::PolyAmoy;
 
     let assertion_body = |url, chain| assert_contract_existence(url, chain, "tMASQ", 18);
     assert_contract(blockchain_urls, &chain, assertion_body)
@@ -144,7 +144,7 @@ fn assert_total_supply(
     blockchain_service_url: &str,
     chain: &Chain,
     expected_total_supply: u64,
-) -> Result<(), ()> {
+) -> Result<(), String> {
     let min_abi_json = r#"[{
        "constant": true,
        "inputs": [],
@@ -169,8 +169,7 @@ fn assert_total_supply(
     {
         Ok(ts) => ts,
         Err(e) => {
-            eprintln!("Total supply query failed due to: {:?}", e);
-            return Err(());
+            return Err(format!("Total supply query failed due to: {:?}", e));
         }
     };
     assert_eq!(

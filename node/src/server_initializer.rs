@@ -8,6 +8,7 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
+use clap::value_t;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
@@ -17,7 +18,6 @@ use log::{log, Level};
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
 use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
-use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::io;
@@ -36,38 +36,42 @@ pub struct ServerInitializerReal {
 
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
-        let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let multi_config = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let real_user = value_m!(multi_config, "real-user", RealUser)
+            .expect("ServerInitializer: Real user not present in Multi Config");
+        let data_directory = value_m!(multi_config, "data-directory", String)
+            .expect("ServerInitializer: Data directory not present in Multi Config");
 
         let result: RunModeResult = Ok(())
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&multi_config),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&multi_config),
             );
 
         self.privilege_dropper
-            .chown(&params.data_directory, &params.real_user);
+            .chown(Path::new(data_directory.as_str()), &real_user);
 
-        self.privilege_dropper.drop_privileges(&params.real_user);
+        self.privilege_dropper.drop_privileges(&real_user);
 
         result
             .combine_results(
                 self.dns_socket_server
                     .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&multi_config, streams),
             )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&multi_config, streams),
             )
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl Future for ServerInitializerReal {
@@ -90,7 +94,7 @@ impl Default for ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -111,29 +115,6 @@ impl ResultsCombiner for RunModeResult {
                     .chain(e2.param_errors.into_iter())
                     .collect(),
             )),
-        }
-    }
-}
-
-pub struct GatheredParams<'a> {
-    pub multi_config: MultiConfig<'a>,
-    pub config_file_path: PathBuf,
-    pub real_user: RealUser,
-    pub data_directory: PathBuf,
-}
-
-impl<'a> GatheredParams<'a> {
-    pub fn new(
-        multi_config: MultiConfig<'a>,
-        config_file_path: PathBuf,
-        real_user: RealUser,
-        data_directory: PathBuf,
-    ) -> Self {
-        Self {
-            multi_config,
-            config_file_path,
-            real_user,
-            data_directory,
         }
     }
 }

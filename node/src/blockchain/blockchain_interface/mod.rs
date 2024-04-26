@@ -48,5 +48,5 @@ pub trait BlockchainInterface {
 
     fn lower_interface(&self) -> &dyn LowBlockchainInt;
 
-    as_any_in_trait!();
+    as_any_ref_in_trait!();
 }

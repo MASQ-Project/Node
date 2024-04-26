@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
-use masq_lib::as_any_in_trait_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
@@ -51,7 +51,7 @@ impl Command for SetupCommand {
             Err(e) => Err(e),
         }
     }
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl SetupCommand {
@@ -391,10 +391,10 @@ ip                            No sir, I don't like it.\n\
                 status_data_dir: UiSetupResponseValueStatus::Default,
             },
             SetupCommandData {
-                chain_str: Some("polygon-mumbai".to_owned()),
+                chain_str: Some("polygon-amoy".to_owned()),
                 data_directory: None,
-                chain_name_expected: Some("polygon-mumbai"),
-                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+                chain_name_expected: Some("polygon-amoy"),
+                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-amoy"),
                 note_expected: true,
                 status_chain: UiSetupResponseValueStatus::Set,
                 status_data_dir: UiSetupResponseValueStatus::Default,
@@ -409,10 +409,10 @@ ip                            No sir, I don't like it.\n\
                 status_data_dir: UiSetupResponseValueStatus::Set,
             },
             SetupCommandData {
-                chain_str: Some("polygon-mumbai".to_owned()),
-                data_directory: Some("booga/polygon-mumbai".to_owned()),
-                chain_name_expected: Some("polygon-mumbai"),
-                data_directory_expected: Some("booga/polygon-mumbai/polygon-mumbai"),
+                chain_str: Some("polygon-amoy".to_owned()),
+                data_directory: Some("booga/polygon-amoy".to_owned()),
+                chain_name_expected: Some("polygon-amoy"),
+                data_directory_expected: Some("booga/polygon-amoy/polygon-amoy"),
                 note_expected: true,
                 status_chain: UiSetupResponseValueStatus::Set,
                 status_data_dir: UiSetupResponseValueStatus::Set,

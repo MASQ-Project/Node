@@ -338,16 +338,6 @@ impl BlockchainBridge {
                 .retrieve_transactions(start_block, end_block, &msg.recipient);
         match retrieved_transactions {
             Ok(transactions) => {
-                debug!(
-                    self.logger,
-                    "Write new start block: {}", transactions.new_start_block
-                );
-                if let Err(e) = self
-                    .persistent_config
-                    .set_start_block(transactions.new_start_block)
-                {
-                    panic! ("Cannot set start block {} in database; payments to you may not be processed: {:?}", transactions.new_start_block, e)
-                };
                 if transactions.transactions.is_empty() {
                     debug!(self.logger, "No new receivable detected");
                 }
@@ -357,6 +347,7 @@ impl BlockchainBridge {
                     .try_send(ReceivedPayments {
                         timestamp: SystemTime::now(),
                         payments: transactions.transactions,
+                        new_start_block: transactions.new_start_block,
                         response_skeleton_opt: msg.response_skeleton_opt,
                     })
                     .expect("Accountant is dead.");
@@ -1407,19 +1398,15 @@ mod tests {
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
             .lower_interface_results(Box::new(lower_interface));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+            .start_block_result(Ok(6));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
             false,
             Some(make_wallet("consuming")),
         );
-
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -1438,8 +1425,6 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![8675309u64]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
@@ -1458,13 +1443,13 @@ mod tests {
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
                 payments: expected_transactions.transactions,
+                new_start_block: 8675309u64,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
             }
         );
-
         TestLogHandler::new().exists_log_containing("INFO: BlockchainBridge: Using 'latest' block number instead of a literal number. QueryFailed(\"Failed to read the latest block number\")");
     }
 
@@ -1478,7 +1463,7 @@ mod tests {
         let amount = 42;
         let amount2 = 55;
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 1234,
+            new_start_block: 9876,
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 7,
@@ -1499,12 +1484,9 @@ mod tests {
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
             .lower_interface_results(Box::new(lower_interface));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+            .start_block_result(Ok(6));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
@@ -1529,8 +1511,6 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![1234u64]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
@@ -1549,6 +1529,7 @@ mod tests {
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
                 payments: expected_transactions.transactions,
+                new_start_block: 9876,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1568,12 +1549,9 @@ mod tests {
                 transactions: vec![],
             }))
             .lower_interface_results(Box::new(lower_interface));
-        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
-            .start_block_result(Ok(6))
-            .set_start_block_params(&set_start_block_params_arc)
-            .set_start_block_result(Ok(()));
+            .start_block_result(Ok(6));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new(
             "processing_of_received_payments_continues_even_if_no_payments_are_detected",
@@ -1602,8 +1580,6 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![7]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments.timestamp, after);
@@ -1612,6 +1588,7 @@ mod tests {
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
                 payments: vec![],
+                new_start_block: 7,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1633,42 +1610,6 @@ mod tests {
             BlockchainInterfaceMock::default().lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Err(PersistentConfigError::TransactionError));
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(persistent_config),
-            false,
-            None, //not needed in this test
-        );
-        let retrieve_transactions = RetrieveTransactions {
-            recipient: make_wallet("somewallet"),
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.handle_retrieve_transactions(retrieve_transactions);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Cannot set start block 1234 in database; payments to you may not be processed: TransactionError"
-    )]
-    fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
-        let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(1234))
-            .max_block_count_result(Ok(Some(10000u64)))
-            .set_start_block_result(Err(PersistentConfigError::TransactionError))
-            .max_block_count_result(Ok(Some(10000u64)));
-        let lower_interface =
-            LowBlockchainIntMock::default().get_block_number_result(Ok(0u64.into()));
-        let blockchain_interface = BlockchainInterfaceMock::default()
-            .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1234,
-                transactions: vec![BlockchainTransaction {
-                    block_number: 1000,
-                    from: make_wallet("somewallet"),
-                    wei_amount: 2345,
-                }],
-            }))
-            .lower_interface_results(Box::new(lower_interface));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -1854,7 +1795,7 @@ mod tests {
         assert_eq!(Some(100000u64), max_block_count);
     }
     /*
-        POKT (Polygon mainnet and mumbai)
+        POKT (Polygon mainnet and amoy)
         {"jsonrpc":"2.0","id":7,"error":{"message":"You cannot query logs for more than 100000 blocks at once.","code":-32064}}
     */
     /*

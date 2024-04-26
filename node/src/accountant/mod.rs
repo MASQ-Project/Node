@@ -126,6 +126,7 @@ pub struct ReceivedPayments {
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
+    pub new_start_block: u64,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1062,7 +1063,7 @@ mod tests {
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
     use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayable, PendingPayableDaoError,
+        PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
@@ -1079,14 +1080,17 @@ mod tests {
         bc_from_earning_wallet, bc_from_wallets, make_analyzed_account,
         make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
         make_payable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
-        MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock, PayableDaoMock,
-        PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
+        ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
+        PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
+    use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
@@ -1161,6 +1165,7 @@ mod tests {
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new()) // For Accountant
@@ -1178,6 +1183,9 @@ mod tests {
         let banned_dao_factory = BannedDaoFactoryMock::new()
             .make_params(&banned_dao_factory_params_arc)
             .make_result(BannedDaoMock::new()); // For Receivable Scanner
+        let config_dao_factory = ConfigDaoFactoryMock::new()
+            .make_params(&config_dao_factory_params_arc)
+            .make_result(ConfigDaoMock::new()); // For receivable scanner
 
         let _ = Accountant::new(
             config,
@@ -1186,6 +1194,7 @@ mod tests {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
         );
 
@@ -1202,6 +1211,7 @@ mod tests {
             vec![(), ()]
         );
         assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![()]);
+        assert_eq!(*config_dao_factory_params_arc.lock().unwrap(), vec![()]);
     }
 
     #[test]
@@ -1226,6 +1236,8 @@ mod tests {
         );
         let banned_dao_factory =
             Box::new(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
+        let config_dao_factory =
+            Box::new(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
 
         let result = Accountant::new(
             bootstrapper_config,
@@ -1234,6 +1246,7 @@ mod tests {
                 pending_payable_dao_factory,
                 receivable_dao_factory,
                 banned_dao_factory,
+                config_dao_factory,
             },
         );
 
@@ -1333,6 +1346,7 @@ mod tests {
         config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .config_dao(ConfigDaoMock::new().set_result(Ok(())))
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1342,6 +1356,7 @@ mod tests {
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
+            new_start_block: 1234567,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1418,8 +1433,11 @@ mod tests {
     #[test]
     fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(1), make_tx_hash(123))]);
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(1, make_tx_hash(123))],
+                no_rowid_results: vec![],
+            });
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
@@ -1978,7 +1996,10 @@ mod tests {
         let expected_rowid = 45623;
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(vec![(Some(expected_rowid), expected_hash)]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(expected_rowid, expected_hash)],
+                no_rowid_results: vec![],
+            });
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -2095,7 +2116,11 @@ mod tests {
     }
 
     #[test]
-    fn accountant_uses_receivables_dao_to_process_received_payments() {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block(
+    ) {
+        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -2108,13 +2133,22 @@ mod tests {
             from: make_wallet("wallet1"),
             wei_amount: 10000,
         };
-        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let transaction_id = ArbitraryIdStamp::new();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
+            .commit_params(&commit_params_arc)
+            .commit_result(Ok(()))
+            .set_arbitrary_id_stamp(transaction_id);
+        let wrapped_transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
-            .more_money_received_result(Ok(()));
+            .more_money_received_params(&more_money_received_params_arc)
+            .more_money_received_result(wrapped_transaction);
+        let config_dao = ConfigDaoMock::new()
+            .set_by_guest_transaction_params(&set_by_guest_transaction_params_arc)
+            .set_by_guest_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
+            .config_dao(config_dao)
             .build();
         let system = System::new("accountant_uses_receivables_dao_to_process_received_payments");
         let subject = accountant.start();
@@ -2123,6 +2157,7 @@ mod tests {
             .try_send(ReceivedPayments {
                 timestamp: now,
                 payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
+                new_start_block: 123456789,
                 response_skeleton_opt: None,
             })
             .expect("unexpected actix error");
@@ -2133,6 +2168,17 @@ mod tests {
         assert_eq!(
             *more_money_received_params,
             vec![(now, vec![expected_receivable_1, expected_receivable_2])]
+        );
+        let commit_params = commit_params_arc.lock().unwrap();
+        assert_eq!(*commit_params, vec![()]);
+        let set_by_guest_transaction_params = set_by_guest_transaction_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_by_guest_transaction_params,
+            vec![(
+                transaction_id,
+                "start_block".to_string(),
+                Some("123456789".to_string())
+            )]
         )
     }
 
@@ -3522,10 +3568,13 @@ mod tests {
             ..fingerprint_2_first_round.clone()
         };
         let pending_payable_dao_for_payable_scanner = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![
-                (Some(rowid_for_account_1), pending_tx_hash_1),
-                (Some(rowid_for_account_2), pending_tx_hash_2),
-            ]);
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (rowid_for_account_1, pending_tx_hash_1),
+                    (rowid_for_account_2, pending_tx_hash_2),
+                ],
+                no_rowid_results: vec![],
+            });
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
             .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
             .return_all_errorless_fingerprints_result(vec![])
@@ -3542,10 +3591,13 @@ mod tests {
                 fingerprint_2_third_round,
             ])
             .return_all_errorless_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
-            .fingerprints_rowids_result(vec![
-                (Some(rowid_for_account_1), pending_tx_hash_1),
-                (Some(rowid_for_account_2), pending_tx_hash_2),
-            ])
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![
+                    (rowid_for_account_1, pending_tx_hash_1),
+                    (rowid_for_account_2, pending_tx_hash_2),
+                ],
+                no_rowid_results: vec![],
+            })
             .increment_scan_attempts_params(&update_fingerprint_params_arc)
             .increment_scan_attempts_result(Ok(()))
             .increment_scan_attempts_result(Ok(()))
@@ -4746,7 +4798,6 @@ mod tests {
             let factory = Accountant::dao_factory(data_dir);
             factory.make();
         };
-
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 }

@@ -67,7 +67,7 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 fn node_logfile_does_not_belong_to_root_integration() {
     let mut node = MASQNode::start_standard(
         "node_logfile_does_not_belong_to_root_integration",
-        Some(CommandConfig::new().pair("--chain", "polygon-mumbai")),
+        Some(CommandConfig::new().pair("--chain", "polygon-amoy")),
         true,
         true,
         false,

@@ -77,8 +77,8 @@ pub struct BlockchainInterfaceMock {
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     lower_interface_result: Option<Box<LowBlockchainIntMock>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -331,7 +331,7 @@ pub fn all_chains() -> [Chain; 4] {
     [
         Chain::EthMainnet,
         Chain::PolyMainnet,
-        Chain::PolyMumbai,
+        Chain::PolyAmoy,
         Chain::Dev,
     ]
 }

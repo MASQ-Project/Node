@@ -5,10 +5,10 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
-use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
+use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::collections::hash_map::Entry;
@@ -273,6 +273,8 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_exit(&mut self) -> Option<Output> {
+        // TODO Put the body of this function in a background thread and wait on the thread for a few
+        // seconds. If the thread doesn't terminate, leak the thread and return None.
         let child_opt = self.child.take();
         let output_opt = self.output.take();
         match (child_opt, output_opt) {

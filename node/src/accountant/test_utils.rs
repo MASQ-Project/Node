@@ -7,7 +7,7 @@ use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
 use crate::accountant::db_access_objects::pending_payable_dao::{
-    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
+    PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes,
 };
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
@@ -38,6 +38,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
@@ -46,6 +47,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::{Message, System};
@@ -55,10 +57,11 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use masq_lib::utils::convert_collection;
-use rusqlite::{Connection, Row};
+use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
 use std::fmt::Debug;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -106,7 +109,7 @@ pub struct AccountantBuilder {
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
     banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
+    config_dao_factory: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
@@ -318,7 +321,7 @@ impl AccountantBuilder {
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(Box::new(ConfigDaoFactoryMock::new(config_dao)));
+        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
@@ -344,6 +347,9 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
+        let config_dao_factory = self
+            .config_dao_factory
+            .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
             DaoFactories {
@@ -351,6 +357,7 @@ impl AccountantBuilder {
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
+                config_dao_factory: Box::new(config_dao_factory),
             },
         );
         if let Some(logger) = self.logger {
@@ -522,27 +529,32 @@ impl BannedDaoFactoryMock {
 }
 
 pub struct ConfigDaoFactoryMock {
-    called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<ConfigDaoMock>>,
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn ConfigDao>>>,
 }
 
 impl ConfigDaoFactory for ConfigDaoFactoryMock {
     fn make(&self) -> Box<dyn ConfigDao> {
-        *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl ConfigDaoFactoryMock {
-    pub fn new(mock: ConfigDaoMock) -> Self {
+    pub fn new() -> Self {
         Self {
-            called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-        self.called = called.clone();
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: ConfigDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }
@@ -704,7 +716,7 @@ pub struct ReceivableDaoMock {
     more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
-    more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
+    more_money_received_results: RefCell<Vec<TransactionSafeWrapper<'static>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
@@ -728,11 +740,16 @@ impl ReceivableDao for ReceivableDaoMock {
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>) {
+    fn more_money_received(
+        &mut self,
+        now: SystemTime,
+        transactions: &[BlockchainTransaction],
+    ) -> TransactionSafeWrapper {
         self.more_money_received_parameters
             .lock()
             .unwrap()
-            .push((now, transactions));
+            .push((now, transactions.to_vec()));
+        self.more_money_received_results.borrow_mut().remove(0)
     }
 
     fn new_delinquencies(
@@ -788,7 +805,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_parameters(
+    pub fn more_money_received_params(
         mut self,
         parameters: &Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     ) -> Self {
@@ -796,7 +813,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn more_money_received_result(self, result: Result<(), PayableDaoError>) -> Self {
+    pub fn more_money_received_result(self, result: TransactionSafeWrapper<'static>) -> Self {
         self.more_money_received_results.borrow_mut().push(result);
         self
     }
@@ -908,7 +925,7 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
 #[derive(Default)]
 pub struct PendingPayableDaoMock {
     fingerprints_rowids_params: Arc<Mutex<Vec<Vec<H256>>>>,
-    fingerprints_rowids_results: RefCell<Vec<Vec<(Option<u64>, H256)>>>,
+    fingerprints_rowids_results: RefCell<Vec<TransactionHashes>>,
     delete_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
     delete_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_new_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u128)>, SystemTime)>>>,
@@ -923,7 +940,7 @@ pub struct PendingPayableDaoMock {
 }
 
 impl PendingPayableDao for PendingPayableDaoMock {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
         self.fingerprints_rowids_params
             .lock()
             .unwrap()
@@ -994,7 +1011,7 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn fingerprints_rowids_result(self, result: Vec<(Option<u64>, H256)>) -> Self {
+    pub fn fingerprints_rowids_result(self, result: TransactionHashes) -> Self {
         self.fingerprints_rowids_results.borrow_mut().push(result);
         self
     }
@@ -1179,6 +1196,7 @@ impl PendingPayableScannerBuilder {
 pub struct ReceivableScannerBuilder {
     receivable_dao: ReceivableDaoMock,
     banned_dao: BannedDaoMock,
+    persistent_configuration: PersistentConfigurationMock,
     payment_thresholds: PaymentThresholds,
     earning_wallet: Wallet,
     financial_statistics: FinancialStatistics,
@@ -1189,6 +1207,7 @@ impl ReceivableScannerBuilder {
         Self {
             receivable_dao: ReceivableDaoMock::new(),
             banned_dao: BannedDaoMock::new(),
+            persistent_configuration: PersistentConfigurationMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             earning_wallet: make_wallet("earning_default"),
             financial_statistics: FinancialStatistics::default(),
@@ -1197,6 +1216,14 @@ impl ReceivableScannerBuilder {
 
     pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
         self.receivable_dao = receivable_dao;
+        self
+    }
+
+    pub fn persistent_configuration(
+        mut self,
+        persistent_config: PersistentConfigurationMock,
+    ) -> Self {
+        self.persistent_configuration = persistent_config;
         self
     }
 
@@ -1219,6 +1246,7 @@ impl ReceivableScannerBuilder {
         ReceivableScanner::new(
             Box::new(self.receivable_dao),
             Box::new(self.banned_dao),
+            Box::new(self.persistent_configuration),
             Rc::new(self.payment_thresholds),
             Rc::new(self.earning_wallet),
             Rc::new(RefCell::new(self.financial_statistics)),
@@ -1420,6 +1448,18 @@ impl PayableThresholdsGaugeMock {
     }
 }
 
+pub fn trick_rusqlite_with_read_only_conn(
+    path: &Path,
+    create_table: fn(&Connection),
+) -> Connection {
+    let db_path = path.join("experiment.db");
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
+    create_table(&conn);
+    conn.close().unwrap();
+    let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    conn
+}
+
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     search_for_indispensable_adjustment_params:
@@ -1556,7 +1596,7 @@ where
         panic!("Called mark_as_ended() from NullScanner");
     }
 
-    as_any_in_trait_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);

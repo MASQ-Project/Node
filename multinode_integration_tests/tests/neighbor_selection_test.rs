@@ -6,7 +6,9 @@ use multinode_integration_tests_lib::multinode_gossip::GossipType;
 use multinode_integration_tests_lib::multinode_gossip::{
     parse_gossip, MultinodeGossip, SingleNode, Standard,
 };
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use multinode_integration_tests_lib::neighborhood_constructor::{
+    construct_neighborhood, do_not_modify_config,
+};
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
@@ -52,7 +54,8 @@ fn debut_target_does_not_introduce_known_neighbors() {
         debuter_node_record.public_key(),
         another_common_neighbor.public_key(),
     );
-    let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
+    let (_, subject_real_node, _) =
+        construct_neighborhood(&mut cluster, dest_db, vec![], do_not_modify_config());
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
             .node(debuter_mock_node.main_public_key(), true)
@@ -104,7 +107,8 @@ fn debut_target_does_not_pass_to_known_neighbors() {
         src_db.add_node(node.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(debuter_node_record.public_key(), node.public_key());
     });
-    let (_, subject_real_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
+    let (_, subject_real_node, _) =
+        construct_neighborhood(&mut cluster, dest_db, vec![], do_not_modify_config());
     let debut_gossip = SingleNode::from(
         GossipBuilder::new(&src_db)
             .node(debuter_mock_node.main_public_key(), true)
@@ -133,7 +137,8 @@ fn node_remembers_its_neighbors_across_a_bounce() {
         dest_db.add_arbitrary_full_neighbor(relay2, exit_node);
         dest_db
     };
-    let (_, originating_node, _) = construct_neighborhood(&mut cluster, dest_db, vec![]);
+    let (_, originating_node, _) =
+        construct_neighborhood(&mut cluster, dest_db, vec![], do_not_modify_config());
     let relay1 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
 
     originating_node.kill_node();

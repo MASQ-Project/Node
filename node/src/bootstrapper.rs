@@ -1152,7 +1152,7 @@ mod tests {
                 "--real-user",
                 "123:456:/home/booga",
                 "--chain",
-                "polygon-mumbai",
+                "polygon-amoy",
             ]))
             .unwrap();
 
@@ -1293,6 +1293,7 @@ mod tests {
 
     #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+        init_test_logging();
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",

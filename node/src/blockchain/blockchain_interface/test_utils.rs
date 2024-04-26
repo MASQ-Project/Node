@@ -5,7 +5,6 @@
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
-
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::http_test_server::TestServer;

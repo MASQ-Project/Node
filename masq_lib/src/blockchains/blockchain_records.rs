@@ -2,15 +2,14 @@
 
 use crate::blockchains::chains::Chain;
 use crate::constants::{
-    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
-    MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    AMOY_TESTNET_CONTRACT_CREATION_BLOCK, DEV_CHAIN_FULL_IDENTIFIER,
+    ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_AMOY_FULL_IDENTIFIER,
+    POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
     ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use ethereum_types::{Address, H160};
 
-//chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
 pub const CHAINS: [BlockchainRecord; 5] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
@@ -27,11 +26,11 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
-        self_id: Chain::PolyMumbai,
-        num_chain_id: 80001,
-        literal_identifier: POLYGON_MUMBAI_FULL_IDENTIFIER,
-        contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
-        contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+        self_id: Chain::PolyAmoy,
+        num_chain_id: 80002,
+        literal_identifier: POLYGON_AMOY_FULL_IDENTIFIER,
+        contract: AMOY_TESTNET_CONTRACT_ADDRESS,
+        contract_creation_block: AMOY_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::EthRopsten,
@@ -58,6 +57,22 @@ pub struct BlockchainRecord {
     pub contract_creation_block: u64,
 }
 
+const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = H160([
+    0xee, 0x9a, 0x35, 0x2f, 0x6a, 0xac, 0x4a, 0xf1, 0xa5, 0xb9, 0xf4, 0x67, 0xf6, 0xa9, 0x3e, 0x0f,
+    0xfb, 0xe9, 0xdd, 0x35,
+]);
+
+const ETH_MAINNET_CONTRACT_ADDRESS: Address = H160([
+    0x06, 0xf3, 0xc3, 0x23, 0xf0, 0x23, 0x8c, 0x72, 0xbf, 0x35, 0x01, 0x10, 0x71, 0xf2, 0xb5, 0xb7,
+    0xf4, 0x3a, 0x05, 0x4c,
+]);
+
+// $tMASQ (Amoy)
+const AMOY_TESTNET_CONTRACT_ADDRESS: Address = H160([
+    0xd9, 0x8c, 0x3e, 0xbd, 0x6b, 0x7f, 0x9b, 0x7c, 0xda, 0x24, 0x49, 0xec, 0xac, 0x00, 0xd1, 0xe5,
+    0xf4, 0x7a, 0x81, 0x93,
+]);
+
 // SHRD (Ropsten)
 const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0x38, 0x4d, 0xec, 0x25, 0xe0, 0x3f, 0x94, 0x93, 0x17, 0x67, 0xce, 0x4c, 0x35, 0x56, 0x16, 0x84,
@@ -69,30 +84,12 @@ const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0xf1, 0xb3, 0xe6, 0x64,
 ]);
 
-const ETH_MAINNET_CONTRACT_ADDRESS: Address = H160([
-    0x06, 0xF3, 0xC3, 0x23, 0xf0, 0x23, 0x8c, 0x72, 0xBF, 0x35, 0x01, 0x10, 0x71, 0xf2, 0xb5, 0xB7,
-    0xF4, 0x3A, 0x05, 0x4c,
-]);
-
-#[allow(clippy::mixed_case_hex_literals)]
-const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = H160([
-    0xEe, 0x9A, 0x35, 0x2F, 0x6a, 0xAc, 0x4a, 0xF1, 0xA5, 0xB9, 0xf4, 0x67, 0xF6, 0xa9, 0x3E, 0x0f,
-    0xfB, 0xe9, 0xDd, 0x35,
-]);
-
-// $tMASQ (Mumbai)
-#[allow(clippy::mixed_case_hex_literals)]
-const MUMBAI_TESTNET_CONTRACT_ADDRESS: Address = H160([
-    0x9B, 0x27, 0x03, 0x4a, 0xca, 0xBd, 0x44, 0x22, 0x3f, 0xB2, 0x3d, 0x62, 0x8B, 0xa4, 0x84, 0x98,
-    0x67, 0xcE, 0x1D, 0xB2,
-]);
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchains::chains::chain_from_chain_identifier_opt;
     use crate::constants::{
-        MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
+        AMOY_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     };
     use std::collections::HashSet;
     use std::iter::FromIterator;
@@ -104,7 +101,7 @@ mod tests {
             assert_returns_correct_record(Chain::Dev, 2),
             assert_returns_correct_record(Chain::EthRopsten, 3),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
-            assert_returns_correct_record(Chain::PolyMumbai, 80001),
+            assert_returns_correct_record(Chain::PolyAmoy, 80002),
         ];
         assert_exhaustive(&test_array)
     }
@@ -118,7 +115,7 @@ mod tests {
     fn from_str_works() {
         let test_array = [
             assert_from_str(Chain::PolyMainnet),
-            assert_from_str(Chain::PolyMumbai),
+            assert_from_str(Chain::PolyAmoy),
             assert_from_str(Chain::EthMainnet),
             assert_from_str(Chain::EthRopsten),
             assert_from_str(Chain::Dev),
@@ -142,7 +139,7 @@ mod tests {
         let test_array = [
             assert_chain_significance(0, Chain::PolyMainnet),
             assert_chain_significance(1, Chain::EthMainnet),
-            assert_chain_significance(2, Chain::PolyMumbai),
+            assert_chain_significance(2, Chain::PolyAmoy),
             assert_chain_significance(3, Chain::EthRopsten),
             assert_chain_significance(4, Chain::Dev),
         ];
@@ -203,17 +200,17 @@ mod tests {
     }
 
     #[test]
-    fn mumbai_record_is_properly_declared() {
-        let examined_chain = Chain::PolyMumbai;
+    fn amoy_record_is_properly_declared() {
+        let examined_chain = Chain::PolyAmoy;
         let chain_record = return_examined(examined_chain);
         assert_eq!(
             chain_record,
             &BlockchainRecord {
-                num_chain_id: 80001,
+                num_chain_id: 80002,
                 self_id: examined_chain,
-                literal_identifier: "polygon-mumbai",
-                contract: MUMBAI_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+                literal_identifier: "polygon-amoy",
+                contract: AMOY_TESTNET_CONTRACT_ADDRESS,
+                contract_creation_block: AMOY_TESTNET_CONTRACT_CREATION_BLOCK,
             }
         );
     }
@@ -245,7 +242,7 @@ mod tests {
             assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
-            assert_chain_from_chain_identifier_opt("polygon-mumbai", Some(Chain::PolyMumbai)),
+            assert_chain_from_chain_identifier_opt("polygon-amoy", Some(Chain::PolyAmoy)),
         ];
         assert_exhaustive(&test_array)
     }
