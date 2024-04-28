@@ -1,12 +1,12 @@
 #!/bin/sh
 
-# All ordinal wallets begin with zero balances. Except the contract owner wallet as the only one populated with usable
-# means. The means are meant to be redistributed from here to any accounts that will need it. Notice the argument
-# --account '<contract owner wallet private key>,<ETH in wei>' that assigns a certain initial balance.
-#
-# This same principle of wallets fed from this centric wallet at the test setup is followed by both the gas currency
-# and the MASQ tokens. With those, there is practically no other option for their strong dependency on the blockchain
-# smart contract that defines the entire supply is deployed to the contract owner's wallet.
+# All wallets begin with null balances. The only exception is the contract owner wallet whose means are to be
+# redistributed from there to every account that would need it. (Notice the argument --account '<contract owner wallet
+# private key>,<ETH in wei>' that assigns a certain initial balance.) This same principle of initialization needs to be
+# regarded, during the test setup, and applied with both the transaction fee (wei of ETH) and the service fee (MASQ).
+# While on the transaction fee it's a choice done by us, with the latter, there probably isn't any other solution given
+# the mechanism how the deployment of the blockchain smart contract generates the entire token supply only on
+# the account of the contract owner's wallet from where it must be sent out to other wallets if needed.
 
 ganache-cli \
   -h 0.0.0.0 \

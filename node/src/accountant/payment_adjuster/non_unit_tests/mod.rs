@@ -1,8 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
+use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
 use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
     Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
@@ -10,11 +13,12 @@ use crate::accountant::payment_adjuster::{
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
 use crate::accountant::test_utils::try_making_guaranteed_qualified_payables;
-use crate::accountant::AnalyzedPayableAccount;
+use crate::accountant::{gwei_to_wei, AnalyzedPayableAccount};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::{Either, Itertools};
+use masq_lib::percentage::Percentage;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::convert_collection;
 use rand;
@@ -27,7 +31,7 @@ use thousands::Separable;
 use web3::types::U256;
 
 #[test]
-#[ignore]
+//#[ignore]
 fn loading_test_with_randomized_params() {
     // This test needs to be understood as a generator of extensive amount of scenarios that
     // the PaymentAdjuster might come to be asked to resolve while there are quite many combinations
@@ -43,9 +47,11 @@ fn loading_test_with_randomized_params() {
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
-    let number_of_requested_scenarios = 500;
+    let number_of_requested_scenarios = 5000;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
-    let test_overall_output_collector = TestOverallOutputCollector::default();
+    let invalidly_generated_scenarios = number_of_requested_scenarios - scenarios.len();
+    let test_overall_output_collector =
+        TestOverallOutputCollector::new(invalidly_generated_scenarios);
 
     struct FirstStageOutput {
         test_overall_output_collector: TestOverallOutputCollector,
@@ -147,14 +153,15 @@ fn try_making_single_valid_scenario(
     now: SystemTime,
 ) -> Option<PreparedAdjustment> {
     let (cw_service_fee_balance, payables) = make_payables(gn, now);
-    let payables_len = payables.len();
     let qualified_payables = try_making_guaranteed_qualified_payables(
         payables,
         &PRESERVED_TEST_PAYMENT_THRESHOLDS,
         now,
         false,
     );
-    if payables_len != qualified_payables.len() {
+    let required_service_fee_total: u128 =
+        sum_as(&qualified_payables, |account| account.balance_minor());
+    if required_service_fee_total <= cw_service_fee_balance {
         return None;
     }
     let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
@@ -167,35 +174,80 @@ fn try_making_single_valid_scenario(
     ))
 }
 
-fn make_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccount>) {
-    let accounts_count = generate_non_zero_usize(gn, 20) + 1;
-    let accounts = (0..accounts_count)
-        .map(|idx| {
-            let wallet = make_wallet(&format!("wallet{}", idx));
-            let debt_age = 2000 + generate_non_zero_usize(gn, 200000);
-            let service_fee_balance_minor = {
-                let mut generate_u128 = || -> u128 { gn.gen_range(1_000_000_000..2_000_000_000) };
-                let parameter_a = generate_u128();
-                let parameter_b = generate_u128();
-                parameter_a * parameter_b
-            };
-            let last_paid_timestamp = from_time_t(to_time_t(now) - debt_age as i64);
-            PayableAccount {
-                wallet,
-                balance_wei: service_fee_balance_minor,
-                last_paid_timestamp,
-                pending_payable_opt: None,
+fn make_payable_account(
+    idx: usize,
+    threshold_limit: u128,
+    guarantee_age: u64,
+    now: SystemTime,
+    gn: &mut ThreadRng,
+) -> PayableAccount {
+    // Why is this construction so complicated? Well, I wanted to get the test showing partial
+    // adjustments where the final accounts can be paid enough but still not all up to their formerly
+    // claimed balance. It turned out it is very difficult to achieve that, I couldn't really come
+    // up with parameters that would certainly bring this condition. I ended up experimenting and
+    // looking for an algorithm that would make the parameters as random as possible because
+    // the generator alone is not much good at it. This isn't optimal either, but it allows to
+    // observe some of those partial adjustments, however, with a rate of maybe 0.5 % out of
+    // those all attempts to create a proper test scenario.
+    let wallet = make_wallet(&format!("wallet{}", idx));
+    let mut generate_age_segment = || generate_non_zero_usize(gn, (guarantee_age / 2) as usize);
+    let debt_age = generate_age_segment() + generate_age_segment() + generate_age_segment();
+    let service_fee_balance_minor = {
+        let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
+        let parameter_a = generate_u128();
+        let parameter_b = generate_u128();
+        let parameter_c = generate_u128();
+        let parameter_d = generate_u128();
+        let mut use_variable_exponent = |parameter: u128, up_to: usize| {
+            parameter.pow(generate_non_zero_usize(gn, up_to) as u32)
+        };
+        let a_b_c = use_variable_exponent(parameter_a, 3)
+            * use_variable_exponent(parameter_b, 4)
+            * use_variable_exponent(parameter_c, 5)
+            * parameter_d;
+        let addition = (0..6).fold(a_b_c, |so_far, subtrahend| {
+            if so_far != a_b_c {
+                so_far
+            } else {
+                if let Some(num) =
+                    a_b_c.checked_sub(use_variable_exponent(parameter_c, 6 - subtrahend))
+                {
+                    num
+                } else {
+                    so_far
+                }
             }
-        })
+        });
+
+        threshold_limit + addition
+    };
+    let last_paid_timestamp = from_time_t(to_time_t(now) - debt_age as i64);
+    PayableAccount {
+        wallet,
+        balance_wei: service_fee_balance_minor,
+        last_paid_timestamp,
+        pending_payable_opt: None,
+    }
+}
+
+fn make_payables(gn: &mut ThreadRng, now: SystemTime) -> (u128, Vec<PayableAccount>) {
+    let accounts_count = generate_non_zero_usize(gn, 25) + 1;
+    let threshold_limit =
+        gwei_to_wei::<u128, u64>(PRESERVED_TEST_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei);
+    let guarantee_age = PRESERVED_TEST_PAYMENT_THRESHOLDS.maturity_threshold_sec
+        + PRESERVED_TEST_PAYMENT_THRESHOLDS.threshold_interval_sec;
+    let accounts = (0..accounts_count)
+        .map(|idx| make_payable_account(idx, threshold_limit, guarantee_age, now, gn))
         .collect::<Vec<_>>();
     let balance_average = {
         let sum: u128 = sum_as(&accounts, |account| account.balance_wei);
         sum / accounts_count as u128
     };
     let cw_service_fee_balance_minor = {
-        let max_pieces = accounts_count * 6;
+        let multiplier = 1000;
+        let max_pieces = accounts_count * multiplier;
         let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
-        balance_average / 6 * number_of_pieces
+        balance_average / multiplier as u128 * number_of_pieces
     };
     (cw_service_fee_balance_minor, accounts)
 }
@@ -212,6 +264,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
+        .agreed_transaction_fee_margin_result(Percentage::new(15))
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
@@ -245,7 +298,7 @@ fn administrate_single_scenario_result(
                 ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8
             };
             let adjusted_accounts =
-                interpretable_account_resolutions(account_infos, &mut adjusted_accounts);
+                interpretable_adjustment_results(account_infos, &mut adjusted_accounts);
             let (partially_sorted_interpretable_adjustments, were_no_accounts_eliminated) =
                 sort_interpretable_adjustments(adjusted_accounts);
             Ok(SuccessfulAdjustment {
@@ -265,14 +318,14 @@ fn administrate_single_scenario_result(
     ScenarioResult::new(reinterpreted_result)
 }
 
-fn interpretable_account_resolutions(
+fn interpretable_adjustment_results(
     account_infos: Vec<AccountInfo>,
     adjusted_accounts: &mut Vec<PayableAccount>,
 ) -> Vec<InterpretableAdjustmentResult> {
     account_infos
         .into_iter()
         .map(|account_info| {
-            prepare_interpretable_account_resolution(account_info, adjusted_accounts)
+            prepare_interpretable_adjustment_result(account_info, adjusted_accounts)
         })
         .collect()
 }
@@ -342,11 +395,12 @@ fn render_results_to_file_and_attempt_basic_assertions(
         number_of_requested_scenarios,
         total_scenarios_evaluated,
     );
-
+    let total_scenarios_handled_including_invalid_ones =
+        total_scenarios_evaluated + test_overall_output_collector.invalidly_generated_scenarios;
     assert_eq!(
-        total_scenarios_evaluated, number_of_requested_scenarios,
-        "Evaluated scenarios count ({}) != requested scenarios count ({})",
-        total_scenarios_evaluated, number_of_requested_scenarios
+        total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios,
+        "All handled scenarios including those invalid ones ({}) != requested scenarios count ({})",
+        total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios
     );
     // The next assertions depend heavily on the setup for the scenario generator!!
     // It rather indicates how well the setting is so that you can adjust it eventually,
@@ -354,7 +408,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
     let entry_check_pass_rate = 100
         - ((test_overall_output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
-    let required_pass_rate = 80;
+    let required_pass_rate = 70;
     assert!(
         entry_check_pass_rate >= required_pass_rate,
         "Not at least {}% from {} the scenarios \
@@ -409,7 +463,9 @@ fn write_brief_test_summary_into_file(
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
          With 'AllAccountsEliminated':.......... {}\n\
-         With late insufficient balance errors:. {}",
+         With late insufficient balance errors:. {}\n\n\
+         Legend\n\
+         Partially adjusted accounts mark:...... {}",
         number_of_requested_scenarios,
         total_of_scenarios_evaluated,
         overall_output_collector.oks,
@@ -428,7 +484,8 @@ fn write_brief_test_summary_into_file(
             .render_in_two_lines(),
         overall_output_collector.scenarios_denied_before_adjustment_started,
         overall_output_collector.all_accounts_eliminated,
-        overall_output_collector.insufficient_service_fee_balance
+        overall_output_collector.insufficient_service_fee_balance,
+        NON_EXHAUSTED_ACCOUNT_MARKER
     ))
     .unwrap()
 }
@@ -537,11 +594,20 @@ fn single_account_output(
         .unwrap();
 }
 
+const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "# # # # # # # #";
+
 fn resolve_account_ending_status_graphically(
     bill_coverage_in_percentage_opt: Option<u8>,
 ) -> String {
     match bill_coverage_in_percentage_opt {
-        Some(percentage) => format!("{} %", percentage),
+        Some(percentage) => {
+            let highlighting = if percentage != 100 {
+                NON_EXHAUSTED_ACCOUNT_MARKER
+            } else {
+                ""
+            };
+            format!("{} %{:>shift$}", percentage, highlighting, shift = 40)
+        }
         None => "X".to_string(),
     }
 }
@@ -598,7 +664,7 @@ fn write_ln_made_of(file: &mut File, char: char) {
         .unwrap();
 }
 
-fn prepare_interpretable_account_resolution(
+fn prepare_interpretable_adjustment_result(
     account_info: AccountInfo,
     resulted_affordable_accounts: &mut Vec<PayableAccount>,
 ) -> InterpretableAdjustmentResult {
@@ -608,11 +674,12 @@ fn prepare_interpretable_account_resolution(
     let bills_coverage_in_percentage_opt = match adjusted_account_idx_opt {
         Some(idx) => {
             let adjusted_account = resulted_affordable_accounts.remove(idx);
-            let bill_coverage_in_percentage = u8::try_from(
-                (adjusted_account.balance_wei * 100)
-                    / account_info.initially_requested_service_fee_minor,
-            )
-            .unwrap();
+            assert_eq!(adjusted_account.wallet, account_info.wallet);
+            let bill_coverage_in_percentage = {
+                let percentage = (adjusted_account.balance_wei * 100)
+                    / account_info.initially_requested_service_fee_minor;
+                u8::try_from(percentage).unwrap()
+            };
             Some(bill_coverage_in_percentage)
         }
         None => None,
@@ -635,13 +702,10 @@ fn sort_interpretable_adjustments(
         .partition(|adjustment| adjustment.bills_coverage_in_percentage_opt.is_some());
     let were_no_accounts_eliminated = eliminated.is_empty();
     let finished_sorted = finished.into_iter().sorted_by(|result_a, result_b| {
-        Ord::cmp(
-            &result_b.bills_coverage_in_percentage_opt.unwrap(),
-            &result_a.bills_coverage_in_percentage_opt.unwrap(),
-        )
+        Ord::cmp(&result_a.initial_balance, &result_b.initial_balance)
     });
     let eliminated_sorted = eliminated.into_iter().sorted_by(|result_a, result_b| {
-        Ord::cmp(&result_b.initial_balance, &result_a.initial_balance)
+        Ord::cmp(&result_a.initial_balance, &result_b.initial_balance)
     });
     let all_results = finished_sorted.chain(eliminated_sorted).collect();
     (all_results, were_no_accounts_eliminated)
@@ -663,8 +727,8 @@ fn generate_boolean(gn: &mut ThreadRng) -> bool {
     gn.gen()
 }
 
-#[derive(Default)]
 struct TestOverallOutputCollector {
+    invalidly_generated_scenarios: usize,
     // First stage: entry check
     // ____________________________________
     scenarios_denied_before_adjustment_started: usize,
@@ -677,6 +741,21 @@ struct TestOverallOutputCollector {
     // Errors
     all_accounts_eliminated: usize,
     insufficient_service_fee_balance: usize,
+}
+
+impl TestOverallOutputCollector {
+    fn new(invalidly_generated_scenarios: usize) -> Self {
+        Self {
+            invalidly_generated_scenarios,
+            scenarios_denied_before_adjustment_started: 0,
+            oks: 0,
+            with_no_accounts_eliminated: 0,
+            fulfillment_distribution_for_transaction_fee_adjustments: Default::default(),
+            fulfillment_distribution_for_service_fee_adjustments: Default::default(),
+            all_accounts_eliminated: 0,
+            insufficient_service_fee_balance: 0,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -759,7 +838,6 @@ struct CommonScenarioInfo {
     cw_service_fee_balance_minor: u128,
     required_adjustment: Adjustment,
 }
-
 struct InterpretableAdjustmentResult {
     initial_balance: u128,
     debt_age_s: u64,

@@ -126,9 +126,9 @@ mod tests {
         // Explanation: The hypothesis is that the previous iteration disqualified an account after
         // which the remaining means are enough for the other accounts.
         // We could assign the accounts all they initially requested but a fairer way to do that
-        // is to give out only that much up to the disqualification limit of these accounts. Later on,
-        // the accounts that deserves it more will split the rest of the means among them (Their
-        // weights were higher).
+        // is to give out only that much up to the disqualification limit of these accounts. Later
+        // on, the accounts that deserves it more, according to their ordering based on their former
+        // weights, will split the rest of the means among them (Their weights were higher).
         let now = SystemTime::now();
         let mut payment_adjuster =
             initialize_payment_adjuster(now, cw_service_fee_balance_minor, 12345678);

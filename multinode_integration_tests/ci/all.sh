@@ -46,5 +46,5 @@ popd
 pushd "$CI_DIR/.."
 export RUSTFLAGS="-D warnings -Anon-snake-case"
 ci/lint.sh
-cargo test payments_were_adjusted_due_to_insufficient_balances --release -- --nocapture --test-threads=1
+cargo test --release -- --nocapture --test-threads=1
 popd

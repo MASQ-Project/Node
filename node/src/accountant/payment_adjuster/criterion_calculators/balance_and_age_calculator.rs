@@ -19,7 +19,7 @@ impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
             account.bare_account.balance_wei - account.payment_threshold_intercept_minor;
         let diff = largest - this_account;
 
-        // We invert the magnitude for smaller debts
+        // We invert the magnitude of smaller debts, so they weight the most
         largest + diff
     }
 

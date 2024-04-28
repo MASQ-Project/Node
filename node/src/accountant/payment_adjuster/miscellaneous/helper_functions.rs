@@ -122,12 +122,12 @@ pub fn exhaust_cw_balance_entirely(
         })
         .fold(
             init,
-            run_cw_exhausting_on_possibly_sub_optimal_account_balances,
+            run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances,
         )
         .accounts_finalized_so_far
 }
 
-fn run_cw_exhausting_on_possibly_sub_optimal_account_balances(
+fn run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances(
     status: ConsumingWalletExhaustingStatus,
     non_finalized_account: AdjustedAccountBeforeFinalization,
 ) -> ConsumingWalletExhaustingStatus {
@@ -367,15 +367,13 @@ mod tests {
 
     #[test]
     fn three_non_exhaustive_accounts_all_refilled() {
-        // A seemingly irrational situation, this can happen when some of those
-        // originally qualified payables could get disqualified. Those would free some
-        // means that could be used for the other accounts.
-        // In the end, we have a final set with suboptimal balances, despite
-        // the unallocated cw balance is larger than the entire sum of the original balances
-        // for this few resulting accounts.
-        // We can pay every account fully, so, why did we need to call the PaymentAdjuster
-        // in first place?
-        // The detail is in the loss of some accounts, allowing to pay more for the others.
+        // A seemingly irrational situation, this can happen when some of those originally qualified
+        // payables could get disqualified. Those would free some means that could be used for
+        // the other accounts. In the end, we have a final set with suboptimal balances, despite
+        // the unallocated cw balance is larger than the entire sum of the original balances for
+        // this few resulting accounts. We can pay every account fully, so, why did we need to call
+        // the PaymentAdjuster in first place? The detail is in the loss of some accounts, allowing
+        // to pay more for the others.
         let wallet_1 = make_wallet("abc");
         let original_requested_balance_1 = 45_000_000_000;
         let proposed_adjusted_balance_1 = 44_999_897_000;

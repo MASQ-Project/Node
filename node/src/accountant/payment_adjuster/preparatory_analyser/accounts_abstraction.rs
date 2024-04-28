@@ -6,7 +6,6 @@ pub trait DisqualificationAnalysableAccount<Product>: BalanceProvidingAccount
 where
     Product: BalanceProvidingAccount + DisqualificationLimitProvidingAccount,
 {
-    // fn process_findings(insufficiency_found: bool)->
     fn prepare_analyzable_account(
         self,
         disqualification_arbiter: &DisqualificationArbiter,

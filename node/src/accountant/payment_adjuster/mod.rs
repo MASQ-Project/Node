@@ -461,10 +461,11 @@ impl PaymentAdjusterError {
                 ..
             } => true,
             PaymentAdjusterError::AllAccountsEliminated => true,
-            // So far, we don't have to worry much, but adding an error that doesn't mean at the same
-            // time that the insolvency is a thing might be just a matter of time. Then, it's important
-            // to check for those consequences (Hint: It is anticipated to affect the wording
-            // of error announcements back nearer the Accountant's own area)
+            // So far, we don't have to worry much, but adding an error, that doesn't imply at the
+            // same time that an insolvency was proved before it, might become relevant in
+            // the future. Then, it'll be important to check for those consequences (Hint: It is
+            // anticipated to affect the wording of error announcements that take place back nearer
+            // to the Accountant's general area)
         }
     }
 }
@@ -647,7 +648,7 @@ mod tests {
             }),
             None,
         );
-        // transaction fee balance > payments
+        // Transaction fee balance > payments
         let input_3 = make_input_for_initial_check_tests(
             None,
             Some(TestConfigForTransactionFees {
@@ -661,7 +662,7 @@ mod tests {
                 },
             }),
         );
-        // transaction fee balance == payments
+        // Transaction fee balance == payments
         let input_4 = make_input_for_initial_check_tests(
             None,
             Some(TestConfigForTransactionFees {
@@ -1025,11 +1026,10 @@ mod tests {
         // contained before the test started. To prevent that, we used to secure a rule that
         // an account could never demand more than 100% of itself.
         //
-        // Later it was changed to other
-        // policy. so called "outweighed" account gains automatically a balance equal to its
-        // disqualification limit, also a prominent front position in the resulting set of
-        // the accounts to pay out. Additionally, due to its favorable position, it can be given
-        // a bit more from the remains still languishing in the consuming wallet.
+        // Later it was changed to other policy. so called "outweighed" account gains automatically
+        // a balance equal to its disqualification limit, also a prominent front position in
+        // the resulting set of the accounts to pay out. Additionally, due to its favorable position,
+        // it can be given a bit more from the remains still languishing in the consuming wallet.
         let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
         assert!(
             proposed_adjusted_balance > (original_balance_of_outweighed_account * 11 / 10),
@@ -1201,8 +1201,8 @@ mod tests {
         let test_name =
             "overloading_with_exaggerated_debt_conditions_to_see_if_we_can_pass_through_safely";
         let now = SystemTime::now();
-        // Each of the 3 accounts refers to a debt sized as the entire masq token supply and being 10 years old which
-        // generates enormously large numbers in the criteria
+        // Each of the 3 accounts refers to a debt sized as the entire MASQ token supply and being
+        // 10 years old which generates enormously large numbers in the criteria
         let extreme_payables = {
             let debt_age_in_months = vec![120, 120, 120];
             make_extreme_payables(

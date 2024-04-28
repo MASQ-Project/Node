@@ -77,12 +77,11 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
-    // The supply of this currency isn't limited by our database and
-    // theoretically can be much bigger than of our utility currency
+    // The supply of this currency isn't limited by our database and theoretically can be much
+    // bigger than of our utility currency
     pub transaction_fee_balance_in_minor_units: U256,
-    // This supply must fit in u128 because otherwise our database would
-    // not be fully capable of handling math with it not threatened by
-    // an overflow
+    // This supply must fit in u128 (maybe rather i128) because otherwise our database would not be
+    // fully capable of handling math over it while not threatened by a fatal overflow
     pub service_fee_balance_in_minor_units: u128,
 }
 

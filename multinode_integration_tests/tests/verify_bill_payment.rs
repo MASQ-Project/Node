@@ -49,14 +49,14 @@ use web3::Web3;
 
 #[test]
 fn verify_bill_payment() {
-    // Note: besides the main objectives of this test, it relies on (and so it proves)
-    // the premise each Node, when reaching its full connectivity, becoming able to make a route,
+    // Note: besides the main objectives of this test, it relies on (and so it proves) the premise
+    // that each Node, after it reaches its full connectivity and becomes able to make a route,
     // activates its accountancy module whereas it also unleashes the first cycle of the scanners
-    // immediately. That's why a consideration has been made not to take out the passages with
-    // intensive startups of bunch of Nodes, with the only reason to fulfill the above discussed
-    // condition, even though the test could be rewritten simpler using directly the `scans`
-    // command from a UI, with less PCU work and in a shorter time. (Such approach is implemented
-    // for another test in this file.)
+    // immediately. That's why some consideration has been made not to take out the passage with
+    // the intense startups of a bunch of Nodes, with that particular reason to fulfill the above
+    // depicted scenario, even though this test could be written more simply with the use of
+    // the `scans` command emitted from a UI, with a smaller PCU burden. (You may want to know that
+    // such an approach is implemented for another test in this file.)
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_500_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -204,28 +204,24 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
             serving_node_2: serving_node_2_ui_port,
             serving_node_3: serving_node_3_ui_port,
         }),
-        // Should be enough only for two payments therefore the least significant one will fall out
+        // Should be enough only for two payments, the least significant one will fall out
         cons_node_initial_transaction_fee_balance_minor_opt: Some(
             cons_node_transaction_fee_balance_minor + 1,
         ),
         cons_node_initial_service_fee_balance_minor,
         debts_config: Either::Right(FullySpecifiedSimulatedDebts {
-            // This account will be the least significant and be eliminated for the reasons
-            // said above
+            // This account will be the most significant and will deserve the full balance
             owed_to_serving_node_1: AccountedDebt {
                 balance_minor: owed_to_serv_node_1_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 1000,
             },
-            // This account has the middle amount in the balance, but
-            // it is stressed by the age, which will cause this one will
-            // evaluate with the highest significance
+            // This balance is of a middle size it will be reduced as there won't be enough
+            // after the first one is filled up.
             owed_to_serving_node_2: AccountedDebt {
                 balance_minor: owed_to_serv_node_2_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 100_000,
             },
-            // This balance is biggest but in the adjusted payment it will
-            // be reduced on the account of the second serving node,
-            // gaining the biggest portion from the available means for fees
+            // This account will be the least significant and therefore eliminated
             owed_to_serving_node_3: AccountedDebt {
                 balance_minor: owed_to_serv_node_3_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 30_000,
@@ -237,13 +233,14 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         ),
         // It seems like the ganache server sucked up quite less than those 55_000 units of gas??
         exp_final_cons_node_transaction_fee_balance_minor: 2_828_352_000_000_001,
-        // Because the algorithm is designed to exhaust the wallet till the last drop
+        // Zero reached, because the algorithm is designed to exhaust the wallet completely
         exp_final_cons_node_service_fee_balance_minor: 0,
-        // This account was granted with the full size as the lowest balance make it weight the most
+        // This account was granted with the full size as its lowest balance from the set makes
+        // it weight the most
         exp_final_service_fee_balance_serv_node_1_minor: owed_to_serv_node_1_minor,
         exp_final_service_fee_balance_serv_node_2_minor: owed_to_serv_node_2_minor
             - gwei_to_wei::<u128, u64>(2_345_678),
-        // This account had to be dropped so received no money
+        // This account dropped out from the payment, so received no money
         exp_final_service_fee_balance_serv_node_3_minor: 0,
     };
 
@@ -593,12 +590,12 @@ fn expire_receivables(path: PathBuf) {
 
 struct TestInputsOutputsConfig {
     ui_ports_opt: Option<Ports>,
-    // Gets ganache default 100 ETH if None.
-    // Uses an arg where the private key of the wallet and the amount in
-    // wei must be specified (in these tests the key is hardcoded and
-    // corresponds to the path m/44'/60'/0'/0/0/1 that belongs to
-    // the consuming Node).
-    // Specify number of wei this account should possess at its initialisation
+    // The contract owner wallet is populated with 100 ETH as defined in the set of commands
+    // with which we start up the Ganache server.
+    //
+    // Specify number of wei this account should possess at its initialisation.
+    // The consuming node gets the full balance of the contract owner if left as None.
+    // Cannot ever get more than what the "owner" has.
     cons_node_initial_transaction_fee_balance_minor_opt: Option<u128>,
     cons_node_initial_service_fee_balance_minor: u128,
     debts_config: Either<SimpleSimulatedDebts, FullySpecifiedSimulatedDebts>,

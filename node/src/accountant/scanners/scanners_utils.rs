@@ -300,6 +300,7 @@ pub mod payable_scanner_utils {
                 .payable_threshold_gauge
                 .is_innocent_age(debt_age, payment_thresholds.maturity_threshold_sec)
             {
+                eprintln!("age not enough");
                 return None;
             }
 
@@ -307,6 +308,7 @@ pub mod payable_scanner_utils {
                 payable.balance_wei,
                 gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei),
             ) {
+                eprintln!("balance not enough");
                 return None;
             }
 

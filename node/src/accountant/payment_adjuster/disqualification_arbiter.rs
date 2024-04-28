@@ -434,8 +434,7 @@ mod tests {
             pending_payable_opt: None,
         };
         let wallet_3 = make_wallet("ghi");
-        // This account has the largest exceeding balance
-        // and therefore has the smallest weight
+        // This account has the largest exceeding balance and therefore has the smallest weight
         let account_3 = PayableAccount {
             wallet: wallet_3.clone(),
             balance_wei: 120_000_000_000 + 2,

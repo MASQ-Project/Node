@@ -129,8 +129,8 @@ where
 
 pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
-    // TODO The thresholds probably shouldn't be in common because
-    // the PendingPayableScanner does not need it
+    // TODO The thresholds probably shouldn't be in ScannerCommon because the PendingPayableScanner
+    // does not need it
     pub payment_thresholds: Rc<PaymentThresholds>,
 }
 
@@ -2272,9 +2272,9 @@ mod tests {
             unban_below_gwei: 0,
         };
         let wallet = make_wallet("abc");
-        // It is important to have a payable matching the declining part of the thresholds,
-        // also it will be more believable if the slope is steep because then one second can make
-        // the bigger difference in the intercept value, which is the value this test compare to
+        // It is important to have a payable matching the declining part of the thresholds, also it
+        // will be more believable if the slope is steep because then one second can make the bigger
+        // difference in the intercept value, which is the value this test compare in order to
         // conclude a pass
         let debt_age = payment_thresholds.maturity_threshold_sec
             + (payment_thresholds.threshold_interval_sec / 2);
