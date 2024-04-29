@@ -70,13 +70,19 @@ pub enum DecidedAccounts {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AdjustedAccountBeforeFinalization {
     pub original_account: PayableAccount,
+    pub weight: u128,
     pub proposed_adjusted_balance_minor: u128,
 }
 
 impl AdjustedAccountBeforeFinalization {
-    pub fn new(original_account: PayableAccount, proposed_adjusted_balance_minor: u128) -> Self {
+    pub fn new(
+        original_account: PayableAccount,
+        weight: u128,
+        proposed_adjusted_balance_minor: u128,
+    ) -> Self {
         Self {
             original_account,
+            weight,
             proposed_adjusted_balance_minor,
         }
     }
@@ -247,18 +253,12 @@ mod tests {
 
     #[test]
     fn merging_results_from_recursion_works() {
-        let non_finalized_account_1 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(111),
-            proposed_adjusted_balance_minor: 1234,
-        };
-        let non_finalized_account_2 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(222),
-            proposed_adjusted_balance_minor: 5555,
-        };
-        let non_finalized_account_3 = AdjustedAccountBeforeFinalization {
-            original_account: make_payable_account(333),
-            proposed_adjusted_balance_minor: 6789,
-        };
+        let non_finalized_account_1 =
+            AdjustedAccountBeforeFinalization::new(make_payable_account(111), 12345, 1234);
+        let non_finalized_account_2 =
+            AdjustedAccountBeforeFinalization::new(make_payable_account(222), 543, 5555);
+        let non_finalized_account_3 =
+            AdjustedAccountBeforeFinalization::new(make_payable_account(333), 789987, 6789);
         let subject = RecursionResults {
             here_decided_accounts: vec![non_finalized_account_1.clone()],
             downstream_decided_accounts: vec![

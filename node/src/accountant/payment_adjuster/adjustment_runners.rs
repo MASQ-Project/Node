@@ -141,14 +141,16 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                AdjustedAccountBeforeFinalization {
-                    original_account: payable_1.analyzed_account.qualified_as.bare_account,
-                    proposed_adjusted_balance_minor: expected_proposed_balance_1
-                },
-                AdjustedAccountBeforeFinalization {
-                    original_account: payable_2.analyzed_account.qualified_as.bare_account,
-                    proposed_adjusted_balance_minor: expected_proposed_balance_2
-                }
+                AdjustedAccountBeforeFinalization::new(
+                    payable_1.analyzed_account.qualified_as.bare_account,
+                    payable_1.weight,
+                    expected_proposed_balance_1
+                ),
+                AdjustedAccountBeforeFinalization::new(
+                    payable_2.analyzed_account.qualified_as.bare_account,
+                    payable_2.weight,
+                    expected_proposed_balance_2
+                )
             ]
         )
     }

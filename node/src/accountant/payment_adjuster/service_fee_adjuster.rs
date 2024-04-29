@@ -231,6 +231,7 @@ mod tests {
     #[test]
     fn filter_and_process_winners_limits_them_by_their_disqualification_edges() {
         let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
+        let weight_1 = account_1.weighted_account.weight;
         account_1
             .weighted_account
             .analyzed_account
@@ -243,6 +244,7 @@ mod tests {
             .disqualification_limit_minor = multiple_by_billion(1_800_000_000);
         account_1.proposed_adjusted_balance_minor = multiple_by_billion(3_000_000_000);
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
+        let weight_2 = account_2.weighted_account.weight;
         account_2
             .weighted_account
             .analyzed_account
@@ -267,6 +269,7 @@ mod tests {
             .disqualification_limit_minor = multiple_by_billion(2_000_000_000) + 1;
         account_3.proposed_adjusted_balance_minor = multiple_by_billion(2_000_000_000);
         let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
+        let weight_4 = account_4.weighted_account.weight;
         account_4
             .weighted_account
             .analyzed_account
@@ -303,30 +306,33 @@ mod tests {
 
         assert_eq!(losing_competitors, vec![account_3, account_5]);
         let expected_adjusted_outweighed_accounts = vec![
-            AdjustedAccountBeforeFinalization {
-                original_account: account_1
+            AdjustedAccountBeforeFinalization::new(
+                account_1
                     .weighted_account
                     .analyzed_account
                     .qualified_as
                     .bare_account,
-                proposed_adjusted_balance_minor: multiple_by_billion(1_800_000_000),
-            },
-            AdjustedAccountBeforeFinalization {
-                original_account: account_2
+                weight_1,
+                multiple_by_billion(1_800_000_000),
+            ),
+            AdjustedAccountBeforeFinalization::new(
+                account_2
                     .weighted_account
                     .analyzed_account
                     .qualified_as
                     .bare_account,
-                proposed_adjusted_balance_minor: multiple_by_billion(4_200_000_000) - 1,
-            },
-            AdjustedAccountBeforeFinalization {
-                original_account: account_4
+                weight_2,
+                multiple_by_billion(4_200_000_000) - 1,
+            ),
+            AdjustedAccountBeforeFinalization::new(
+                account_4
                     .weighted_account
                     .analyzed_account
                     .qualified_as
                     .bare_account,
-                proposed_adjusted_balance_minor: multiple_by_billion(500_000_000),
-            },
+                weight_4,
+                multiple_by_billion(500_000_000),
+            ),
         ];
         assert_eq!(thriving_competitors, expected_adjusted_outweighed_accounts)
     }

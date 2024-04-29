@@ -44,13 +44,18 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
         let proposed_adjusted_balance_minor =
             unconfirmed_adjustment.proposed_adjusted_balance_minor;
+        let weight = unconfirmed_adjustment.weighted_account.weight;
         let original_account = unconfirmed_adjustment
             .weighted_account
             .analyzed_account
             .qualified_as
             .bare_account;
 
-        AdjustedAccountBeforeFinalization::new(original_account, proposed_adjusted_balance_minor)
+        AdjustedAccountBeforeFinalization::new(
+            original_account,
+            weight,
+            proposed_adjusted_balance_minor,
+        )
     }
 }
 
@@ -64,8 +69,9 @@ impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
             &weighted_account,
             limited_adjusted_balance,
         );
+        let weight = weighted_account.weight;
         let original_account = weighted_account.analyzed_account.qualified_as.bare_account;
-        AdjustedAccountBeforeFinalization::new(original_account, limited_adjusted_balance)
+        AdjustedAccountBeforeFinalization::new(original_account, weight, limited_adjusted_balance)
     }
 }
 
@@ -84,8 +90,11 @@ mod tests {
     fn conversion_between_non_finalized_account_and_payable_account_is_implemented() {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
-        let non_finalized_account =
-            AdjustedAccountBeforeFinalization::new(original_payable_account.clone(), 123_456_789);
+        let non_finalized_account = AdjustedAccountBeforeFinalization::new(
+            original_payable_account.clone(),
+            666777,
+            123_456_789,
+        );
 
         let result = PayableAccount::from(non_finalized_account);
 
@@ -121,11 +130,12 @@ mod tests {
         weighted_account
             .analyzed_account
             .disqualification_limit_minor = 200_000_000;
+        weighted_account.weight = 78910;
 
         let result = AdjustedAccountBeforeFinalization::from(weighted_account);
 
         let expected_result =
-            AdjustedAccountBeforeFinalization::new(original_payable_account, 200_000_000);
+            AdjustedAccountBeforeFinalization::new(original_payable_account, 78910, 200_000_000);
         assert_eq!(result, expected_result)
     }
 
@@ -133,13 +143,14 @@ mod tests {
     fn conversion_between_unconfirmed_adjustment_and_non_finalized_account() {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
-        let weighted_account = prepare_weighted_account(original_payable_account.clone());
+        let mut weighted_account = prepare_weighted_account(original_payable_account.clone());
+        weighted_account.weight = 321654;
         let unconfirmed_adjustment = UnconfirmedAdjustment::new(weighted_account, 111_222_333);
 
         let result = AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment);
 
         let expected_result =
-            AdjustedAccountBeforeFinalization::new(original_payable_account, 111_222_333);
+            AdjustedAccountBeforeFinalization::new(original_payable_account, 321654, 111_222_333);
         assert_eq!(result, expected_result)
     }
 }

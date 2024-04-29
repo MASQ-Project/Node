@@ -60,6 +60,11 @@ use variant_count::VariantCount;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
 
+// PaymentAdjuster is a very efficient recursive and scalable algorithm that inspects payments under
+// the condition of an acute insolvency. You can expand the scope of the evaluation by writing your
+// own CriterionCalculator, that should be specialized on a distinct parameter of a payable account,
+// and sticking it inside the vector that stores them.
+
 pub type AdjustmentAnalysisResult =
     Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>;
 

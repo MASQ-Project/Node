@@ -33,17 +33,55 @@ use web3::types::U256;
 #[test]
 //#[ignore]
 fn loading_test_with_randomized_params() {
-    // This test needs to be understood as a generator of extensive amount of scenarios that
-    // the PaymentAdjuster might come to be asked to resolve while there are quite many combinations
-    // that a human has a hard time with to imagine, now we ought to think that some of them might
-    // be corner cases that there wasn't awareness of when it was being designed. Therefore, the main
-    // purpose of this test is to prove that out of a huge number of tries the PaymentAdjuster always
-    // comes along fairly well, especially, that it cannot kill the Node by an accidental panic or
-    // that it can live up to its original purpose and the vast majority of the attempted adjustments
-    // end up with reasonable results. That said, a smaller amount of these attempts are expected
-    // to be vain because of some chance always be there that with a given combination of payables
-    // the algorithm will go step by step eliminating completely all accounts. There's hardly a way
-    // for the adjustment procedure as it proceeds now to anticipate if this is going to happen.
+    // This test needs to be understood as a fuzz test, a generator of possibly an overwhelming
+    // amount of scenarios that the PaymentAdjuster might happen to be asked to sort them out while
+    // there might be many and many combinations that a human would be having a hard time imagining;
+    // now we ought to ponder that some of them might be corner cases of which there was no
+    // awareness when it was being designed. So, the main purpose of this test is to prove that even
+    // a huge number of goes with as-much-as-possible variable inputs will not shoot
+    // the PaymentAdjuster down and potentially the whole Node with it; on contrary, it should
+    // always give some reasonable results and live up to its original purpose with account
+    // adjustments. That said, a smaller amount of these attempts are expected to end up vain,
+    // legitimately, though, because of so defined error cases.
+
+    // When the test finishes, it writes some key figures of each pseudo-randomly invented scenario,
+    // and a summary of the whole test set with some useful statistics that can help to evaluate
+    // the behavior to better understand this feature in the Node or consider some enhancement to be
+    // implemented.
+
+    // For somebody not so familiar with the algorithms there might emerge results (they tend to be
+    // rare but absolutely valid and wanted - the more their observation can be interesting) that
+    // can cause some confusion.
+
+    // The scenario generator is designed to provide as random and as wide variety of situations as
+    // possible, but it has plenty of limitations anyway. This is an example of rather un unclear
+    // result, where the statistical numbers might seem to have no reason and feel like something is
+    // broken. Let's make a hint about these percents of the initial debt coverage, that strike by
+    // their perhaps surprising lack of proportionality with that trend of their ascending balances.
+    // It cannot be that intuitive, though, because the final balance depends heavily on
+    // a disqualification limit. Which usually allows not to pay the entire balance but only such
+    // portion that will interestedly suffice for us to stay unbanned. For a huge account,
+    // the forgiven part is a little fraction of a whole. Small accounts, on the other hand, if it
+    // can be applied (and not have to be disqualified), might be missing a big portion of
+    // themselves. This is what the numbers 63% and 94% illustrates, despite the former account
+    // comes across as it should take precedence and gain at the expanse of the latter.
+
+    // CW service fee balance: 35,592,800,367,641,272 wei
+    // Portion of CW balance used: 100%
+    // Maximal txt count due to CW txt fee balance: Unlimited
+    // ____________________________________________________________________________________________
+    // 1,000,494,243,602,844 wei | 567,037 s | 100 %
+    // 1,505,465,842,696,120 wei | 540,217 s | 100 %
+    // 1,626,173,874,954,904 wei | 349,872 s | 100 %
+    // 20,688,283,645,189,616 wei | 472,661 s | 99 %                         # # # # # # # #
+    // 4,735,196,705,072,789 wei | 399,335 s | 96 %                          # # # # # # # #
+    // 6,770,347,763,782,591 wei | 245,857 s | 92 %                          # # # # # # # #
+
+    // TODO In the future, consider variable PaymentThresholds. Up today, all accounts are inspected
+    // based on the same ones and therefore the disqualification limit is rigid and doesn't allow us
+    // to observe largely different scenarios or even mixed ones with something yet not really
+    // available: Nodes with arbitrary PaymentThresholds settings
+
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
@@ -65,10 +103,8 @@ fn loading_test_with_randomized_params() {
     let first_stage_output = scenarios
         .into_iter()
         .fold(init, |mut output_collector, scenario| {
-            // We watch only the service fee balance check, transaction fee can be added, but it
-            // doesn't interact with the potential error 'AllAccountsEliminated' whose occurrence
-            // rate is interesting compared to how many times the initial check lets the adjustment
-            // procedure go on
+            // We care only about the service fee balance check, parameters for transaction fee can
+            // be worked into the scenarios later.
             let qualified_payables = scenario
                 .adjustment_analysis
                 .accounts
@@ -182,13 +218,13 @@ fn make_payable_account(
     gn: &mut ThreadRng,
 ) -> PayableAccount {
     // Why is this construction so complicated? Well, I wanted to get the test showing partial
-    // adjustments where the final accounts can be paid enough but still not all up to their formerly
-    // claimed balance. It turned out it is very difficult to achieve that, I couldn't really come
-    // up with parameters that would certainly bring this condition. I ended up experimenting and
-    // looking for an algorithm that would make the parameters as random as possible because
-    // the generator alone is not much good at it. This isn't optimal either, but it allows to
-    // observe some of those partial adjustments, however, with a rate of maybe 0.5 % out of
-    // those all attempts to create a proper test scenario.
+    // adjustments where the final accounts can be paid enough but still not all up to their
+    // formerly claimed balance. It turned out it is very difficult to achieve that, I couldn't
+    // really come up with parameters that would certainly bring this condition. I ended up
+    // experimenting and looking for an algorithm that would make the parameters as random as
+    // possible because the generator alone is not much good at it. This isn't optimal either,
+    // but it allows to observe some of those partial adjustments, however, with a rate of maybe
+    // 0.5 % out of those all attempts to create a proper test scenario.
     let wallet = make_wallet(&format!("wallet{}", idx));
     let mut generate_age_segment = || generate_non_zero_usize(gn, (guarantee_age / 2) as usize);
     let debt_age = generate_age_segment() + generate_age_segment() + generate_age_segment();
@@ -402,9 +438,9 @@ fn render_results_to_file_and_attempt_basic_assertions(
         "All handled scenarios including those invalid ones ({}) != requested scenarios count ({})",
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios
     );
-    // The next assertions depend heavily on the setup for the scenario generator!!
-    // It rather indicates how well the setting is so that you can adjust it eventually,
-    // to see more relevant results
+    // The next assertions depend heavily on the setup for the scenario generator!! It rather
+    // indicates how well the setting is so that you can adjust it eventually, to see more relevant
+    // results
     let entry_check_pass_rate = 100
         - ((test_overall_output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
@@ -702,7 +738,16 @@ fn sort_interpretable_adjustments(
         .partition(|adjustment| adjustment.bills_coverage_in_percentage_opt.is_some());
     let were_no_accounts_eliminated = eliminated.is_empty();
     let finished_sorted = finished.into_iter().sorted_by(|result_a, result_b| {
-        Ord::cmp(&result_a.initial_balance, &result_b.initial_balance)
+        Ord::cmp(
+            &(
+                result_b.bills_coverage_in_percentage_opt,
+                result_a.initial_balance,
+            ),
+            &(
+                result_a.bills_coverage_in_percentage_opt,
+                result_b.initial_balance,
+            ),
+        )
     });
     let eliminated_sorted = eliminated.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(&result_a.initial_balance, &result_b.initial_balance)

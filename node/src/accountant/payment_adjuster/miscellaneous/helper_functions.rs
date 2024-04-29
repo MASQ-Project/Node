@@ -114,12 +114,7 @@ pub fn exhaust_cw_balance_entirely(
     let init = ConsumingWalletExhaustingStatus::new(cw_reminder);
     approved_accounts
         .into_iter()
-        .sorted_by(|info_a, info_b| {
-            Ord::cmp(
-                &info_a.proposed_adjusted_balance_minor,
-                &info_b.proposed_adjusted_balance_minor,
-            )
-        })
+        .sorted_by(|info_a, info_b| Ord::cmp(&info_b.weight, &info_a.weight))
         .fold(
             init,
             run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances,
@@ -222,7 +217,7 @@ mod tests {
     #[test]
     fn zero_affordable_accounts_found_returns_false_for_non_finalized_accounts() {
         let result = zero_affordable_accounts_found(&Either::Left(vec![
-            AdjustedAccountBeforeFinalization::new(make_payable_account(456), 1234),
+            AdjustedAccountBeforeFinalization::new(make_payable_account(456), 5678, 1234),
         ]));
 
         assert_eq!(result, false)
@@ -321,6 +316,7 @@ mod tests {
     fn make_non_finalized_adjusted_account(
         wallet: &Wallet,
         original_balance: u128,
+        weight: u128,
         proposed_adjusted_balance: u128,
     ) -> AdjustedAccountBeforeFinalization {
         let garbage_last_paid_timestamp = SystemTime::now();
@@ -330,7 +326,7 @@ mod tests {
             last_paid_timestamp: garbage_last_paid_timestamp,
             pending_payable_opt: None,
         };
-        AdjustedAccountBeforeFinalization::new(payable_account, proposed_adjusted_balance)
+        AdjustedAccountBeforeFinalization::new(payable_account, weight, proposed_adjusted_balance)
     }
 
     fn assert_payable_accounts_after_adjustment_finalization(
@@ -377,12 +373,15 @@ mod tests {
         let wallet_1 = make_wallet("abc");
         let original_requested_balance_1 = 45_000_000_000;
         let proposed_adjusted_balance_1 = 44_999_897_000;
+        let weight_1 = 2_000_000_000;
         let wallet_2 = make_wallet("def");
         let original_requested_balance_2 = 33_500_000_000;
         let proposed_adjusted_balance_2 = 33_487_999_999;
+        let weight_2 = 6_000_000_000;
         let wallet_3 = make_wallet("ghi");
         let original_requested_balance_3 = 41_000_000;
         let proposed_adjusted_balance_3 = 40_980_000;
+        let weight_3 = 20_000_000_000;
         let original_cw_balance = original_requested_balance_1
             + original_requested_balance_2
             + original_requested_balance_3
@@ -391,16 +390,19 @@ mod tests {
             make_non_finalized_adjusted_account(
                 &wallet_1,
                 original_requested_balance_1,
+                weight_1,
                 proposed_adjusted_balance_1,
             ),
             make_non_finalized_adjusted_account(
                 &wallet_2,
                 original_requested_balance_2,
+                weight_2,
                 proposed_adjusted_balance_2,
             ),
             make_non_finalized_adjusted_account(
                 &wallet_3,
                 original_requested_balance_3,
+                weight_3,
                 proposed_adjusted_balance_3,
             ),
         ];
@@ -422,12 +424,15 @@ mod tests {
         let wallet_1 = make_wallet("abc");
         let original_requested_balance_1 = 41_000_000;
         let proposed_adjusted_balance_1 = 39_700_000;
+        let weight_1 = 38_000_000_000;
         let wallet_2 = make_wallet("def");
         let original_requested_balance_2 = 33_500_000_000;
         let proposed_adjusted_balance_2 = 32_487_999_999;
+        let weight_2 = 25_000_000_000;
         let wallet_3 = make_wallet("ghi");
         let original_requested_balance_3 = 50_000_000_000;
         let proposed_adjusted_balance_3 = 43_000_000_000;
+        let weight_3 = 38_000_000;
         let original_cw_balance = original_requested_balance_1
             + proposed_adjusted_balance_2
             + proposed_adjusted_balance_3
@@ -436,16 +441,19 @@ mod tests {
             make_non_finalized_adjusted_account(
                 &wallet_1,
                 original_requested_balance_1,
+                weight_1,
                 proposed_adjusted_balance_1,
             ),
             make_non_finalized_adjusted_account(
                 &wallet_2,
                 original_requested_balance_2,
+                weight_2,
                 proposed_adjusted_balance_2,
             ),
             make_non_finalized_adjusted_account(
                 &wallet_3,
                 original_requested_balance_3,
+                weight_3,
                 proposed_adjusted_balance_3,
             ),
         ];
