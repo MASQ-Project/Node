@@ -24,27 +24,17 @@ impl Drop for TestServer {
 
 impl TestServer {
     pub fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
-        eprintln!("Starting TestServer - port: {port}");
-
         std::env::set_var("SIMPLESERVER_THREADS", "1");
         let (tx, rx) = unbounded();
         let _ = thread::spawn(move || {
             let bodies_arc = Arc::new(Mutex::new(bodies));
             Server::new(move |req, mut rsp| {
                 if req.headers().get("X-Quit").is_some() {
-                    eprintln!("Server stop Panic");
                     panic!("Server stop requested");
                 }
-
-                eprintln!("Connection made - req: {:?}", req);
-
                 tx.send(req).unwrap();
                 let body = bodies_arc.lock().unwrap().remove(0);
                 let result = rsp.body(body);
-
-                eprintln!("Result: {:?}", result);
-
-                // thread::sleep(Duration::from_millis(100));
                 Ok(result?)
             })
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
@@ -72,7 +62,6 @@ impl TestServer {
     }
 
     fn stop(&mut self) {
-        eprintln!("TestServer Stopping");
         let mut stream =
             match TcpStream::connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.port)) {
                 Ok(s) => s,

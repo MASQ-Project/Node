@@ -261,6 +261,9 @@ impl MockBlockchainClientServer {
                         let mut requests = requests_arc.lock().unwrap();
                         requests.push(body);
                     }
+                    if responses.len() == 0 {
+                        break
+                    }
                     let response = responses.remove(0);
                     Self::send_body(conn_state, response);
                     let _ = notifier_tx.send(()); // receiver doesn't exist if test didn't set it up
